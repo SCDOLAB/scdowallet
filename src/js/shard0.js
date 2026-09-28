@@ -20,7 +20,8 @@
       reward: 'Reward address', manual: '— enter a 0x address —', start: 'Start mining', stop: 'Stop mining',
       phase: 'Status', blocks: 'Local / network block', peers: 'Peers', hashrate: 'Hashrate', shares: 'Shares accepted / rejected',
       found: 'Blocks found', balance: 'Reward address balance', restarts: 'Miner restarts', defender: 'Allow miner in Windows Defender',
-      logs: 'Open log folder', showlog: 'Show log', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).'
+      logs: 'Open log folder', showlog: 'Show log', macNo: 'The built-in GPU miner is available in the Windows (NVIDIA) and Linux builds only; Rigel has no macOS version.', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).',
+      yes: 'Yes', no: 'No', defAsk: 'Windows Defender deletes every GPU miner (rigel.exe) as a "potentially unwanted app". Add an exclusion for the wallet\'s miner folder now? Windows will ask for administrator permission once.', defRetry: 'rigel.exe was removed by Windows Defender. Add an exclusion for the miner folder (administrator prompt) and start again?'
     },
     CN: {
       quick: '快捷操作', create: '+ 创建账户', import: '导入账户文件',
@@ -36,7 +37,8 @@
       reward: '收益地址', manual: '— 手动输入 0x 地址 —', start: '开始挖矿', stop: '停止挖矿',
       phase: '状态', blocks: '本地 / 全网区块', peers: '连接节点', hashrate: '算力', shares: '份额 接受 / 拒绝',
       found: '挖到的区块', balance: '收益地址余额', restarts: '挖矿程序重启次数', defender: '在 Windows Defender 中允许挖矿程序',
-      logs: '打开日志文件夹', showlog: '显示日志', needAddr: '请先选择或输入 0x 收益地址（账户文件解锁一次即可得到 0x 地址）。'
+      logs: '打开日志文件夹', showlog: '显示日志', macNo: '内置 GPU 挖矿仅在 Windows（NVIDIA）和 Linux 版提供；Rigel 没有 macOS 版本。', needAddr: '请先选择或输入 0x 收益地址（账户文件解锁一次即可得到 0x 地址）。',
+      yes: '是', no: '否', defAsk: 'Windows Defender 会把所有 GPU 挖矿程序（rigel.exe）当作“可能不需要的应用”删除。现在为钱包的挖矿文件夹添加排除项吗？Windows 会请求一次管理员权限。', defRetry: 'rigel.exe 被 Windows Defender 删除了。为挖矿文件夹添加排除项（需要管理员权限）并重新开始吗？'
     }
   }
   function lang () {
@@ -161,6 +163,7 @@
   }
   function renderMiner () {
     const el = document.getElementById('minerpanel'); if (!el) return
+    if (process.platform === 'darwin') { el.innerHTML = `<h1 class="s0-h1">${T('mTitle')}</h1><div class="s0-note">${T('macNo')}</div>`; return }
     const opts = rewardOptions(); const st = minerStatus || {}
     const saved = localStorage.getItem('minerReward') || ''
     let sel = opts.map(o => `<option value="${esc(o.v)}" ${o.v === (st.wallet || saved) ? 'selected' : ''}>${esc(o.l)}</option>`).join('')
@@ -211,20 +214,42 @@
     const d = document.getElementById('m-def'); if (d) d.style.display = (process.platform === 'win32') ? 'inline-block' : 'none'
     const lg = document.getElementById('m-log'); if (lg && logOpen) { lg.textContent = (st.logTail || []).slice(-80).join('\n'); lg.scrollTop = lg.scrollHeight }
   }
-  async function startMining () {
+  function confirmP (msg) { return new Promise(resolve => { const i = layer.confirm(msg, { btn: [T('yes'), T('no')] }, () => { layer.close(i); resolve(true) }, () => { resolve(false) }) }) }
+  async function startMining (auto) {
     const w = currentReward()
-    if (!Shard0.isAddress(w)) { layer.msg(T('needAddr'), { time: 5000 }); return }
+    if (!Shard0.isAddress(w)) { if (!auto) layer.msg(T('needAddr'), { time: 5000 }); return }
     localStorage.setItem('minerReward', w)
+    // Windows: Defender deletes every GPU miner as "potentially unwanted" – offer the exclusion once, before the first download.
+    if (process.platform === 'win32' && !auto && !window.__minerNoRigel && !localStorage.getItem('defenderAsked')) {
+      localStorage.setItem('defenderAsked', '1')
+      if (await confirmP(T('defAsk'))) await defender()
+    }
+    localStorage.setItem('minerAutoResume', '1')
     const r = await ipcRenderer.invoke('miner:start', w, { noRigel: !!window.__minerNoRigel })
-    if (!r.ok) layer.alert(r.error)
+    if (!r.ok && !/DEFENDER/.test(r.error || '')) layer.alert(r.error)
   }
-  async function stopMining () { await ipcRenderer.invoke('miner:stop') }
-  async function defender () { const r = await ipcRenderer.invoke('miner:defender'); layer.msg(r.ok ? 'OK' : r.error, { time: 6000 }) }
+  async function stopMining () { localStorage.setItem('minerAutoResume', '0'); await ipcRenderer.invoke('miner:stop') }
+  let defPrompted = false
+  function onStatus (st) {
+    updateMiner(st)
+    if (st && st.lastError === 'DEFENDER' && st.phase === 'error' && !defPrompted && process.platform === 'win32') {
+      defPrompted = true
+      confirmP(T('defRetry')).then(async ok => {
+        if (ok) { if (st.running) await ipcRenderer.invoke('miner:stop'); const r = await defender(); if (r && r.ok) await startMining(true) }
+        defPrompted = false
+      })
+    }
+  }
+  async function defender () { const r = await ipcRenderer.invoke('miner:defender'); layer.msg(r.ok ? 'OK' : r.error, { time: 6000 }); return r }
   function openLogs () { ipcRenderer.invoke('miner:openLogs') }
   function toggleLog () { logOpen = !logOpen; const lg = document.getElementById('m-log'); if (lg) lg.style.display = logOpen ? 'block' : 'none'; updateMiner() }
 
-  ipcRenderer.on('miner:status', (e, st) => updateMiner(st))
-  ipcRenderer.invoke('miner:status').then(updateMiner).catch(() => {})
+  ipcRenderer.on('miner:status', (e, st) => onStatus(st))
+  ipcRenderer.invoke('miner:status').then(st => {
+    updateMiner(st)
+    // resume mining automatically if it was running when the app was closed (user did not press Stop)
+    if (st && !st.running && localStorage.getItem('minerAutoResume') === '1' && process.platform !== 'darwin' && !window.__minerNoRigel) setTimeout(() => startMining(true), 4000)
+  }).catch(() => {})
   setInterval(() => { if (document.getElementById('shard0panel')) refreshShard0() }, 15000)
 
   window.Shard0UI = { render: () => { renderShard0(); renderMiner() }, unlock, copy, explorer, faucet, openSend, openTx, startMining, stopMining, defender, openLogs, toggleLog, rewardChanged, refresh: refreshShard0 }

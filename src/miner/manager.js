@@ -149,6 +149,9 @@ class MinerManager extends EventEmitter {
       if (m) { this.state.blocksFound++; this.state.blocksFoundHeights.push(parseInt(m[1], 10)); this.emit('block', parseInt(m[1], 10)) }
       m = line.match(/est\. ([\d.]+) MH\/s/)
       if (m && !(this.state.hashrateSource === 'rigel')) { this.state.hashrate = parseFloat(m[1]) * 1e6; this.state.hashrateSource = 'proxy' }
+      // periodic stats line (scdostratum >= 1.0.1) carries authoritative totals
+      m = line.match(/shares (\d+) ok \/ (\d+) bad/)
+      if (m) { this.state.sharesAccepted = Math.max(this.state.sharesAccepted, +m[1]); this.state.sharesRejected = Math.max(this.state.sharesRejected, +m[2]) }
       if (/PAUSED:/.test(line)) this.state.paused = true
       if (/resumed:|miner_start OK/.test(line)) this.state.paused = false
     }
@@ -263,7 +266,7 @@ class MinerManager extends EventEmitter {
   startProxy () {
     return this.spawnChild('proxy', this.bin('scdo-stratum'), [
       '-rpc', 'http://127.0.0.1:' + PORTS.http, '-listen', '127.0.0.1:' + PORTS.stratum,
-      '-autostart', '-ref-rpc', this.o.refRpc
+      '-autostart', '-ref-rpc', this.o.refRpc, '-log', path.join(this.logDir, 'proxy.log')
     ])
   }
 
