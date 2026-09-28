@@ -21,6 +21,16 @@ ipcMain.on('compileContract', (event, input) => {
 })
 
 // replaces require('electron').remote.dialog used by the 2020 renderer code
+// Miner data dir: <userData>/miner, except on Windows when that path has spaces or non-ASCII
+// characters (e.g. a Chinese user name) – GPU miners/geth are fragile there, so use
+// C:\ProgramData\ScdoWalletBeta\miner (users may create folders there) instead.
+function minerDataRoot () {
+  const def = path.join(app.getPath('userData'), 'miner')
+  if (process.platform !== 'win32' || /^[\x21-\x7e]+$/.test(def)) return def
+  const alt = path.join(process.env.ProgramData || 'C:\\ProgramData', 'ScdoWalletBeta', 'miner')
+  try { require('fs').mkdirSync(alt, { recursive: true }); return alt } catch (e) { return def }
+}
+
 ipcMain.handle('dialog:open', (event, opts) => dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), opts || {}))
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, userData: app.getPath('userData') }))
 ipcMain.handle('shell:openExternal', (e, url) => {
@@ -44,7 +54,7 @@ function getMiner () {
     miner = new MinerManager({
       binDir: minerBinDir(),
       genesis: path.join(res, 'scdo-shard0-genesis.json'),
-      dataRoot: process.env.SCDO_MINER_DIR || path.join(app.getPath('userData'), 'miner'),
+      dataRoot: process.env.SCDO_MINER_DIR || minerDataRoot(),
       rigelExe: process.env.SCDO_RIGEL_EXE || undefined
     })
     miner.on('status', st => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st) })
