@@ -19,6 +19,8 @@ const RIGEL = {
 const BOOTNODE = 'enode://1d2c370db7c419349e2313f20023f6b379f946990042b9b42df45cb56e4c3487df0d36c52cd81308fcdf312450f758a6213fcac21213e94a71af4a3c9392601f@82.223.19.88:30368'
 const REF_RPC = 'https://scdoscan.io/rpc/0'
 const PORTS = { http: 18545, auth: 18551, p2p: 30368, stratum: 3333, rigelApi: 5055 }
+// test hook: shift all local ports (e.g. to run next to another node on the same machine)
+if (process.env.SCDO_MINER_PORT_OFFSET) { const o = parseInt(process.env.SCDO_MINER_PORT_OFFSET, 10) || 0; for (const k of Object.keys(PORTS)) PORTS[k] += o }
 
 function rpc (url, method, params, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -73,6 +75,30 @@ function run (cmd, args, opts) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, Object.assign({ windowsHide: true, maxBuffer: 16 << 20 }, opts || {}), (err, stdout, stderr) => {
       if (err) { err.message += '\n' + stdout + stderr; reject(err) } else resolve(stdout + stderr)
+    })
+  })
+}
+
+// pure-JS zip extraction (no dependency on tar.exe / PowerShell), with path-traversal guard
+function extractZip (zipPath, destDir) {
+  const yauzl = require('yauzl')
+  const root = path.resolve(destDir)
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
+      if (err) return reject(err)
+      zip.on('error', reject); zip.on('end', resolve)
+      zip.readEntry()
+      zip.on('entry', entry => {
+        const target = path.resolve(root, entry.fileName)
+        if (target !== root && !target.startsWith(root + path.sep)) return reject(new Error('bad zip entry ' + entry.fileName))
+        if (/\/$/.test(entry.fileName)) { fs.mkdirSync(target, { recursive: true }); return zip.readEntry() }
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        zip.openReadStream(entry, (e2, rs) => {
+          if (e2) return reject(e2)
+          const ws = fs.createWriteStream(target)
+          rs.pipe(ws); ws.on('finish', () => zip.readEntry()); ws.on('error', reject)
+        })
+      })
     })
   })
 }
@@ -158,14 +184,8 @@ class MinerManager extends EventEmitter {
     const h = await sha256File(archive)
     if (h !== r.sha256) { fs.unlinkSync(archive); throw new Error('Rigel SHA256 mismatch (got ' + h + '), file deleted – try again') }
     this.set({ phase: 'extracting', message: 'SHA256 OK, extracting Rigel ...', download: null })
-    if (this.o.platform === 'win32') {
-      try { await run('tar', ['-xf', archive, '-C', this.minerDir]) } catch (e) {
-        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-          "Expand-Archive -LiteralPath '" + archive.replace(/'/g, "''") + "' -DestinationPath '" + this.minerDir.replace(/'/g, "''") + "' -Force"])
-      }
-    } else {
-      await run('tar', ['-xzf', archive, '-C', this.minerDir])
-    }
+    if (/\.zip$/.test(archive)) await extractZip(archive, this.minerDir)
+    else await run('tar', ['-xzf', archive, '-C', this.minerDir])
     await new Promise(resolve => setTimeout(resolve, 2000)) // give Defender a moment to act
     if (!fs.existsSync(exe)) {
       const err = new Error('DEFENDER: rigel.exe disappeared after extraction – Windows Defender most likely quarantined it (all GPU miners are flagged as "potentially unwanted"). Click "Allow miner in Windows Defender" and start again.')
@@ -374,4 +394,4 @@ class MinerManager extends EventEmitter {
   }
 }
 
-module.exports = { MinerManager, RIGEL, PORTS, BOOTNODE }
+module.exports = { MinerManager, RIGEL, PORTS, BOOTNODE, extractZip, download, sha256File }

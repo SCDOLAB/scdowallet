@@ -83,7 +83,7 @@
                     ]
                 }
             ],
-            "icon": "build/icon.icns",
+            "icon": "build/icon-1024.png",
             "category": "public.app-category.finance",
             "identity": null,
             "artifactName": "${productName}-${version}-mac-arm64.${ext}",
@@ -142,6 +142,7 @@
         "secp256k1": "^3.8.1",
         "shelljs": "^0.10.0",
         "solc": "^0.5.17",
-        "tree-kill": "^1.2.2"
+        "tree-kill": "^1.2.2",
+        "yauzl": "^3.4.0"
     }
 }
