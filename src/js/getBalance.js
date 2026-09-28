@@ -124,6 +124,7 @@ function loadAccount() {
     tabs1HTML += `<div id="accountlist" style="display: block"></div>`
     // tabs1HTML += `<div class="reminder" id="" style="display: block">`
     // tabs1HTML += `<div style="display: block"><h3 class="latest-title lit" id="latestTransactions">Latest Transactions</h3></div>`
+    tabs1HTML += `<div id="s0toolbar"></div><div id="shard0panel"></div><div id="minerpanel"></div>`
     tabs1HTML += `<div class="" id="txrecordtitle" style="display: block; clear: both;"><h1 class="lit" id="txrecordtitle"></h1> </div>`
     tabs1HTML += `<div class="txrecord title" id="txrecord-title">   <div class="tx-side lit" id="txBroadcastTime"> Broadcast Time </div>   <div class="from tx-mid">     <div class="content lit" id="rcFrom"> From </div>   </div>   <div class="to tx-mid">     <div class="content lit" id="rcTo">To</div>   </div>   <div class="amount tx-mid">     <div class="content lit" id="rcAmount">Amount</div>   </div>   <div class="txhash tx-mid">     <div class="content lit" id="rcTxhash">Transaction Hash</div>   </div>   <div class="status tx-side lit" id="rcStatus">Status</div> </div>`
     tabs1HTML += `<div class="lit" id="txEmpty" style="display: none; background-color: lightblue;"></div>`
@@ -190,6 +191,7 @@ function loadAccount() {
       document.getElementById("accountlist").style.display = "none"
       document.getElementById("accountEmpty").style.display = "block"
     }
+    if (window.Shard0UI) { try { window.Shard0UI.render() } catch (e) { console.error(e) } }
     if (client.txRecords.length == 0) {
       // document.getElementById()
       document.getElementById("txRecordList").style.display = "none"

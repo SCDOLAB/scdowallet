@@ -3,8 +3,7 @@ const electron = require('electron')
 const fs = require('fs');
 let loadedDictionary;
 let loadedLanguage;
-let app = electron.app ? electron.app : electron.remote.app
-var remote = electron
+const locale = electron.app ? electron.app.getLocale() : ((typeof navigator !== 'undefined' && navigator.language) || 'en')
 
 module.exports = i18n;
 
@@ -18,8 +17,8 @@ function i18n() {
     
     loadedLanguage = settings.lang;
     let langfile = loadedLanguage + '.json';
-    if(fs.existsSync(path.join(__dirname, app.getLocale() + '.json'))) {
-         loadedDictionary = JSON.parse(fs.readFileSync(path.join(__dirname, app.getLocale() + '.json'), 'utf8'))
+    if(fs.existsSync(path.join(__dirname, locale + '.json'))) {
+         loadedDictionary = JSON.parse(fs.readFileSync(path.join(__dirname, locale + '.json'), 'utf8'))
     }
     else {
          loadedDictionary = JSON.parse(fs.readFileSync(path.join(__dirname, langfile), 'utf8'))

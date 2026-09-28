@@ -1,0 +1,33 @@
+#shard0panel, #minerpanel { clear: both; padding-top: 10px; }
+.s0-toolbar { clear: both; margin: 8px 0 4px; padding-top: 10px; }
+.s0-quick { color: #666; margin-right: 8px; }
+.s0-btn { background: #2b8ce6; color: #fff; border: 0; border-radius: 4px; padding: 6px 12px; margin: 3px 4px 3px 0; cursor: pointer; font-size: 13px; }
+.s0-btn:disabled { background: #aac9e6; cursor: default; }
+.s0-btn.s0-light { background: #e8f1fb; color: #1f6fb8; }
+.s0-btn.m-big { font-size: 15px; padding: 9px 20px; }
+.s0-h1 { font-size: 22px; color: #555; margin: 18px 0 6px; }
+.s0-note { color: #777; font-size: 13px; margin-bottom: 8px; }
+.s0-net { color: #2b8ce6; margin-left: 6px; }
+.s0-list { display: flex; flex-wrap: wrap; gap: 12px; }
+.s0-card { border: 1px solid #d6e6f5; border-radius: 6px; padding: 10px 12px; width: 440px; background: #f8fbfe; }
+.s0-card-top { display: flex; align-items: center; gap: 8px; }
+.s0-logo { width: 26px; height: 26px; }
+.s0-src { font-size: 11px; color: #888; word-break: break-all; }
+.s0-shard { color: #aaa; }
+.s0-addr { font-family: monospace; font-size: 13px; margin: 8px 0 4px; word-break: break-all; }
+.s0-bal span { display: inline-block; margin-right: 12px; }
+.s0-bal .s0-main { font-size: 18px; color: #2b8ce6; }
+.s0-tok { color: #444; }
+.s0-unlock { margin-top: 8px; font-size: 13px; }
+.s0-unlock input { width: 150px; padding: 4px; }
+.s0-send { padding: 12px 18px; font-size: 13px; }
+.s0-send label { display: block; margin-top: 8px; color: #666; }
+.s0-send input, .s0-send select { width: 100%; padding: 5px; box-sizing: border-box; }
+.s0-res { margin-top: 10px; word-break: break-all; color: #1f6fb8; }
+.m-row { margin: 6px 0; }
+.m-row label { color: #666; margin-right: 8px; }
+.m-row select { min-width: 420px; padding: 4px; }
+.m-row input { width: 360px; padding: 4px; margin-left: 6px; }
+.m-grid { display: grid; grid-template-columns: 220px 1fr; gap: 4px 12px; font-size: 13px; margin: 8px 0; background: #f8fbfe; border: 1px solid #d6e6f5; border-radius: 6px; padding: 10px; }
+.m-grid div:nth-child(odd) { color: #777; }
+.m-log { max-height: 260px; overflow: auto; background: #111; color: #cfc; font-size: 11px; padding: 8px; white-space: pre-wrap; }

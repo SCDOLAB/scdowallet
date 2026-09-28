@@ -134,6 +134,11 @@ function saveNodeInfo(){
       document.getElementById(`shard${parseInt(i)+1}address`).innerHTML = ipport;
       settings.connect[i+1] = `http://${ipport}`;
       fs.writeFileSync(client.configpath, JSON.stringify(settings))
+    } else if (/^https?:\/\/[A-Za-z0-9.\-]+(:\d{1,5})?(\/[A-Za-z0-9._\-\/]*)?$/.test(ipport.trim())) {
+      // 2026-09: full URLs (e.g. https://scdoscan.io/rpc/1) are accepted as well
+      document.getElementById(`shard${parseInt(i)+1}address`).innerHTML = ipport.trim();
+      settings.connect[i+1] = ipport.trim();
+      fs.writeFileSync(client.configpath, JSON.stringify(settings))
     } else if (ipport.toString()=="") {
       console.log("empty entry for shard", i+1);
     } else {
@@ -196,7 +201,7 @@ function refreshNodeInfo(){
 function getinfo(address, i){
   var scdojs = require('scdo.js');
   var tbl = document.getElementById("nodeinfotable")
-  var shardClient = new scdojs(`http://${address}`).client
+  var shardClient = new scdojs(/^https?:\/\//.test(address) ? address : `http://${address}`).client
   shardClient.getInfo(
     function (info) {
       tbl.rows[i].cells[0].innerHTML = info.Shard

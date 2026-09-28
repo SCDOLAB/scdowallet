@@ -19,6 +19,28 @@ const spawn = require('child_process').spawn;
 const spawnSync = require('child_process').spawnSync;
 const editJsonFile = require("edit-json-file");
 const utils = require("../js/utils");
+const keystore = require("./keystore");
+const BigNumber = require('bignumber.js');
+
+// ---- 2026-09 upgrade: live RPC defaults (old defaults kept only for migration) ----
+const OLD_DEFAULT_CONNECT = ["", "http://74.208.207.184:8037", "http://74.208.207.184:8038", "http://74.208.207.184:8039", "http://74.208.207.184:8036"];
+const NEW_DEFAULT_CONNECT = ["https://scdoscan.io/rpc/0", "https://scdoscan.io/rpc/1", "https://scdoscan.io/rpc/2", "https://scdoscan.io/rpc/3", "https://scdoscan.io/rpc/4"];
+function migrateConfig(configpath) {
+  var cfg;
+  try { cfg = JSON.parse(fs.readFileSync(configpath).toString()); } catch (e) { cfg = {}; }
+  var changed = false;
+  if (!cfg.lang) { cfg.lang = "EN"; changed = true; }
+  if (!Array.isArray(cfg.connect) || cfg.connect.length < 5) { cfg.connect = NEW_DEFAULT_CONNECT.slice(); changed = true; }
+  for (var i = 1; i <= 4; i++) {
+    if (!cfg.connect[i] || cfg.connect[i] === OLD_DEFAULT_CONNECT[i]) { cfg.connect[i] = NEW_DEFAULT_CONNECT[i]; changed = true; }
+  }
+  if (!cfg.connect[0]) { cfg.connect[0] = NEW_DEFAULT_CONNECT[0]; changed = true; }
+  if (!Array.isArray(cfg.monitor)) { cfg.monitor = []; changed = true; }
+  if (typeof cfg.allowCrossShard !== 'boolean') { cfg.allowCrossShard = false; changed = true; }
+  if (cfg.configVersion !== 2) { cfg.configVersion = 2; changed = true; }
+  if (changed) { fs.writeFileSync(configpath, JSON.stringify(cfg, null, 2)); }
+  return cfg;
+}
 
 function scdoClient() {
     
@@ -63,7 +85,9 @@ function scdoClient() {
     };
     this.init()
     
-    var configJson = JSON.parse(fs.readFileSync(this.configpath.toString()).toString());
+    var configJson = migrateConfig(this.configpath.toString());
+    this.config = configJson;
+    this.evmCachePath = os.homedir() + "/.ScdoWallet/evm.json";
     // console.log(configJson.connect);
     this.address = [0,
       configJson.connect[1],
@@ -476,69 +500,42 @@ function scdoClient() {
         return new scdojs().client.wallet.getshardnum(publicKey)
     };
 
-    this.keyStore = function (fileName, privatekey, passWord,shard) {
-        return new Q((resolve, reject) => {
-            if(!passWord || passWord==""){
-                reject("password could not be empty")
-            }
-            var args = [
-                'savekey',
-            ];
-
-            var filePath = this.accountPath + fileName;
-
-            args.push("--privatekey", privatekey)
-            args.push("--file", filePath)
-            args.push("--shard", shard)
-
-            const proc = spawn(this.binPath(), args);
-
-            proc.stdout.on('data', data => {
-                proc.stdin.write(passWord + '\n');
-                if(data.indexOf("store key successfully") > -1 ){
-                    resolve(null);
-                }              
-            });
-
-            proc.stderr.on('data', data => {
-                reject(data)
-            });
+    // go-scdo keystore v1, now written by src/api/keystore.js (no Go binary needed).
+    // Resolves null on success (same contract as the old implementation).
+    this.keyStore = function (fileName, privatekey, passWord, shard) {
+        var filePath = this.accountPath + fileName;
+        return keystore.encryptKey(privatekey, passWord, shard).then(json => {
+            fs.writeFileSync(filePath, json, { mode: 0o600, flag: 'wx' });
+            return null;
         });
     };
 
+    // Resolves the 0x-prefixed private key; rejects on a wrong password.
     this.decKeyFile = function (fileName, passWord) {
-        return new Q((resolve, reject) => {
-            var args = [
-                'deckeyfile',
-            ];
-
-            var filePath = this.accountPath + fileName;
-
-            args.push("--file", filePath)
-
-            const proc = spawn(this.binPath(), args);
-            
-            proc.stdout.on('data', data => {                
-                console.log(data.toString())
-                if(data.toString()=="Please input your key file password: "){
-                    proc.stdin.write(passWord + '\n');
-                }else{
-                    var output = `${data}`                
-                    // console.log(output.slice(-67));
-                    if (output.indexOf("Private") > 0) {
-                        resolve(output.slice(-67))
-                    }else{
-                        reject(data)
-                    }  
-                }                             
-            });
-
-            proc.stderr.on('data', data => {
-                console.log(data.toString());
-                // console.log("what?")
-                reject(data)
-            });
+        var filePath = this.accountPath + fileName;
+        return keystore.decryptKey(fs.readFileSync(filePath).toString(), passWord).then(k => {
+            this.rememberEvmAddress(fileName, k.privateKey);
+            return k.privateKey;
         });
+    };
+
+    // shard0: the 0x address of a keyfile is only known after one unlock (the keyfile stores
+    // only the old-shard address); cache it (public data) so balances show without a password.
+    this.readEvmCache = function () {
+        try { return JSON.parse(fs.readFileSync(this.evmCachePath).toString()); } catch (e) { return {}; }
+    };
+    this.rememberEvmAddress = function (fileName, privateKey) {
+        try {
+            var Shard0 = require('./evm').Shard0;
+            var c = this.readEvmCache();
+            var scdoAddr = keystore.scdoAddressFromPriv(privateKey, 1).slice(4); // shard-independent part
+            c[fileName] = { evm: Shard0.addressFromPrivateKey(privateKey), key: scdoAddr };
+            fs.writeFileSync(this.evmCachePath, JSON.stringify(c, null, 2));
+        } catch (e) { console.log("evm cache", e); }
+    };
+    this.evmAddressOf = function (fileName) {
+        var c = this.readEvmCache();
+        return c[fileName] ? c[fileName].evm : null;
     };
 
     this.keyfileisvalid = function (keyfilepath) {
@@ -650,6 +647,12 @@ function scdoClient() {
             client = this.client[shard];
         }
         
+        var toShard = null;
+        try { toShard = this.getShardNum(to); } catch (e) {}
+        if (toShard && String(toShard) !== String(shard) && to !== "0x0000000000000000000000000000000000000000" && !this.config.allowCrossShard) {
+            callBack("", new Error("Cross-shard transfers (shard " + shard + " -> " + toShard + ") are disabled in this version (known old-chain cross-shard issues). Send within the same shard."), "");
+            return;
+        }
         var nonce;
         try{
             nonce = client.sendSync("getAccountNonce", publicKey, "", -1);
@@ -663,7 +666,7 @@ function scdoClient() {
             "Type":0,
             "From": publicKey,
             "To": to,
-            "Amount": parseInt(amount*Math.pow(10,8)),
+            "Amount": parseInt(new BigNumber(amount).times(1e8).integerValue(BigNumber.ROUND_DOWN).toFixed(0)),
             "AccountNonce": nonce,
             "GasPrice": parseInt(price),
             "GasLimit": parseInt(gaslimit),//3000000,

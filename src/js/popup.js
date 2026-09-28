@@ -59,7 +59,7 @@ function unlockmore() {
 }
 
 function moveKeyfileTo( f ) {
-    var { dialog } = require('electron').remote
+    var dialog = { showOpenDialog: (o) => require('electron').ipcRenderer.invoke('dialog:open', o) }
     // var fsPromises = require('fs').promises
     var file    = f.replace(/\[sPaCe\]/g, "\ ")
     var dstpath ;

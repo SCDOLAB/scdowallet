@@ -183,7 +183,9 @@ async function addKeyfile(){
     // concat only returns a copy
     error = error.concat(passwordStrengthTest(pass));
     
-    var prikey = $('.prikey-add').val()
+    var prikey = $('.prikey-add').val().trim()
+    if (prikey != "" && /^[0-9a-fA-F]{64}$/.test(prikey)) { prikey = "0x" + prikey }
+    prikey = prikey.toLowerCase()
     var shard = $('.shard-add').val()
     if (shard == ""){
       shard = "1" // default shard
@@ -195,7 +197,7 @@ async function addKeyfile(){
         console.log("generate pubkey:" + key.publickey);
     }else{
       var addr = client.getAddressFromPriKey(prikey,shard);
-      if (addr==null){
+      if (!addr){
         error.push(json[lang]["createKeyfileWarning"]["keyInvalid"])
       }else if ( isDuplicateBy(addr,"pubkey",a) ) {
         error.push(json[lang]["createKeyfileWarning"]["pubkeyExist"])
@@ -218,14 +220,19 @@ async function addKeyfile(){
     document.getElementById('createKeyfileD').addEventListener("click", addKeyfile, {once: true});
   } else {
     name = name + "." + new Date().getTime();
-    err = await client.keyStore(name, prikey, pass,shard);
-    if (err == null){ 
-      clearAddKeyfile(); 
+    var loading = layer.load(0, { shade: false });
+    try {
+      await client.keyStore(name, prikey, pass, shard);
+      client.rememberEvmAddress(name, prikey);
+      layer.close(loading);
+      clearAddKeyfile();
       layer.msg(json[lang]["createKeyfileWarning"]["createSuccess"]);
       refreshAccount();
-    } else {
-      layer.msg(rej);
-      console.log("create keystore file error:"+rej);
+    } catch (rej) {
+      layer.close(loading);
+      layer.msg(String(rej && rej.message || rej));
+      console.log("create keystore file error:" + rej);
+      document.getElementById('createKeyfileD').addEventListener("click", addKeyfile, {once: true});
     }
   }
 }
@@ -263,7 +270,7 @@ function importAccounts(){
     var ScdoClient = require('./src/api/scdoClient');
     client = new ScdoClient();
   }
-  const { dialog } = require('electron').remote
+  const dialog = { showOpenDialog: (o) => require('electron').ipcRenderer.invoke('dialog:open', o) }
 
   const fs = require('fs')
   var json = JSON.parse(fs.readFileSync(client.langPath.toString()).toString());
@@ -621,7 +628,7 @@ function toclip(text) {
 }
 
 function viewOnScdoscan(publickey) {
-    require("electron").shell.openExternal("https://seelescan.net/#/account/detail?address=" + publickey);
+    require("electron").shell.openExternal("https://scdoscan.io/#/address?address=" + publickey);
 }
 
 function startMining(publickey) {

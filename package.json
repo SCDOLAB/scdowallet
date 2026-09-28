@@ -1,65 +1,147 @@
 {
     "name": "ScdoWallet",
-    "version": "1.0.1",
-    "icon": "build/icon.icns",
+    "version": "1.1.0",
     "productName": "ScdoWalletBeta",
-    "description": "Wallet for Scdo",
+    "description": "Wallet for Scdo (shards 1-4 + shard0 EVM)",
     "main": "main.js",
     "scripts": {
         "start": "electron .",
-        "package": "electron-packager . ScdoWallet --all --out=../dist/ --overwrite=true --ignore=node_modules/electron-* --ignore=node_modules/.bin --ignore=.git --ignore=dist --icon=/build/ScdoWallet_48.ico",
-        "build": "electron-packager .",
-        "pac-mac": "electron-packager . --overwrite --ignore=cmd/linux --ignore=cmd/win32 --platform=darwin --arch=x64 --icon=build/icon.icns --prune=true --out=../release-builds",
-        "pac-lin": "electron-packager . ScdoWalletBeta --overwrite --ignore=cmd/mac --ignore=cmd/win32 --platform=linux --arch=x64 --icon=build/icon.png --prune=true --out=../release-builds",
-        "pac-win": "electron-packager . ScdoWalletBeta --overwrite --ignore=cmd/mac --ignore=cmd/linux --platform=win32 --arch=x64 --icon=build/icon.ico --prune=true --out=../release-builds"
+        "test": "node test/run-all.js",
+        "dist:win": "electron-builder --win --x64",
+        "dist:mac": "electron-builder --mac --arm64",
+        "dist:linux": "electron-builder --linux --x64"
     },
     "build": {
-        "appId": "ScdoWallet",
-        "dmg": {
-            "title": "ScdoWallet",
-            "icon": "build/icon.icns"
+        "appId": "io.scdoscan.scdowallet",
+        "productName": "ScdoWalletBeta",
+        "copyright": "SCDO Laboratory",
+        "npmRebuild": false,
+        "buildDependenciesFromSource": false,
+        "directories": {
+            "output": "../dist",
+            "buildResources": "build"
         },
-        "mac": {
-            "asar": true,
-            "target": "dmg",
-            "icon": "build/icon.icns"
-        },
+        "files": [
+            "**/*",
+            "!cmd/**",
+            "!doc/**",
+            "!test/**",
+            "!src/prototypes/**",
+            "!md/**",
+            "!**/*.md",
+            "!**/node_modules/*/{test,tests,example,examples,docs}/**",
+            "!**/node_modules/**/build/Release/**",
+            "!**/node_modules/**/binding.gyp",
+            "!miner-bin/**",
+            "!scripts/**"
+        ],
+        "asar": true,
         "win": {
             "target": [
-                "nsis",
-                "zip"
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "portable",
+                    "arch": [
+                        "x64"
+                    ]
+                }
             ],
-            "icon": "build/icon.ico"
+            "icon": "build/icon.ico",
+            "artifactName": "${productName}-${version}-win-x64-${target}.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/win32",
+                    "to": "miner/bin"
+                },
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
         },
-        "extraResources": {
-            "from": "./cmd/",
-            "to": "../"
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "shortcutName": "ScdoWalletBeta",
+            "artifactName": "${productName}-${version}-win-x64-setup.${ext}"
+        },
+        "portable": {
+            "artifactName": "${productName}-${version}-win-x64-portable.${ext}"
+        },
+        "mac": {
+            "target": [
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.icns",
+            "category": "public.app-category.finance",
+            "identity": null,
+            "artifactName": "${productName}-${version}-mac-arm64.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
+        },
+        "linux": {
+            "target": [
+                {
+                    "target": "AppImage",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.png",
+            "category": "Finance",
+            "artifactName": "${productName}-${version}-linux-x64.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/linux",
+                    "to": "miner/bin"
+                },
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
         }
     },
-    "repository": "https://github.com/scdoproject/ScdoWallet",
+    "repository": "https://github.com/SCDOLAB/scdowallet",
     "keywords": [
         "Scdo",
         "Wallet"
     ],
-    "author": "Scdoteam",
+    "author": "SCDO Laboratory <scdolab@users.noreply.github.com>",
     "license": "CC0-1.0",
     "devDependencies": {
-        "asar": "^2.1.0",
-        "electron": "^8.5.0",
-        "electron-builder": "^20.44.4",
-        "electron-installer-dmg": "^3.0.0",
-        "electron-packager": "^15.1.0"
+        "electron": "44.4.5",
+        "electron-builder": "26.17.0"
     },
     "dependencies": {
         "bignumber.js": "^8.1.1",
         "bluebird": "^3.7.2",
-        "edit-json-file": "^1.4.1",
+        "edit-json-file": "^1.8.0",
+        "elliptic": "^6.6.1",
+        "ethers": "^6.17.0",
+        "keccak": "^1.4.0",
         "ps-node": "^0.1.6",
-        "scdo.js": "^0.5.0",
-        "secp256k1": "^3.8.0",
-        "shelljs": "^0.8.4",
+        "rlp": "^2.2.7",
+        "scdo.js": "0.5.0",
+        "secp256k1": "^3.8.1",
+        "shelljs": "^0.10.0",
         "solc": "^0.5.17",
-        "tree-kill": "^1.2.2",
-        "elliptic": "^6.5.3"
+        "tree-kill": "^1.2.2"
     }
 }
