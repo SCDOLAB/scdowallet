@@ -9,7 +9,7 @@
   Picking a shard opens the shard accounts view filtered to that shard (accounts, balances, receive and send); chips
   on that page switch between SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) and SCDO Shard4 (Classic), or show all Classic accounts. Picking SCDO Shard0 (EVM) goes back to Home. The choice (network,
   shard and tab) is stored in `~/.ScdoWallet/ui112.json` and restored after a restart.
-- Names: the UI (中文 and English) no longer says "new chain" / "old chain". Shard0 is **SCDO Shard0 (EVM)**; the other shards are
+- Names: the UI (中文 and English) no longer uses the earlier chain nicknames. Shard0 is **SCDO Shard0 (EVM)**; the other shards are
   named individually **SCDO Shard1 (Classic)**, **SCDO Shard2 (Classic)**, **SCDO Shard3 (Classic)** and **SCDO Shard4 (Classic)**.
   The tab that lists all of them is "Classic 账户" / "Classic accounts". Balance labels renamed the same way.
 - Account names: keyfiles are no longer shown with their internal ".<timestamp>" suffix. Accounts without a real name

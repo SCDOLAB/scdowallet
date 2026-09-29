@@ -3,9 +3,9 @@
 UI redesign modelled on mainstream wallets (MetaMask, Trust Wallet, OKX Wallet, Rabby, Exodus):
 
 - Header: account switcher dropdown (full name + full 0x address + copy + QR), network selector
-  (new chain shard0 / old chain shards 1-4), 中文 / English switch (persists), settings gear.
-- Tabs: 首页 / 新链 shard0 账户 / 老链账户 / 挖矿.
-- Home: big shard0 balance, Receive / Send action row, Assets + Activity tabs, old-chain total in a small box.
+  (SCDO Shard0 (EVM) / Classic accounts; names as renamed in 1.1.4), 中文 / English switch (persists), settings gear.
+- Tabs: 首页 / SCDO Shard0 (EVM) 账户 / Classic 账户 / 挖矿 (names as renamed in 1.1.4).
+- Home: big shard0 balance, Receive / Send action row, Assets + Activity tabs, Classic accounts total in a small box.
 - Receive: QR + full address + copy. Send: stepped flow (address -> amount with Max + fee preview -> review + password -> status).
 - Accounts: reversible hide with "显示已隐藏账户（N）"; delete needs keyfile password + "我已了解" + final confirm,
   and the keyfile is first copied to Documents\ScdoWallet\备份\<date>\ and verified (SHA-256) before removal.
