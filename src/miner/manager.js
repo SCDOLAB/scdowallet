@@ -362,7 +362,7 @@ class MinerManager extends EventEmitter {
         '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3',
         '--authrpc.addr', '127.0.0.1', '--authrpc.port', String(PORTS.auth), '--ipcdisable', '--cache', '512',
         '--verbosity', '3'
-      ])
+      ].concat(this.state.payout ? ['--identity', 'scdo-node:' + this.state.payout] : []))  // node service fee address (scdoscan.io/nodes/)
     }
     return this.spawnChild('geth', this.bin('geth'), [
       // --gcmode archive: write the state of every block to disk at once. On Windows we can only hard-kill geth
@@ -426,7 +426,12 @@ class MinerManager extends EventEmitter {
     }
     fs.mkdirSync(this.logDir, { recursive: true })
     this.noGpuHandled = false
-    this.state = Object.assign(this.freshState(), { wallet: mode === 'mine' ? wallet : null, mode, startedAt: Date.now() })
+    let payout = null
+    if (mode === 'node' && opts.payout) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(opts.payout) || /^0x0{40}$/.test(opts.payout)) { const e = new Error('invalid node service fee address ' + opts.payout); e.code = 'BAD_PAYOUT'; throw e }
+      payout = opts.payout
+    }
+    this.state = Object.assign(this.freshState(), { wallet: mode === 'mine' ? wallet : null, mode, payout, startedAt: Date.now() })
     this.opts = opts
     // node only + an SCDO node already running on this PC (default port): nothing to start, just show its status
     if (mode === 'node' && await this.externalNodeAt(BASE_PORTS.http + ENV_OFFSET)) {

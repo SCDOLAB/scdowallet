@@ -293,6 +293,17 @@
   }
   function rewardOptions () { return visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: a.filename })) }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
+  function payoutDefault () {
+    const opts = rewardOptions(); const saved = localStorage.getItem('nodePayout') || ''
+    if (saved && opts.some(o => o.v === saved)) return saved
+    const a = selected(); return a && a.evm ? a.evm : (opts[0] ? opts[0].v : '')
+  }
+  function payoutField (m, running) {
+    if (running && m.mode === 'node') return m.payout ? `<div class="infobox" style="font-size:18px">${esc(T('payoutNow', { a: m.payout }))}</div>` : ''
+    const opts = rewardOptions(); const cur = payoutDefault()
+    if (!opts.length) return `<div class="warnbox">${esc(T('payoutNone'))}</div>`
+    return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div><select class="inp" id="nPayout" ${running ? 'disabled' : ''}>${opts.map(o => `<option value="${esc(o.v)}" ${o.v === cur ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}</select></div>`
+  }
   function pageMine () {
     const m = st.miner || {}
     const running = !!m.running
@@ -319,15 +330,20 @@
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
           ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running || !opts.length ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
-        </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>`
+        </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
+        ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
     } else {
       h += `<div class="nogpu" id="noGpuMsg">${esc(T('noGpu'))}</div>`
       if (g.nvidiaNoDriver) h += `<div class="infobox">${esc(T('noGpuDriver', { n: (g.nvidiaNames || []).join(', ') }))}</div>`
-      if (m.phase === 'external' && running) h += `<div class="infobox" style="font-size:20px">✅ ${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
-      h += `${statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
+      const ext = m.phase === 'external' && running
+      const extOk = ext && m.code !== 'EXTERNAL_DOWN'
+      // external node answering: one green line only (no separate status bar that could contradict it)
+      if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">✅ ${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
+      h += ext ? `<div class="lbl" style="margin-top:8px">${esc(T('extPayout'))}</div>` : payoutField(m, running)
+      h += `${extOk ? '' : statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap">
-        ${running ? `<button class="btn dan big" data-act="minerStop" id="btnNode">${esc(m.phase === 'external' ? T('stopWatch') : T('stopNode'))}</button>` : `<button class="btn pri big" data-act="nodeStart" id="btnNode">${esc(T('runNode'))}</button>`}</div>
-        <div class="lbl" style="margin-top:10px">${esc(T('nodeHint'))}</div>`
+        ${ext ? `<button class="btn ghost" data-act="minerStop" id="btnNode">${esc(T('stopWatch'))}</button>` : running ? `<button class="btn dan big" data-act="minerStop" id="btnNode">${esc(T('stopNode'))}</button>` : `<button class="btn pri big" data-act="nodeStart" id="btnNode">${esc(T('runNode'))}</button>`}</div>
+        <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
     }
     h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
       <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
@@ -373,9 +389,9 @@
     if (st.tab !== 'mine' || $('md')) return
     const m = st.miner || {}
     const e = $('minerStatus')
-    const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external'].join('|')
-    if (sig !== renderMinerLive.sig || !e) { renderMinerLive.sig = sig; if (!(document.activeElement && document.activeElement.id === 'mReward')) render(); return }
-    e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m)
+    const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN'].join('|')
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout'].includes(document.activeElement.id))) render(); return }
+    if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
     const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
     set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
     set('mPeers', m.peers == null ? '–' : m.peers)
@@ -809,15 +825,19 @@
     localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'mine')
   }
   async function nodeStart () {
-    const r = await ipcRenderer.invoke('miner:start', '', { mode: 'node' })
+    const sel = $('nPayout')
+    const payout = sel ? sel.value : payoutDefault()
+    if (payout) localStorage.setItem('nodePayout', payout)
+    const r = await ipcRenderer.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(r.error || r.code, 7000); return }
     localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'node')
   }
   async function minerStop () {
     localStorage.setItem('minerAutoResume', '0')
-    toast(T('stopping'), 60000)
+    const ext = st.miner && st.miner.phase === 'external'
+    if (!ext) toast(T('stopping'), 60000)
     await ipcRenderer.invoke('miner:stop')
-    toast(T('stopped'))
+    if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
     const prev = st.miner
