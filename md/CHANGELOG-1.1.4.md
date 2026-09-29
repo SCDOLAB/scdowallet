@@ -13,7 +13,7 @@
   named individually **SCDO Shard1 (Classic)**, **SCDO Shard2 (Classic)**, **SCDO Shard3 (Classic)** and **SCDO Shard4 (Classic)**.
   The tab that lists all of them is "Classic 账户" / "Classic accounts". Balance labels renamed the same way.
 - Account names: keyfiles are no longer shown with their internal ".<timestamp>" suffix. Accounts without a real name
-  (including the old "new …" default) are shown as "账户 1", "账户 2" … / "Account 1", "Account 2" …; a new account with an
+  (including earlier placeholder names) are shown as "账户 1", "账户 2" … / "Account 1", "Account 2" …; a new account with an
   empty name gets the next number. Every account has a Rename (改名) button; only the displayed name changes, the keyfile
   itself is never renamed.
 - Mining page: the block reward / node service fee address list shows account names, starts with "请选择地址 / Choose an
