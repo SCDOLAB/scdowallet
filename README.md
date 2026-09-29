@@ -1,75 +1,41 @@
 # ScdoWallet
 
-### Intro
-![alt text](build/icon.ico)
+![icon](build/icon.ico)
 
+## Latest: ScdoWalletBeta 1.1.4 (September 2026)
 
-ScdoWallet is Scdo's open-source wallet, which runs on OSX, Windows and Linux, for transaction and contract sending over Scdo's Mainnet.
+Desktop wallet for SCDO, with a built-in node and GPU mining (NVIDIA) on Windows.
 
-### User
+- **Download:** [GitHub release v1.1.4](https://github.com/SCDOLAB/scdowallet/releases/tag/v1.1.4) or https://scdoscan.io/downloads/wallet/
+- **Windows installer:** `ScdoWalletBeta-1.1.4-win-x64-setup.exe`, SHA256 `6db2074802868537752b422631cb532662664d7ce8e422d59ec5e9428c2ad012`
+- **Source:** branch [`upgrade-2026-09`](https://github.com/SCDOLAB/scdowallet/tree/upgrade-2026-09). Changes: [md/CHANGELOG-1.1.4.md](https://github.com/SCDOLAB/scdowallet/blob/upgrade-2026-09/md/CHANGELOG-1.1.4.md)
 
-[Tutorial](https://scdoproject.gitbook.io/scdo-wiki/en/wallet)
+Networks in the wallet:
 
-[Download](https://github.com/scdoproject/ScdoWallet/releases/latest)
+- **SCDO Shard0 (EVM)**, Chain ID 5680 (0x1630), RPC `https://scdoscan.io/rpc/0`, explorer https://scdoscan.io
+- **SCDO Shard1 (Classic)**, **SCDO Shard2 (Classic)**, **SCDO Shard3 (Classic)** and **SCDO Shard4 (Classic)**, shown together under "Classic accounts"
 
+The installer is not code-signed yet; Windows SmartScreen may ask for confirmation. Keyfiles stay in `~/.ScdoWallet/account/` on your PC.
 
-### Developer
-
-**Clone, Run, Package**
+### Build from source (branch `upgrade-2026-09`)
 
 ```bash
-# Clone Repo
-git clone https://github.com/scdoproject/ScdoWallet.git
-# Enter Repo
-cd ScdoWallet
-# Install Dependencies
+git clone -b upgrade-2026-09 https://github.com/SCDOLAB/scdowallet.git
+cd scdowallet
 npm install
-# Run ScdoWallet
-npm start
-
-# on mac package darwin x64
-npm run pac-mac
-# on linux package linux x64
-npm run pac-lin
-# on windows package win32 x64
-npm run pac-win
-```
-**Data folder**
-```bash
-~/
-└── .ScdoWallet/
-    ├── account/
-    ├── node/
-    ├── rc/
-    ├── tx/
-    ├── lang.json
-    └── viewconfig.json
-```
-**Feature Workflow**
-```yml
-Manage Account:
-   Generate by shard number 1-4 
-   Generate by private-key 1-4 
-   Import account 
-   Move Out 
-Export Account Info:
-   Unlock & Copy private-key
-   Copy account
-   Copy publickey
-Transactions:
-   Shard [1,4]x[1,4] 
-   Record Display
-Contracts:
-   Shard 1-1, 2-2, 3-3, 4-4 
-   Deploy & Results
-   Employ & Results
-View:
-   Fullscreen, minimize, developer
-   Language
-   Network
+npm start          # run
+npm test           # tests
+npm run dist:win   # Windows installer
 ```
 
+The node and stratum proxy binaries are not stored in git; see [miner-bin/README.md](https://github.com/SCDOLAB/scdowallet/blob/upgrade-2026-09/miner-bin/README.md).
 
-# License 
+## Earlier ScdoWallet (2023)
 
-[CC0 1.0(Public Domain)](md/LISENSE.md)
+The code on `master` is the earlier ScdoWallet (last updated 2023) for the Classic accounts (SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic), SCDO Shard4 (Classic)): create or import accounts, transfers and contracts. It is kept for reference; use ScdoWalletBeta 1.1.4 above.
+
+Data folder: `~/.ScdoWallet/` (`account/`, `node/`, `rc/`, `tx/`, `lang.json`, `viewconfig.json`).
+
+## License
+
+[CC0 1.0 (Public Domain)](md/LICENSE.md)
