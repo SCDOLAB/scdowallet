@@ -1,4 +1,7 @@
 node_modules
 .idea
 .DS_Store
-release-buildsminer-bin/
+release-builds/
+# large miner binaries are not kept in git (see miner-bin/README.md)
+miner-bin/linux/
+miner-bin/win32/
