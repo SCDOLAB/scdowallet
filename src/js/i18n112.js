@@ -150,7 +150,7 @@ window.I18N112 = {
     settings: 'Settings', language: 'Language',
     accounts: 'Accounts', switchAccount: 'Switch account', manageAccounts: 'Manage accounts', noAccount: 'No account yet',
     locked: 'Enter password to show address', lockedShort: 'locked', copy: 'Copy', copied: 'Copied', qr: 'QR code',
-    s0Balance: 'New chain (shard0) balance', currentAccount: 'Current account', allNewTotal: 'All new-chain accounts', nAccounts: '{n} accounts', exclHidden: 'hidden accounts excluded',
+    s0Balance: 'New chain (shard0) balance', currentAccount: 'Current account', allNewTotal: 'All new-chain accounts', nAccounts: '{n} account(s)', exclHidden: 'hidden accounts excluded',
     receive: 'Receive', send: 'Send', swap: 'Swap',
     assets: 'Assets', activity: 'Activity',
     assetScdo: 'SCDO (new chain shard0)', assetTest: 'test token',

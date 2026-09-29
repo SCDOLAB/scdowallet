@@ -27,6 +27,8 @@
     if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
     return s
   }
+  // punctuation that follows the UI language (full-width in Chinese, ASCII in English)
+  const PU = { c: () => lang() === 'CN' ? '：' : ': ', l: () => lang() === 'CN' ? '（' : ' (', r: () => lang() === 'CN' ? '）' : ')', bar: () => lang() === 'CN' ? ' ｜ ' : ' | ', com: () => lang() === 'CN' ? '，' : ', ' }
   function fmtNum (x, dMax) {
     const n = Number(x); if (!isFinite(n)) return String(x)
     const mx = Math.max(0, Math.min(20, dMax == null ? 6 : Number(dMax)))
@@ -35,7 +37,7 @@
   function fmtWei (wei, dMax) { return fmtNum(ethers.formatEther(wei), dMax) }
   function fmtHash (h) { if (h == null) return '–'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s']; let i = 0; while (h >= 1000 && i < 3) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
-  function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + '：' + t)).catch(() => toast(t)) }
+  function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
   function avatar (name) {
     let h = 0; for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) >>> 0
     const hue = h % 360
@@ -167,7 +169,7 @@
       const bal = b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…'
       top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
         <div class="bn" id="homeBal">${esc(bal)}<span>SCDO</span></div>
-        <div class="bs">${esc(T('currentAccount'))}：<b class="wrap">${esc(a.filename)}</b> ｜ ${esc(T('allNewTotal'))}：<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO（${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? '，' + esc(T('exclHidden')) : ''}）</div>
+        <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(a.filename)}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
         <div class="actions"><button class="btn pri big" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" id="btnReceive">⬇&nbsp; ${esc(T('receive'))}</button>
         <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button></div></div>`
     }
@@ -472,10 +474,10 @@
       try { s.fee = await shard0().estimateSend(a.evm, s.to, s.amount && Number(s.amount) > 0 ? s.amount : '0', s.asset) } catch (e) { s.fee = null }
       return s.fee
     }
-    function feeText () { return s.fee ? T('feeAbout', { v: fmtWei(s.fee.estFeeWei, 8) }) + '（' + T('feeMax', { v: fmtWei(s.fee.maxFeeWei, 8) }) + '）' : '…' }
+    function feeText () { return s.fee ? T('feeAbout', { v: fmtWei(s.fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(s.fee.maxFeeWei, 8) }) + PU.r() : '…' }
     function step2 () {
       modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}（${esc(s.asset)}）</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
+        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}${esc(s.asset)}${PU.r()}</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
         <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
         <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeText())}</div></div>
         <div class="err" id="sErr"></div>
@@ -578,7 +580,7 @@
     function step2 () {
       const b = balV()
       modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono">${esc(s.to)}</div></div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}（SCDO）</div><div class="lbl">${esc(T('available', { v: b == null ? '…' : fmtNum(b) + ' SCDO' }))}</div></div>
+        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}SCDO${PU.r()}</div><div class="lbl">${esc(T('available', { v: b == null ? '…' : fmtNum(b) + ' SCDO' }))}</div></div>
         <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
         <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeLine())}</div></div>
         <div class="err" id="sErr"></div>
@@ -643,7 +645,7 @@
       if (pw !== pw2) errs.push(T('pwMismatch'))
       if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
       if (priv) { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
-      if (errs.length) { $('cErr').textContent = errs.join(' ｜ '); return }
+      if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
       try {
         if (!priv) priv = client.keyTool.generateKeys(shard).privatekey
         else { const addr = client.getAddressFromPriKey(priv, shard); if (st.accounts.some(x => x.pubkey === addr)) { $('cErr').textContent = T('errExist'); return } }
@@ -667,8 +669,8 @@
       const name = path.basename(src)
       const pub = client.keyfileisvalid(src)
       if (!pub) { toast(T('importFail', { n: name }), 6000); continue }
-      if (st.accounts.some(x => x.filename === name)) { toast(T('errNameExist') + '：' + name, 6000); continue }
-      if (st.accounts.some(x => x.pubkey === pub)) { toast(T('errExist') + '：' + name, 6000); continue }
+      if (st.accounts.some(x => x.filename === name)) { toast(T('errNameExist') + PU.c() + name, 6000); continue }
+      if (st.accounts.some(x => x.pubkey === pub)) { toast(T('errExist') + PU.c() + name, 6000); continue }
       try { fs.copyFileSync(src, path.join(client.accountPath, name), fs.constants.COPYFILE_EXCL); toast(T('importOk', { n: name })) } catch (e) { toast(String(e.message || e), 6000) }
       loadAccounts()
     }
@@ -695,7 +697,7 @@
     const paths = await ipcRenderer.invoke('keyfile:paths')
     const s0b = st.s0[a.filename]; const oldb = st.old[a.pubkey]
     const nonZero = (s0b && s0b.nativeWei != null && s0b.nativeWei > 0n) || (s0b && (s0b.tokens || []).some(t => t.raw != null && t.raw > 0n)) || (oldb != null && oldb > 0)
-    const balLine = `${esc(T('newChainShort'))}：${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'} ｜ ${esc(T('oldChainShort'))}：${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
+    const balLine = `${esc(T('newChainShort'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('oldChainShort'))}${PU.c()}${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
     modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delTitle'))}</h2></div>
       <div class="infobox"><div style="font-size:21px;font-weight:700" class="wrap">${esc(a.filename)}</div>
         <div class="lbl">${esc(T('newAddrLabel'))}</div><div class="mono">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>
@@ -725,10 +727,10 @@
       if (fresh0) st.s0[a2.filename] = fresh0
       if (freshOld != null) st.old[a2.pubkey] = freshOld
       const has = (fresh0 && (fresh0.nativeWei > 0n || fresh0.tokens.some(t => t.raw != null && t.raw > 0n))) || (freshOld != null && freshOld > 0)
-      const tokLine = fresh0 ? fresh0.tokens.filter(t => t.raw != null && t.raw > 0n).map(t => fmtNum(t.balance) + ' ' + t.symbol).join('，') : ''
+      const tokLine = fresh0 ? fresh0.tokens.filter(t => t.raw != null && t.raw > 0n).map(t => fmtNum(t.balance) + ' ' + t.symbol).join(PU.com()) : ''
       modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delConfirmTitle'))}</h2></div>
         <div style="font-size:21px" class="wrap">${esc(T('delConfirmText', { n: a2.filename }))}</div>
-        <div class="infobox" style="font-size:19px">${esc(T('newChainShort'))}：${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? '，' + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('oldChainShort'))}：${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
+        <div class="infobox" style="font-size:19px">${esc(T('newChainShort'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('oldChainShort'))}${PU.c()}${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
         ${has ? `<div class="warnbox" style="background:#fdecec;border-color:#e53935;color:#b71c1c;font-weight:700;font-size:20px">⚠ ${esc(T('delHasBal'))}</div>` : ''}
         <div class="infobox">${esc(T('delBackup'))}<div class="mono" style="font-size:16px">${esc(paths.today)}</div></div>
         <div class="err" id="dErr"></div>
@@ -764,8 +766,8 @@
         <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
       <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div><div class="row" style="flex-wrap:wrap;margin-top:8px">
         <button class="btn ghost" data-act="backupPick">${esc(T('backupKeyfile'))}</button><button class="btn ghost" data-act="openBackups">${esc(T('openBackups'))}</button></div>
-        <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}：<span class="mono">${esc(paths.keyfileDir)}</span></div>
-        <div class="lbl">${esc(T('backupDir'))}：<span class="mono">${esc(paths.backupRoot)}</span></div></div>
+        <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
+        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
         <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
       <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">ScdoWalletBeta ${esc(APPVER)} · 2026-09-29</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })

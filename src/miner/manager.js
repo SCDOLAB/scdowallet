@@ -105,7 +105,8 @@ function rpc (url, method, params, timeoutMs) {
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: params || [] })
     const u = new URL(url)
     const mod = u.protocol === 'https:' ? https : http
-    const req = mod.request(u, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }, timeout: timeoutMs || 5000 }, res => {
+    // agent:false = a fresh connection per call; pooled keep-alive sockets to geth went stale and every poll timed out (seen in 1.1.2 testing)
+    const req = mod.request(u, { method: 'POST', agent: false, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' }, timeout: timeoutMs || 5000 }, res => {
       let d = ''; res.on('data', c => { d += c }); res.on('end', () => {
         try { const j = JSON.parse(d); j.error ? reject(new Error(j.error.message)) : resolve(j.result) } catch (e) { reject(e) }
       })
@@ -118,7 +119,7 @@ function rpc (url, method, params, timeoutMs) {
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const req = http.get(url, { timeout: timeoutMs || 3000 }, res => {
+    const req = http.get(url, { agent: false, timeout: timeoutMs || 3000 }, res => {
       let d = ''; res.on('data', c => { d += c }); res.on('end', () => { try { resolve(JSON.parse(d)) } catch (e) { reject(e) } })
     })
     req.on('timeout', () => req.destroy(new Error('timeout'))); req.on('error', reject)
@@ -480,7 +481,11 @@ class MinerManager extends EventEmitter {
       [bn, peers, mining, syncing] = await Promise.all([rpc(L, 'eth_blockNumber'), rpc(L, 'net_peerCount'),
         nodeOnly ? Promise.resolve(false) : rpc(L, 'eth_mining'), rpc(L, 'eth_syncing').catch(() => false)])
     } catch (e) {
-      if (this.external) this.set({ code: 'EXTERNAL_DOWN', message: 'The other SCDO node on this PC is not answering.' })
+      if (this.external) {
+        this.extFail = (this.extFail || 0) + 1
+        if (this.extFail === 1 || this.extFail === 3) this.log('wallet', 'external node poll failed (' + this.extFail + '): ' + (e && e.message))
+        if (this.extFail >= 3) this.set({ code: 'EXTERNAL_DOWN', message: 'The other SCDO node on this PC is not answering (' + (e && e.message) + ').' })
+      }
       else this.set({ message: this.state.phase === 'syncing' ? 'Node starting ...' : this.state.message })
       return
     }
@@ -489,7 +494,7 @@ class MinerManager extends EventEmitter {
       this.lastRef = Date.now()
       rpc(this.o.refRpc, 'eth_blockNumber', [], 8000).then(r => this.set({ networkBlock: parseInt(r, 16) })).catch(() => {})
     }
-    if (this.external) { patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
+    if (this.external) { this.extFail = 0; patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
     if (nodeOnly) {
       // B3: node-only mode never claims to be mining
       const nb = this.state.networkBlock
