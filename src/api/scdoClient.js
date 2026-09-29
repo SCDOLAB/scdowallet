@@ -650,7 +650,7 @@ function scdoClient() {
         var toShard = null;
         try { toShard = this.getShardNum(to); } catch (e) {}
         if (toShard && String(toShard) !== String(shard) && to !== "0x0000000000000000000000000000000000000000" && !this.config.allowCrossShard) {
-            callBack("", new Error("Cross-shard transfers (shard " + shard + " -> " + toShard + ") are disabled in this version (known old-chain cross-shard issues). Send within the same shard."), "");
+            callBack("", new Error("Cross-shard transfers (shard " + shard + " -> " + toShard + ") are disabled in this version (known Classic cross-shard issues). Send within the same shard."), "");
             return;
         }
         var nonce;

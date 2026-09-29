@@ -34,10 +34,10 @@
       sending: '正在签名并广播 ...', sent: '交易已发送', confirmed: '已确认，区块', failed: '失败',
       mTitle: 'GPU 挖矿（shard0，NVIDIA 显卡）',
       mNote: '在本机运行 SCDO 节点 + stratum 代理 + Rigel 挖矿程序。出块奖励（每块 2 SCDO）进入下面的地址。首次启动会下载 Rigel（约 56 MB，校验 SHA256）并同步区块（1–5 分钟）。',
-      reward: '收益地址', manual: '— 手动输入 0x 地址 —', start: '开始挖矿', stop: '停止挖矿',
+      reward: '出块奖励地址', manual: '— 手动输入 0x 地址 —', start: '开始挖矿', stop: '停止挖矿',
       phase: '状态', blocks: '本地 / 全网区块', peers: '连接节点', hashrate: '算力', shares: '份额 接受 / 拒绝',
-      found: '挖到的区块', balance: '收益地址余额', restarts: '挖矿程序重启次数', defender: '在 Windows Defender 中允许挖矿程序',
-      logs: '打开日志文件夹', showlog: '显示日志', macNo: '内置 GPU 挖矿仅在 Windows（NVIDIA）和 Linux 版提供；Rigel 没有 macOS 版本。', needAddr: '请先选择或输入 0x 收益地址（账户文件解锁一次即可得到 0x 地址）。',
+      found: '挖到的区块', balance: '出块奖励地址余额', restarts: '挖矿程序重启次数', defender: '在 Windows Defender 中允许挖矿程序',
+      logs: '打开日志文件夹', showlog: '显示日志', macNo: '内置 GPU 挖矿仅在 Windows（NVIDIA）和 Linux 版提供；Rigel 没有 macOS 版本。', needAddr: '请先选择或输入 0x 出块奖励地址（账户文件解锁一次即可得到 0x 地址）。',
       yes: '是', no: '否', defAsk: 'Windows Defender 会把所有 GPU 挖矿程序（rigel.exe）当作“可能不需要的应用”删除。现在为钱包的挖矿文件夹添加排除项吗？Windows 会请求一次管理员权限。', defRetry: 'rigel.exe 被 Windows Defender 删除了。为挖矿文件夹添加排除项（需要管理员权限）并重新开始吗？'
     }
   }

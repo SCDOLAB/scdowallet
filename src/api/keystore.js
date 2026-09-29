@@ -41,7 +41,7 @@ function normPriv (privHex) {
 // Old-shard address, go-scdo crypto.GetAddress: keccak256(rlp(pub64))[12:], byte0 = shard, last nibble = 1
 function scdoAddressFromPriv (privHex, shard) {
   shard = parseInt(shard, 10)
-  if (!(shard >= 1 && shard <= 4)) throw new Error('shard must be 1-4')
+  if (!(shard >= 1 && shard <= 4)) throw new Error('shard must be 1, 2, 3 or 4')
   const pk = normPriv(privHex)
   const pub = Buffer.from(getBytes(new SigningKey('0x' + pk.toString('hex')).publicKey)).slice(1) // 64 bytes
   const a = Buffer.from(getBytes(keccak256(rlp.encode(pub)))).slice(-20)

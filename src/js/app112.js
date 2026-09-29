@@ -1,6 +1,7 @@
-// ScdoWalletBeta 1.1.3 renderer (1.1.3: MetaMask-style asset dropdown on the Send page): new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
+// ScdoWalletBeta 1.1.4 renderer (1.1.4: network menu can switch to SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) or SCDO Shard4 (Classic) and the choice is kept; names SCDO Shard0 (EVM) / Classic accounts.
+// 1.1.3: MetaMask-style asset dropdown on the Send page): new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
 // account switcher at the top, big balance, Receive / Send action row, assets + activity, network selector,
-// settings gear. Uses the existing APIs: src/api/scdoClient.js (keyfiles, old chain), src/api/evm.js (shard0),
+// settings gear. Uses the existing APIs: src/api/scdoClient.js (keyfiles, Classic shards), src/api/evm.js (SCDO Shard0 (EVM)),
 // main-process IPC for the miner and for keyfile backup + delete.
 'use strict'
 ;(function () {
@@ -52,8 +53,33 @@
   ui.hidden.new = ui.hidden.new || []; ui.hidden.old = ui.hidden.old || []
   ui.showHidden = !!ui.showHidden
   function saveUi () { writeJson(UI_PATH, ui) }
+  // 1.1.4: account display names. Keyfiles are never renamed on disk; the label shown is ui.names[file] (Rename),
+  // else the file name without its ".<timestamp>" suffix. Files without a usable name (empty, or the old "new …"
+  // default) get a stable number: 账户 N / Account N.
+  ui.names = (ui.names && typeof ui.names === 'object' && !Array.isArray(ui.names)) ? ui.names : {}
+  ui.accNo = (ui.accNo && typeof ui.accNo === 'object' && !Array.isArray(ui.accNo)) ? ui.accNo : {}
+  ui.rewardExtra = Array.isArray(ui.rewardExtra) ? ui.rewardExtra.filter(x => /^0x[0-9a-fA-F]{40}$/.test(x)) : []
+  const stripTs = (f) => String(f).replace(/\.\d{10,}$/, '').trim()
+  const needsNo = (f) => { const b = stripTs(f); return !b || /^new(\s|$|[-_.])/i.test(b) || /^account\d*$/i.test(b) }
+  const nextNo = () => Math.max(0, ...Object.values(ui.accNo).map(Number).filter(Number.isFinite)) + 1
+  function accLabel (a) {
+    const f = typeof a === 'string' ? a : (a && a.filename) || ''
+    if (ui.names[f]) return ui.names[f]
+    if (ui.accNo[f]) return T('accountN', { n: ui.accNo[f] })
+    return stripTs(f) || f
+  }
+  // Network shown in the top-right selector: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards; ui.shard = 1..4 (one shard) or 0 (all four).
+  // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
+  const TABS = ['home', 'new', 'old', 'mine']
+  let tab0 = TABS.includes(ui.tab) ? ui.tab : (localStorage.getItem('tab112') || 'home')
+  if (!TABS.includes(tab0)) tab0 = 'home'
+  if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
+  ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
+  const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
+  if (ui.net === 'old' && (tab0 === 'home' || tab0 === 'new')) tab0 = 'old'
+  if (ui.net === 'new' && tab0 === 'old') tab0 = 'home'
   const st = {
-    tab: localStorage.getItem('tab112') || 'home',
+    tab: tab0,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
     sel: localStorage.getItem('selAcc112') || '',
     accounts: [],
@@ -72,6 +98,14 @@
     st.accounts = client.accountArray.map(a => ({ filename: a.filename, pubkey: a.pubkey, shard: a.shard, evm: client.evmAddressOf(a.filename) }))
     const names = st.accounts.map(a => a.filename)
     ui.hidden.new = ui.hidden.new.filter(n => names.includes(n)); ui.hidden.old = ui.hidden.old.filter(n => names.includes(n))
+    let changed = false
+    for (const k of Object.keys(ui.accNo)) if (!names.includes(k)) { delete ui.accNo[k]; changed = true }
+    for (const k of Object.keys(ui.names)) if (!names.includes(k)) { delete ui.names[k]; changed = true }
+    const tsOf = (f) => { const m = /\.(\d{10,})$/.exec(f); return m ? Number(m[1]) : 0 }
+    st.accounts.filter(a => !ui.names[a.filename] && !ui.accNo[a.filename] && needsNo(a.filename))
+      .sort((x, y) => tsOf(x.filename) - tsOf(y.filename) || x.filename.localeCompare(y.filename))
+      .forEach(a => { ui.accNo[a.filename] = nextNo(); changed = true })
+    if (changed) saveUi()
   }
   const isHidden = (chain, f) => ui.hidden[chain].includes(f)
   const visible = (chain) => st.accounts.filter(a => !isHidden(chain, a.filename))
@@ -125,22 +159,34 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
+  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining keeps it
+  function setTab (v) {
+    st.tab = TABS.includes(v) ? v : 'home'
+    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
+    ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
+  }
+  function setNet (v, shard) {
+    const net = v === 'old' ? 'old' : 'new'
+    if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab === 'mine' ? 'mine' : st.tab)
+    ui.net = net; saveUi()
+  }
+  const netOldName = () => ui.shard ? T('netOld', { n: ui.shard }) : T('netOldAll')
   function renderHeader () {
     const a = selected()
-    const netOld = st.tab === 'old'
+    const netOld = ui.net === 'old'
     const netOk = netOld ? st.net.oldOk : st.net.s0Ok
     let sw
     if (a) {
       sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
-        ${avatar(a.filename)}
-        <div style="min-width:0"><div class="an">${esc(a.filename)} ▾</div>
+        ${avatar(accLabel(a))}
+        <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
         <div class="aa ${a.evm ? 'mono' : ''}">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
         ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
       </div>`
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
     $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">ScdoWalletBeta ${esc(APPVER)}</div></div></div>
       ${sw}<div class="spacer"></div>
-      <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? T('netOld') : T('netNew'))} ▾</div>
+      <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
       <div class="lang"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN" id="langCN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN" id="langEN">English</button></div>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`
     const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine']]
@@ -169,7 +215,7 @@
       const bal = b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…'
       top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
         <div class="bn" id="homeBal">${esc(bal)}<span>SCDO</span></div>
-        <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(a.filename)}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
+        <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
         <div class="actions"><button class="btn pri big" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" id="btnReceive">⬇&nbsp; ${esc(T('receive'))}</button>
         <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button></div></div>`
     }
@@ -271,8 +317,8 @@
           <button class="btn sec" data-act="unlock" data-f="${esc(a.filename)}" data-in="pw-n-${i}">${esc(T('showAddress'))}</button></div>`
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="muted" style="font-size:17px">${esc(T('balanceAfterUnlock'))}</div></div>`
       }
-      h += `<div class="card acc ${hid ? 'hidden-acc' : ''}" data-row="${esc(a.filename)}"><div class="main"><div class="nm">${esc(a.filename)} ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>${mid}</div>${right}
-        <div class="ops one"><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
+      h += `<div class="card acc ${hid ? 'hidden-acc' : ''}" data-row="${esc(a.filename)}"><div class="main"><div class="nm">${esc(accLabel(a))} ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>${mid}</div>${right}
+        <div class="ops one"><button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
     })
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
@@ -280,27 +326,30 @@
   }
 
   function pageOld () {
-    const list = listed('old')
+    const list = shardFilter(listed('old'))
     const hiddenN = ui.hidden.old.length
-    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(T('oldSub'))}</span></div>
+    const chips = `<div class="shardchips" id="shardChips">${[0, 1, 2, 3, 4].map(n => `<button class="${ui.shard === n ? 'on' : ''}" data-act="pickShard" data-v="${n}" id="chip-${n}">${esc(n ? T('shardN', { n }) : T('shardAll'))}</button>`).join('')}</div>`
+    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(ui.shard ? T('oldTitleN', { n: ui.shard }) : T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(ui.shard ? T('oldSubN', { n: ui.shard }) : T('oldSub'))}</span></div>
       <div class="muted" style="font-size:17px;margin-top:4px">${esc(T('oldNote'))}</div></div>
-      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button></div>`
+      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button></div>${chips}`
     if (!st.accounts.length) h += `<div class="hint-box">${esc(T('emptyList'))}</div>`
+    else if (!list.length) h += `<div class="hint-box">${esc(T('noShardAcc'))}</div>`
     list.forEach(a => {
       const hid = isHidden('old', a.filename)
       const v = st.old[a.pubkey]
-      h += `<div class="card acc ${hid ? 'hidden-acc' : ''}"><div class="main"><div class="nm">${esc(a.filename)} <span class="tag">${esc(T('shardN', { n: a.shard }))}</span> ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>
-        <div class="lbl" style="margin-top:4px">${esc(T('oldAddrLabel'))}</div><div class="row" style="margin-top:2px;flex-wrap:wrap"><span class="mono addr">${esc(a.pubkey)}</span>
+      h += `<div class="card acc ${hid ? 'hidden-acc' : ''}"><div class="main"><div class="nm">${esc(accLabel(a))} <span class="tag">${esc(T('shardN', { n: a.shard }))}</span> ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>
+        <div class="lbl" style="margin-top:4px">${esc(T('oldAddrLabel', { n: a.shard }))}</div><div class="row" style="margin-top:2px;flex-wrap:wrap"><span class="mono addr">${esc(a.pubkey)}</span>
         <button class="btn ghost small" data-act="copy" data-v="${esc(a.pubkey)}">${esc(T('copy'))}</button></div></div>
         <div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" style="color:#3d4160" data-oldbal="${esc(a.pubkey)}">${v != null ? esc(fmtNum(v)) : '…'} <span>SCDO</span></div></div>
         <div class="ops"><button class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">${esc(T('receive'))}</button>
         <button class="btn sec small" data-act="sendOld" data-f="${esc(a.filename)}">${esc(T('send'))}</button>
+        <button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button>
         <button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="old" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
     })
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
-    const ot = oldTotal(visible('old'))
-    h += `<div class="total-line"><span style="font-size:20px;color:#3d4160">${esc(T('oldSum'))}</span><span style="font-size:30px;font-weight:800;color:#3d4160" id="oldTot">${ot.known ? esc(fmtNum(ot.v)) : '…'} SCDO</span></div>`
+    const ot = oldTotal(shardFilter(visible('old')))
+    h += `<div class="total-line"><span style="font-size:20px;color:#3d4160">${esc(ui.shard ? T('oldSumN', { n: ui.shard }) : T('oldSum'))}</span><span style="font-size:30px;font-weight:800;color:#3d4160" id="oldTot">${ot.known ? esc(fmtNum(ot.v)) : '…'} SCDO</span></div>`
     try { client.getRecords() } catch (e) {}
     const recs = (client.txRecords || []).filter(Boolean).slice(0, 20)
     h += `<div class="card" style="margin-top:22px;padding:18px 24px"><div style="font-size:22px;font-weight:700">${esc(T('oldRecords'))}</div>`
@@ -330,18 +379,31 @@
     if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN'].includes(m.code)) return 'warn'
     return ''
   }
-  function rewardOptions () { return visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: a.filename })) }
+  function rewardOptions () {
+    const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
+    const extra = ui.rewardExtra.slice()
+    for (const k of ['minerReward', 'nodePayout']) { const x = localStorage.getItem(k); if (x && /^0x[0-9a-fA-F]{40}$/.test(x) && !extra.some(y => y.toLowerCase() === x.toLowerCase())) extra.push(x) }
+    for (const x of extra) if (!l.some(o => o.v.toLowerCase() === x.toLowerCase())) l.push({ v: x, l: T('rewardOtherLabel') })
+    return l
+  }
+  // address <select>: placeholder when nothing is chosen (never silently preselect an account), wallet accounts by
+  // name, saved external addresses, and "other address…" which opens a paste field
+  function addrSelect (id, opts, cur, disabled) {
+    const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
+    const open = !!(st.otherOpen && st.otherOpen[id])
+    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(T('rewardOther'))}</option></select>
+      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono" id="${id}-in" placeholder="0x…" style="flex:1;min-width:320px" autocomplete="off"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
+  }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
   function payoutDefault () {
     const opts = rewardOptions(); const saved = localStorage.getItem('nodePayout') || ''
-    if (saved && opts.some(o => o.v === saved)) return saved
-    const a = selected(); return a && a.evm ? a.evm : (opts[0] ? opts[0].v : '')
+    if (saved && opts.some(o => o.v.toLowerCase() === saved.toLowerCase())) return saved
+    const a = selected(); return a && a.evm ? a.evm : ''
   }
   function payoutField (m, running) {
     if (running && m.mode === 'node') return m.payout ? `<div class="infobox" style="font-size:18px">${esc(T('payoutNow', { a: m.payout }))}</div>` : ''
     const opts = rewardOptions(); const cur = payoutDefault()
-    if (!opts.length) return `<div class="warnbox">${esc(T('payoutNone'))}</div>`
-    return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div><select class="inp" id="nPayout" ${running ? 'disabled' : ''}>${opts.map(o => `<option value="${esc(o.v)}" ${o.v === cur ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}</select></div>`
+    return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div>${addrSelect('nPayout', opts, cur, running)}${opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('payoutNone'))}</div>`}</div>`
   }
   function pageMine () {
     const m = st.miner || {}
@@ -359,7 +421,7 @@
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
       const cur = m.wallet || saved
-      const sel = opts.length ? `<select class="inp" id="mReward" ${running ? 'disabled' : ''}>${opts.map(o => `<option value="${esc(o.v)}" ${o.v === cur ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}</select>` : `<div class="warnbox">${esc(T('noRewardAddr'))}</div>`
+      const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: (g.nvidiaNames || []).join(', ') }))}</div>
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
@@ -367,7 +429,7 @@
         <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
         <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
-          ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running || !opts.length ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
+          ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
         </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
         ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
@@ -416,12 +478,12 @@
       document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) el.innerHTML = esc(fmtWei(b.nativeWei)) + ' <span>SCDO</span>' })
     } else if (st.tab === 'old') {
       document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) el.innerHTML = esc(fmtNum(v)) + ' <span>SCDO</span>' })
-      const ot = oldTotal(visible('old')); const e = $('oldTot'); if (e && ot.known) e.textContent = fmtNum(ot.v) + ' SCDO'
+      const ot = oldTotal(shardFilter(visible('old'))); const e = $('oldTot'); if (e && ot.known) e.textContent = fmtNum(ot.v) + ' SCDO'
     }
   }
   function renderHeaderNetOnly () {
     const d = document.querySelector('.netsel .dot'); if (!d) return
-    const ok = st.tab === 'old' ? st.net.oldOk : st.net.s0Ok
+    const ok = ui.net === 'old' ? st.net.oldOk : st.net.s0Ok
     d.className = 'dot ' + (ok == null ? '' : ok ? 'ok' : 'bad')
   }
   function renderMinerLive () {
@@ -429,7 +491,7 @@
     const m = st.miner || {}
     const e = $('minerStatus')
     const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN'].join('|')
-    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout'].includes(document.activeElement.id))) render(); return }
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout', 'mReward-in', 'nPayout-in'].includes(document.activeElement.id))) render(); return }
     if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
     const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
     set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
@@ -444,14 +506,16 @@
   function closeDd () { $('ddRoot').innerHTML = '' }
   function openDd (anchor, html, alignRight) {
     const r = anchor.getBoundingClientRect()
-    $('ddRoot').innerHTML = `<div class="overlay" style="background:transparent" data-act="ddClose"></div><div class="dd" id="dd" style="top:${r.bottom + 8}px;${alignRight ? 'right:' + Math.max(10, window.innerWidth - r.right) + 'px' : 'left:' + r.left + 'px'};min-width:${Math.max(r.width, 320)}px;max-width:760px">${html}</div>`
+    // 1.1.4 fix: the click-away backdrop has its own class (.ddov, z-index below .dd). In 1.1.1-1.1.3 it reused the modal
+    // .overlay (z-index 50 > .dd 40), so it covered the menu and every click on a menu item only closed the menu.
+    $('ddRoot').innerHTML = `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${r.bottom + 8}px;${alignRight ? 'right:' + Math.max(10, window.innerWidth - r.right) + 'px' : 'left:' + r.left + 'px'};min-width:${Math.max(r.width, 320)}px;max-width:760px">${html}</div>`
   }
   function accMenu (anchor) {
     const vis = visible('new')
     let h = `<div class="lbl" style="padding:6px 14px">${esc(T('switchAccount'))}</div>`
     vis.forEach(a => {
       const b = st.s0[a.filename]
-      h += `<div class="it ${a.filename === st.sel ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(a.filename)}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(a.filename)}</div>
+      h += `<div class="it ${a.filename === st.sel ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
         <div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
         <div style="font-weight:700;white-space:nowrap">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei, 3)) + ' SCDO' : ''}</div></div>`
     })
@@ -461,8 +525,8 @@
   }
   function netMenu (anchor) {
     const h = `<div class="lbl" style="padding:6px 14px">${esc(T('netPick'))}</div>
-      <div class="it ${st.tab !== 'old' ? 'on' : ''}" data-act="pickNet" data-v="new"><span class="dot ${st.net.s0Ok == null ? '' : st.net.s0Ok ? 'ok' : 'bad'}"></span><div><div style="font-weight:700">${esc(T('netNewLong'))}</div><div class="lbl">${st.net.s0Ok ? esc(T('netBlock', { n: st.net.s0Block })) : st.net.s0Ok === false ? esc(T('netDown')) : '…'}</div></div></div>
-      <div class="it ${st.tab === 'old' ? 'on' : ''}" data-act="pickNet" data-v="old"><span class="dot ${st.net.oldOk == null ? '' : st.net.oldOk ? 'ok' : 'bad'}"></span><div><div style="font-weight:700">${esc(T('netOldLong'))}</div><div class="lbl">1S0 / 2S0 / 3S0 / 4S0</div></div></div>`
+      <div class="it ${ui.net !== 'old' ? 'on' : ''}" data-act="pickNet" data-v="new" id="net-new" title="${esc(st.net.s0Ok ? T('netBlock', { n: st.net.s0Block }) : st.net.s0Ok === false ? T('netDown') : '')}"><span class="dot ${st.net.s0Ok == null ? '' : st.net.s0Ok ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netNewLong'))}</div><div class="lbl">${esc(T('netNewSub'))}</div></div><span class="ck">${ui.net !== 'old' ? '✓' : ''}</span></div>
+      ${[1, 2, 3, 4].map(n => `<div class="it ${ui.net === 'old' && ui.shard === n ? 'on' : ''}" data-act="pickNet" data-v="old" data-shard="${n}" id="net-s${n}" title="${esc(st.net.oldOk === false ? T('netDown') : '')}"><span class="dot ${st.net.oldOk == null ? '' : st.net.oldOk ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netOldLong', { n }))}</div><div class="lbl">${esc(T('netOldSub', { n }))}</div></div><span class="ck">${ui.net === 'old' && ui.shard === n ? '✓' : ''}</span></div>`).join('')}`
     openDd(anchor, h, true)
   }
 
@@ -486,9 +550,9 @@
     const a = accByFile(f); if (!a) return
     const addr = chain === 'old' ? a.pubkey : a.evm
     if (!addr) return
-    modal(`<div class="mh">${avatar(a.filename)}<h2>${esc(T('receiveTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      <div style="font-size:20px;font-weight:700" class="wrap">${esc(a.filename)}</div>
-      <div class="lbl">${esc(chain === 'old' ? T('oldAddrLabel') + ' · ' + T('shardN', { n: a.shard }) : T('newAddrLabel'))}</div>
+    modal(`<div class="mh">${avatar(accLabel(a))}<h2>${esc(T('receiveTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      <div style="font-size:20px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+      <div class="lbl">${esc(chain === 'old' ? T('oldAddrLabel', { n: a.shard }) : T('newAddrLabel'))}</div>
       <div class="qrwrap"><div id="qrBox"></div></div>
       <div class="addrbox mono" id="rcvAddr">${esc(addr)}</div>
       <div class="infobox">${esc(chain === 'old' ? T('receiveOld', { n: a.shard }) : T('receiveNew'))}</div>
@@ -507,7 +571,7 @@
     const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : 18, t } }
     const balText = () => { const b = bal(); if (s.asset === 'SCDO') return b.wei != null ? fmtWei(b.wei) + ' SCDO' : '…'; return b.t && b.t.balance != null ? fmtNum(b.t.balance, b.dec) + ' ' + s.asset : '…' }
     const head = (i) => `<div class="mh"><h2>${esc(T('sendTitle'))}</h2>${stepsHtml(i)}</div>`
-    const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(a.filename)}</b><div class="mono">${esc(a.evm)}</div></div>`
+    const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.evm)}</div></div>`
     function step1 () {
       modal(`${head(0)}${fromLine}
         <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
@@ -569,7 +633,7 @@
     function step3 () {
       const total = s.asset === 'SCDO' && s.fee ? fmtNum(ethers.formatEther(ethers.parseEther(s.amount) + s.fee.estFeeWei), 8) + ' SCDO' : null
       modal(`${head(2)}<div class="review">
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(a.filename)}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.evm)}</div></div></div>
+        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.evm)}</div></div></div>
         <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
         <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#2933ff">${esc(fmtNum(s.amount, 18))} ${esc(s.asset)}</div></div>
         <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeText())}</div></div>
@@ -609,7 +673,7 @@
     step1()
   }
 
-  // ----- send on the old chain (same shard only), same stepped pattern -----
+  // ----- send on a Classic shard (same shard only), same stepped pattern -----
   function sendOldModal (f) {
     const a = accByFile(f); if (!a) return
     const s = { to: '', amount: '', gas: null, price: 1 }
@@ -618,7 +682,7 @@
     const feeScdo = () => s.gas == null ? null : s.gas * s.price / 1e8
     const feeLine = () => feeScdo() == null ? '…' : T('feeAbout', { v: fmtNum(feeScdo(), 8) })
     function step1 () {
-      modal(`${head(0)}<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(a.filename)}</b><div class="mono">${esc(a.pubkey)}</div></div>
+      modal(`${head(0)}<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.pubkey)}</div></div>
         <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPhOld', { n: a.shard }))}" value="${esc(s.to)}"></div>
         <div class="err" id="sErr"></div>
         <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
@@ -653,7 +717,7 @@
     }
     function step3 () {
       modal(`${head(2)}<div class="review">
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(a.filename)}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.pubkey)}</div></div></div>
+        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.pubkey)}</div></div></div>
         <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
         <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#2933ff">${esc(fmtNum(s.amount, 8))} SCDO</div></div>
         <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeLine())}</div></div></div>
@@ -683,7 +747,7 @@
   // ----- create / import -----
   function createModal () {
     modal(`<div class="mh"><h2>${esc(T('createTitle'))}</h2></div>
-      <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" placeholder="${esc(T('accNamePh'))}"></div>
+      <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" maxlength="40" placeholder="${esc(T('accountN', { n: nextNo() }))}"></div>
       <div class="field"><div class="lbl">${esc(T('pw1'))}</div><input class="inp" type="password" id="cPw1"></div>
       <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
       <details style="margin-top:14px"><summary style="font-size:18px;cursor:pointer;color:#3d4160">${esc(T('advanced'))}</summary>
@@ -696,7 +760,7 @@
       const name = $('cName').value.trim(); const pw = $('cPw1').value; const pw2 = $('cPw2').value
       const shard = ($('cShard').value.trim() || '1'); let priv = $('cPriv').value.trim()
       const errs = []
-      if (!name || /[\\/:*?"<>|]/.test(name)) errs.push(T('errName'))
+      if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) errs.push(T('errName'))
       if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
       if (pw !== pw2) errs.push(T('pwMismatch'))
       if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
@@ -707,15 +771,46 @@
         else { const addr = client.getAddressFromPriKey(priv, shard); if (st.accounts.some(x => x.pubkey === addr)) { $('cErr').textContent = T('errExist'); return } }
       } catch (e) { $('cErr').textContent = T('errKey'); return }
       $('cGo').disabled = true; $('cErr').innerHTML = '<span class="spin"></span>'
-      const file = name + '.' + Date.now()
+      const no = name ? 0 : nextNo()
+      const file = (name || 'account' + no) + '.' + Date.now()
       try {
         await client.keyStore(file, priv, pw, shard)
+        if (name) ui.names[file] = name; else ui.accNo[file] = no
+        saveUi()
         client.rememberEvmAddress(file, priv)
         priv = null
         st.sel = file; localStorage.setItem('selAcc112', file)
         closeModal(); toast(T('createOk')); refreshS0(); refreshOld()
       } catch (e) { $('cErr').textContent = String(e.message || e); $('cGo').disabled = false }
     }
+  }
+  function renameModal (f) {
+    const a = accByFile(f); if (!a) return
+    modal(`<div class="mh">${avatar(accLabel(a))}<h2>${esc(T('renameTitle'))}</h2></div>
+      <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="rnName" maxlength="40" value="${esc(accLabel(a))}"></div>
+      <div class="lbl">${esc(T('renameNote'))}</div>
+      <div class="err" id="rnErr"></div>
+      <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="rnGo">${esc(T('save'))}</button></div>`)
+    const go = () => {
+      const v = $('rnName').value.trim()
+      if (v.length > 40 || /[\u0000-\u001f<>]/.test(v)) { $('rnErr').textContent = T('errName'); return }
+      if (v && !(ui.accNo[f] && v === T('accountN', { n: ui.accNo[f] }))) ui.names[f] = v
+      else { delete ui.names[f]; if (!ui.accNo[f] && (!v || needsNo(f))) ui.accNo[f] = nextNo() }
+      saveUi(); closeModal(); toast(T('renameOk')); render()
+    }
+    $('rnGo').onclick = go; $('rnName').onkeydown = (e) => { if (e.key === 'Enter') go() }
+    setTimeout(() => { const i = $('rnName'); if (i) { i.focus(); i.select() } }, 30)
+  }
+  function useOtherAddr (id) {
+    const inp = $(id + '-in'); const raw = inp ? inp.value.trim() : ''
+    let addr = ''
+    try { addr = require('ethers').getAddress(raw) } catch (e) { addr = '' }
+    if (!addr || /^0x0{40}$/.test(addr)) { toast(T('errRewardAddr'), 5000); return }
+    if (!ui.rewardExtra.some(x => x.toLowerCase() === addr.toLowerCase())) ui.rewardExtra.push(addr)
+    saveUi()
+    localStorage.setItem(id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
+    if (st.otherOpen) st.otherOpen[id] = false
+    toast('✔ ' + addr); render()
   }
   async function importKeyfiles () {
     const r = await ipcRenderer.invoke('dialog:open', { properties: ['openFile', 'multiSelections'] })
@@ -755,9 +850,9 @@
     const nonZero = (s0b && s0b.nativeWei != null && s0b.nativeWei > 0n) || (s0b && (s0b.tokens || []).some(t => t.raw != null && t.raw > 0n)) || (oldb != null && oldb > 0)
     const balLine = `${esc(T('newChainShort'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('oldChainShort'))}${PU.c()}${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
     modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delTitle'))}</h2></div>
-      <div class="infobox"><div style="font-size:21px;font-weight:700" class="wrap">${esc(a.filename)}</div>
+      <div class="infobox"><div style="font-size:21px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
         <div class="lbl">${esc(T('newAddrLabel'))}</div><div class="mono">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>
-        <div class="lbl">${esc(T('oldAddrLabel'))} · ${esc(T('shardN', { n: a.shard }))}</div><div class="mono">${esc(a.pubkey)}</div>
+        <div class="lbl">${esc(T('oldAddrLabel', { n: a.shard }))}</div><div class="mono">${esc(a.pubkey)}</div>
         <div style="margin-top:8px;font-size:18px">${balLine}</div></div>
       ${nonZero ? `<div class="warnbox" style="background:#fdecec;border-color:#e53935;color:#b71c1c;font-weight:700">⚠ ${esc(T('delHasBal'))}</div>` : ''}
       <div class="warnbox">${esc(T('delWarn'))}</div>
@@ -785,7 +880,7 @@
       const has = (fresh0 && (fresh0.nativeWei > 0n || fresh0.tokens.some(t => t.raw != null && t.raw > 0n))) || (freshOld != null && freshOld > 0)
       const tokLine = fresh0 ? fresh0.tokens.filter(t => t.raw != null && t.raw > 0n).map(t => fmtNum(t.balance) + ' ' + t.symbol).join(PU.com()) : ''
       modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delConfirmTitle'))}</h2></div>
-        <div style="font-size:21px" class="wrap">${esc(T('delConfirmText', { n: a2.filename }))}</div>
+        <div style="font-size:21px" class="wrap">${esc(T('delConfirmText', { n: accLabel(a2) }))}</div>
         <div class="infobox" style="font-size:19px">${esc(T('newChainShort'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('oldChainShort'))}${PU.c()}${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
         ${has ? `<div class="warnbox" style="background:#fdecec;border-color:#e53935;color:#b71c1c;font-weight:700;font-size:20px">⚠ ${esc(T('delHasBal'))}</div>` : ''}
         <div class="infobox">${esc(T('delBackup'))}<div class="mono" style="font-size:16px">${esc(paths.today)}</div></div>
@@ -831,7 +926,7 @@
   function backupPickModal () {
     const l = st.accounts
     modal(`<div class="mh"><h2>${esc(T('backupKeyfile'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(a.filename)}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(a.filename)}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
+      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(accLabel(a))}</div><div class="lbl" style="font-size:15px">${esc(T('keyfileName'))}${PU.c()}${esc(a.filename)}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 820, noFocus: true })
   }
 
@@ -854,7 +949,7 @@
     return st.gpu
   }
   async function mineStart () {
-    const sel = $('mReward'); if (!sel || !sel.value) { toast(T('noRewardAddr')); return }
+    const sel = $('mReward'); if (!sel || !/^0x[0-9a-fA-F]{40}$/.test(sel.value)) { toast(T('pickAddr')); return }
     const wallet = sel.value; localStorage.setItem('minerReward', wallet)
     if (process.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
       localStorage.setItem('defenderAsked112', '1')
@@ -866,7 +961,8 @@
   }
   async function nodeStart () {
     const sel = $('nPayout')
-    const payout = sel ? sel.value : payoutDefault()
+    let payout = sel ? sel.value : payoutDefault()
+    if (!/^0x[0-9a-fA-F]{40}$/.test(payout || '')) payout = ''
     if (payout) localStorage.setItem('nodePayout', payout)
     const r = await ipcRenderer.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(r.error || r.code, 7000); return }
@@ -895,12 +991,13 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'netMenu') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; st.tab = v; localStorage.setItem('tab112', v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
+      case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; setTab(v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') { st.tab = 'home'; localStorage.setItem('tab112', 'home') } render(); break
-      case 'pickNet': st.tab = v === 'old' ? 'old' : (st.tab === 'old' ? 'home' : st.tab); localStorage.setItem('tab112', st.tab); render(); if (v === 'old') refreshOld(); else refreshS0(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') setTab('home'); render(); break
+      case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
+      case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'lang': setLang(v); break
       case 'settings': settingsModal(); break
       case 'copy': copyText(v); break
@@ -914,6 +1011,8 @@
       case 'unhide': setHidden(el.getAttribute('data-chain') || 'new', f, false); break
       case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { $('modalRoot').innerHTML = ''; render(); settingsModal() } else render(); break
       case 'delete': deleteModal(f); break
+      case 'rename': renameModal(f); break
+      case 'useOtherAddr': useOtherAddr(v); break
       case 'closeModal': closeModal(); break
       case 'openTx': openExternal(shard0().explorerTx(v)); break
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
@@ -927,6 +1026,14 @@
       case 'openLogs': ipcRenderer.invoke('miner:openLogs'); break
       case 'defender': { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
     }
+  })
+  document.addEventListener('change', (ev) => {
+    const t = ev.target; if (!t || (t.id !== 'mReward' && t.id !== 'nPayout')) return
+    st.otherOpen = st.otherOpen || {}
+    const row = $(t.id + '-oth')
+    if (t.value === '__other') { st.otherOpen[t.id] = true; if (row) row.style.display = 'flex'; const i = $(t.id + '-in'); if (i) i.focus(); return }
+    st.otherOpen[t.id] = false; if (row) row.style.display = 'none'
+    if (/^0x[0-9a-fA-F]{40}$/.test(t.value)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', t.value)
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
@@ -942,7 +1049,7 @@
   window.toggleTooltip = () => {}
 
   // ---------------- boot ----------------
-  let APPVER = '1.1.3'
+  let APPVER = '1.1.4'
   ipcRenderer.on('miner:status', (e, m) => onMinerStatus(m))
   async function boot () {
     try { const info = await ipcRenderer.invoke('app:info'); if (info && info.version) APPVER = info.version } catch (e) {}
