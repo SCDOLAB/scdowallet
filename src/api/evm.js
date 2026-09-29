@@ -101,6 +101,26 @@ class Shard0 {
     })
   }
 
+  // Fee preview for the send flow (no key needed): same gas/fee rules as prepare().
+  // -> { gasLimit, maxFeePerGas, baseFee, tip, maxFeeWei (upper bound), estFeeWei (likely) }
+  async estimateSend (from, to, amount, asset) {
+    let req
+    if (!asset || asset === 'SCDO') req = { from, to, value: ethers.parseEther(String(amount || '0')) }
+    else {
+      const t = this.token(asset); if (!t) throw new Error('unknown token ' + asset)
+      const iface = new ethers.Interface(ERC20)
+      req = { from, to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(String(amount || '0'), t.decimals)]) }
+    }
+    const [fee, block] = await Promise.all([this.provider.getFeeData(), this.provider.getBlock('latest')])
+    let gas
+    try { gas = await this.provider.estimateGas(req) } catch (e) { gas = (!asset || asset === 'SCDO') ? 21000n : 65000n }
+    const tip = fee.maxPriorityFeePerGas && fee.maxPriorityFeePerGas > 0n ? fee.maxPriorityFeePerGas : 1000000000n
+    const base = block && block.baseFeePerGas != null ? block.baseFeePerGas : (fee.gasPrice || 1000000000n)
+    const gasLimit = gas * 12n / 10n
+    const maxFeePerGas = base * 2n + tip
+    return { gasLimit, maxFeePerGas, baseFee: base, tip, maxFeeWei: gasLimit * maxFeePerGas, estFeeWei: gas * (base + tip) }
+  }
+
   async waitReceipt (hash, timeoutMs) {
     return this.provider.waitForTransaction(hash, 1, timeoutMs || 180000)
   }

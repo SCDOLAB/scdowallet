@@ -64,12 +64,53 @@ function getMiner () {
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   try { await getMiner().start(wallet, opts || {}); return { ok: true } } catch (err) { return { ok: false, error: err.message, code: err.code } }
 })
+ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async () => { if (miner) await miner.stop(); return { ok: true } })
 ipcMain.handle('miner:status', () => getMiner().status())
 ipcMain.handle('miner:defender', async () => {
   try { await getMiner().defenderExclusion(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
 })
 ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dataRoot, 'logs')))
+
+// ---------------- keyfile backup + delete (1.1.2) ----------------
+// Never lose a keyfile: copy it to Documents\ScdoWallet\备份\<YYYY-MM-DD>\, read the copy back and compare
+// SHA-256 with the original, and only then remove the original. Any failure aborts before deletion.
+const crypto = require('crypto')
+const os = require('os')
+function backupRoot () { return path.join(app.getPath('documents'), 'ScdoWallet', '备份') }
+function keyfileDir () { return path.join(os.homedir(), '.ScdoWallet', 'account') }
+function localDate () { const d = new Date(); const z = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) }
+function sha256 (buf) { return crypto.createHash('sha256').update(buf).digest('hex') }
+function safeKeyfileName (name) {
+  if (typeof name !== 'string' || !name || name !== path.basename(name) || name === '.' || name === '..' || /[\\/]/.test(name)) throw new Error('invalid keyfile name')
+  return name
+}
+function backupKeyfile (name) {
+  name = safeKeyfileName(name)
+  const src = path.join(keyfileDir(), name)
+  const orig = fs.readFileSync(src)
+  const dir = path.join(backupRoot(), localDate())
+  fs.mkdirSync(dir, { recursive: true })
+  let dst = path.join(dir, name); let i = 1
+  while (fs.existsSync(dst)) dst = path.join(dir, name + '.' + (i++))
+  const fd = fs.openSync(dst, 'wx', 0o600)
+  try { fs.writeSync(fd, orig); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  const back = fs.readFileSync(dst)
+  if (back.length !== orig.length || sha256(back) !== sha256(orig)) throw new Error('backup verification failed – keyfile NOT deleted')
+  return { src, dst, sha256: sha256(orig) }
+}
+ipcMain.handle('keyfile:paths', () => ({ backupRoot: backupRoot(), keyfileDir: keyfileDir(), today: path.join(backupRoot(), localDate()) }))
+ipcMain.handle('keyfile:backupDelete', (e, name) => {
+  let b
+  try { b = backupKeyfile(name) } catch (err) { return { ok: false, stage: 'backup', error: err.message } }
+  try { fs.unlinkSync(b.src) } catch (err) { return { ok: false, stage: 'delete', error: err.message, backup: b.dst } }
+  return { ok: true, backup: b.dst, sha256: b.sha256 }
+})
+ipcMain.handle('keyfile:backupOnly', (e, name) => {
+  try { const b = backupKeyfile(name); return { ok: true, backup: b.dst } } catch (err) { return { ok: false, error: err.message } }
+})
+ipcMain.handle('keyfile:openBackups', () => { fs.mkdirSync(backupRoot(), { recursive: true }); return shell.openPath(backupRoot()) })
+ipcMain.handle('menu:rebuild', () => { if (mainWindow) createMenu(mainWindow); return true })
 
 let mainWindow
 
@@ -91,8 +132,11 @@ function createWindow () {
   const sc = new ScdoClient()
   sc.init()
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 1050,
+    width: 1280,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 700,
+    backgroundColor: '#f3f5ff',
     icon: path.join(__dirname, 'src', 'img', 'app-icon.png'), // build/ is not packaged by electron-builder
     resizable: true,
     title: 'ScdoWalletBeta ' + app.getVersion(),
