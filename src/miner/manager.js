@@ -103,6 +103,13 @@ function extractZip (zipPath, destDir) {
   })
 }
 
+// keep log files bounded: a miner runs for weeks and geth/proxy/wallet logs grow ~100 MB/day otherwise
+const LOG_MAX = 20 * 1024 * 1024
+function rotateIfBig (file, max) {
+  try { if (fs.statSync(file).size > (max || LOG_MAX)) { try { fs.unlinkSync(file + '.1') } catch (e) {} fs.renameSync(file, file + '.1'); return true } } catch (e) {}
+  return false
+}
+
 class MinerManager extends EventEmitter {
   // opts: { binDir, genesis, dataRoot, platform, rigelExe (override, tests), refRpc }
   constructor (opts) {
@@ -113,6 +120,8 @@ class MinerManager extends EventEmitter {
     this.logDir = path.join(this.o.dataRoot, 'logs')
     this.minerDir = path.join(this.o.dataRoot, 'miner')
     this.procs = {}
+    this.logStreams = {}
+    this.logLines = 0
     this.restarts = {}
     this.wantRunning = false
     this.state = this.freshState()
@@ -136,7 +145,9 @@ class MinerManager extends EventEmitter {
     if (!line) return
     const l = new Date().toTimeString().slice(0, 8) + ' [' + src + '] ' + line
     this.state.logTail.push(l); if (this.state.logTail.length > 200) this.state.logTail.shift()
-    try { fs.appendFileSync(path.join(this.logDir, 'wallet-miner.log'), l + '\n') } catch (e) {}
+    const wf = path.join(this.logDir, 'wallet-miner.log')
+    if (++this.logLines % 500 === 0) rotateIfBig(wf)
+    try { fs.appendFileSync(wf, l + '\n') } catch (e) {}
     this.parseLine(src, line)
     this.emit('log', l)
   }
@@ -209,17 +220,19 @@ class MinerManager extends EventEmitter {
   spawnChild (name, cmd, args) {
     const p = spawn(cmd, args, { cwd: this.o.dataRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     this.procs[name] = p
-    const logf = fs.createWriteStream(path.join(this.logDir, name + '.log'), { flags: 'a' })
+    const lf = path.join(this.logDir, name + '.log')
+    rotateIfBig(lf)
+    const logf = this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
     let buf = { out: '', err: '' }
     const onData = (k) => (d) => {
-      logf.write(d); buf[k] += d.toString()
+      const ls = this.logStreams[name]; if (ls) ls.write(d); buf[k] += d.toString()
       const lines = buf[k].split(/\r?\n/); buf[k] = lines.pop()
       lines.forEach(l => this.log(name, l))
     }
     p.stdout.on('data', onData('out')); p.stderr.on('data', onData('err'))
     p.on('error', e => this.log(name, 'spawn error: ' + e.message))
     p.on('exit', (code, sig) => {
-      logf.end(); if (this.procs[name] === p) this.procs[name] = null
+      if (this.procs[name] === p) { const ls = this.logStreams[name]; if (ls) ls.end(); this.logStreams[name] = null; this.procs[name] = null } else logf.end()
       this.log(name, 'exited (code ' + code + (sig ? ', ' + sig : '') + ')')
       if (this.wantRunning) this.scheduleRestart(name, code)
     })
@@ -253,7 +266,11 @@ class MinerManager extends EventEmitter {
   startGeth () {
     const w = this.state.wallet
     return this.spawnChild('geth', this.bin('geth'), [
-      '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--port', String(PORTS.p2p),
+      // --gcmode archive: write the state of every block to disk at once. On Windows we can only hard-kill geth
+      // (taskkill /F), and in the default "full" mode the in-memory state is then lost: the node rewinds to
+      // block 0 ("Head state missing") and can only recover via snap sync from a peer that is AHEAD of it,
+      // i.e. a lone/main miner restarting would deadlock the chain. SCDO blocks are tiny, so archive is cheap.
+      '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--gcmode', 'archive', '--port', String(PORTS.p2p),
       '--bootnodes', BOOTNODE,
       '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,miner',
       '--authrpc.port', String(PORTS.auth), '--ipcdisable',
@@ -266,8 +283,8 @@ class MinerManager extends EventEmitter {
   startProxy () {
     return this.spawnChild('proxy', this.bin('scdo-stratum'), [
       '-rpc', 'http://127.0.0.1:' + PORTS.http, '-listen', '127.0.0.1:' + PORTS.stratum,
-      '-autostart', '-ref-rpc', this.o.refRpc, '-log', path.join(this.logDir, 'proxy.log')
-    ])
+      '-autostart', '-ref-rpc', this.o.refRpc
+    ]) // stdout/stderr are captured into logs/proxy.log by spawnChild (passing -log too wrote every line twice)
   }
 
   startRigel () {
@@ -306,8 +323,18 @@ class MinerManager extends EventEmitter {
     }
   }
 
+  rotateChildLogs () {
+    for (const name of Object.keys(this.logStreams)) {
+      const ls = this.logStreams[name]; if (!ls) continue
+      const lf = path.join(this.logDir, name + '.log')
+      try { if (fs.statSync(lf).size <= LOG_MAX) continue } catch (e) { continue }
+      ls.end(); rotateIfBig(lf); this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
+    }
+  }
+
   async poll () {
     if (!this.wantRunning) return
+    if (!this.lastRotate || Date.now() - this.lastRotate > 300000) { this.lastRotate = Date.now(); this.rotateChildLogs() }
     const L = 'http://127.0.0.1:' + PORTS.http
     let bn, peers, mining
     try {

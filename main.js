@@ -93,7 +93,7 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 1050,
-    icon: path.join(__dirname, 'build', 'icon.png'),
+    icon: path.join(__dirname, 'src', 'img', 'app-icon.png'), // build/ is not packaged by electron-builder
     resizable: true,
     title: 'ScdoWalletBeta ' + app.getVersion(),
     webPreferences: {
