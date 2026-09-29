@@ -1,4 +1,4 @@
-// ScdoWalletBeta 1.1.2 renderer: new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
+// ScdoWalletBeta 1.1.3 renderer (1.1.3: MetaMask-style asset dropdown on the Send page): new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
 // account switcher at the top, big balance, Receive / Send action row, assets + activity, network selector,
 // settings gear. Uses the existing APIs: src/api/scdoClient.js (keyfiles, old chain), src/api/evm.js (shard0),
 // main-process IPC for the miner and for keyfile backup + delete.
@@ -186,17 +186,56 @@
       <button class="link" style="font-size:20px" data-act="tab" data-v="old">${esc(T('viewOld'))}</button></div>`
     return `<div class="page">${top}${lower}${oldBox}</div>`
   }
-  function assetsHtml (a) {
-    const b = st.s0[a.filename] || {}
-    const rows = [`<div class="asset"><div class="ai"><img src="./src/img/app-icon.png" alt=""></div><div><div class="an">SCDO</div><div class="lbl">${esc(T('assetScdo'))}</div></div>
-      <div class="av">${b.nativeWei != null ? esc(fmtWei(b.nativeWei)) : '…'} <span class="lbl">SCDO</span></div></div>`]
-    const toks = (b.tokens && b.tokens.length) ? b.tokens : (shard0().cfg.tokens || []).map(t => ({ symbol: t.symbol, balance: null }))
-    const colors = { tUSDT: '#26a17b', tAUD: '#e8a317' }
-    toks.forEach(t => rows.push(`<div class="asset"><div class="ai" style="background:${colors[t.symbol] || '#8a8fa8'}">${esc(String(t.symbol).slice(1, 3))}</div>
-      <div><div class="an">${esc(t.symbol)}</div><div class="lbl">${esc(T('assetTest'))}</div></div>
-      <div class="av">${t.balance == null ? '…' : esc(t.balance === '?' ? '?' : fmtNum(t.balance, t.decimals))} <span class="lbl">${esc(t.symbol)}</span></div></div>`))
-    return rows.join('')
+  // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
+  const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
+  function assetIconHtml (sym) {
+    if (sym === 'SCDO') return '<div class="ai"><img src="./src/img/app-icon.png" alt=""></div>'
+    return `<div class="ai" style="background:${TOKEN_COLORS[sym] || '#8a8fa8'}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
   }
+  // -> [{ symbol, name, bal: formatted balance | null (unknown yet) }]
+  function chainAssets (a) {
+    const b = (a && st.s0[a.filename]) || {}
+    const out = [{ symbol: 'SCDO', name: T('assetScdo'), bal: b.nativeWei != null ? fmtWei(b.nativeWei) : null }]
+    for (const t of (shard0().cfg.tokens || [])) {
+      const bt = (b.tokens || []).find(x => x.symbol === t.symbol)
+      out.push({ symbol: t.symbol, name: T('assetTest'), bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
+    }
+    return out
+  }
+  function assetsHtml (a) {
+    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
+      <div class="av">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div></div>`).join('')
+  }
+  // MetaMask-style asset dropdown used on the Send page: the button shows icon + symbol + balance of the chosen asset,
+  // the menu lists every asset of the current chain (SCDO first) with icon, symbol, name and balance.
+  function assetPickerHtml (a, cur) {
+    const x = chainAssets(a).find(z => z.symbol === cur) || chainAssets(a)[0]
+    return `<div class="assetsel" id="assetSel"><button type="button" class="assetbtn" id="assetBtn" aria-haspopup="listbox" aria-expanded="false" title="${esc(T('selectAsset'))}">
+      ${assetIconHtml(x.symbol)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
+      <div class="assetlist" id="assetList" role="listbox" hidden></div></div>`
+  }
+  function wireAssetPicker (a, getCur, onPick) {
+    const btn = $('assetBtn'); const list = $('assetList'); if (!btn || !list) return
+    const close = () => { list.hidden = true; btn.setAttribute('aria-expanded', 'false') }
+    const open = () => {
+      const cur = getCur()
+      list.innerHTML = `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
+        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol)}
+          <div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
+          <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join('')
+      list.hidden = false; btn.setAttribute('aria-expanded', 'true')
+      try { list.scrollIntoView({ block: 'nearest' }) } catch (e) {}
+      const on = list.querySelector('.ait.on') || list.querySelector('.ait'); if (on) on.focus()
+      list.querySelectorAll('[data-pick]').forEach(it => { it.onclick = (e) => { e.stopPropagation(); close(); const v = it.getAttribute('data-pick'); if (v !== getCur()) onPick(v); else btn.focus() } })
+    }
+    btn.onclick = (e) => { e.stopPropagation(); if (list.hidden) open(); else close() }
+    list.onkeydown = (e) => {
+      const items = [...list.querySelectorAll('.ait')]; const i = items.indexOf(document.activeElement)
+      if (e.key === 'ArrowDown') { e.preventDefault(); (items[i + 1] || items[0]).focus() } else if (e.key === 'ArrowUp') { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus() }
+    }
+    $('md').addEventListener('mousedown', (e) => { if (!list.hidden && !e.target.closest('#assetSel')) close() })
+  }
+  window.__closeAssetList = () => { const l = $('assetList'); if (l && !l.hidden) { l.hidden = true; const b = $('assetBtn'); if (b) { b.setAttribute('aria-expanded', 'false'); b.focus() } return true } return false }
   function activityHtml (a) {
     const l = s0txAll().filter(r => r.from && a.evm && r.from.toLowerCase() === a.evm.toLowerCase()).slice(0, 30)
     let h = ''
@@ -470,13 +509,12 @@
     const head = (i) => `<div class="mh"><h2>${esc(T('sendTitle'))}</h2>${stepsHtml(i)}</div>`
     const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(a.filename)}</b><div class="mono">${esc(a.evm)}</div></div>`
     function step1 () {
-      const toks = ['SCDO'].concat((shard0().cfg.tokens || []).map(t => t.symbol))
       modal(`${head(0)}${fromLine}
-        <div class="field"><div class="lbl">${esc(T('asset'))}</div><div class="seg">${toks.map(t => `<button class="${t === s.asset ? 'on' : ''}" data-asset="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>
+        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
         <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPh'))}" value="${esc(s.to)}"></div>
         <div class="err" id="sErr"></div>
         <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      $('md').querySelectorAll('[data-asset]').forEach(b => { b.onclick = () => { s.to = $('sTo').value.trim(); s.asset = b.getAttribute('data-asset'); step1() } })
+      wireAssetPicker(a, () => s.asset, (v) => { s.to = $('sTo').value.trim(); s.asset = v; s.amount = ''; s.fee = null; step1() })
       const go = () => {
         const to = $('sTo').value.trim()
         if (/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { $('sErr').textContent = T('errOldAddrToNew'); return }
@@ -493,12 +531,14 @@
     function feeText () { return s.fee ? T('feeAbout', { v: fmtWei(s.fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(s.fee.maxFeeWei, 8) }) + PU.r() : '…' }
     function step2 () {
       modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>
+        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
         <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}${esc(s.asset)}${PU.r()}</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
         <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
         <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeText())}</div></div>
         <div class="err" id="sErr"></div>
         <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
       estimate().then(() => { const e = $('sFee'); if (e) e.textContent = feeText() })
+      wireAssetPicker(a, () => s.asset, (v) => { s.asset = v; s.amount = ''; s.fee = null; step2() })
       $('sBack').onclick = () => { s.amount = $('sAmt').value.trim(); step1() }
       $('sMax').onclick = async () => {
         const b = bal()
@@ -890,7 +930,7 @@
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { if ($('dd')) closeDd(); else if ($('md')) closeModal() }
+    if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; if ($('dd')) closeDd(); else if ($('md')) closeModal() }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'homePw') { const b = document.querySelector('[data-act=unlock][data-in=homePw]'); if (b) b.click() }
   })
 
@@ -902,7 +942,7 @@
   window.toggleTooltip = () => {}
 
   // ---------------- boot ----------------
-  let APPVER = '1.1.2'
+  let APPVER = '1.1.3'
   ipcRenderer.on('miner:status', (e, m) => onMinerStatus(m))
   async function boot () {
     try { const info = await ipcRenderer.invoke('app:info'); if (info && info.version) APPVER = info.version } catch (e) {}

@@ -1,4 +1,4 @@
-// ScdoWalletBeta 1.1.2 UI strings (中文 / English).
+// ScdoWalletBeta 1.1.2/1.1.3 UI strings (中文 / English).
 // Chinese wording reuses the existing 1.1.1 terms where they exist (src/json/lang.json, translations/CN.json,
 // shard0.js): 账户 / 创建账户 / 导入账户文件 / 账户文件密码 / 复制 / 发送 / 交易记录 / 片 / 取消 / 确认 / 算力 / 收益地址 ...
 /* eslint-disable quote-props */
@@ -61,7 +61,7 @@ window.I18N112 = {
     receiveOld: '这是老链（分片 {n}）地址。只用来接收老链分片 {n} 的 SCDO。', copyAddress: '复制地址', done: '完成', close: '关闭',
     // send
     sendTitle: '发送', sendOldTitle: '老链发送（分片 {n}）', stepAddr: '收款地址', stepAmount: '数量', stepReview: '确认', stepResult: '结果',
-    from: '从', to: '收款地址', asset: '币种', toPh: '粘贴收款人的 0x 地址', toPhOld: '粘贴收款人的老链地址（{n}S0…）',
+    from: '从', to: '收款地址', asset: '币种', selectAsset: '选择币种', balanceIs: '余额：{v}', toPh: '粘贴收款人的 0x 地址', toPhOld: '粘贴收款人的老链地址（{n}S0…）',
     next: '下一步', back: '上一步', cancel: '取消', confirmSend: '确认发送', max: '最大',
     available: '可用：{v}', amount: '数量', fee: '网络手续费（预估）', feeAbout: '约 {v} SCDO', feeMax: '最多 {v} SCDO', total: '合计',
     errAddr: '地址不对：新链地址是 0x 开头的 42 位字符。', errOldAddrToNew: '这是老链地址。新链只能转到 0x 开头的地址。',
@@ -91,7 +91,7 @@ window.I18N112 = {
     setLang: '语言 / Language', setAccounts: '账户', backupKeyfile: '备份账户文件', backupPick: '选择要备份的账户：', backupOk: '已备份到：{p}',
     openBackups: '打开备份文件夹', setAdvanced: '高级', rpcNew: '新链节点', rpcOld: '老链节点（分片 {n}）', keyfileDir: '账户文件位置',
     about: '关于', version: '版本 {v}（2026-09-29）',
-    changes: '1.1.2 更新：界面重新设计（大字、少按钮）；新链 / 老链分开；账户可以隐藏和删除（删除前自动备份）；挖矿页自动检测 NVIDIA 显卡，没有显卡可以只运行节点；停止挖矿时安全保存区块数据；中文 / English 切换。',
+    changes: '1.1.3 更新：发送页的币种改为下拉菜单（显示图标、代币符号和余额，SCDO 在最前，其后是当前网络的代币）。1.1.2 更新：界面重新设计（大字、少按钮）；新链 / 老链分开；账户可以隐藏和删除（删除前自动备份）；挖矿页自动检测 NVIDIA 显卡，没有显卡可以只运行节点；停止挖矿时安全保存区块数据；中文 / English 切换。',
     // mining
     mineTitle: '挖矿', detecting: '正在检测显卡…',
     gpuYes: '检测到 NVIDIA 显卡', gpuName: '显卡：{n}', rewardAddr: '收益地址（新链 0x 地址）', noRewardAddr: '还没有可用的新链地址：请先在「新链 shard0 账户」页输入密码查看地址。',
@@ -169,7 +169,7 @@ window.I18N112 = {
     receiveTitle: 'Receive', receiveNew: 'This is a new chain shard0 address (chainId 5680). Use it only for new-chain SCDO and tokens; old-chain addresses cannot receive new-chain assets.',
     receiveOld: 'This is an old-chain (shard {n}) address. Use it only for old-chain shard {n} SCDO.', copyAddress: 'Copy address', done: 'Done', close: 'Close',
     sendTitle: 'Send', sendOldTitle: 'Send on the old chain (shard {n})', stepAddr: 'Address', stepAmount: 'Amount', stepReview: 'Review', stepResult: 'Status',
-    from: 'From', to: 'To', asset: 'Asset', toPh: 'Paste the recipient\'s 0x address', toPhOld: 'Paste the recipient\'s old-chain address ({n}S0…)',
+    from: 'From', to: 'To', asset: 'Asset', selectAsset: 'Select asset', balanceIs: 'Balance: {v}', toPh: 'Paste the recipient\'s 0x address', toPhOld: 'Paste the recipient\'s old-chain address ({n}S0…)',
     next: 'Next', back: 'Back', cancel: 'Cancel', confirmSend: 'Confirm & send', max: 'Max',
     available: 'Available: {v}', amount: 'Amount', fee: 'Network fee (estimate)', feeAbout: 'about {v} SCDO', feeMax: 'at most {v} SCDO', total: 'Total',
     errAddr: 'Invalid address: a new-chain address is 0x followed by 40 characters.', errOldAddrToNew: 'That is an old-chain address. The new chain can only send to 0x addresses.',
@@ -196,7 +196,7 @@ window.I18N112 = {
     setLang: '语言 / Language', setAccounts: 'Accounts', backupKeyfile: 'Back up a keyfile', backupPick: 'Choose the account to back up:', backupOk: 'Backed up to: {p}',
     openBackups: 'Open backup folder', setAdvanced: 'Advanced', rpcNew: 'New chain node', rpcOld: 'Old chain node (shard {n})', keyfileDir: 'Keyfile folder',
     about: 'About', version: 'Version {v} (2026-09-29)',
-    changes: '1.1.2: redesigned UI (big text, fewer buttons); new and old chain separated; accounts can be hidden and deleted (automatic backup first); the Mining tab detects an NVIDIA GPU and offers node-only mode otherwise; Stop now shuts the node down safely; 中文 / English switch.',
+    changes: '1.1.3: the Send page picks the asset from a dropdown (icon, symbol and balance; SCDO first, then the tokens of the current network). 1.1.2: redesigned UI (big text, fewer buttons); new and old chain separated; accounts can be hidden and deleted (automatic backup first); the Mining tab detects an NVIDIA GPU and offers node-only mode otherwise; Stop now shuts the node down safely; 中文 / English switch.',
     mineTitle: 'Mining', detecting: 'Checking the graphics card…',
     gpuYes: 'NVIDIA GPU detected', gpuName: 'GPU: {n}', rewardAddr: 'Reward address (new chain 0x address)', noRewardAddr: 'No new-chain address yet: enter the password on the "New chain (shard0)" tab to show one.',
     hashrate: 'Hashrate', hashrateHint: '(live while mining)', blocksFound: 'Blocks found by this PC', localNet: 'Local / network block', peers: 'Peers', nodeState: 'Node status',
