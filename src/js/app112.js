@@ -795,7 +795,7 @@
       const v = $('rnName').value.trim()
       if (v.length > 40 || /[\u0000-\u001f<>]/.test(v)) { $('rnErr').textContent = T('errName'); return }
       if (v && !(ui.accNo[f] && v === T('accountN', { n: ui.accNo[f] }))) ui.names[f] = v
-      else { delete ui.names[f]; if (!ui.accNo[f] && (!v || needsNo(f))) ui.accNo[f] = nextNo() }
+      else { delete ui.names[f]; if (needsNo(f)) { if (!ui.accNo[f]) ui.accNo[f] = nextNo() } else delete ui.accNo[f] } // empty = default: file name, or 账户 N for unnamed files
       saveUi(); closeModal(); toast(T('renameOk')); render()
     }
     $('rnGo').onclick = go; $('rnName').onkeydown = (e) => { if (e.key === 'Enter') go() }
