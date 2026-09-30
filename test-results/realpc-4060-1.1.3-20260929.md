@@ -16,4 +16,4 @@ All 11 accounts kept. Installer SHA256 fdf0e0eb3c1d40c26c2d935bc55cd9a0ade359db5
 | T14 upgrade 1.1.2 -> 1.1.3 from public URL (hash OK, backup C:\SCDO\backups\wallet-20260929-190007 T14-local time) | PASS |
 
 Screenshots: /workspace/scdo-shots/wallet-113-4060/
-Download: https://scdoscan.io/downloads/wallet/ScdoWalletBeta-1.1.3-win-x64-setup.exe (served from 104.254.244.44)
+Download: https://scdoscan.io/downloads/wallet/ScdoWalletBeta-1.1.3-win-x64-setup.exe (served from scdoscan.io)
