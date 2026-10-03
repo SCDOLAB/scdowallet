@@ -1,5 +1,7 @@
 # ScdoWallet
 
+[![Telegram](https://img.shields.io/badge/Telegram-@SCDOLabor-26A5E4?logo=telegram&logoColor=white)](https://t.me/SCDOLabor)
+
 ![icon](build/icon.ico)
 
 ## Latest: ScdoWallet 1.1.6 (October 2026)
