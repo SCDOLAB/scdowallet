@@ -439,7 +439,7 @@
       const ext = m.phase === 'external' && running
       const extOk = ext && m.code !== 'EXTERNAL_DOWN'
       // external node answering: one green line only (no separate status bar that could contradict it)
-      if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">✅ ${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
+      if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
       h += ext ? `<div class="lbl" style="margin-top:8px">${esc(T('extPayout'))}</div>` : payoutField(m, running)
       h += `${extOk ? '' : statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap">
