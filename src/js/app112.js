@@ -12,6 +12,8 @@
   const ScdoClient = require('./src/api/scdoClient.js')
   const { Shard0 } = require('./src/api/evm.js')
   const { ethers } = require('ethers')
+  const { miningGpuReady, readyNvidiaNames } = require('./src/miner/gpuSelect.js')
+  const Remit = require('./src/api/remit.js')
 
   const client = window.client = new ScdoClient()
   const UI_PATH = path.join(os.homedir(), '.ScdoWallet', 'ui112.json')
@@ -70,7 +72,7 @@
   }
   // Network shown in the top-right selector: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards; ui.shard = 1..4 (one shard) or 0 (all four).
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['home', 'new', 'old', 'mine']
+  const TABS = ['home', 'new', 'old', 'mine', 'remit']
   let tab0 = TABS.includes(ui.tab) ? ui.tab : (localStorage.getItem('tab112') || 'home')
   if (!TABS.includes(tab0)) tab0 = 'home'
   if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
@@ -86,7 +88,8 @@
     s0: {}, // filename -> { nativeWei, tokens, err }
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
-    miner: null, gpu: null, logOpen: false
+    miner: null, gpu: null, logOpen: false,
+    remit: { phase: 'idle', error: '', address: '', token: '', ledger: null }
   }
   let s0 = null
   function shard0 () {
@@ -159,7 +162,7 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining keeps it
+  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining and Remittance keep it
   function setTab (v) {
     st.tab = TABS.includes(v) ? v : 'home'
     if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
@@ -167,7 +170,8 @@
   }
   function setNet (v, shard) {
     const net = v === 'old' ? 'old' : 'new'
-    if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab === 'mine' ? 'mine' : st.tab)
+    // Mining and Remittance stay put when the EVM network is re-selected; Classic still opens the Classic tab.
+    if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab)
     ui.net = net; saveUi()
   }
   const netOldName = () => ui.shard ? T('netOld', { n: ui.shard }) : T('netOldAll')
@@ -189,7 +193,7 @@
       <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
       <div class="lang"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN" id="langCN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN" id="langEN">English</button></div>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`
-    const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine']]
+    const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
     $('tabs').innerHTML = tabs.map(([k, l]) => `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" id="tab-${k}">${esc(T(l))}</button>`).join('')
   }
 
@@ -209,7 +213,8 @@
       top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
         <div style="font-size:24px;font-weight:700;margin-top:16px">🔒 ${esc(T('unlockTitle'))}</div>
         <div class="unlockbox"><input class="inp" type="password" id="homePw" placeholder="${esc(T('password'))}" style="width:320px" data-enter="unlockHome">
-        <button class="btn pri" data-act="unlock" data-f="${esc(a.filename)}" data-in="homePw">${esc(T('showAddress'))}</button></div></div>`
+        <button class="btn pri" data-act="unlock" data-f="${esc(a.filename)}" data-in="homePw">${esc(T('showAddress'))}</button></div>
+        <div class="actions"><button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
     } else {
       const b = st.s0[a.filename]
       const bal = b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…'
@@ -217,7 +222,8 @@
         <div class="bn" id="homeBal">${esc(bal)}<span>SCDO</span></div>
         <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
         <div class="actions"><button class="btn pri big" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" id="btnReceive">⬇&nbsp; ${esc(T('receive'))}</button>
-        <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button></div></div>`
+        <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button>
+        <button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
     }
     let lower = ''
     if (a && a.evm) {
@@ -417,13 +423,13 @@
     const statusBar = `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>`
     const blocks = `<div class="stat"><div class="lbl">${esc(T('localNet'))}</div><div class="v" id="mBlocks">${m.localBlock == null ? '–' : esc(m.localBlock)} / ${m.networkBlock == null ? (st.net.s0Block == null ? '–' : esc(st.net.s0Block)) : esc(m.networkBlock)}</div></div>
       <div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
-    if (g.nvidia) {
+    if (miningGpuReady(g)) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
       const cur = m.wallet || saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
-        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: (g.nvidiaNames || []).join(', ') }))}</div>
+        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: readyNvidiaNames(g).join(', ') }))}</div>
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
         ${statusBar}
         <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
@@ -439,7 +445,7 @@
       const ext = m.phase === 'external' && running
       const extOk = ext && m.code !== 'EXTERNAL_DOWN'
       // external node answering: one green line only (no separate status bar that could contradict it)
-      if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">✅ ${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
+      if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
       h += ext ? `<div class="lbl" style="margin-top:8px">${esc(T('extPayout'))}</div>` : payoutField(m, running)
       h += `${extOk ? '' : statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap">
@@ -449,10 +455,154 @@
     h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
       <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
-      ${process.platform === 'win32' && g.nvidia ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
+      ${process.platform === 'win32' && miningGpuReady(g) ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
       <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(((m.logTail) || []).slice(-80).join('\n'))}</pre></details>`
     return h + '</div></div>'
+  }
+
+  // ---------------- remittance (匯款): unlock + personal_sign, no KYC form ----------------
+  // SCDO_REMIT_URL overrides the default https://scdoscan.io/remit-api (mirror: Remit.MIRROR_BASE).
+  function remitBase () {
+    const env = (typeof process !== 'undefined' && process.env && process.env.SCDO_REMIT_URL) || ''
+    return String(env).trim().replace(/\/+$/, '') || Remit.DEFAULT_BASE
+  }
+  function remitReset () {
+    st.remit = { phase: 'idle', error: '', address: '', token: '', ledger: null }
+  }
+  function remitOwnsSession () {
+    const a = selected()
+    return !!(a && a.evm && st.remit.token && st.remit.address && Remit.sameAddress(a.evm, st.remit.address))
+  }
+  function remitSteps (phase) {
+    const order = ['challenge', 'sign', 'session', 'ledger']
+    const labels = ['remitStepChallenge', 'remitStepSign', 'remitStepSession', 'remitStepLedger']
+    const idx = phase === 'in' ? 4 : order.indexOf(phase)
+    return `<div class="row" id="remitSteps" style="gap:8px;flex-wrap:wrap;margin:16px 0">${labels.map((k, i) => {
+      const on = idx > i
+      const cur = order[i] === phase
+      return `<span class="tag ${on || cur ? '' : 'grey'}">${i + 1}. ${esc(T(k))}</span>`
+    }).join('')}</div>`
+  }
+  function remitLedgerHtml (ledger) {
+    if (!ledger || typeof ledger !== 'object') return `<div class="muted">${esc(T('remitEmptyLedger'))}</div>`
+    const entries = Array.isArray(ledger) ? ledger : (ledger.entries || ledger.items || ledger.transfers || ledger.records || [])
+    let head = ''
+    if (ledger.balance != null) head = `<div class="lbl">${esc(T('balance'))}${PU.c()}<b>${esc(ledger.balance)}</b></div>`
+    if (!entries.length) return head + `<div class="muted" style="margin-top:8px">${esc(T('remitEmptyLedger'))}</div>`
+    return head + entries.slice(0, 30).map(e => {
+      const asset = e.asset || e.symbol || ''
+      const title = e.memo || e.note || e.type || (asset ? asset : '') || e.tx_id || e.id || e.reference || T('remitTitle')
+      let amt = e.amount != null ? e.amount : (e.value != null ? e.value : '')
+      if (amt === '' && e.amount_micro != null && isFinite(Number(e.amount_micro))) amt = (Number(e.amount_micro) / 1e6) + (asset ? ' ' + asset : '')
+      const who = [e.from, e.to || e.receiving_address || e.beneficiary || e.payee].filter(Boolean).join(' → ')
+      const state = e.confirmed === true ? T('txDone') : e.confirmed === false ? T('txPending') : (e.status || e.state || '')
+      return `<div class="txrow" style="cursor:default"><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(title)}</div>
+        <div class="lbl">${esc([who, state].filter(Boolean).join(' · '))}</div></div>
+        <div style="font-weight:700">${esc(amt)}</div></div>`
+    }).join('')
+  }
+  function pageRemit () {
+    const a = selected()
+    const base = remitBase()
+    const signedIn = remitOwnsSession()
+    if (st.remit.token && !signedIn) remitReset()
+    const phase = signedIn ? 'in' : st.remit.phase
+    let body
+    if (!a) {
+      body = `<div class="muted" style="font-size:20px;margin-top:12px">${esc(T('remitNeedAccount'))}</div>
+        <div class="actions" style="justify-content:flex-start"><button class="btn pri" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
+    } else if (signedIn) {
+      body = `<div class="ok" id="remitStatus" style="font-size:22px;font-weight:700;margin-top:8px">${esc(T('remitIn'))}</div>
+        <div class="lbl" style="margin-top:8px">${esc(T('remitAddr'))}</div>
+        <div class="mono" id="remitAddr">${esc(st.remit.address)}</div>
+        <div class="card" id="remitLedger" style="margin-top:16px;padding:8px 0">${remitLedgerHtml(st.remit.ledger)}</div>
+        <div class="row" style="margin-top:16px;flex-wrap:wrap">
+          <button class="btn sec" data-act="remitRefresh" id="btnRemitRefresh">${esc(T('remitRefresh'))}</button>
+          <button class="btn ghost" data-act="remitLogout" id="btnRemitLogout">${esc(T('remitLogout'))}</button>
+        </div>`
+    } else {
+      const busy = phase === 'challenge' || phase === 'sign' || phase === 'session' || phase === 'ledger'
+      const status = phase === 'challenge' ? T('remitChallenge') : phase === 'sign' ? T('remitSigning') : phase === 'session' ? T('remitSession') : phase === 'ledger' ? T('remitLedgerLoad') : ''
+      body = `<div class="lbl" style="margin-top:14px">${esc(T('remitAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b></div>
+        ${a.evm ? `<div class="lbl">${esc(T('remitAddr'))}</div><div class="mono" id="remitAddr">${esc(a.evm)}</div>` : `<div class="lbl">🔒 ${esc(T('locked'))}</div>`}
+        <div class="muted" style="margin-top:10px">${esc(T('remitSigningNote'))}</div>
+        <div class="unlockbox" style="justify-content:flex-start">
+          <input class="inp" type="password" id="remitPw" placeholder="${esc(T('password'))}" style="width:320px" ${busy ? 'disabled' : ''}>
+          <button class="btn pri" data-act="remitSign" data-f="${esc(a.filename)}" id="btnRemitSign" ${busy ? 'disabled' : ''}>${esc(T('remitSignIn'))}</button>
+        </div>
+        ${status ? `<div id="remitStatus" style="margin-top:12px"><span class="spin"></span> ${esc(status)}</div>` : '<div id="remitStatus"></div>'}
+        ${st.remit.error ? `<div class="err" id="remitErr">${esc(st.remit.error)}</div>` : ''}`
+    }
+    return `<div class="page"><div class="h1" style="font-size:30px;font-weight:700">${esc(T('remitTitle'))}</div>
+      <div class="muted" style="font-size:18px;margin-top:4px">${esc(T('remitEn'))}</div>
+      <div class="card" style="margin-top:18px;padding:28px 32px">
+        <div style="font-size:20px">${esc(T('remitLead'))}</div>
+        <div style="font-size:20px;margin-top:8px">${esc(T('remitZero'))}</div>
+        <div class="enline">${esc(T('remitZeroEn'))}</div>
+        <div class="lbl" style="margin-top:12px">${esc(T('remitOwnOnly'))}</div>
+        ${remitSteps(phase)}
+        ${body}
+        <div class="lbl" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(base)}</span></div>
+        <div class="enline">${esc(T('remitEnv'))}</div>
+      </div></div>`
+  }
+  async function remitLogin (filename) {
+    const a = accByFile(filename) || selected()
+    if (!a) return
+    const inp = $('remitPw')
+    const pw = inp ? inp.value : ''
+    if (!pw) { toast(T('errPw')); return }
+    st.remit.phase = 'challenge'
+    st.remit.error = ''
+    render()
+    let priv = null
+    try {
+      priv = await client.decKeyFile(a.filename, pw)
+      if (inp) inp.value = ''
+      loadAccounts()
+      const own = Remit.addressFromPrivateKey(priv)
+      st.remit.address = own
+      const session = await Remit.login({
+        privateKey: priv,
+        address: own,
+        base: remitBase(),
+        onStep: (phase) => { st.remit.phase = phase; render() }
+      })
+      priv = null
+      if (!Remit.sameAddress(session.address, own)) throw Object.assign(new Error('session address'), { code: 'FOREIGN_ADDRESS' })
+      st.remit = { phase: 'in', error: '', address: session.address, token: session.token, ledger: session.ledger }
+      toast(T('remitIn'))
+      render()
+    } catch (e) {
+      priv = null
+      const foreign = e && (e.code === 'FOREIGN_ADDRESS' || e instanceof Remit.ForeignAddressError)
+      const down = e && (e.status === 404 || /HTTP 404|no \/v1\/session/i.test(String(e.message || '')))
+      st.remit.phase = 'error'
+      st.remit.token = ''
+      st.remit.ledger = null
+      st.remit.error = foreign ? T('remitForeign') : down ? T('remitDown') : (e && e.message ? String(e.message) : T('failed'))
+      if (e && e.message === 'could not decrypt key with given passphrase') st.remit.error = T('wrongPw')
+      render()
+    }
+  }
+  async function remitRefresh () {
+    if (!remitOwnsSession()) return
+    st.remit.phase = 'ledger'
+    st.remit.error = ''
+    render()
+    try {
+      const ledger = await Remit.fetchLedger(remitBase(), st.remit.token, st.remit.address, st.remit.address)
+      st.remit.ledger = ledger
+      st.remit.phase = 'in'
+      render()
+    } catch (e) {
+      const foreign = e && (e.code === 'FOREIGN_ADDRESS' || e instanceof Remit.ForeignAddressError)
+      st.remit.phase = 'error'
+      if (foreign) { st.remit.token = ''; st.remit.ledger = null }
+      st.remit.error = foreign ? T('remitForeign') : (e && e.message ? String(e.message) : T('failed'))
+      render()
+    }
   }
 
   // ---------------- render ----------------
@@ -461,7 +611,7 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine }
+    const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
     main.innerHTML = (pages[st.tab] || pageHome)()
     main.scrollTop = y
     document.title = 'ScdoWalletBeta ' + APPVER
@@ -995,7 +1145,7 @@
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') setTab('home'); render(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); remitReset(); if (st.tab !== 'home') setTab('home'); render(); break
       case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'lang': setLang(v); break
@@ -1025,6 +1175,9 @@
       case 'toggleLog': st.logOpen = !st.logOpen; st.advOpen = true; render(); break
       case 'openLogs': ipcRenderer.invoke('miner:openLogs'); break
       case 'defender': { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
+      case 'remitSign': remitLogin(f); break
+      case 'remitLogout': remitReset(); render(); break
+      case 'remitRefresh': remitRefresh(); break
     }
   })
   document.addEventListener('change', (ev) => {
@@ -1039,6 +1192,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; if ($('dd')) closeDd(); else if ($('md')) closeModal() }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'homePw') { const b = document.querySelector('[data-act=unlock][data-in=homePw]'); if (b) b.click() }
+    if (ev.key === 'Enter' && ev.target && ev.target.id === 'remitPw') { const b = document.querySelector('[data-act=remitSign]'); if (b && !b.disabled) b.click() }
   })
 
   // legacy hooks called by menu.js via executeJavaScript
@@ -1047,6 +1201,7 @@
   window.showInfo = () => settingsModal()
   window.toggleEditNetwork = () => settingsModal()
   window.toggleTooltip = () => {}
+  window.openRemittance = () => { if ($('md')) $('modalRoot').innerHTML = ''; setTab('remit'); render() }
 
   // ---------------- boot ----------------
   let APPVER = '1.1.4'
@@ -1066,7 +1221,7 @@
       if (localStorage.getItem('minerAutoResume') === '1' && !(st.miner && st.miner.running)) {
         const mode = localStorage.getItem('minerMode') || 'mine'
         if (mode === 'node') nodeStart()
-        else if (g && g.nvidia && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
+        else if (g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
       }
     })
     if (st.tab === 'mine') render()
