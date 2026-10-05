@@ -197,11 +197,19 @@ function createMenu (mainWindow) {
     ]
   }
   
+  const remit = {
+    label: i18n.__("Remittance"),
+    click: () => {
+      mainWindow.webContents.executeJavaScript('openRemittance()')
+    }
+  }
+
   const template = [
     application,
     file,
     edit,
     view,
+    remit,
     help
   ]
   
