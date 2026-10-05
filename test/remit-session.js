@@ -36,7 +36,8 @@ function send (res, status, obj) {
 }
 
 function challengeText (address, nonce) {
-  return 'SCDO Remittance\n\nSign in to your own remittance ledger.\nThis signature is not a coin transfer.\n\nAddress: ' + address + '\nNonce: ' + nonce + '\n'
+  return 'scdoscan.io wants you to sign in with your SCDO account:\n' + address + '\n\n' +
+    'Domain: scdoscan.io\nAddress: ' + address + '\nChain ID: 5680\nNonce: ' + nonce + '\n'
 }
 
 // Local stand-in for the deployed gateway's own-address rule.
@@ -49,21 +50,21 @@ function startGateway () {
       const url = new URL(req.url, 'http://127.0.0.1')
       if (req.method === 'POST' && url.pathname === '/v1/session/challenge') {
         const body = await readBody(req)
-        const address = getAddress(body.address)
+        const address = getAddress(body.address || body.wallet_addr)
         const nonce = crypto.randomBytes(16).toString('hex')
         const message = challengeText(address, nonce)
         challenges.set(address.toLowerCase(), { message, address })
-        return send(res, 200, { address, challenge: message, nonce })
+        return send(res, 200, { address, message, nonce })
       }
       if (req.method === 'POST' && url.pathname === '/v1/session') {
         const body = await readBody(req)
         let claimed
-        try { claimed = getAddress(body.address) } catch (e) { return send(res, 403, { error: 'signature does not match address' }) }
+        try { claimed = getAddress(body.address) } catch (e) { return send(res, 401, { error: 'unauthorized' }) }
         const ch = challenges.get(claimed.toLowerCase())
-        if (!ch) return send(res, 403, { error: 'signature does not match address' })
+        if (!ch || body.message !== ch.message) return send(res, 401, { error: 'unauthorized' })
         let recovered
-        try { recovered = verifyMessage(ch.message, body.signature) } catch (e) { return send(res, 403, { error: 'signature does not match address' }) }
-        if (getAddress(recovered) !== claimed) return send(res, 403, { error: 'signature does not match address' })
+        try { recovered = verifyMessage(body.message, body.signature) } catch (e) { return send(res, 401, { error: 'unauthorized' }) }
+        if (getAddress(recovered) !== claimed) return send(res, 401, { error: 'unauthorized' })
         const token = crypto.randomBytes(24).toString('hex')
         tokens.set(token, claimed)
         challenges.delete(claimed.toLowerCase())
@@ -115,6 +116,8 @@ async function main () {
       assert.ok(session.token)
       assert.strictEqual(session.ledger.address, addrA)
       assert.strictEqual(session.ledger.entries[0].id, 'own')
+      assert.ok(session.challenge.includes('Domain: scdoscan.io'))
+      assert.ok(session.challenge.includes('Chain ID: 5680'))
       assert.ok(session.challenge.includes(addrA))
     })
 
@@ -134,17 +137,18 @@ async function main () {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ address: addrB })
       }).then(r => r.json())
-      assert.ok(issued.challenge.includes(addrB))
-      const signature = await keyA.signMessage(issued.challenge)
-      assert.strictEqual(getAddress(verifyMessage(issued.challenge, signature)), addrA)
+      assert.ok(issued.message.includes(addrB))
+      assert.ok(issued.message.includes('Chain ID: 5680'))
+      const signature = await keyA.signMessage(issued.message)
+      assert.strictEqual(getAddress(verifyMessage(issued.message, signature)), addrA)
       const res = await fetch(gw.base + '/v1/session', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ address: addrB, signature })
+        body: JSON.stringify({ address: addrB, message: issued.message, signature })
       })
       const body = await res.json()
-      assert.strictEqual(res.status, 403)
-      assert.strictEqual(body.error, 'signature does not match address')
+      assert.strictEqual(res.status, 401)
+      assert.strictEqual(body.error, 'unauthorized')
       assert.ok(!body.token)
     })
 
@@ -184,6 +188,18 @@ async function main () {
   } finally {
     await new Promise((resolve) => gw.server.close(resolve))
   }
+
+  await test('default base joins /v1 under scdoscan.io/remit-api', async () => {
+    assert.strictEqual(remit.DEFAULT_BASE, 'https://scdoscan.io/remit-api')
+    assert.strictEqual(remit.MIRROR_BASE, 'https://apeccapital.org/remit-api')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE, '/v1/session/challenge'), 'https://scdoscan.io/remit-api/v1/session/challenge')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE + '/', '/v1/session'), 'https://scdoscan.io/remit-api/v1/session')
+    assert.strictEqual(remit.joinUrl(remit.MIRROR_BASE + '/', '/v1/ledger'), 'https://apeccapital.org/remit-api/v1/ledger')
+    assert.throws(
+      () => remit.assertChallengeFor('Domain: evil.example\nAddress: ' + addrA + '\nChain ID: 1\n', addrA),
+      (err) => err instanceof remit.ForeignAddressError
+    )
+  })
 
   await test('home and menu expose 匯款 and the sign-in path', async () => {
     const root = path.join(__dirname, '..')

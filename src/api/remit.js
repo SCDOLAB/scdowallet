@@ -1,26 +1,27 @@
 // SCDO remittance gateway client (desktop wallet).
 //
-// Contract (scdo-remit-gateway, session login, no KYC):
-//   POST {base}/v1/session/challenge   { address }  -> { challenge, address, nonce }
-//   wallet personal_sign(challenge)                 EIP-191, ethers signMessage
-//   POST {base}/v1/session             { address, signature } -> { token, address }
+// Contract (scdo-remit-gateway, backend cad7538, wallet sign-in from aedf6b3):
+//   POST {base}/v1/session/challenge   { address }  (wallet_addr also accepted)
+//        -> { message, address, nonce, issued_at, expires_at }
+//   EIP-191 personal_sign of that exact message (ethers signMessage).
+//   The message names Domain: scdoscan.io and Chain ID: 5680.
+//   POST {base}/v1/session   { address, message, signature } -> { token, address }
 //   GET  {base}/v1/ledger?address=     Authorization: Bearer <token>
 // The ledger route accepts the bearer token's own address only. This client
 // refuses to request any other address, and treats a session or ledger bound
 // to a different address as a rejection.
 //
-// Base URL: https://apeccapital.org (public SCDO host). PS2023 / the .88
-// server override with SCDO_REMIT_URL (for example https://82.223.19.88 or a
-// path prefix on that host). As of 2026-10-05 the public explorer hosts answer
-// 404 for /v1/session/challenge; the wallet still calls this contract and
-// surfaces that error instead of asking for identity data.
+// Default base (no trailing slash; paths are joined as /v1/...):
+//   https://scdoscan.io/remit-api
+// Mirror: https://apeccapital.org/remit-api
+// Override either with the SCDO_REMIT_URL environment variable.
 'use strict'
 const { Wallet, verifyMessage, getAddress } = require('ethers')
 
-const DEFAULT_BASE = 'https://apeccapital.org'
-// Documented SCDO host whose address ends in .88 (bootnode / explorer).
-// Use it via SCDO_REMIT_URL when the gateway is published there.
-const SERVER_88 = 'https://82.223.19.88'
+const DEFAULT_BASE = 'https://scdoscan.io/remit-api'
+const MIRROR_BASE = 'https://apeccapital.org/remit-api'
+const SIGN_DOMAIN = 'scdoscan.io'
+const SIGN_CHAIN_ID = '5680'
 
 class ForeignAddressError extends Error {
   constructor (message) {
@@ -54,16 +55,25 @@ function joinUrl (base, path) {
 
 function challengeMessage (body) {
   if (!body || typeof body !== 'object') throw new RemitHttpError('challenge response was not JSON', 200, body)
-  const msg = body.challenge || body.message || body.signMessage || body.sign_message
+  const msg = body.message || body.challenge || body.signMessage || body.sign_message
   if (typeof msg !== 'string' || !msg.trim()) throw new RemitHttpError('challenge response has no message to sign', 200, body)
   return msg
 }
 
-// If the gateway named an address in the challenge, it must be the signer.
+// The gateway message must be for this signer, Domain scdoscan.io, Chain ID 5680.
 function assertChallengeFor (message, own) {
-  const labeled = String(message).match(/address\s*[:：]\s*(0x[0-9a-fA-F]{40})/i)
+  const text = String(message)
+  const labeled = text.match(/address\s*[:：]\s*(0x[0-9a-fA-F]{40})/i)
   if (labeled && !sameAddress(labeled[1], own)) {
     throw new ForeignAddressError('challenge is for a different address')
+  }
+  const domain = text.match(/domain\s*[:：]\s*(\S+)/i)
+  if (!domain || domain[1].replace(/\/+$/, '').toLowerCase() !== SIGN_DOMAIN) {
+    throw new ForeignAddressError('challenge domain is not ' + SIGN_DOMAIN)
+  }
+  const chain = text.match(/chain\s*id\s*[:：]\s*(\d+)/i)
+  if (!chain || chain[1] !== SIGN_CHAIN_ID) {
+    throw new ForeignAddressError('challenge chain id is not ' + SIGN_CHAIN_ID)
   }
 }
 
@@ -105,6 +115,7 @@ async function requestJson (base, path, opts, fetchImpl) {
   return json
 }
 
+// EIP-191 personal_sign (\\x19Ethereum Signed Message:\\n + len + message).
 async function personalSign (privateKey, message) {
   const wallet = new Wallet(privateKey)
   const signature = await wallet.signMessage(message)
@@ -153,7 +164,7 @@ async function login (opts) {
   step('session')
   const session = await requestJson(base, '/v1/session', {
     method: 'POST',
-    body: { address: own, signature: signed.signature }
+    body: { address: own, message, signature: signed.signature }
   }, fetchImpl)
   const token = bearerToken(session)
   if (!token) throw new RemitHttpError('session response missing bearer token', 200, session)
@@ -166,7 +177,9 @@ async function login (opts) {
 
 module.exports = {
   DEFAULT_BASE,
-  SERVER_88,
+  MIRROR_BASE,
+  SIGN_DOMAIN,
+  SIGN_CHAIN_ID,
   ForeignAddressError,
   RemitHttpError,
   sameAddress,

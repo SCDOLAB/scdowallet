@@ -462,6 +462,7 @@
   }
 
   // ---------------- remittance (匯款): unlock + personal_sign, no KYC form ----------------
+  // SCDO_REMIT_URL overrides the default https://scdoscan.io/remit-api (mirror: Remit.MIRROR_BASE).
   function remitBase () {
     const env = (typeof process !== 'undefined' && process.env && process.env.SCDO_REMIT_URL) || ''
     return String(env).trim().replace(/\/+$/, '') || Remit.DEFAULT_BASE
@@ -490,11 +491,14 @@
     if (ledger.balance != null) head = `<div class="lbl">${esc(T('balance'))}${PU.c()}<b>${esc(ledger.balance)}</b></div>`
     if (!entries.length) return head + `<div class="muted" style="margin-top:8px">${esc(T('remitEmptyLedger'))}</div>`
     return head + entries.slice(0, 30).map(e => {
-      const title = e.memo || e.note || e.id || e.type || e.reference || T('remitTitle')
-      const amt = e.amount != null ? e.amount : (e.value != null ? e.value : '')
-      const who = e.to || e.beneficiary || e.payee || ''
+      const asset = e.asset || e.symbol || ''
+      const title = e.memo || e.note || e.type || (asset ? asset : '') || e.tx_id || e.id || e.reference || T('remitTitle')
+      let amt = e.amount != null ? e.amount : (e.value != null ? e.value : '')
+      if (amt === '' && e.amount_micro != null && isFinite(Number(e.amount_micro))) amt = (Number(e.amount_micro) / 1e6) + (asset ? ' ' + asset : '')
+      const who = [e.from, e.to || e.receiving_address || e.beneficiary || e.payee].filter(Boolean).join(' → ')
+      const state = e.confirmed === true ? T('txDone') : e.confirmed === false ? T('txPending') : (e.status || e.state || '')
       return `<div class="txrow" style="cursor:default"><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(title)}</div>
-        <div class="lbl">${esc([who, e.status || e.state || ''].filter(Boolean).join(' · '))}</div></div>
+        <div class="lbl">${esc([who, state].filter(Boolean).join(' · '))}</div></div>
         <div style="font-weight:700">${esc(amt)}</div></div>`
     }).join('')
   }
@@ -540,6 +544,7 @@
         ${remitSteps(phase)}
         ${body}
         <div class="lbl" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(base)}</span></div>
+        <div class="enline">${esc(T('remitEnv'))}</div>
       </div></div>`
   }
   async function remitLogin (filename) {
