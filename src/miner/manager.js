@@ -12,6 +12,7 @@ const net = require('net')
 const dgram = require('dgram')
 const { spawn, execFile } = require('child_process')
 const { EventEmitter } = require('events')
+const { evaluateGpu, parseNvidiaSmi, parseVideoControllerOutput, miningGpuReady, rigelDeviceArgs } = require('./gpuSelect')
 
 const RIGEL = {
   version: '1.23.2',
@@ -50,31 +51,64 @@ async function portsFree (p) {
 }
 
 // ---------- GPU detection (B1: never start the CUDA miner on a PC without an NVIDIA GPU) ----------
+function execFileText (cmd, args, timeout) {
+  return new Promise(resolve => {
+    execFile(cmd, args, { windowsHide: true, timeout: timeout || 10000, encoding: 'utf8', maxBuffer: 2 << 20 }, (err, out) => {
+      resolve({ error: err || null, out: String(out || '') })
+    })
+  })
+}
+
+function readNvidiaSmi (platform) {
+  const candidates = []
+  if (platform === 'win32') {
+    const sys = process.env.SystemRoot || 'C:\\Windows'
+    const pf = process.env.ProgramFiles || 'C:\\Program Files'
+    candidates.push(path.join(sys, 'System32', 'nvidia-smi.exe'))
+    candidates.push(path.join(pf, 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe'))
+  }
+  candidates.push('nvidia-smi')
+  const next = (i) => {
+    if (i >= candidates.length) return Promise.resolve([])
+    const cmd = candidates[i]
+    if (cmd.indexOf(path.sep) >= 0 && !fs.existsSync(cmd)) return next(i + 1)
+    return execFileText(cmd, ['-L'], 10000).then(r => {
+      const cuda = parseNvidiaSmi(r.out)
+      return cuda.length ? cuda : next(i + 1)
+    })
+  }
+  return next(0)
+}
+
+function readWinAdapters () {
+  const cmd = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    '$OutputEncoding = [System.Text.Encoding]::UTF8',
+    '$items = @(Get-CimInstance Win32_VideoController | ForEach-Object { [PSCustomObject]@{ Name = $_.Name; PNPDeviceID = $_.PNPDeviceID; AdapterCompatibility = $_.AdapterCompatibility } })',
+    '$items | ConvertTo-Json -Compress'
+  ].join('; ')
+  return execFileText('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], 20000).then(r => ({
+    error: r.error,
+    adapters: parseVideoControllerOutput(r.out)
+  }))
+}
+
 function detectGpu (platform) {
   platform = platform || process.platform
-  return new Promise(resolve => {
-    const done = (names, nvidiaDriver) => {
-      names = (names || []).map(x => String(x).trim()).filter(Boolean)
-      const nv = names.filter(n => /nvidia|geforce|quadro|tesla|rtx|gtx/i.test(n))
-      const drv = nvidiaDriver !== false
-      resolve({ names, nvidia: nv.length > 0 && drv, nvidiaNames: nv, driver: drv, nvidiaNoDriver: nv.length > 0 && !drv })
-    }
-    if (platform === 'win32') {
-      const sys = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
-      const hasCuda = fs.existsSync(path.join(sys, 'nvcuda.dll'))
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        'Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }'], { windowsHide: true, timeout: 20000 }, (err, out) => {
-        const names = err ? [] : String(out).split(/\r?\n/)
-        if (err && hasCuda) return done(['NVIDIA (nvcuda.dll)'], true)
-        done(names, hasCuda)
-      })
-    } else if (platform === 'linux') {
-      execFile('nvidia-smi', ['-L'], { timeout: 10000 }, (err, out) => {
-        if (!err && /GPU \d+:/.test(out)) return done(String(out).split(/\r?\n/).map(l => l.replace(/^GPU \d+:\s*/, '').replace(/\s*\(UUID.*$/, '')), true)
-        done([], false)
-      })
-    } else done([], false)
-  })
+  if (platform === 'win32') {
+    const sys = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
+    const hasCuda = fs.existsSync(path.join(sys, 'nvcuda.dll'))
+    return Promise.all([readWinAdapters(), readNvidiaSmi(platform)]).then(([wmi, cuda]) => {
+      // Enumeration itself failed (not "only a virtual adapter came back"): keep the
+      // nvcuda.dll fallback so a machine with a driver still counts as ready.
+      if (wmi.error && wmi.adapters.length === 0 && cuda.length === 0 && hasCuda) {
+        return evaluateGpu({ adapters: [{ name: 'NVIDIA (nvcuda.dll)', pnp: 'PCI\\VEN_10DE' }], cuda: [], driver: true })
+      }
+      return evaluateGpu({ adapters: wmi.adapters, cuda, driver: hasCuda || cuda.length > 0 })
+    })
+  }
+  if (platform === 'linux') return readNvidiaSmi(platform).then(cuda => evaluateGpu({ adapters: [], cuda, driver: cuda.length > 0 }))
+  return Promise.resolve(evaluateGpu({ adapters: [], cuda: [], driver: false }))
 }
 
 // Windows: send Ctrl+C to a console child (geth/proxy/rigel run with a hidden console). Same technique as
@@ -203,6 +237,7 @@ class MinerManager extends EventEmitter {
     this.logLines = 0
     this.restarts = {}
     this.wantRunning = false
+    this.cudaDevices = []
     this.state = this.freshState()
   }
 
@@ -387,10 +422,11 @@ class MinerManager extends EventEmitter {
   }
 
   startRigel () {
-    return this.spawnChild('rigel', this.rigelPath(), [
+    const args = [
       '-a', 'ethash', '-o', 'ethproxy+tcp://127.0.0.1:' + PORTS.stratum, '-u', this.state.wallet, '-w', this.state.worker,
       '--api-bind', '127.0.0.1:' + PORTS.rigelApi, '--no-tui', '--no-colour', '--log-file', path.join(this.logDir, 'rigel-own.log')
-    ])
+    ].concat(rigelDeviceArgs(this.cudaDevices))
+    return this.spawnChild('rigel', this.rigelPath(), args)
   }
 
   // ---------- lifecycle ----------
@@ -420,9 +456,12 @@ class MinerManager extends EventEmitter {
     const mode = opts.mode === 'node' || opts.noRigel === 'node' ? 'node' : 'mine'
     if (this.wantRunning) throw new Error('already running')
     if (mode === 'mine' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid reward address ' + wallet)
+    this.cudaDevices = []
+    let gpuPick = null
     if (mode === 'mine' && !opts.noRigel && !this.o.rigelExe) {
-      const g = await this.gpu()
-      if (!g.nvidia) { const e = new Error('No NVIDIA GPU found on this PC – GPU mining is not possible. Use "Run node only".'); e.code = 'NO_NVIDIA'; throw e }
+      gpuPick = await this.gpu()
+      if (!miningGpuReady(gpuPick)) { const e = new Error('No NVIDIA GPU found on this PC – GPU mining is not possible. Use "Run node only".'); e.code = 'NO_NVIDIA'; throw e }
+      this.cudaDevices = (gpuPick.mineDevices || []).filter(n => Number.isInteger(n) && n >= 0)
     }
     fs.mkdirSync(this.logDir, { recursive: true })
     this.noGpuHandled = false
@@ -433,6 +472,10 @@ class MinerManager extends EventEmitter {
     }
     this.state = Object.assign(this.freshState(), { wallet: mode === 'mine' ? wallet : null, mode, payout, startedAt: Date.now() })
     this.opts = opts
+    if (gpuPick) {
+      const names = (gpuPick.mineNames || []).join(', ')
+      this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
+    }
     // node only + an SCDO node already running on this PC (default port): nothing to start, just show its status
     if (mode === 'node' && await this.externalNodeAt(BASE_PORTS.http + ENV_OFFSET)) {
       this.external = { url: 'http://127.0.0.1:' + (BASE_PORTS.http + ENV_OFFSET) }
@@ -622,4 +665,4 @@ class MinerManager extends EventEmitter {
   }
 }
 
-module.exports = { MinerManager, RIGEL, PORTS, BASE_PORTS, BOOTNODE, extractZip, download, sha256File, detectGpu, portsFree }
+module.exports = { MinerManager, RIGEL, PORTS, BASE_PORTS, BOOTNODE, extractZip, download, sha256File, detectGpu, portsFree, miningGpuReady, evaluateGpu }
