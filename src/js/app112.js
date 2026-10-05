@@ -12,6 +12,7 @@
   const ScdoClient = require('./src/api/scdoClient.js')
   const { Shard0 } = require('./src/api/evm.js')
   const { ethers } = require('ethers')
+  const { miningGpuReady, readyNvidiaNames } = require('./src/miner/gpuSelect.js')
 
   const client = window.client = new ScdoClient()
   const UI_PATH = path.join(os.homedir(), '.ScdoWallet', 'ui112.json')
@@ -417,13 +418,13 @@
     const statusBar = `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>`
     const blocks = `<div class="stat"><div class="lbl">${esc(T('localNet'))}</div><div class="v" id="mBlocks">${m.localBlock == null ? '–' : esc(m.localBlock)} / ${m.networkBlock == null ? (st.net.s0Block == null ? '–' : esc(st.net.s0Block)) : esc(m.networkBlock)}</div></div>
       <div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
-    if (g.nvidia) {
+    if (miningGpuReady(g)) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
       const cur = m.wallet || saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
-        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: (g.nvidiaNames || []).join(', ') }))}</div>
+        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: readyNvidiaNames(g).join(', ') }))}</div>
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
         ${statusBar}
         <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
@@ -449,7 +450,7 @@
     h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
       <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
-      ${process.platform === 'win32' && g.nvidia ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
+      ${process.platform === 'win32' && miningGpuReady(g) ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
       <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(((m.logTail) || []).slice(-80).join('\n'))}</pre></details>`
     return h + '</div></div>'
@@ -1066,7 +1067,7 @@
       if (localStorage.getItem('minerAutoResume') === '1' && !(st.miner && st.miner.running)) {
         const mode = localStorage.getItem('minerMode') || 'mine'
         if (mode === 'node') nodeStart()
-        else if (g && g.nvidia && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
+        else if (g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
       }
     })
     if (st.tab === 'mine') render()
