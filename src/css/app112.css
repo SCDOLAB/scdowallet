@@ -1,12 +1,13 @@
 /* ScdoWalletBeta 1.1.2 – big text, few buttons, SCDO blue #2933ff */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
-body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans", "Segoe UI", sans-serif;
+body { font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans CJK TC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans", "Segoe UI", sans-serif;
   background: #f3f5ff; color: #1b1d33; font-size: 19px; line-height: 1.45; overflow: hidden; }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
 .mono { font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK SC", "DejaVu Sans Mono", monospace; letter-spacing: 0; word-break: break-all; overflow-wrap: anywhere; }
 .muted { color: #5f6482; }
+.enline { color: #5f6482; font-size: 16px; margin-top: 6px; }
 .lbl { font-size: 16px; color: #5f6482; }
 .wrap { word-break: break-word; overflow-wrap: anywhere; }
 #app { display: flex; flex-direction: column; height: 100vh; }
