@@ -77,7 +77,21 @@ ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dat
 // SHA-256 with the original, and only then remove the original. Any failure aborts before deletion.
 const crypto = require('crypto')
 const os = require('os')
-function backupRoot () { return path.join(app.getPath('documents'), 'ScdoWallet', '备份') }
+// 2.0.3: the folder name is Traditional Chinese (備份). An existing folder with the
+// simplified name is renamed once; if it cannot be renamed, the old folder keeps being used.
+let _backupRoot = null
+function backupRoot () {
+  if (_backupRoot) return _backupRoot
+  const base = path.join(app.getPath('documents'), 'ScdoWallet')
+  const now = path.join(base, '備份')
+  const legacy = path.join(base, '备份')
+  try {
+    if (fs.existsSync(legacy) && !fs.existsSync(now)) {
+      try { fs.renameSync(legacy, now) } catch (e) { console.error('backup folder rename failed, keeping old name', e && e.message); return (_backupRoot = legacy) }
+    }
+  } catch (e) {}
+  return (_backupRoot = now)
+}
 function keyfileDir () { return path.join(os.homedir(), '.ScdoWallet', 'account') }
 function localDate () { const d = new Date(); const z = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) }
 function sha256 (buf) { return crypto.createHash('sha256').update(buf).digest('hex') }
@@ -111,6 +125,8 @@ ipcMain.handle('keyfile:backupOnly', (e, name) => {
 })
 ipcMain.handle('keyfile:openBackups', () => { fs.mkdirSync(backupRoot(), { recursive: true }); return shell.openPath(backupRoot()) })
 ipcMain.handle('menu:rebuild', () => { if (mainWindow) createMenu(mainWindow); return true })
+const walletService = require('./src/main/walletService')
+require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
 
 let mainWindow
 
@@ -143,6 +159,9 @@ function createWindow () {
     webPreferences: {
       // the 2020 UI code uses require() in the page; it only ever loads local files (see
       // will-navigate / window-open guards below), never remote content.
+      // 2.0.12: preload exposes window.scdo. Remittance signing goes through that allowlist;
+      // the private key and bearer token stay in the main process.
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: true,
       contextIsolation: false,
       sandbox: false,

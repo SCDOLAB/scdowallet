@@ -198,7 +198,8 @@ function createMenu (mainWindow) {
   }
   
   const remit = {
-    label: i18n.__("Remittance"),
+    // Entry label is 匯款. English menus add the English word, matching the 2.0.12 menu.
+    label: i18n.lang() === 'CN' ? i18n.__('Remittance') : ('匯款 ' + i18n.__('Remittance')),
     click: () => {
       mainWindow.webContents.executeJavaScript('openRemittance()')
     }

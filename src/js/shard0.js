@@ -24,21 +24,21 @@
       yes: 'Yes', no: 'No', defAsk: 'Windows Defender deletes every GPU miner (rigel.exe) as a "potentially unwanted app". Add an exclusion for the wallet\'s miner folder now? Windows will ask for administrator permission once.', defRetry: 'rigel.exe was removed by Windows Defender. Add an exclusion for the miner folder (administrator prompt) and start again?'
     },
     CN: {
-      quick: '快捷操作', create: '+ 创建账户', import: '导入账户文件',
-      s0title: 'Shard0（EVM · 链 ID 5680）— 同一把钥匙的 0x 地址',
-      s0note: '每个账户文件同时控制 shard0 上的一个 0x 地址（同一私钥也可导入 MetaMask）。首次输入密码解锁后显示 0x 地址。',
-      unlockShow: '解锁以显示 0x 地址', unlock: '解锁', password: '账户文件密码',
-      send: '转账', explorer: '浏览器', copy: '复制', faucet: '水龙头（0.01 测试 SCDO）',
-      net: 'shard0 区块', netdown: '无法连接 shard0 节点',
-      sendTitle: 'shard0 转账', asset: '币种', to: '收款地址 (0x...)', amount: '数量', cancel: '取消',
-      sending: '正在签名并广播 ...', sent: '交易已发送', confirmed: '已确认，区块', failed: '失败',
-      mTitle: 'GPU 挖矿（shard0，NVIDIA 显卡）',
-      mNote: '在本机运行 SCDO 节点 + stratum 代理 + Rigel 挖矿程序。出块奖励（每块 2 SCDO）进入下面的地址。首次启动会下载 Rigel（约 56 MB，校验 SHA256）并同步区块（1–5 分钟）。',
-      reward: '出块奖励地址', manual: '— 手动输入 0x 地址 —', start: '开始挖矿', stop: '停止挖矿',
-      phase: '状态', blocks: '本地 / 全网区块', peers: '连接节点', hashrate: '算力', shares: '份额 接受 / 拒绝',
-      found: '挖到的区块', balance: '出块奖励地址余额', restarts: '挖矿程序重启次数', defender: '在 Windows Defender 中允许挖矿程序',
-      logs: '打开日志文件夹', showlog: '显示日志', macNo: '内置 GPU 挖矿仅在 Windows（NVIDIA）和 Linux 版提供；Rigel 没有 macOS 版本。', needAddr: '请先选择或输入 0x 出块奖励地址（账户文件解锁一次即可得到 0x 地址）。',
-      yes: '是', no: '否', defAsk: 'Windows Defender 会把所有 GPU 挖矿程序（rigel.exe）当作“可能不需要的应用”删除。现在为钱包的挖矿文件夹添加排除项吗？Windows 会请求一次管理员权限。', defRetry: 'rigel.exe 被 Windows Defender 删除了。为挖矿文件夹添加排除项（需要管理员权限）并重新开始吗？'
+      quick: '快捷操作', create: '+ 建立帳戶', import: '匯入帳戶檔案',
+      s0title: 'Shard0（EVM · 鏈 ID 5680）— 同一把鑰匙的 0x 地址',
+      s0note: '每個帳戶檔案同時控制 shard0 上的一個 0x 地址（同一私鑰也可匯入 MetaMask）。首次輸入密碼解鎖後顯示 0x 地址。',
+      unlockShow: '解鎖以顯示 0x 地址', unlock: '解鎖', password: '帳戶檔案密碼',
+      send: '轉帳', explorer: '瀏覽器', copy: '複製', faucet: '水龍頭（0.01 測試 SCDO）',
+      net: 'shard0 區塊', netdown: '無法連線 shard0 節點',
+      sendTitle: 'shard0 轉帳', asset: '幣種', to: '收款地址 (0x...)', amount: '數量', cancel: '取消',
+      sending: '正在簽名並廣播 ...', sent: '交易已傳送', confirmed: '已確認，區塊', failed: '失敗',
+      mTitle: 'GPU 挖礦（shard0，NVIDIA 顯示卡）',
+      mNote: '在本機執行 SCDO 節點 + stratum 代理 + Rigel 挖礦程式。出塊獎勵（每塊 2 SCDO）進入下面的地址。首次啟動會下載 Rigel（約 56 MB，校驗 SHA256）並同步區塊（1–5 分鐘）。',
+      reward: '出塊獎勵地址', manual: '— 手動輸入 0x 地址 —', start: '開始挖礦', stop: '停止挖礦',
+      phase: '狀態', blocks: '本地 / 全網區塊', peers: '連線節點', hashrate: '算力', shares: '份額 接受 / 拒絕',
+      found: '挖到的區塊', balance: '出塊獎勵地址餘額', restarts: '挖礦程式重啟次數', defender: '在 Windows Defender 中允許挖礦程式',
+      logs: '開啟日誌資料夾', showlog: '顯示日誌', macNo: '內建 GPU 挖礦僅在 Windows（NVIDIA）和 Linux 版提供；Rigel 沒有 macOS 版本。', needAddr: '請先選擇或輸入 0x 出塊獎勵地址（帳戶檔案解鎖一次即可得到 0x 地址）。',
+      yes: '是', no: '否', defAsk: 'Windows Defender 會把所有 GPU 挖礦程式（rigel.exe）當作“可能不需要的應用”刪除。現在為錢包的挖礦資料夾新增排除項嗎？Windows 會請求一次管理員權限。', defRetry: 'rigel.exe 被 Windows Defender 刪除了。為挖礦資料夾新增排除項（需要管理員權限）並重新開始嗎？'
     }
   }
   function lang () {
