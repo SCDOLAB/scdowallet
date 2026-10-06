@@ -1,6 +1,6 @@
 {
     "name": "ScdoWallet",
-    "version": "2.0.11",
+    "version": "2.0.12",
     "productName": "ScdoWalletBeta",
     "description": "Wallet for Scdo (shards 1-4 + shard0 EVM)",
     "main": "main.js",

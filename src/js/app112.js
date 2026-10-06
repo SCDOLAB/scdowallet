@@ -13,7 +13,17 @@
   const { Shard0 } = require('./src/api/evm.js')
   const { ethers } = require('ethers')
   const { miningGpuReady, readyNvidiaNames } = require('./src/miner/gpuSelect.js')
-  const Remit = require('./src/api/remit.js')
+  // 2.0.12: 匯款 uses the preload bridge. Decrypt, personal_sign and the bearer token stay in the main process.
+  const api = (typeof window !== 'undefined' && window.scdo && typeof window.scdo.invoke === 'function')
+    ? window.scdo
+    : {
+        invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+        on: (channel, cb) => {
+          const h = (_e, ...a) => cb(...a)
+          ipcRenderer.on(channel, h)
+          return () => ipcRenderer.removeListener(channel, h)
+        }
+      }
 
   const client = window.client = new ScdoClient()
   const UI_PATH = path.join(os.homedir(), '.ScdoWallet', 'ui112.json')
@@ -89,7 +99,7 @@
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
     miner: null, gpu: null, logOpen: false,
-    remit: { phase: 'idle', error: '', address: '', token: '', ledger: null }
+    remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
   }
   let s0 = null
   function shard0 () {
@@ -461,18 +471,14 @@
     return h + '</div></div>'
   }
 
-  // ---------------- remittance (匯款): unlock + personal_sign, no KYC form ----------------
-  // SCDO_REMIT_URL overrides the default https://scdoscan.io/remit-api (mirror: Remit.MIRROR_BASE).
-  function remitBase () {
-    const env = (typeof process !== 'undefined' && process.env && process.env.SCDO_REMIT_URL) || ''
-    return String(env).trim().replace(/\/+$/, '') || Remit.DEFAULT_BASE
-  }
-  function remitReset () {
-    st.remit = { phase: 'idle', error: '', address: '', token: '', ledger: null }
-  }
+  // ---------------- 2.0.12 remittance (匯款): unlock + personal_sign, no KYC form ----------------
+  // Keyfile decryption, the personal_sign and the bearer token all stay in the main process (remitService).
+  // The page only gets the signed-in address and that address's own ledger.
+  const sameAddr = (x, y) => !!x && !!y && String(x).toLowerCase() === String(y).toLowerCase()
+  function remitReset () { st.remit = { phase: 'idle', error: '', address: '', ledger: null, base: st.remit.base || '' } }
   function remitOwnsSession () {
     const a = selected()
-    return !!(a && a.evm && st.remit.token && st.remit.address && Remit.sameAddress(a.evm, st.remit.address))
+    return !!(a && a.evm && st.remit.phase === 'in' && st.remit.address && sameAddr(a.evm, st.remit.address))
   }
   function remitSteps (phase) {
     const order = ['challenge', 'sign', 'session', 'ledger']
@@ -485,11 +491,11 @@
     }).join('')}</div>`
   }
   function remitLedgerHtml (ledger) {
-    if (!ledger || typeof ledger !== 'object') return `<div class="muted">${esc(T('remitEmptyLedger'))}</div>`
+    if (!ledger || typeof ledger !== 'object') return `<div class="muted" style="padding:0 26px">${esc(T('remitEmptyLedger'))}</div>`
     const entries = Array.isArray(ledger) ? ledger : (ledger.entries || ledger.items || ledger.transfers || ledger.records || [])
     let head = ''
-    if (ledger.balance != null) head = `<div class="lbl">${esc(T('balance'))}${PU.c()}<b>${esc(ledger.balance)}</b></div>`
-    if (!entries.length) return head + `<div class="muted" style="margin-top:8px">${esc(T('remitEmptyLedger'))}</div>`
+    if (ledger.balance != null) head = `<div class="lbl" style="padding:0 26px">${esc(T('balance'))}${PU.c()}<b>${esc(ledger.balance)}</b></div>`
+    if (!entries.length) return head + `<div class="muted" style="margin-top:8px;padding:0 26px">${esc(T('remitEmptyLedger'))}</div>`
     return head + entries.slice(0, 30).map(e => {
       const asset = e.asset || e.symbol || ''
       const title = e.memo || e.note || e.type || (asset ? asset : '') || e.tx_id || e.id || e.reference || T('remitTitle')
@@ -497,16 +503,16 @@
       if (amt === '' && e.amount_micro != null && isFinite(Number(e.amount_micro))) amt = (Number(e.amount_micro) / 1e6) + (asset ? ' ' + asset : '')
       const who = [e.from, e.to || e.receiving_address || e.beneficiary || e.payee].filter(Boolean).join(' → ')
       const state = e.confirmed === true ? T('txDone') : e.confirmed === false ? T('txPending') : (e.status || e.state || '')
-      return `<div class="txrow" style="cursor:default"><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(title)}</div>
-        <div class="lbl">${esc([who, state].filter(Boolean).join(' · '))}</div></div>
+      return `<div class="txrow" style="cursor:default"><div style="flex:1;min-width:0"><div style="font-weight:700" class="wrap">${esc(title)}</div>
+        <div class="lbl wrap">${esc([who, state].filter(Boolean).join(' · '))}</div></div>
         <div style="font-weight:700">${esc(amt)}</div></div>`
     }).join('')
   }
   function pageRemit () {
     const a = selected()
-    const base = remitBase()
+    if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) el.textContent = r.base } }).catch(() => {})
     const signedIn = remitOwnsSession()
-    if (st.remit.token && !signedIn) remitReset()
+    if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
     const phase = signedIn ? 'in' : st.remit.phase
     let body
     if (!a) {
@@ -528,7 +534,7 @@
         ${a.evm ? `<div class="lbl">${esc(T('remitAddr'))}</div><div class="mono" id="remitAddr">${esc(a.evm)}</div>` : `<div class="lbl">🔒 ${esc(T('locked'))}</div>`}
         <div class="muted" style="margin-top:10px">${esc(T('remitSigningNote'))}</div>
         <div class="unlockbox" style="justify-content:flex-start">
-          <input class="inp" type="password" id="remitPw" placeholder="${esc(T('password'))}" style="width:320px" ${busy ? 'disabled' : ''}>
+          <input class="inp" type="password" id="remitPw" placeholder="${esc(T('password'))}" style="width:320px;max-width:100%" ${busy ? 'disabled' : ''}>
           <button class="btn pri" data-act="remitSign" data-f="${esc(a.filename)}" id="btnRemitSign" ${busy ? 'disabled' : ''}>${esc(T('remitSignIn'))}</button>
         </div>
         ${status ? `<div id="remitStatus" style="margin-top:12px"><span class="spin"></span> ${esc(status)}</div>` : '<div id="remitStatus"></div>'}
@@ -543,9 +549,16 @@
         <div class="lbl" style="margin-top:12px">${esc(T('remitOwnOnly'))}</div>
         ${remitSteps(phase)}
         ${body}
-        <div class="lbl" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(base)}</span></div>
+        <div class="lbl wrap" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(st.remit.base || 'https://scdoscan.io/remit-api')}</span></div>
         <div class="enline">${esc(T('remitEnv'))}</div>
       </div></div>`
+  }
+  function remitErrText (r) {
+    if (r && r.wrongPw) return T('wrongPw')
+    if (r && r.foreign) return T('remitForeign')
+    if (r && r.down) return T('remitDown')
+    if (r && r.net) return T('errNetwork')
+    return String((r && r.error) || T('failed'))
   }
   async function remitLogin (filename) {
     const a = accByFile(filename) || selected()
@@ -553,57 +566,36 @@
     const inp = $('remitPw')
     const pw = inp ? inp.value : ''
     if (!pw) { toast(T('errPw')); return }
-    st.remit.phase = 'challenge'
-    st.remit.error = ''
+    st.remit.phase = 'challenge'; st.remit.error = ''; st.remit.address = ''; st.remit.ledger = null
     render()
-    let priv = null
-    try {
-      priv = await client.decKeyFile(a.filename, pw)
-      if (inp) inp.value = ''
-      loadAccounts()
-      const own = Remit.addressFromPrivateKey(priv)
-      st.remit.address = own
-      const session = await Remit.login({
-        privateKey: priv,
-        address: own,
-        base: remitBase(),
-        onStep: (phase) => { st.remit.phase = phase; render() }
-      })
-      priv = null
-      if (!Remit.sameAddress(session.address, own)) throw Object.assign(new Error('session address'), { code: 'FOREIGN_ADDRESS' })
-      st.remit = { phase: 'in', error: '', address: session.address, token: session.token, ledger: session.ledger }
+    let r = null
+    try { r = await api.invoke('remit:login', a.filename, pw) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
+    loadAccounts()
+    const own = (accByFile(a.filename) || {}).evm
+    if (r && r.ok && (!own || sameAddr(own, r.address))) {
+      st.remit = { phase: 'in', error: '', address: r.address, ledger: r.ledger, base: st.remit.base }
       toast(T('remitIn'))
-      render()
-    } catch (e) {
-      priv = null
-      const foreign = e && (e.code === 'FOREIGN_ADDRESS' || e instanceof Remit.ForeignAddressError)
-      const down = e && (e.status === 404 || /HTTP 404|no \/v1\/session/i.test(String(e.message || '')))
-      st.remit.phase = 'error'
-      st.remit.token = ''
-      st.remit.ledger = null
-      st.remit.error = foreign ? T('remitForeign') : down ? T('remitDown') : (e && e.message ? String(e.message) : T('failed'))
-      if (e && e.message === 'could not decrypt key with given passphrase') st.remit.error = T('wrongPw')
-      render()
+    } else {
+      if (r && r.ok) { api.invoke('remit:logout').catch(() => {}); r = { ok: false, foreign: true } }
+      st.remit.phase = 'error'; st.remit.address = ''; st.remit.ledger = null
+      st.remit.error = remitErrText(r)
     }
+    render(); refreshS0()
   }
   async function remitRefresh () {
     if (!remitOwnsSession()) return
-    st.remit.phase = 'ledger'
-    st.remit.error = ''
+    st.remit.phase = 'ledger'; st.remit.error = ''
     render()
-    try {
-      const ledger = await Remit.fetchLedger(remitBase(), st.remit.token, st.remit.address, st.remit.address)
-      st.remit.ledger = ledger
-      st.remit.phase = 'in'
-      render()
-    } catch (e) {
-      const foreign = e && (e.code === 'FOREIGN_ADDRESS' || e instanceof Remit.ForeignAddressError)
+    let r = null
+    try { r = await api.invoke('remit:ledger', st.remit.address) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
+    if (r && r.ok && sameAddr(r.address, st.remit.address)) { st.remit.ledger = r.ledger; st.remit.phase = 'in' } else {
       st.remit.phase = 'error'
-      if (foreign) { st.remit.token = ''; st.remit.ledger = null }
-      st.remit.error = foreign ? T('remitForeign') : (e && e.message ? String(e.message) : T('failed'))
-      render()
+      if (r && r.foreign) { st.remit.address = ''; st.remit.ledger = null }
+      st.remit.error = remitErrText(r)
     }
+    render()
   }
+  api.on('remit:step', (p) => { if (['challenge', 'sign', 'session', 'ledger'].includes(p) && st.remit.phase !== 'in' && st.remit.phase !== 'error' && st.remit.phase !== 'idle') { st.remit.phase = p; if (st.tab === 'remit') render() } })
 
   // ---------------- render ----------------
   function render () {
@@ -1145,7 +1137,7 @@
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); remitReset(); if (st.tab !== 'home') setTab('home'); render(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); api.invoke('remit:logout').catch(() => {}); remitReset(); if (st.tab !== 'home') setTab('home'); render(); break
       case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'lang': setLang(v); break
@@ -1176,7 +1168,7 @@
       case 'openLogs': ipcRenderer.invoke('miner:openLogs'); break
       case 'defender': { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
       case 'remitSign': remitLogin(f); break
-      case 'remitLogout': remitReset(); render(); break
+      case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); render(); break
       case 'remitRefresh': remitRefresh(); break
     }
   })
