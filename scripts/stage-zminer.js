@@ -1,8 +1,9 @@
 // Put the reproducible zminer.exe into miner-bin/win32 for the Windows installer.
-// The file is built by scripts/build-zminer.sh or downloaded (ZMINER_URL, or the
-// zminer-windows-amd64 GitHub Actions artifact). A hash that is not the one in
-// miner-zpow/SHA256SUMS is a hard failure. A file already sitting in the
-// git-ignored miner-bin directory is never the source.
+// Default source is the public GitHub release asset (no gh login, no env var).
+// ZMINER_URL overrides that URL. A matching miner-zpow/dist/zminer.exe or a
+// successful local build is used when the download is unavailable. A hash that
+// is not the one in miner-zpow/SHA256SUMS is a hard failure. A file already
+// sitting in the git-ignored miner-bin directory is never the source.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -17,6 +18,9 @@ const SUMS = path.join(ROOT, 'miner-zpow', 'SHA256SUMS')
 const DIST = path.join(ROOT, 'miner-zpow', 'dist', 'zminer.exe')
 const DEST_DIR = path.join(ROOT, 'miner-bin', 'win32')
 const DEST = path.join(DEST_DIR, 'zminer.exe')
+// Public release asset. The zminer workflow republishes this tag after a
+// hash-matching build. Download needs no token.
+const DEFAULT_ZMINER_URL = 'https://github.com/SCDOLAB/scdowallet/releases/download/zminer-windows-amd64/zminer.exe'
 
 function sha256File (file) {
   const h = crypto.createHash('sha256')
@@ -38,7 +42,7 @@ function expectedHash () {
 function download (url, dest) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https:') ? https : http
-    const req = lib.get(url, res => {
+    const req = lib.get(url, { headers: { 'user-agent': 'ScdoWallet', accept: 'application/octet-stream' } }, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume()
         return resolve(download(res.headers.location, dest))
@@ -132,9 +136,9 @@ function canBuildHere () {
 
 function missingMessage (want) {
   return 'miner-zpow/dist/zminer.exe is missing and no prebuilt matched sha256 ' + want + '. ' +
+    'The default download is ' + DEFAULT_ZMINER_URL + ' (no gh login). ' +
     'scripts/build-zminer.sh only runs on Linux (Go 1.12.7 linux-amd64). ' +
-    'On Windows, set ZMINER_URL to that exact file, log in with gh so the zminer-windows-amd64 artifact can be downloaded, ' +
-    'or place the verified exe at miner-zpow/dist/zminer.exe. ' +
+    'Set ZMINER_URL to override that file, or place the verified exe at miner-zpow/dist/zminer.exe. ' +
     'Set ZMINER_SKIP=1 to continue this build without the CPU miner.'
 }
 
@@ -164,6 +168,14 @@ async function obtain (work) {
   const want = expectedHash()
   if (fs.existsSync(DIST) && sha256File(DIST) === want) return DIST
   if (process.env.ZMINER_FETCH !== '0') {
+    const release = path.join(work, 'from-release.exe')
+    try {
+      await download(DEFAULT_ZMINER_URL, release)
+      if (sha256File(release) === want) return release
+      console.error('prebuilt ' + DEFAULT_ZMINER_URL + ' sha256 did not match ' + want)
+    } catch (e) {
+      console.error('prebuilt zminer download failed (' + DEFAULT_ZMINER_URL + '): ' + (e.message || e))
+    }
     const dest = path.join(work, 'from-artifact.exe')
     const got = fetchArtifact(dest)
     if (got && sha256File(got) === want) return got
@@ -224,7 +236,7 @@ async function stageZminer () {
 
 module.exports = {
   stageZminer, expectedHash, sha256File, rejectMismatch, findArtifactExe,
-  canBuildHere, missingMessage, fetchVerifiedArtifact
+  canBuildHere, missingMessage, fetchVerifiedArtifact, DEFAULT_ZMINER_URL
 }
 
 if (require.main === module) {

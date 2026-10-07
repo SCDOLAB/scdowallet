@@ -115,10 +115,14 @@ Var pid
           ${EndIf}
           ${Break}
         ${Case} 1223
-          MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet is installed for all users. Administrator approval is required to upgrade that installation."
+          ; /SD IDOK: a silent (/S) install must not wait on this box. UAC cancel
+          ; or timeout is error 1223; leave a non-zero exit code and stop.
+          MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet is installed for all users. Administrator approval is required to upgrade that installation." /SD IDOK
+          SetErrorLevel 1223
           Quit
         ${Default}
-          MessageBox MB_ICONSTOP|MB_TOPMOST "Unable to elevate, error $0"
+          MessageBox MB_ICONSTOP|MB_TOPMOST "Unable to elevate, error $0" /SD IDOK
+          SetErrorLevel 1
           Quit
       ${EndSwitch}
       Quit

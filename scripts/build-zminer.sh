@@ -15,7 +15,7 @@ ZMINER_EXE_SHA256=f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "scripts/build-zminer.sh only runs on Linux. It cross-compiles zminer.exe with Go 1.12.7 linux-amd64." >&2
   echo "Expected zminer.exe sha256: ${ZMINER_EXE_SHA256}" >&2
-  echo "On Windows, put that file at miner-zpow/dist/zminer.exe or set ZMINER_URL. scripts/stage-zminer.js downloads a matching GitHub Actions artifact when gh is logged in." >&2
+  echo "On Windows, scripts/stage-zminer.js downloads https://github.com/SCDOLAB/scdowallet/releases/download/zminer-windows-amd64/zminer.exe and checks that sha256. No gh login is required. ZMINER_URL overrides the URL." >&2
   if [[ "${ZMINER_SKIP:-}" == 1 ]]; then
     echo "ZMINER_SKIP=1: not building zminer.exe." >&2
     exit 0

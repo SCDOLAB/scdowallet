@@ -18,6 +18,8 @@ on:
 jobs:
   windows-amd64:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Build zminer.exe (Go 1.12.7, windows/amd64)
@@ -36,3 +38,15 @@ jobs:
           name: zminer-windows-amd64
           path: miner-zpow/artifact/*
           if-no-files-found: error
+      - name: Publish pinned release asset zminer-windows-amd64/zminer.exe
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=zminer-windows-amd64
+          notes='Pinned Classic CPU miner (zminer.exe). sha256 f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65fb'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" miner-zpow/artifact/zminer.exe --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" miner-zpow/artifact/zminer.exe --repo "$GITHUB_REPOSITORY" --title "zminer-windows-amd64" --notes "$notes"
+          fi
