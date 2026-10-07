@@ -150,6 +150,16 @@ assert.ok(ui.includes("['cpu', T('classicCpu'), false]"))
 assert.ok(ui.includes("backend: 'cpu'"))
 assert.ok(ui.includes("localStorage.getItem('minerRunClassicCpu') === '1'"))
 assert.ok(!ui.includes("minerRunClassicCpu') === '1' && !classicGpu"))
+assert.ok(ui.includes('data-act="cardMine"') && ui.includes('data-act="cardRemit"'))
+assert.ok(ui.includes("cardFeatureOps(a, 'new')") && ui.includes("cardFeatureOps(a, 'old')"))
+assert.ok(ui.includes("T('tabMine')") && ui.includes("T('tabRemit')"))
+const openMine = ui.slice(ui.indexOf('function openMineFor'), ui.indexOf('function openRemitFor'))
+assert.ok(openMine.includes("setTab('mine')"))
+assert.ok(openMine.includes("localStorage.setItem('minerReward', a.evm)"))
+assert.ok(openMine.includes("localStorage.setItem('minerClassic', classic.address)"))
+assert.ok(!openMine.includes('confirm'))
+assert.ok(!openMine.includes('mineBackend'))
+assert.ok(ui.includes('function remitAccount'))
 
 // --- argv templates (pluggable miner) ---
 assert.deepStrictEqual(renderArgs(ZMINER_ARGS, { pool: 'h:1', user: REAL, worker: 'wallet', threads: 3 }),

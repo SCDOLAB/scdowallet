@@ -181,6 +181,34 @@
     if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
+  // Card buttons open Mining or 匯款 with this keyfile already chosen. No account menu.
+  // Mining still shows Shard0 GPU and Classic Shard1–4 GPU and CPU; the click does not start a miner.
+  function openMineFor (filename, chain) {
+    const a = accByFile(filename)
+    if (!a) return
+    st.sel = a.filename
+    localStorage.setItem('selAcc112', a.filename)
+    const classic = parseClassicAddress(a.pubkey)
+    if (classic) localStorage.setItem('minerClassic', classic.address)
+    if (a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm)) localStorage.setItem('minerReward', a.evm)
+    const shard = classic ? classic.shard : Number(a.shard)
+    st.mineShard = chain === 'old' && [1, 2, 3, 4].includes(shard) ? shard : 0
+    localStorage.setItem('mineShard112', String(st.mineShard))
+    if ($('md')) SD.clear($('modalRoot'))
+    setTab('mine')
+    render()
+    ensureGpu()
+    ensureCaps()
+  }
+  function openRemitFor (filename) {
+    const a = accByFile(filename)
+    if (!a) return
+    st.sel = a.filename
+    localStorage.setItem('selAcc112', a.filename)
+    if ($('md')) SD.clear($('modalRoot'))
+    setTab('remit')
+    render()
+  }
   function setNet (v, shard) {
     const net = v === 'old' ? 'old' : 'new'
     if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab)
@@ -338,7 +366,7 @@
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="muted" style="font-size:17px">${esc(T('balanceAfterUnlock'))}</div></div>`
       }
       h += `<div class="card acc ${hid ? 'hidden-acc' : ''}" data-row="${esc(a.filename)}"><div class="main"><div class="nm">${esc(accLabel(a))} ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>${mid}</div>${right}
-        <div class="ops one"><button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
+        <div class="ops one">${cardFeatureOps(a, 'new')}<button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
     })
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
@@ -363,6 +391,7 @@
         <div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" style="color:#3d4160" data-oldbal="${esc(a.pubkey)}">${v != null ? esc(fmtNum(v)) : '…'} <span>SCDO</span></div></div>
         <div class="ops"><button class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">${esc(T('receive'))}</button>
         <button class="btn sec small" data-act="sendOld" data-f="${esc(a.filename)}">${esc(T('send'))}</button>
+        ${cardFeatureOps(a, 'old')}
         <button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button>
         <button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="old" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
@@ -398,8 +427,13 @@
     if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN', 'CLASSIC_SYNCING', 'CLASSIC_PAUSED', 'POOL_CONNECTING', 'RESTARTING'].includes(m.code)) return 'warn'
     return ''
   }
+  function cardFeatureOps (a, chain) {
+    return `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button><button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
+  }
   function rewardOptions () {
     const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
+    const chosen = accByFile(st.sel)
+    if (chosen && chosen.evm && !l.some(o => o.v.toLowerCase() === chosen.evm.toLowerCase())) l.unshift({ v: chosen.evm, l: accLabel(chosen) })
     const extra = ui.rewardExtra.slice()
     for (const k of ['minerReward', 'nodePayout']) { const x = localStorage.getItem(k); if (x && /^0x[0-9a-fA-F]{40}$/.test(x) && !extra.some(y => y.toLowerCase() === x.toLowerCase())) extra.push(x) }
     for (const x of extra) if (!l.some(o => o.v.toLowerCase() === x.toLowerCase())) l.push({ v: x, l: T('rewardOtherLabel') })
@@ -459,10 +493,13 @@
   }
   function classicOptions (shard) {
     const opts = []
-    visible('old').forEach(a => {
+    const addClassic = (a) => {
       const p = parseClassicAddress(a.pubkey)
-      if (p && p.shard === shard) opts.push({ v: p.address, l: accLabel(a) })
-    })
+      if (p && p.shard === shard && !opts.some(o => o.v === p.address)) opts.push({ v: p.address, l: accLabel(a) })
+    }
+    visible('old').forEach(addClassic)
+    const chosen = accByFile(st.sel)
+    if (chosen) addClassic(chosen)
     ;(ui.classicExtra || []).forEach(x => {
       const p = parseClassicAddress(x)
       if (p && p.shard === shard && !opts.some(o => o.v === p.address)) opts.push({ v: p.address, l: T('rewardOtherLabel') })
@@ -476,7 +513,7 @@
     const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
     const opts = classicOptions(shard)
     const saved = localStorage.getItem('minerClassic') || ''
-    const cur = (m.chain === 'classic' && m.wallet) || saved
+    const cur = (running && m.chain === 'classic' && m.wallet) || saved
     const sel = addrSelect('mClassic', opts, cur, running, shard + 'S0' + shard + '…', T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
     const pool = (caps.pools && caps.pools[shard]) || {}
     const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
@@ -566,7 +603,7 @@
     if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
-      const cur = m.wallet || saved
+      const cur = (running && m.wallet) || saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>
@@ -602,8 +639,13 @@
   // The page only gets the signed-in address and that address's own ledger.
   const sameAddr = (x, y) => !!x && !!y && String(x).toLowerCase() === String(y).toLowerCase()
   function remitReset () { st.remit = { phase: 'idle', error: '', address: '', ledger: null, base: st.remit.base || '' } }
+  function remitAccount () {
+    const exact = st.accounts.find(x => x.filename === st.sel)
+    if (exact) return exact
+    return selected()
+  }
   function remitOwnsSession () {
-    const a = selected()
+    const a = remitAccount()
     return !!(a && a.evm && st.remit.phase === 'in' && st.remit.address && sameAddr(a.evm, st.remit.address))
   }
   function remitSteps (phase) {
@@ -635,7 +677,7 @@
     }).join('')
   }
   function pageRemit () {
-    const a = selected()
+    const a = remitAccount()
     if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) SD.text(el, r.base) } }).catch(() => {})
     const signedIn = remitOwnsSession()
     if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
@@ -1493,6 +1535,8 @@
       case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); settingsModal() } else render(); break
       case 'delete': deleteModal(f); break
       case 'rename': renameModal(f); break
+      case 'cardMine': openMineFor(f, el.getAttribute('data-chain') || 'new'); break
+      case 'cardRemit': openRemitFor(f); break
       case 'useOtherAddr': useOtherAddr(v); break
       case 'closeModal': closeModal(); break
       case 'openTx': if (/^0x[0-9a-fA-F]{64}$/.test(String(v || ''))) openExternal(shard0().explorerTx(v)); break
