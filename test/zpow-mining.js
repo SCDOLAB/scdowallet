@@ -14,6 +14,7 @@ const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpo
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
 const { ZpowManager, formatExitMessage } = require('../src/miner/zpow/manager')
+const { formatMinePill } = require('../src/js/minePill')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
 assert.strictEqual(REAL.length, 42)
@@ -308,6 +309,46 @@ assert.ok(!ui.includes('(running && m.wallet) || saved'))
 assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('download_getStatus'))
 assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('syncEtaSec'))
 assert.ok(ui.includes('function remitAccount'))
+assert.ok(!ui.includes('id="netSel"'))
+assert.ok(!ui.includes('data-act="netMenu"'))
+assert.ok(!ui.includes('data-act="pickNet"'))
+assert.ok(ui.includes("[['old', 'tabOld'], ['new', 'tabNew'], ['home', 'tabHome'], ['mine', 'tabMine'], ['remit', 'tabRemit']]"))
+assert.ok(ui.includes('id="minePill" data-act="tab" data-v="mine"'))
+assert.ok(ui.includes('function headerChain'))
+assert.ok(ui.includes("if (st.tab === 'old') return 'old'"))
+assert.ok(ui.includes("shardFilter(visible('old'))"))
+assert.ok(ui.includes("headerChain() === 'old'"))
+assert.ok(ui.includes('data-chain="old"'))
+assert.ok(ui.includes('SCDOMinePill.format'))
+assert.ok(ui.includes('data-netdot'))
+assert.ok(ui.includes("data-act=\"pickShard\""))
+assert.ok(i18n.includes("pillShard0: 'Shard0'") || i18n.includes('pillShard0: "Shard0"'))
+assert.ok(i18n.includes('Classic 帳戶分頁在最前面'))
+const pillT = (k, p) => {
+  const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: 'Shard0', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
+  let s = m[k] || k
+  if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
+  return s
+}
+assert.deepStrictEqual(formatMinePill({}, pillT), { cls: '', t: '⛏ 未在挖礦' })
+assert.deepStrictEqual(formatMinePill({ shard0: { running: true, code: 'MINING', mode: 'pool' } }, pillT), { cls: 'ok', t: '⛏ 挖礦中 · Shard0' })
+assert.deepStrictEqual(formatMinePill({
+  classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic' },
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_GPU', chain: 'classic' }
+}, pillT), { cls: 'ok', t: '⛏ 挖礦中 · Shard1' })
+assert.deepStrictEqual(formatMinePill({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic' }
+}, pillT), { cls: 'warn', t: '⛏ 挖礦程式啟動中… · Shard1' })
+assert.deepStrictEqual(formatMinePill({
+  classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic' },
+  classicGpu: { running: true, shard: 2, code: 'CLASSIC_SYNCING', chain: 'classic' }
+}, pillT), { cls: 'warn', t: '⛏ 挖礦中 · Shard1 · 挖礦程式啟動中… · Shard2' })
+assert.deepStrictEqual(formatMinePill({ shard0: { running: true, mode: 'node' } }, pillT), { cls: '', t: '只執行節點（未挖礦）' })
+assert.deepStrictEqual(formatMinePill({
+  shard0: { running: true, mode: 'node' },
+  classicCpu: { running: true, shard: 3, code: 'CLASSIC_MINING', chain: 'classic' }
+}, pillT).t, '⛏ 挖礦中 · Shard3 · 只執行節點（未挖礦）')
+assert.strictEqual(formatMinePill({ classicCpu: { running: true, shard: 4, code: 'LOGIN', chain: 'classic' } }, pillT).cls, 'bad')
 
 // --- argv templates (pluggable miner) ---
 assert.deepStrictEqual(renderArgs(ZMINER_ARGS, { pool: 'h:1', user: REAL, worker: 'wallet', threads: 3 }),

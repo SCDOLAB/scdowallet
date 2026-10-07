@@ -82,7 +82,8 @@
     if (ui.accNo[f]) return T('accountN', { n: ui.accNo[f] })
     return stripTs(f) || f
   }
-  // Network shown in the top-right selector: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards; ui.shard = 1..4 (one shard) or 0 (all four).
+  // Network follows the account tab: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards.
+  // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
   const TABS = ['home', 'new', 'old', 'mine', 'remit']
   let tab0 = TABS.includes(ui.tab) ? ui.tab : (localStorage.getItem('tab112') || 'home')
@@ -175,11 +176,28 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining keeps it
+  // Account tabs select the network. Classic -> 'old', Shard0 accounts and Home -> 'new'. Mining and 匯款 keep it.
   function setTab (v) {
     st.tab = TABS.includes(v) ? v : 'home'
     if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
+  }
+  // The account switcher follows the tab that owns the network. Mining and 匯款 follow the last account tab.
+  function headerChain () {
+    if (st.tab === 'old') return 'old'
+    if (st.tab === 'home' || st.tab === 'new') return 'new'
+    return ui.net === 'old' ? 'old' : 'new'
+  }
+  function headerAccounts () {
+    if (headerChain() === 'old') return shardFilter(visible('old'))
+    return visible('new')
+  }
+  function headerAccount () {
+    if (headerChain() === 'old') {
+      const list = headerAccounts()
+      return list.find(x => x.filename === st.sel) || list[0] || null
+    }
+    return selected()
   }
   // Card buttons open Mining or 匯款 with this keyfile already chosen. No account menu.
   // Mining still shows Shard0 GPU and Classic Shard1–4 GPU and CPU; the click does not start a miner.
@@ -217,18 +235,18 @@
     setTab('remit')
     render()
   }
-  function setNet (v, shard) {
-    const net = v === 'old' ? 'old' : 'new'
-    if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab)
-    ui.net = net; saveUi()
-  }
-  const netOldName = () => ui.shard ? T('netOld', { n: ui.shard }) : T('netOldAll')
   function renderHeader () {
-    const a = selected()
-    const netOld = ui.net === 'old'
-    const netOk = netOld ? st.net.oldOk : st.net.s0Ok
+    const chain = headerChain()
+    const a = headerAccount()
     let sw
-    if (a) {
+    if (a && chain === 'old') {
+      sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
+        ${avatar(accLabel(a))}
+        <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
+        <div class="aa mono">${esc(a.pubkey || '')}</div></div>
+        ${a.pubkey ? `<button class="ico" data-act="copy" data-v="${esc(a.pubkey)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="old" title="${esc(T('qr'))}">▦</button>` : ''}
+      </div>`
+    } else if (a) {
       sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
         ${avatar(accLabel(a))}
         <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
@@ -238,13 +256,22 @@
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
     SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
       ${sw}<div class="spacer"></div>
-      <div class="minepill" id="minePill" data-act="tab" data-v="mine"></div>
-      <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
+      <div class="minepill" id="minePill" data-act="tab" data-v="mine" role="button" tabindex="0"></div>
       <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
     renderMinePill()
-    const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
-    SD.html($('tabs'), tabs.map(([k, l]) => `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${esc(T(l))}</button>`).join(''))
+    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['home', 'tabHome'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
+    SD.html($('tabs'), tabs.map(([k, l]) => {
+      const dot = k === 'old' || k === 'new' ? tabNetDot(k) : ''
+      return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${dot}${esc(T(l))}</button>`
+    }).join(''))
+  }
+  function tabNetDot (chain) {
+    const ok = chain === 'old' ? st.net.oldOk : st.net.s0Ok
+    const title = chain === 'old'
+      ? (st.net.oldOk === false ? T('netDown') : '')
+      : (st.net.s0Ok ? T('netBlock', { n: st.net.s0Block == null ? '…' : st.net.s0Block }) : (st.net.s0Ok === false ? T('netDown') : ''))
+    return `<span class="dot ${ok == null ? '' : ok ? 'ok' : 'bad'}" data-netdot="${chain}" title="${esc(title)}"></span>`
   }
 
   // ---------------- pages ----------------
@@ -823,33 +850,31 @@
     if (m.mode === 'pool' && m.poolUrl) return String(m.poolUrl).replace(/^[a-z0-9+]+:\/\//i, '')
     return T('poolLocal')
   }
-  function minePillText (m) {
-    m = m || {}
-    if (m.phase === 'error') return { cls: 'bad', t: '⛏ ' + T('pillError') }
-    if (!m.running) return { cls: '', t: '⛏ ' + T('pillStopped') }
-    if (m.mode === 'node') return { cls: '', t: T('pillNode') }
-    const hr = m.code === 'MINING' && m.hashrate > 0 ? ' · ' + fmtHash(m.hashrate) : ''
-    return { cls: m.code === 'MINING' ? 'ok' : 'warn', t: '⛏ ' + (m.code === 'MINING' ? T('pillMining') : T('pillStarting')) + hr + ' · ' + T('poolLbl') + ' ' + poolLabel(m) }
+  function currentMinePill () {
+    const shard0 = (st.miners && st.miners.shard0) || st.miner
+    const miners = {
+      shard0: shard0 && shard0.chain === 'classic' ? null : shard0,
+      classicCpu: st.miners && st.miners.classicCpu,
+      classicGpu: st.miners && st.miners.classicGpu
+    }
+    const x = window.SCDOMinePill.format(miners, T)
+    const s0 = miners.shard0 || {}
+    if (s0.running && s0.mode !== 'node' && s0.phase !== 'error') {
+      const hr = s0.code === 'MINING' && s0.hashrate > 0 ? ' · ' + fmtHash(s0.hashrate) : ''
+      x.t += hr + ' · ' + T('poolLbl') + ' ' + poolLabel(s0)
+    }
+    return x
   }
   function renderMinePill () {
     const e = $('minePill'); if (!e) return
-    const shard0 = (st.miners && st.miners.shard0) || st.miner
-    const x = minePillText(shard0 && shard0.chain === 'classic' ? null : shard0)
-    const cpu = st.miners && st.miners.classicCpu && st.miners.classicCpu.running
-    const gpu = st.miners && st.miners.classicGpu && st.miners.classicGpu.running
-    if (cpu || gpu) {
-      const bits = []
-      if (cpu) bits.push(T('classicCpu'))
-      if (gpu) bits.push(T('classicGpu'))
-      x.t += ' · ' + bits.join(' · ')
-      if (!shard0 || !shard0.running || shard0.chain === 'classic') x.cls = x.cls === 'bad' ? x.cls : 'ok'
-    }
+    const x = currentMinePill()
     e.className = 'minepill ' + x.cls; e.textContent = x.t; e.title = x.t
   }
   function renderHeaderNetOnly () {
-    const d = document.querySelector('.netsel .dot'); if (!d) return
-    const ok = ui.net === 'old' ? st.net.oldOk : st.net.s0Ok
-    d.className = 'dot ' + (ok == null ? '' : ok ? 'ok' : 'bad')
+    document.querySelectorAll('[data-netdot]').forEach(d => {
+      const ok = d.getAttribute('data-netdot') === 'old' ? st.net.oldOk : st.net.s0Ok
+      d.className = 'dot ' + (ok == null ? '' : ok ? 'ok' : 'bad')
+    })
   }
   function renderMinerLive () {
     if (st.tab !== 'mine' || $('md')) return
@@ -886,23 +911,29 @@
     SD.html($('ddRoot'), `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${Number(r.bottom + 8)}px;${alignRight ? 'right:' + Number(Math.max(10, window.innerWidth - r.right)) + 'px' : 'left:' + Number(r.left) + 'px'};min-width:${Number(Math.max(r.width, 320))}px;max-width:760px">${html}</div>`)
   }
   function accMenu (anchor) {
-    const vis = visible('new')
+    const chain = headerChain()
+    const vis = headerAccounts()
+    const cur = headerAccount()
     let h = `<div class="lbl" style="padding:6px 14px">${esc(T('switchAccount'))}</div>`
     vis.forEach(a => {
-      const b = st.s0[a.filename]
-      h += `<div class="it ${a.filename === st.sel ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
-        <div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
-        <div style="font-weight:700;white-space:nowrap">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei, 3)) + ' SCDO' : ''}</div></div>`
+      const addr = chain === 'old'
+        ? `<div class="mono" style="font-size:15px">${esc(a.pubkey || '')}</div>`
+        : `<div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>`
+      let bal = ''
+      if (chain === 'old') {
+        const v = st.old[a.pubkey]
+        if (v != null) bal = esc(fmtNum(v, 3)) + ' SCDO'
+      } else {
+        const b = st.s0[a.filename]
+        if (b && b.nativeWei != null) bal = esc(fmtWei(b.nativeWei, 3)) + ' SCDO'
+      }
+      h += `<div class="it ${cur && a.filename === cur.filename ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
+        ${addr}</div>
+        <div style="font-weight:700;white-space:nowrap">${bal}</div></div>`
     })
     if (!vis.length) h += `<div class="it muted">${esc(T('noAccount'))}</div>`
-    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="new">⚙ ${esc(T('manageAccounts'))}</div>`
+    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="${chain === 'old' ? 'old' : 'new'}">⚙ ${esc(T('manageAccounts'))}</div>`
     openDd(anchor, h)
-  }
-  function netMenu (anchor) {
-    const h = `<div class="lbl" style="padding:6px 14px">${esc(T('netPick'))}</div>
-      <div class="it ${ui.net !== 'old' ? 'on' : ''}" data-act="pickNet" data-v="new" id="net-new" title="${esc(st.net.s0Ok ? T('netBlock', { n: st.net.s0Block }) : st.net.s0Ok === false ? T('netDown') : '')}"><span class="dot ${st.net.s0Ok == null ? '' : st.net.s0Ok ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netNewLong'))}</div><div class="lbl">${esc(T('netNewSub'))}</div></div><span class="ck">${ui.net !== 'old' ? '✓' : ''}</span></div>
-      ${[1, 2, 3, 4].map(n => `<div class="it ${ui.net === 'old' && ui.shard === n ? 'on' : ''}" data-act="pickNet" data-v="old" data-shard="${n}" id="net-s${n}" title="${esc(st.net.oldOk === false ? T('netDown') : '')}"><span class="dot ${st.net.oldOk == null ? '' : st.net.oldOk ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netOldLong', { n }))}</div><div class="lbl">${esc(T('netOldSub', { n }))}</div></div><span class="ck">${ui.net === 'old' && ui.shard === n ? '✓' : ''}</span></div>`).join('')}`
-    openDd(anchor, h, true)
   }
 
   // ---------------- modals ----------------
@@ -1531,16 +1562,14 @@
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
-    if (act !== 'accMenu' && act !== 'netMenu') closeDd()
+    if (act !== 'accMenu') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new' || v === 'home') refreshS0(); break
       case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
-      case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') setTab('home'); render(); break
-      case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'home' || st.tab === 'new') setTab('old') } else if (st.tab !== 'home') setTab('home'); render(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
       case 'setLang': setLangUi(v); break
@@ -1666,7 +1695,7 @@
     if (window.__scdoBootDone) window.__scdoBootDone() // 2.0.6: the loading screen goes away once the real page is drawn
     // 2.0.6: right after an update, say so (titled dialog) and show the mining state
     if (info && info.updated) {
-      const x = minePillText(st.miners && st.miners.shard0)
+      const x = currentMinePill()
       modal(`<div class="mh"><h2>${esc(T('updatedTitle', { v: APPVER }))}</h2></div>
         <div style="font-size:18px;margin:10px 0">${esc(T('updatedMsg', { v: APPVER }))}</div>
         <div class="minepill ${x.cls}" id="updMine" style="display:inline-block;margin:6px 0 10px">${esc(x.t)}</div>
