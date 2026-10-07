@@ -15,6 +15,9 @@ function nodeName (platform) {
   return 'node'
 }
 
+// Runtime CUDA library only. libgoGpuDet.a is linked into node.exe; the node
+// does not load a DLL named goGpuDet.dll. A copy of libcudart under that name
+// is not the GPU kernel.
 function cudartNames (platform) {
   if (platform === 'win32') return [/^libcudart.*\.dll$/i]
   if (platform === 'darwin') return [/^libcudart.*\.dylib$/i]

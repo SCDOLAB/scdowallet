@@ -22,6 +22,12 @@ On a Windows machine with the CUDA toolkit and a Go that can cgo-link that tree:
     miner-bin\win32\classic\
   or set SCDO_CLASSIC_NODE to the exe and SCDO_CUDART_DIR to the DLL folder.
 
+  Ship libcudart.dll only. consensus/zpow/libgoGpuDet.a is a static archive
+  (-lgoGpuDet) linked into node.exe. Its object calls __cudaRegisterFatBinary,
+  which -lcudart resolves from libcudart.dll. The Go source does not load a
+  DLL named goGpuDet.dll. A goGpuDet.dll that is byte-identical to
+  libcudart.dll is a second copy of the CUDA runtime and is not used.
+
 Optional: put SHA256SUMS next to node.exe. The wallet checks it when present.
 
 The wallet then runs, per selected shard:

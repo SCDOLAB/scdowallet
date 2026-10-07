@@ -11,7 +11,8 @@ const { parseStatusLine, blockRatePerHour, parsePoolMiner } = require('../src/mi
 const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
-const { lookupSha, assertSha256, sha256File } = require('../src/miner/zpow/bins')
+const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
+const { expectedHash, rejectMismatch, stageZminer } = require('../scripts/stage-zminer')
 const { ZpowManager } = require('../src/miner/zpow/manager')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
@@ -199,14 +200,34 @@ async function shaChecks () {
   fs.rmSync(sumDir, { recursive: true, force: true })
 }
 
-const ZMINER_EXE_SHA256 = '39a161d5e7620c302994ae36b0cd0ba04e4acfc26b4844d86c88988bbb7adc32'
-const ZMINER_LINUX_SHA256 = '59679cd5e421be4c2194cdc851c869368847b3c55cd85dfa64b41983d5d3cbaf'
+const ZMINER_EXE_SHA256 = 'f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65fb'
+const ZMINER_LINUX_SHA256 = '121bf07195076d9fbf7234196169b6bc15b8dcc1002a462b05b482ddb6f187d8'
 
 async function publishedZminer () {
   const root = path.join(__dirname, '..')
   const sums = fs.readFileSync(path.join(root, 'miner-zpow', 'SHA256SUMS'), 'utf8')
   assert.strictEqual(lookupSha(sums, 'zminer.exe'), ZMINER_EXE_SHA256)
   assert.strictEqual(lookupSha(sums, 'zminer-linux-amd64'), ZMINER_LINUX_SHA256)
+  assert.strictEqual(expectedHash(), ZMINER_EXE_SHA256)
+  const wrong = path.join(os.tmpdir(), 'zminer-wrong-' + process.pid + '.exe')
+  fs.writeFileSync(wrong, 'not-the-miner')
+  await assert.rejects(async () => rejectMismatch(wrong, ZMINER_EXE_SHA256), err => err.code === 'SHA256_MISMATCH')
+  fs.unlinkSync(wrong)
+  const cudaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-cuda-'))
+  fs.writeFileSync(path.join(cudaDir, 'node.exe'), 'node')
+  fs.writeFileSync(path.join(cudaDir, 'goGpuDet.dll'), 'same-bytes')
+  assert.strictEqual(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {}), null)
+  fs.writeFileSync(path.join(cudaDir, 'libcudart.dll'), 'cudart')
+  assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
+  fs.rmSync(cudaDir, { recursive: true, force: true })
+  const pkg = require('../package.json')
+  assert.strictEqual(pkg.build.beforePack, 'scripts/before-pack-win.js')
+  assert.ok(pkg.scripts['dist:win'].startsWith('node scripts/stage-zminer.js'))
+  const staged = await stageZminer()
+  assert.strictEqual(staged.sha256, ZMINER_EXE_SHA256)
+  assert.strictEqual(await sha256File(staged.file), ZMINER_EXE_SHA256)
+  fs.unlinkSync(staged.file)
+  fs.unlinkSync(path.join(path.dirname(staged.file), 'SHA256SUMS'))
   const distExe = path.join(root, 'miner-zpow', 'dist', 'zminer.exe')
   const distLinux = path.join(root, 'miner-zpow', 'dist', 'zminer-linux-amd64')
   if (fs.existsSync(distExe)) assert.strictEqual(await sha256File(distExe), ZMINER_EXE_SHA256)

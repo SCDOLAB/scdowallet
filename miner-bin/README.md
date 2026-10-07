@@ -17,13 +17,13 @@ Put the files in place before building and check them against `SHA256SUMS` in th
 
 ## Classic shards 1–4
 
-The Windows `extraResources` copy the whole `miner-bin/win32` folder into `miner/bin`, the same path Shard0 already uses. Drop these files here (they are not stored in git):
+The Windows `extraResources` copy the whole `miner-bin/win32` folder into `miner/bin`, the same path Shard0 already uses. `zminer.exe` is not copied here by hand. `npm run dist:win` stages it from `scripts/build-zminer.sh` or from the `zminer-windows-amd64` artifact, and stops if the SHA256 is not the line in `miner-zpow/SHA256SUMS` (`f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65fb`).
 
-    miner-bin/win32/zminer.exe
-    miner-bin/win32/SHA256SUMS          # must list zminer.exe; the wallet refuses to start it without a match
-    miner-bin/win32/classic/node.exe    # go-scdo CUDA node
+These Classic GPU files are still placed before a Windows build (they are not stored in git):
+
+    miner-bin/win32/classic/node.exe
     miner-bin/win32/classic/libcudart.dll
 
-`zminer.exe` is the CPU pool miner. Shard 1 is `82.223.19.88:3341`. Shards 2–4 use `3342–3344` and are not live yet. The published `zminer.exe` hash in `miner-zpow/SHA256SUMS` is `39a161d5e7620c302994ae36b0cd0ba04e4acfc26b4844d86c88988bbb7adc32`.
+`zminer.exe` is the CPU pool miner. Shard 1 is `82.223.19.88:3341`. Shards 2–4 use `3342–3344` and are not live yet.
 
-`node.exe` is the Classic GPU miner. `scripts/build-zminer.sh` builds `zminer.exe` (Go 1.12.7). `scripts/build-classic-node.sh` explains the CUDA build. Set `SCDO_ZMINER_EXE` or `SCDO_CLASSIC_NODE` if a binary lives somewhere else. A different GPU binary can be plugged in with `SCDO_ZPOW_GPU_BIN` and `SCDO_ZPOW_GPU_ARGS`.
+`node.exe` is the Classic GPU miner. Link `libgoGpuDet.a` into it and ship `libcudart.dll` beside it. Do not also ship `goGpuDet.dll`: the node does not load that name, and a byte-identical copy of `libcudart.dll` is not a second library. `scripts/build-classic-node.sh` explains the CUDA build. Set `SCDO_CLASSIC_NODE` if the exe lives somewhere else. A different GPU binary can be plugged in with `SCDO_ZPOW_GPU_BIN` and `SCDO_ZPOW_GPU_ARGS`.

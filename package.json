@@ -7,7 +7,7 @@
     "scripts": {
         "start": "electron .",
         "test": "node test/run-all.js",
-        "dist:win": "electron-builder --win --x64",
+        "dist:win": "node scripts/stage-zminer.js && electron-builder --win --x64",
         "dist:mac": "electron-builder --mac --arm64",
         "dist:linux": "electron-builder --linux --x64"
     },
@@ -38,6 +38,7 @@
             "!legacy-1.1.1-index.html"
         ],
         "asar": true,
+        "beforePack": "scripts/before-pack-win.js",
         "win": {
             "target": [
                 {

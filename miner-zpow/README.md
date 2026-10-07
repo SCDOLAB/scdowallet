@@ -22,12 +22,14 @@ That needs network once (Go 1.12.7 and a shallow clone of SCDOLAB/go-scdo). Outp
 - `miner-zpow/dist/zminer-linux-amd64`
 - `miner-zpow/SHA256SUMS`
 
-Published hashes in `miner-zpow/SHA256SUMS`:
+`scripts/build-zminer.sh` pins Go 1.12.7, go-scdo commit `7ad1df0778abad2e735b7bd4602d2acd8b641838`, and fixed `GOROOT` / `GOPATH` / output paths, so the hashes do not change between machines. The script exits if the binaries do not match `miner-zpow/SHA256SUMS`.
 
-- `zminer.exe` `39a161d5e7620c302994ae36b0cd0ba04e4acfc26b4844d86c88988bbb7adc32`
-- `zminer-linux-amd64` `59679cd5e421be4c2194cdc851c869368847b3c55cd85dfa64b41983d5d3cbaf`
+Published hashes:
 
-Copy `zminer.exe` and `SHA256SUMS` to `miner-bin/win32/` before `npm run dist:win`. The Windows extraResources copy that folder the same way as `geth.exe`. Override the path with `SCDO_ZMINER_EXE` and, if the sums file is not beside it, `SCDO_ZMINER_SHA256`.
+- `zminer.exe` `f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65fb`
+- `zminer-linux-amd64` `121bf07195076d9fbf7234196169b6bc15b8dcc1002a462b05b482ddb6f187d8`
+
+The `zminer` GitHub Actions workflow uploads artifact `zminer-windows-amd64` (`zminer.exe` and `SHA256SUMS`). `npm run dist:win` runs `scripts/stage-zminer.js` before electron-builder, and `beforePack` runs it again. That step builds this script, or downloads `ZMINER_URL` / that artifact, and copies the exe into `miner-bin/win32` only after the hash matches. A different file left in that git-ignored directory is not packed. Override a running wallet with `SCDO_ZMINER_EXE` and, if the sums file is not beside it, `SCDO_ZMINER_SHA256`.
 
 Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 
@@ -38,7 +40,7 @@ Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 
 ## GPU — Classic node
 
-The GPU miner is the go-scdo node (`node.exe`, CUDA `goGpuDet`, `libcudart.dll` next to the exe), packed like Shard0 under `miner-bin/win32/classic/`. One node per shard. The wallet writes `nodeN.json` under its own data directory, sets `basic.coinbase` to the user's Classic address, and generates a new P2P key there. It does not read `~/.scdo` or any other node key on the machine.
+The GPU miner is the go-scdo node (`node.exe` with `libcudart.dll` next to it), packed like Shard0 under `miner-bin/win32/classic/`. `libgoGpuDet.a` is linked into `node.exe`. The node does not load `goGpuDet.dll`; that name is not a second runtime library. One node per shard. The wallet writes `nodeN.json` under its own data directory, sets `basic.coinbase` to the user's Classic address, and generates a new P2P key there. It does not read `~/.scdo` or any other node key on the machine.
 
 ```text
 node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100

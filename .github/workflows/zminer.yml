@@ -1,14 +1,19 @@
 name: zminer
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'miner-zpow/**'
       - 'scripts/build-zminer.sh'
+      - 'scripts/stage-zminer.js'
+      - 'scripts/before-pack-win.js'
       - '.github/workflows/zminer.yml'
   pull_request:
     paths:
       - 'miner-zpow/**'
       - 'scripts/build-zminer.sh'
+      - 'scripts/stage-zminer.js'
+      - 'scripts/before-pack-win.js'
       - '.github/workflows/zminer.yml'
 jobs:
   windows-amd64:
@@ -17,5 +22,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build zminer.exe (Go 1.12.7, windows/amd64)
         run: bash scripts/build-zminer.sh
-      - name: SHA256 of the binaries just built
-        run: cd miner-zpow/dist && sha256sum -c SHA256SUMS
+      - name: Built hash matches committed SHA256SUMS
+        run: cmp miner-zpow/dist/SHA256SUMS miner-zpow/SHA256SUMS && cd miner-zpow/dist && sha256sum -c SHA256SUMS
+      - name: Publish zminer.exe and SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: zminer-windows-amd64
+          path: |
+            miner-zpow/dist/zminer.exe
+            miner-zpow/SHA256SUMS
+          if-no-files-found: error

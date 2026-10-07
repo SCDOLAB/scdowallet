@@ -263,6 +263,8 @@ async function main () {
     assert.ok(targets.includes('nsis'), 'nsis target missing')
     const extra = pkg.build.win.extraResources
     assert.ok(extra.some(x => x.from === 'miner-bin/win32' && x.to === 'miner/bin'))
+    assert.strictEqual(pkg.build.beforePack, 'scripts/before-pack-win.js')
+    assert.ok(String(pkg.scripts['dist:win']).startsWith('node scripts/stage-zminer.js'))
     assert.ok(extra.some(x => x.from === 'miner-bin/scdo-shard0-genesis.json'))
   })
 
