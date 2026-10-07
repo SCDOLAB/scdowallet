@@ -1,6 +1,6 @@
-// Where the Classic miners live. Binaries are not committed (see miner-bin/README.md).
-// zminer is built by scripts/build-zminer.sh. The Classic CUDA node is built from
-// SCDOLAB/go-scdo when a CUDA toolkit is available; otherwise set SCDO_CLASSIC_NODE.
+// Where the Classic GPU miner lives. Binaries are not committed (see miner-bin/README.md).
+// The wallet starts the CUDA node (SCDO_CLASSIC_NODE or miner-bin/<platform>/classic).
+// It does not launch zminer.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -78,8 +78,8 @@ function sha256File (file) {
   })
 }
 
-// required: zminer must have a published hash. The Classic node is checked only
-// when a hash is configured (sums file next to it, or SCDO_CLASSIC_NODE_SHA256).
+// The Classic node is checked only when a hash is configured
+// (sums file next to it, or SCDO_CLASSIC_NODE_SHA256). required: true refuses to start.
 async function assertSha256 (file, opts) {
   opts = opts || {}
   const base = path.basename(file)
@@ -90,7 +90,7 @@ async function assertSha256 (file, opts) {
   if (!expected && opts.sumsText) expected = lookupSha(opts.sumsText, base) || ''
   if (!expected) {
     if (!opts.required) return { ok: true, unchecked: true }
-    const err = new Error('no SHA256 published for ' + base + ' (build it with scripts/build-zminer.sh so SHA256SUMS sits beside the binary)')
+    const err = new Error('no SHA256 published for ' + base + ' (place SHA256SUMS beside the binary)')
     err.code = 'SHA256_MISSING'
     throw err
   }
