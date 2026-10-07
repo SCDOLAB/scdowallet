@@ -133,16 +133,26 @@ const sampled = mergeSyncView({
   downloaded: 100,
   amount: 4000,
   durationSec: 50,
-  samples: [{ t: 0, h: 800 }, { t: 60000, h: 1000 }],
+  samples: [{ t: 0, h: 800 }, { t: 30000, h: 900 }, { t: 60000, h: 1000 }],
   now: 60000
 })
 assert.strictEqual(sampled.networkBlock, 2000)
 assert.strictEqual(sampled.etaSec, 300)
 assert.strictEqual(ETA_WINDOW_MS, 180000)
+// Two samples, even across 60s, stay calculating and must not fall back to duration.
+assert.strictEqual(mergeSyncView({
+  local: 1000,
+  publicTip: 2000,
+  downloaded: 100,
+  amount: 4000,
+  durationSec: 50,
+  samples: [{ t: 0, h: 800 }, { t: 60000, h: 1000 }],
+  now: 60000
+}).etaSec, null)
 const rolled = mergeSyncView({
   local: 1100,
   publicTip: 2100,
-  samples: [{ t: 0, h: 0 }, { t: 200000, h: 1000 }, { t: 380000, h: 1100 }],
+  samples: [{ t: 0, h: 0 }, { t: 200000, h: 1000 }, { t: 290000, h: 1050 }, { t: 380000, h: 1100 }],
   now: 380000
 })
 assert.strictEqual(rolled.etaSec, 1800)
@@ -151,6 +161,50 @@ assert.strictEqual(mergeSyncView({
   publicTip: 5000,
   samples: [{ t: 0, h: 900 }, { t: 10000, h: 1000 }],
   now: 10000
+}).etaSec, null)
+// Stalled startup, then a steady ~19 blk/s. The flat prefix is not part of the rate.
+const stallBase = 1000000
+const stallSamples = []
+for (let t = 0; t <= 90000; t += 15000) stallSamples.push({ t, h: stallBase })
+for (let t = 105000; t <= 165000; t += 15000) {
+  stallSamples.push({ t, h: stallBase + 19 * ((t - 90000) / 1000) })
+}
+const stalled = mergeSyncView({
+  local: stallBase + 19 * 75,
+  publicTip: stallBase + 6270000,
+  samples: stallSamples,
+  now: 165000
+})
+assert.ok(Math.abs(stalled.etaSec - (6268575 / 19)) < 1, 'stalled-start eta ' + stalled.etaSec)
+assert.ok(stalled.etaSec > 80 * 3600 && stalled.etaSec < 110 * 3600)
+// Still on the flat prefix, or only two progress points: keep calculating.
+assert.strictEqual(mergeSyncView({
+  local: stallBase,
+  publicTip: stallBase + 6270000,
+  samples: [{ t: 0, h: stallBase }, { t: 30000, h: stallBase }, { t: 60000, h: stallBase }],
+  now: 60000
+}).etaSec, null)
+assert.strictEqual(mergeSyncView({
+  local: stallBase + 1425,
+  publicTip: stallBase + 6270000,
+  samples: [
+    { t: 0, h: stallBase },
+    { t: 60000, h: stallBase },
+    { t: 90000, h: stallBase + 285 },
+    { t: 150000, h: stallBase + 1425 }
+  ],
+  now: 150000
+}).etaSec, null)
+// A couple of blocks against a multi-million gap is not a forecast.
+assert.strictEqual(mergeSyncView({
+  local: stallBase + 2,
+  publicTip: stallBase + 6270000,
+  samples: [
+    { t: 0, h: stallBase },
+    { t: 60000, h: stallBase + 1 },
+    { t: 120000, h: stallBase + 2 }
+  ],
+  now: 120000
 }).etaSec, null)
 assert.strictEqual(mergeSyncView({ local: 2000, publicTip: 2000, samples: [] }).etaSec, 0)
 assert.deepStrictEqual(classicGpuPhase({}), { code: 'CLASSIC_STARTING', phase: 'starting' })

@@ -215,7 +215,7 @@ class ZpowManager extends EventEmitter {
 
   pushSyncSample (h, now) {
     if (h == null || !Number.isFinite(Number(h))) return
-    const t = now || Date.now()
+    const t = now != null ? now : Date.now()
     const height = Number(h)
     const last = this.syncSamples[this.syncSamples.length - 1]
     if (last && t - last.t < 2000 && last.h === height) return
@@ -225,8 +225,9 @@ class ZpowManager extends EventEmitter {
   }
 
   // Displayed ETA changes at most every 30s. Caught up (0) updates immediately.
+  // now=0 is a real timestamp (tests); only null/undefined means "use the clock".
   holdEta (etaSec, now) {
-    const t = now || Date.now()
+    const t = now != null ? now : Date.now()
     if (etaSec == null || !Number.isFinite(Number(etaSec))) return this.etaHold
     const next = Number(etaSec)
     if (next === 0) {

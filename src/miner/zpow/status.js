@@ -81,13 +81,16 @@ function maxHeight () {
 
 // A node that is still this far behind the network is syncing, not mining.
 const BEHIND_BLOCKS = 8
-// ETA rate uses heights inside this window. Shorter spans are too noisy.
+// ETA rate uses heights inside this window. The startup stall is dropped first.
 const ETA_WINDOW_MS = 3 * 60 * 1000
-const ETA_MIN_SPAN_SEC = 30
+const ETA_MIN_SAMPLES = 3
+const ETA_MIN_SPAN_SEC = 60
+// Longer than this is a bad sample (a flat prefix, or a one-block blip), not a forecast.
+const ETA_MAX_SEC = 14 * 24 * 3600
 
 // network is the higher of the peer target and the public getInfo tip.
 // ETA prefers the rolling height window. download_getStatus is only a fallback
-// before that window has 30s of progress.
+// when there are not yet two samples. A partial window stays "calculating".
 function mergeSyncView (opts) {
   opts = opts || {}
   const local = num(opts.local)
@@ -102,7 +105,19 @@ function mergeSyncView (opts) {
   } else if (etaSec == null && local != null && network != null && local >= network) {
     etaSec = 0
   }
+  if (etaSec != null && etaSec > ETA_MAX_SEC) etaSec = null
   return { localBlock: local, networkBlock: network, etaSec }
+}
+
+// Drop a flat prefix so the rate starts at the first height increase.
+// A ramp that moves on the first step is kept whole.
+function dropStalledPrefix (windowed) {
+  if (!windowed || windowed.length < 2) return windowed || []
+  const base = Number(windowed[0].h)
+  let flat = 0
+  while (flat < windowed.length && Number(windowed[flat].h) === base) flat++
+  if (flat >= 2 && flat < windowed.length && Number(windowed[flat].h) > base) return windowed.slice(flat)
+  return windowed
 }
 
 function etaFromSamples (samples, local, network, now) {
@@ -115,13 +130,16 @@ function etaFromSamples (samples, local, network, now) {
     const t = Number(s && s.t)
     if (t >= cutoff && t <= end) windowed.push(s)
   }
-  if (windowed.length < 2) return null
-  const first = windowed[0]
-  const last = windowed[windowed.length - 1]
+  const progress = dropStalledPrefix(windowed)
+  if (progress.length < ETA_MIN_SAMPLES) return null
+  const first = progress[0]
+  const last = progress[progress.length - 1]
   const dt = (Number(last.t) - Number(first.t)) / 1000
   const dh = Number(last.h) - Number(first.h)
   if (!(dt >= ETA_MIN_SPAN_SEC) || !(dh > 0)) return null
-  return (network - local) * dt / dh
+  const eta = (network - local) * dt / dh
+  if (!(eta > 0) || eta > ETA_MAX_SEC) return null
+  return eta
 }
 
 // Classic GPU status before and after the first height. Mining is only claimed
