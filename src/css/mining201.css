@@ -1,0 +1,16 @@
+/* 2.0.1 mining batch 1 */
+.m1-card { margin-top: 22px; padding: 20px 26px; }
+.m1-h { font-size: 23px; font-weight: 700; flex: 1; }
+.m1-row { display: flex; align-items: center; gap: 12px; }
+.m1-gpu { border-top: 1px solid #eef0f8; padding: 12px 0; }
+.m1-gpu b { font-size: 19px; }
+.m1-kv { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 6px; font-size: 16px; color: #3d4160; }
+.m1-reasons { margin: 8px 0 0 18px; padding: 0; font-size: 16px; color: #3d4160; }
+.m1-radio, .m1-check { font-size: 18px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.m1-radio input, .m1-check input { width: 20px; height: 20px; }
+.m1-disc { margin-top: 12px; font-size: 14px; color: #6b6f8a; }
+.m1-stale .v { color: #9aa0b4; }
+#netStats .stats { margin-top: 12px; }
+/* 2.0.7 pool payout progress (same bar colours as the update progress) */
+.m1-prog { height: 14px; background: #e5e8f5; border-radius: 7px; margin: 12px 0 6px; overflow: hidden; }
+.m1-prog > div { height: 100%; background: #43A047; border-radius: 7px; transition: width .3s; }

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'">
+  <title>正在停止挖礦 — SCDO Wallet</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif; background: #fff; color: #1a1f4d; -webkit-user-select: none; user-select: none; }
+    .wrap { display: flex; align-items: center; gap: 22px; padding: 30px 32px; }
+    .spin { flex: none; width: 46px; height: 46px; border: 6px solid #C8E6C9; border-top-color: #43A047; border-radius: 50%; animation: r 1s linear infinite; }
+    @keyframes r { to { transform: rotate(360deg) } }
+    .en { font-size: 22px; font-weight: 700; }
+    .note { font-size: 15px; color: #666; margin-top: 12px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="stopping">
+    <div class="spin"></div>
+    <div>
+      <div class="en">正在停止挖礦，正在儲存區塊資料…</div>
+      <div class="note">請不要關機或結束程式。完成後這個視窗會自動關閉（最多約 1 分鐘）。</div>
+    </div>
+  </div>
+</body>
+</html>

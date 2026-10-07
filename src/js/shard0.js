@@ -8,7 +8,7 @@
   const DICT = {
     EN: {
       quick: 'Quick actions', create: '+ Create account', import: 'Import keyfile',
-      s0title: 'Shard0 (EVM · chainId 5680) — same key, 0x address',
+      s0title: 'SCDO Shard0 (EVM) · chain ID 5680 — same key, 0x address',
       s0note: 'Every keyfile also controls one 0x address on shard0 (usable in MetaMask with the same private key). The 0x address is shown after you unlock the keyfile once.',
       unlockShow: 'Unlock to show 0x address', unlock: 'Unlock', password: 'keyfile password',
       send: 'Send', explorer: 'Explorer', copy: 'Copy', faucet: 'Faucet (0.01 test SCDO)',
@@ -25,7 +25,7 @@
     },
     CN: {
       quick: '快捷操作', create: '+ 建立帳戶', import: '匯入帳戶檔案',
-      s0title: 'Shard0（EVM · 鏈 ID 5680）— 同一把鑰匙的 0x 地址',
+      s0title: 'SCDO Shard0 (EVM) · 鏈 ID 5680 — 同一把鑰匙的 0x 地址',
       s0note: '每個帳戶檔案同時控制 shard0 上的一個 0x 地址（同一私鑰也可匯入 MetaMask）。首次輸入密碼解鎖後顯示 0x 地址。',
       unlockShow: '解鎖以顯示 0x 地址', unlock: '解鎖', password: '帳戶檔案密碼',
       send: '轉帳', explorer: '瀏覽器', copy: '複製', faucet: '水龍頭（0.01 測試 SCDO）',

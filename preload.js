@@ -1,17 +1,35 @@
-// SCDO Wallet preload. This repo's page still has Node (keyfiles, balances, miner UI).
-// 2.0.12 匯款 does not use that: the page calls window.scdo, and only the channels below are allowed.
-// Keyfile decryption, EIP-191 personal_sign and the bearer token stay in the main process.
+// SCDO Wallet 2.0.1 preload (runs with contextIsolation + sandbox).
+// The renderer gets NO Node.js and NO raw ipcRenderer. It only sees window.scdo with:
+//   invoke(channel, ...args)  - request/response, channel must be in INVOKE (allowlist)
+//   on(channel, cb)           - main -> renderer events, channel must be in EVENTS (allowlist); returns an unsubscribe fn
+//   platform                  - process.platform (string, read-only)
+// Keyfile decryption, signing, file access and network calls all happen in the main process.
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 
 const INVOKE = Object.freeze([
-  'app:info', 'shell:openExternal', 'dialog:open', 'menu:rebuild',
-  'miner:start', 'miner:stop', 'miner:status', 'miner:gpu', 'miner:defender', 'miner:openLogs',
+  // app / shell
+  'app:info', 'app:titles', 'app:updatedSeen', 'shell:openExternal', 'menu:rebuild',
+  // wallet (main-process wallet service: keyfiles, balances, signing)
+  'wallet:boot', 'wallet:accounts', 'wallet:saveUi', 'wallet:setLang',
+  'acct:create', 'acct:unlock', 'acct:import',
+  's0:chainInfo', 's0:balances', 's0:activity', 's0:refreshPending', 's0:waitReceipt', 's0:checkAddress', 's0:estimate', 's0:review', 's0:send', 's0:cancelReview',
+  'old:balance', 'old:records', 'old:estimateGas', 'old:send',
+  // keyfile backup / delete
   'keyfile:paths', 'keyfile:backupDelete', 'keyfile:backupOnly', 'keyfile:openBackups',
+  // updater
+  'update:check', 'update:download', 'update:install', 'update:skip', 'update:getChannel', 'update:setChannel', 'about:buildHash',
+  // miner
+  'miner:start', 'miner:stop', 'miner:confirmStop', 'miner:status', 'miner:gpu', 'miner:intent', 'miner:intentClear', 'miner:intentMigrate',
+  'miner:otherRigels', 'miner:resumeCheck', 'miner:defender', 'miner:openLogs',
+  // mining batch 1
+  'mining:gpuPreflight', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining',
+  // 2.0.7: mining notification toggles, pool payout card
+  'notify:get', 'notify:set', 'pool:account',
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)
   'remit:info', 'remit:login', 'remit:ledger', 'remit:logout'
 ])
-const EVENTS = Object.freeze(['miner:status', 'remit:step'])
+const EVENTS = Object.freeze(['miner:status', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))
@@ -24,6 +42,4 @@ function on (channel, cb) {
   return () => ipcRenderer.removeListener(channel, h)
 }
 
-const api = Object.freeze({ invoke, on, platform: process.platform })
-if (process.contextIsolated) contextBridge.exposeInMainWorld('scdo', api)
-else window.scdo = api
+contextBridge.exposeInMainWorld('scdo', Object.freeze({ invoke, on, platform: process.platform }))

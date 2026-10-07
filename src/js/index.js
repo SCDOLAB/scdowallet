@@ -544,7 +544,7 @@ function call( shard, word ) {
   $(".dask").show()
   $(".dask").click(function(){clearCall();})
   // $('#callImg').on('click',function(){callContract();});
-  // 地址和字节码
+  // 地址和位元組碼
   // 
   // document.getElementById("")
 }

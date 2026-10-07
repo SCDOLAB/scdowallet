@@ -61,30 +61,48 @@ class Shard0 {
     return this.cfg.tokens.find(t => t.symbol === symbol)
   }
 
+  buildReq (to, amount, asset) {
+    if (!Shard0.isAddress(to)) throw new Error('invalid shard0 address (0x + 40 hex): ' + to)
+    if (!asset || asset === 'SCDO') return { to, value: ethers.parseEther(String(amount)) }
+    const t = this.token(asset)
+    if (!t) throw new Error('unknown token ' + asset)
+    const iface = new ethers.Interface(ERC20)
+    return { to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(String(amount), t.decimals)]) }
+  }
+
+  // 2.0.2 rerun N-1: sign with an explicit nonce, no broadcast -> { raw, hash, tx }. The hash is known before broadcasting,
+  // so the wallet can record the transfer first and never lose track of it (timeouts, crashes).
+  async signWithNonce (priv, to, amount, asset, nonce) {
+    const wallet = new ethers.Wallet(priv, this.provider)
+    const tx = await this.prepare(wallet, this.buildReq(to, amount, asset), nonce)
+    const raw = await wallet.signTransaction(tx)
+    return { raw, hash: ethers.keccak256(raw), tx }
+  }
+
+  // 2.0.2 rerun N-2: broadcast an already signed tx with a hard timeout (ethers' default is 5 min).
+  async broadcastRaw (raw, timeoutMs) {
+    let t
+    try {
+      return await Promise.race([this.provider.send('eth_sendRawTransaction', [raw]),
+        new Promise((resolve, reject) => { t = setTimeout(() => reject(new Error('BROADCAST_TIMEOUT')), timeoutMs || 20000) })])
+    } finally { clearTimeout(t) }
+  }
+
   // Build + sign (EIP-1559, chainId 5680) + broadcast. asset = 'SCDO' or a token symbol.
   async send (priv, to, amount, asset, opts) {
     opts = opts || {}
-    if (!Shard0.isAddress(to)) throw new Error('invalid shard0 address (0x + 40 hex): ' + to)
     const wallet = new ethers.Wallet(priv, this.provider)
-    let req
-    if (!asset || asset === 'SCDO') {
-      req = { to, value: ethers.parseEther(String(amount)) }
-    } else {
-      const t = this.token(asset)
-      if (!t) throw new Error('unknown token ' + asset)
-      const iface = new ethers.Interface(ERC20)
-      req = { to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(String(amount), t.decimals)]) }
-    }
+    const req = this.buildReq(to, amount, asset)
     const tx = await this.prepare(wallet, req)
     if (opts.dryRun) return { signed: await wallet.signTransaction(tx), tx }
     const resp = await wallet.sendTransaction(tx)
     return { hash: resp.hash, tx, response: resp }
   }
 
-  async prepare (wallet, req) {
+  async prepare (wallet, req, fixedNonce) {
     const from = await wallet.getAddress()
     const [nonce, fee, gas] = await Promise.all([
-      this.provider.getTransactionCount(from, 'pending'),
+      fixedNonce != null ? Promise.resolve(fixedNonce) : this.provider.getTransactionCount(from, 'pending'),
       this.provider.getFeeData(),
       this.provider.estimateGas(Object.assign({ from }, req))
     ])
@@ -95,7 +113,7 @@ class Shard0 {
       type: 2,
       chainId: this.cfg.chainId,
       nonce,
-      gasLimit: gas * 12n / 10n,
+      gasLimit: gas === 21000n ? gas : gas * 12n / 10n, // 2.0.2 D-03
       maxPriorityFeePerGas: tip,
       maxFeePerGas: base * 2n + tip
     })
@@ -116,7 +134,7 @@ class Shard0 {
     try { gas = await this.provider.estimateGas(req) } catch (e) { gas = (!asset || asset === 'SCDO') ? 21000n : 65000n }
     const tip = fee.maxPriorityFeePerGas && fee.maxPriorityFeePerGas > 0n ? fee.maxPriorityFeePerGas : 1000000000n
     const base = block && block.baseFeePerGas != null ? block.baseFeePerGas : (fee.gasPrice || 1000000000n)
-    const gasLimit = gas * 12n / 10n
+    const gasLimit = gas === 21000n ? gas : gas * 12n / 10n // 2.0.2 D-03
     const maxFeePerGas = base * 2n + tip
     return { gasLimit, maxFeePerGas, baseFee: base, tip, maxFeeWei: gasLimit * maxFeePerGas, estFeeWei: gas * (base + tip) }
   }

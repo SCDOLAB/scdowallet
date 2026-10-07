@@ -1,40 +1,41 @@
-// ScdoWalletBeta 1.1.4 renderer (1.1.4: network menu can switch to SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) or SCDO Shard4 (Classic) and the choice is kept; names SCDO Shard0 (EVM) / Classic accounts.
+// SCDO Wallet 2.0.0 renderer (renamed from ScdoWalletBeta). 1.1.4 renderer (1.1.4: network menu can switch to SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) or SCDO Shard4 (Classic) and the choice is kept; names SCDO Shard0 (EVM) / Classic accounts.
 // 1.1.3: MetaMask-style asset dropdown on the Send page): new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
 // account switcher at the top, big balance, Receive / Send action row, assets + activity, network selector,
 // settings gear. Uses the existing APIs: src/api/scdoClient.js (keyfiles, Classic shards), src/api/evm.js (SCDO Shard0 (EVM)),
 // main-process IPC for the miner and for keyfile backup + delete.
+// 2.0.1: the page runs sandboxed with contextIsolation and NO Node.js (typeof require === 'undefined'). Everything
+// privileged (keyfiles, signing, files, RPC) is done by the main process through window.scdo (preload.js allowlist).
+// Markup only goes through SafeDom.html() (Trusted Types + allowlist sanitizer); plain values use textContent.
 'use strict'
-;(function () {
-  const { ipcRenderer } = require('electron')
-  const fs = require('fs')
-  const os = require('os')
-  const path = require('path')
-  const ScdoClient = require('./src/api/scdoClient.js')
-  const { Shard0 } = require('./src/api/evm.js')
-  const { ethers } = require('ethers')
-  const { miningGpuReady, readyNvidiaNames } = require('./src/miner/gpuSelect.js')
-  // 2.0.12: 匯款 uses the preload bridge. Decrypt, personal_sign and the bearer token stay in the main process.
-  const api = (typeof window !== 'undefined' && window.scdo && typeof window.scdo.invoke === 'function')
-    ? window.scdo
-    : {
-        invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-        on: (channel, cb) => {
-          const h = (_e, ...a) => cb(...a)
-          ipcRenderer.on(channel, h)
-          return () => ipcRenderer.removeListener(channel, h)
-        }
-      }
-
-  const client = window.client = new ScdoClient()
-  const UI_PATH = path.join(os.homedir(), '.ScdoWallet', 'ui112.json')
-  const S0TX_PATH = path.join(os.homedir(), '.ScdoWallet', 's0tx.json')
+;(async function () {
+  const api = window.scdo
+  const SD = window.SafeDom
+  const esc = SD.esc
+  const BOOT = await api.invoke('wallet:boot')
+  const CFG = BOOT.config
+  const S0CFG = BOOT.shard0
 
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
-  function esc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
-  function readJson (p, d) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch (e) { return d } }
-  function writeJson (p, v) { try { fs.writeFileSync(p, JSON.stringify(v, null, 2)) } catch (e) { console.error(e) } }
-  function lang () { return (client.config && client.config.lang) === 'CN' ? 'CN' : 'EN' }
+  // 2.0.4: UI language follows the saved choice ('EN' default, 'CN' = 繁體中文 / Traditional Chinese)
+  let LANG = (CFG && CFG.lang === 'CN') ? 'CN' : 'EN'
+  function lang () { return LANG }
+  function applyLangAttr () { try { document.documentElement.lang = LANG === 'CN' ? 'zh-Hant-TW' : 'en'; if (window.SCDOMining) window.SCDOMining.lang = LANG } catch (e) {} }
+  applyLangAttr()
+  // bigint helpers (replace ethers.formatUnits / parseUnits in the page)
+  function toBig (x) { return typeof x === 'bigint' ? x : BigInt(x == null ? 0 : x) }
+  function formatUnits (v, dec) {
+    v = toBig(v); dec = Number(dec) || 0
+    const neg = v < 0n; if (neg) v = -v
+    const base = 10n ** BigInt(dec); const i = v / base; let f = (v % base).toString().padStart(dec, '0').replace(/0+$/, '')
+    return (neg ? '-' : '') + i.toString() + '.' + (f || '0')
+  }
+  function parseUnits (str, dec) {
+    str = String(str).trim(); if (!/^\d+(\.\d+)?$/.test(str)) throw new Error('bad number')
+    const [i, f = ''] = str.split('.'); if (f.length > dec) throw new Error('too many decimals')
+    return BigInt(i) * 10n ** BigInt(dec) + BigInt((f + '0'.repeat(dec)).slice(0, dec) || '0')
+  }
+  const formatEther = (v) => formatUnits(v, 18)
   function T (k, p) {
     let s = (window.I18N112[lang()] || {})[k]; if (s == null) s = window.I18N112.EN[k]; if (s == null) s = k
     if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
@@ -45,9 +46,9 @@
   function fmtNum (x, dMax) {
     const n = Number(x); if (!isFinite(n)) return String(x)
     const mx = Math.max(0, Math.min(20, dMax == null ? 6 : Number(dMax)))
-    return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(3, mx), maximumFractionDigits: mx })
+    return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(3, mx), maximumFractionDigits: mx, roundingMode: 'trunc' }) // 2.0.2 D-05: never round amounts up
   }
-  function fmtWei (wei, dMax) { return fmtNum(ethers.formatEther(wei), dMax) }
+  function fmtWei (wei, dMax) { return fmtNum(formatEther(wei), dMax) }
   function fmtHash (h) { if (h == null) return '–'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s']; let i = 0; while (h >= 1000 && i < 3) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
   function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
@@ -57,17 +58,17 @@
     const ch = (String(name).trim()[0] || '?').toUpperCase()
     return `<div class="avatar" style="background:hsl(${hue},62%,48%)">${esc(ch)}</div>`
   }
-  function openExternal (url) { ipcRenderer.invoke('shell:openExternal', url) }
+  function openExternal (url) { api.invoke('shell:openExternal', url) }
 
   // ---------------- state ----------------
-  const ui = readJson(UI_PATH, {})
+  const ui = (BOOT.ui && typeof BOOT.ui === 'object' && !Array.isArray(BOOT.ui)) ? BOOT.ui : {}
   ui.hidden = ui.hidden || { new: [], old: [] }
   ui.hidden.new = ui.hidden.new || []; ui.hidden.old = ui.hidden.old || []
   ui.showHidden = !!ui.showHidden
-  function saveUi () { writeJson(UI_PATH, ui) }
+  function saveUi () { api.invoke('wallet:saveUi', ui).catch(e => console.error('saveUi', e)) }
   // 1.1.4: account display names. Keyfiles are never renamed on disk; the label shown is ui.names[file] (Rename),
   // else the file name without its ".<timestamp>" suffix. Files without a usable name (empty, or the old "new …"
-  // default) get a stable number: 账户 N / Account N.
+  // default) get a stable number: 帳戶 N / Account N.
   ui.names = (ui.names && typeof ui.names === 'object' && !Array.isArray(ui.names)) ? ui.names : {}
   ui.accNo = (ui.accNo && typeof ui.accNo === 'object' && !Array.isArray(ui.accNo)) ? ui.accNo : {}
   ui.rewardExtra = Array.isArray(ui.rewardExtra) ? ui.rewardExtra.filter(x => /^0x[0-9a-fA-F]{40}$/.test(x)) : []
@@ -99,16 +100,17 @@
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
     miner: null, gpu: null, logOpen: false,
+    rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
   }
-  let s0 = null
-  function shard0 () {
-    if (!s0) { const cfg = client.config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
-    return s0
-  }
+  const shard0 = () => ({
+    cfg: S0CFG,
+    explorerTx: (h) => S0CFG.explorer + '/#/tx?txhash=' + encodeURIComponent(h),
+    explorerAddress: (a) => S0CFG.explorer + '/#/address?address=' + encodeURIComponent(a)
+  })
+  async function reloadAccounts () { try { st.rawAccounts = await api.invoke('wallet:accounts') } catch (e) { console.error(e) } loadAccounts() }
   function loadAccounts () {
-    client.accountList()
-    st.accounts = client.accountArray.map(a => ({ filename: a.filename, pubkey: a.pubkey, shard: a.shard, evm: client.evmAddressOf(a.filename) }))
+    st.accounts = (st.rawAccounts || []).map(a => ({ filename: a.filename, pubkey: a.pubkey, shard: a.shard, evm: a.evm }))
     const names = st.accounts.map(a => a.filename)
     ui.hidden.new = ui.hidden.new.filter(n => names.includes(n)); ui.hidden.old = ui.hidden.old.filter(n => names.includes(n))
     let changed = false
@@ -131,25 +133,24 @@
   }
   function accByFile (f) { return st.accounts.find(a => a.filename === f) }
 
-  // ---------------- shard0 activity (local) ----------------
-  function s0txAll () { return readJson(S0TX_PATH, []) }
-  function s0txAdd (r) { const l = s0txAll(); l.unshift(r); writeJson(S0TX_PATH, l.slice(0, 500)) }
-  function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x.hash === hash); if (r) { Object.assign(r, patch); writeJson(S0TX_PATH, l) } }
+  // ---------------- shard0 activity (local file kept by the main process) ----------------
+  async function loadActivity (addr) { if (!addr) return; try { st.activity[addr.toLowerCase()] = await api.invoke('s0:activity', addr) } catch (e) {} }
 
   // ---------------- data refresh ----------------
   let refreshingS0 = false
   async function refreshS0 () {
     if (refreshingS0) return; refreshingS0 = true
     try {
-      try { const ci = await shard0().chainInfo(); st.net.s0Block = ci.block; st.net.s0Ok = ci.chainId === 5680 } catch (e) { st.net.s0Ok = false }
+      try { const ci = await api.invoke('s0:chainInfo'); st.net.s0Block = ci.block; st.net.s0Ok = ci.chainId === 5680 } catch (e) { st.net.s0Ok = false }
       await Promise.all(st.accounts.filter(a => a.evm).map(async a => {
-        try { const b = await shard0().balances(a.evm); st.s0[a.filename] = { nativeWei: b.nativeWei, tokens: b.tokens } } catch (e) { st.s0[a.filename] = Object.assign({}, st.s0[a.filename], { err: e.shortMessage || e.message }) }
+        try { st.s0[a.filename] = balFromIpc(await api.invoke('s0:balances', a.evm)) } catch (e) { st.s0[a.filename] = Object.assign({}, st.s0[a.filename], { err: e.message }) }
       }))
-      const pend = s0txAll().filter(r => r.status === 'pending').slice(0, 10)
-      for (const r of pend) {
-        try { const rc = await shard0().provider.getTransactionReceipt(r.hash); if (rc) s0txUpdate(r.hash, { status: rc.status === 1 ? 'done' : 'fail', block: rc.blockNumber }) } catch (e) {}
-      }
+      try { await api.invoke('s0:refreshPending') } catch (e) {}
+      const sa = selected(); if (sa && sa.evm) await loadActivity(sa.evm)
     } finally { refreshingS0 = false; renderLive() }
+  }
+  function balFromIpc (b) {
+    return { nativeWei: b.nativeWei == null ? null : BigInt(b.nativeWei), tokens: (b.tokens || []).map(t => Object.assign({}, t, { raw: t.raw == null ? null : BigInt(t.raw) })) }
   }
   let refreshingOld = false
   function refreshOld () {
@@ -159,20 +160,19 @@
     st.accounts.forEach(a => {
       let answered = false
       const to = setTimeout(() => { if (!answered) { answered = true; doneOne() } }, 20000)
-      try {
-        client.getBalance({ pubkey: a.pubkey, shard: a.shard }, (info, err) => {
-          if (answered) return; answered = true; clearTimeout(to)
-          if (!err && info && info.Balance != null) { st.old[a.pubkey] = info.Balance / 1e8; anyOk = true }
-          doneOne()
-        })
-      } catch (e) { if (!answered) { answered = true; clearTimeout(to); doneOne() } }
+      api.invoke('old:balance', a.pubkey, a.shard).then(v => {
+        if (answered) return; answered = true; clearTimeout(to)
+        if (v != null) { st.old[a.pubkey] = v; anyOk = true }
+        doneOne()
+      }).catch(() => { if (!answered) { answered = true; clearTimeout(to); doneOne() } })
     })
+    api.invoke('old:records').then(r => { st.oldRecords = r || [] }).catch(() => {})
   }
   function s0Total (list) { let t = 0n; let known = 0; for (const a of list) { const b = st.s0[a.filename]; if (b && b.nativeWei != null) { t += b.nativeWei; known++ } } return { wei: t, known } }
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining and Remittance keep it
+  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining keeps it
   function setTab (v) {
     st.tab = TABS.includes(v) ? v : 'home'
     if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
@@ -180,7 +180,6 @@
   }
   function setNet (v, shard) {
     const net = v === 'old' ? 'old' : 'new'
-    // Mining and Remittance stay put when the EVM network is re-selected; Classic still opens the Classic tab.
     if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab)
     ui.net = net; saveUi()
   }
@@ -198,13 +197,15 @@
         ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
       </div>`
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
-    $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">ScdoWalletBeta ${esc(APPVER)}</div></div></div>
+    SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
       ${sw}<div class="spacer"></div>
+      <div class="minepill" id="minePill" data-act="tab" data-v="mine"></div>
       <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
-      <div class="lang"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN" id="langCN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN" id="langEN">English</button></div>
-      <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`
+      <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
+      <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
+    renderMinePill()
     const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
-    $('tabs').innerHTML = tabs.map(([k, l]) => `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" id="tab-${k}">${esc(T(l))}</button>`).join('')
+    SD.html($('tabs'), tabs.map(([k, l]) => `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${esc(T(l))}</button>`).join(''))
   }
 
   // ---------------- pages ----------------
@@ -251,8 +252,8 @@
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
   function assetIconHtml (sym) {
-    if (sym === 'SCDO') return '<div class="ai"><img src="./src/img/app-icon.png" alt=""></div>'
-    return `<div class="ai" style="background:${TOKEN_COLORS[sym] || '#8a8fa8'}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
+    if (sym === 'SCDO') return '<div class="ai"><img src="./assets/icon-64.png" alt=""></div>'
+    return `<div class="ai" style="background:${esc(TOKEN_COLORS[sym] || '#8a8fa8')}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
   }
   // -> [{ symbol, name, bal: formatted balance | null (unknown yet) }]
   function chainAssets (a) {
@@ -281,10 +282,10 @@
     const close = () => { list.hidden = true; btn.setAttribute('aria-expanded', 'false') }
     const open = () => {
       const cur = getCur()
-      list.innerHTML = `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
+      SD.html(list, `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
         `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol)}
           <div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
-          <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join('')
+          <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join(''))
       list.hidden = false; btn.setAttribute('aria-expanded', 'true')
       try { list.scrollIntoView({ block: 'nearest' }) } catch (e) {}
       const on = list.querySelector('.ait.on') || list.querySelector('.ait'); if (on) on.focus()
@@ -299,14 +300,14 @@
   }
   window.__closeAssetList = () => { const l = $('assetList'); if (l && !l.hidden) { l.hidden = true; const b = $('assetBtn'); if (b) { b.setAttribute('aria-expanded', 'false'); b.focus() } return true } return false }
   function activityHtml (a) {
-    const l = s0txAll().filter(r => r.from && a.evm && r.from.toLowerCase() === a.evm.toLowerCase()).slice(0, 30)
+    const l = (st.activity[String(a.evm || '').toLowerCase()] || []).slice(0, 30)
     let h = ''
     if (!l.length) h = `<div style="padding:22px 26px" class="muted">${esc(T('noActivity'))}</div>`
     l.forEach(r => {
-      const stt = r.status === 'done' ? `<span class="tag" style="background:#e8f7ee;color:#146c2e">${esc(T('txDone'))}</span>` : r.status === 'fail' ? `<span class="tag" style="background:#fff1f0;color:#a3160c">${esc(T('txFail'))}</span>` : `<span class="tag grey">${esc(T('txPending'))}</span>`
-      h += `<div class="txrow" data-act="openTx" data-v="${esc(r.hash)}"><div style="font-size:26px">⬆</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px">${esc(T('txSent'))} → <span class="mono" style="font-weight:400;font-size:17px">${esc(r.to)}</span></div>
-        <div class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-CN' : 'en-GB'))}${r.block ? ' · #' + esc(r.block) : ''}</div></div>
-        <div style="text-align:right"><div style="font-size:21px;font-weight:700">−${esc(fmtNum(r.amount))} ${esc(r.asset)}</div>${stt}</div></div>`
+      const stt = r.status === 'done' ? `<span class="tag" style="background:#e8f7ee;color:#146c2e">${esc(T('txDone'))}</span>` : r.status === 'fail' ? `<span class="tag" style="background:#fff1f0;color:#a3160c">${esc(T('txFail'))}</span>` : r.status === 'error' ? `<span class="tag" style="background:#fff1f0;color:#a3160c" title="${esc(r.error || '')}">${esc(T('txNotSent'))}</span>` : r.stuck ? `<span class="tag grey" title="${esc(T('notConfirmedYet'))}">${esc(T('txStuck'))}</span>` : `<span class="tag grey">${esc(T('txPending'))}</span>`
+      h += `<div class="txrow" data-act="openTx" data-v="${esc(r.hash)}"><div style="font-size:26px">${r.dir === 'in' ? '\u2B07' : '\u2B06'}</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px">${esc(r.dir === 'in' ? T('txReceived') : T('txSent'))} ${r.dir === 'in' ? '\u2190' : '\u2192'} <span class="mono" style="font-weight:400;font-size:17px">${esc(r.dir === 'in' ? r.from : r.to)}</span></div>
+        <div class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB'))}${r.block ? ' · #' + esc(r.block) : ''}</div></div>
+        <div style="text-align:right"><div style="font-size:21px;font-weight:700">${r.dir === 'in' ? '+' : '\u2212'}${esc(fmtNum(r.amount))} ${esc(r.asset)}</div>${stt}</div></div>`
     })
     h += `<div style="padding:14px 26px"><button class="link" data-act="explorerAddr" data-v="${esc(a.evm)}">${esc(T('viewExplorer'))}</button></div>`
     return h
@@ -366,13 +367,12 @@
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
     const ot = oldTotal(shardFilter(visible('old')))
     h += `<div class="total-line"><span style="font-size:20px;color:#3d4160">${esc(ui.shard ? T('oldSumN', { n: ui.shard }) : T('oldSum'))}</span><span style="font-size:30px;font-weight:800;color:#3d4160" id="oldTot">${ot.known ? esc(fmtNum(ot.v)) : '…'} SCDO</span></div>`
-    try { client.getRecords() } catch (e) {}
-    const recs = (client.txRecords || []).filter(Boolean).slice(0, 20)
+    const recs = (st.oldRecords || []).filter(Boolean).slice(0, 20)
     h += `<div class="card" style="margin-top:22px;padding:18px 24px"><div style="font-size:22px;font-weight:700">${esc(T('oldRecords'))}</div>`
     if (!recs.length) h += `<div class="muted" style="margin-top:8px">${esc(T('noOldRecords'))}</div>`
     recs.forEach(r => {
       const s = r.u == 1 ? T('txDone') : r.u == 0 ? T('txFail') : T('txPending') // eslint-disable-line eqeqeq
-      h += `<div style="padding:10px 0;border-bottom:1px solid #f0f1f7"><div class="row" style="flex-wrap:wrap"><b>${esc(fmtNum(r.m / 1e8))} SCDO</b><span class="tag grey">${esc(s)}</span><span class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-CN' : 'en-GB'))}</span></div>
+      h += `<div style="padding:10px 0;border-bottom:1px solid #f0f1f7"><div class="row" style="flex-wrap:wrap"><b>${esc(fmtNum(r.m / 1e8))} SCDO</b><span class="tag grey">${esc(s)}</span><span class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB'))}</span></div>
         <div class="mono lbl">${esc(r.fa)} → ${esc(r.ta)}</div><div class="mono lbl">${esc(r.s)}</div></div>`
     })
     return h + '</div></div>'
@@ -408,7 +408,7 @@
     const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
     const open = !!(st.otherOpen && st.otherOpen[id])
     return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(T('rewardOther'))}</option></select>
-      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono" id="${id}-in" placeholder="0x…" style="flex:1;min-width:320px" autocomplete="off"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
+      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono" id="${id}-in" placeholder="0x…" style="flex:1;min-width:320px" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
   }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
   function payoutDefault () {
@@ -425,23 +425,24 @@
     const m = st.miner || {}
     const running = !!m.running
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('mineTitle'))}</div>`
-    if (process.platform === 'darwin') return h + `<div class="nogpu">${esc(T('macNo'))}</div></div></div>`
-    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div></div>`
+    if (api.platform === 'darwin') return h + `</div><div id="miningBatch1"></div></div>`
+    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div><div id="miningBatch1"></div></div>`
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
-    const mineMode = m.mode === 'mine' && running
+    const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
     const statusBar = `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>`
     const blocks = `<div class="stat"><div class="lbl">${esc(T('localNet'))}</div><div class="v" id="mBlocks">${m.localBlock == null ? '–' : esc(m.localBlock)} / ${m.networkBlock == null ? (st.net.s0Block == null ? '–' : esc(st.net.s0Block)) : esc(m.networkBlock)}</div></div>
       <div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
-    if (miningGpuReady(g)) {
+    if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
       const cur = m.wallet || saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
-        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: readyNvidiaNames(g).join(', ') }))}</div>
+        <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
         ${statusBar}
+        ${m.mode === 'pool' && running && m.poolUrl ? `<div class="infobox" id="poolNow">${esc(T('poolNow', { u: m.poolUrl }))}</div>` : ''}
         <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
         <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
@@ -465,10 +466,10 @@
     h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
       <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
-      ${process.platform === 'win32' && miningGpuReady(g) ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
+      ${api.platform === 'win32' && g.nvidia ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
-      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(((m.logTail) || []).slice(-80).join('\n'))}</pre></details>`
-    return h + '</div></div>'
+      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
+    return h + '</div><div id="miningBatch1"></div></div>'
   }
 
   // ---------------- 2.0.12 remittance (匯款): unlock + personal_sign, no KYC form ----------------
@@ -510,7 +511,7 @@
   }
   function pageRemit () {
     const a = selected()
-    if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) el.textContent = r.base } }).catch(() => {})
+    if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) SD.text(el, r.base) } }).catch(() => {})
     const signedIn = remitOwnsSession()
     if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
     const phase = signedIn ? 'in' : st.remit.phase
@@ -570,7 +571,7 @@
     render()
     let r = null
     try { r = await api.invoke('remit:login', a.filename, pw) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
-    loadAccounts()
+    await reloadAccounts()
     const own = (accByFile(a.filename) || {}).evm
     if (r && r.ok && (!own || sameAddr(own, r.address))) {
       st.remit = { phase: 'in', error: '', address: r.address, ledger: r.ledger, base: st.remit.base }
@@ -604,9 +605,14 @@
     const main = $('main')
     const y = main.scrollTop
     const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
-    main.innerHTML = (pages[st.tab] || pageHome)()
+    SD.html(main, (pages[st.tab] || pageHome)())
+    if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
     main.scrollTop = y
-    document.title = 'ScdoWalletBeta ' + APPVER
+    document.title = 'SCDO Wallet ' + APPVER
+  }
+  function mountMining () {
+    const root = $('miningBatch1'); if (!root) return
+    window.SCDOMining.MiningPage.mount(root, { miner: st.miner, toast, rerender: () => { if (st.tab === 'mine' && !$('md') && !(document.activeElement && document.activeElement.id === 'poolUrl')) render() } })
   }
   // cheap updates of numbers without re-rendering inputs the user may be typing into
   function renderLive () {
@@ -617,11 +623,29 @@
       if (active && active.tagName === 'INPUT') return
       render()
     } else if (st.tab === 'new') {
-      document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) el.innerHTML = esc(fmtWei(b.nativeWei)) + ' <span>SCDO</span>' })
+      document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) SD.valueUnit(el, fmtWei(b.nativeWei), 'SCDO') })
     } else if (st.tab === 'old') {
-      document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) el.innerHTML = esc(fmtNum(v)) + ' <span>SCDO</span>' })
+      document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) SD.valueUnit(el, fmtNum(v), 'SCDO') })
       const ot = oldTotal(shardFilter(visible('old'))); const e = $('oldTot'); if (e && ot.known) e.textContent = fmtNum(ot.v) + ' SCDO'
     }
+  }
+  // 2.0.6: mining status is always visible in the top bar (running / stopped, hashrate, pool)
+  function poolLabel (m) {
+    if (m.mode === 'pool' && m.poolUrl) return String(m.poolUrl).replace(/^[a-z0-9+]+:\/\//i, '')
+    return T('poolLocal')
+  }
+  function minePillText (m) {
+    m = m || {}
+    if (m.phase === 'error') return { cls: 'bad', t: '⛏ ' + T('pillError') }
+    if (!m.running) return { cls: '', t: '⛏ ' + T('pillStopped') }
+    if (m.mode === 'node') return { cls: '', t: T('pillNode') }
+    const hr = m.code === 'MINING' && m.hashrate > 0 ? ' · ' + fmtHash(m.hashrate) : ''
+    return { cls: m.code === 'MINING' ? 'ok' : 'warn', t: '⛏ ' + (m.code === 'MINING' ? T('pillMining') : T('pillStarting')) + hr + ' · ' + T('poolLbl') + ' ' + poolLabel(m) }
+  }
+  function renderMinePill () {
+    const e = $('minePill'); if (!e) return
+    const x = minePillText(st.miner)
+    e.className = 'minepill ' + x.cls; e.textContent = x.t; e.title = x.t
   }
   function renderHeaderNetOnly () {
     const d = document.querySelector('.netsel .dot'); if (!d) return
@@ -633,24 +657,24 @@
     const m = st.miner || {}
     const e = $('minerStatus')
     const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN'].join('|')
-    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout', 'mReward-in', 'nPayout-in'].includes(document.activeElement.id))) render(); return }
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'poolUrl'].includes(document.activeElement.id))) render(); return }
     if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
     const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
     set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
     set('mPeers', m.peers == null ? '–' : m.peers)
-    if (m.mode === 'mine' && m.running) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
+    if ((m.mode === 'mine' || m.mode === 'pool') && m.running) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
     set('mFound', m.blocksFound || 0)
     const ns = $('mNodeState'); if (ns) ns.textContent = nodeStateText(m)
-    const lg = $('mLog'); if (lg && st.logOpen) { lg.textContent = (m.logTail || []).slice(-80).join('\n'); lg.scrollTop = lg.scrollHeight }
+    const lg = $('mLog'); if (lg && st.logOpen) { lg.textContent = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'); lg.scrollTop = lg.scrollHeight }
   }
 
   // ---------------- dropdowns ----------------
-  function closeDd () { $('ddRoot').innerHTML = '' }
+  function closeDd () { SD.clear($('ddRoot')) }
   function openDd (anchor, html, alignRight) {
     const r = anchor.getBoundingClientRect()
     // 1.1.4 fix: the click-away backdrop has its own class (.ddov, z-index below .dd). In 1.1.1-1.1.3 it reused the modal
     // .overlay (z-index 50 > .dd 40), so it covered the menu and every click on a menu item only closed the menu.
-    $('ddRoot').innerHTML = `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${r.bottom + 8}px;${alignRight ? 'right:' + Math.max(10, window.innerWidth - r.right) + 'px' : 'left:' + r.left + 'px'};min-width:${Math.max(r.width, 320)}px;max-width:760px">${html}</div>`
+    SD.html($('ddRoot'), `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${Number(r.bottom + 8)}px;${alignRight ? 'right:' + Number(Math.max(10, window.innerWidth - r.right)) + 'px' : 'left:' + Number(r.left) + 'px'};min-width:${Number(Math.max(r.width, 320))}px;max-width:760px">${html}</div>`)
   }
   function accMenu (anchor) {
     const vis = visible('new')
@@ -675,16 +699,16 @@
   // ---------------- modals ----------------
   function modal (html, opts) {
     opts = opts || {}
-    $('modalRoot').innerHTML = `<div class="overlay" id="ov"><div class="modal" id="md" style="${opts.width ? 'width:' + opts.width + 'px' : ''}">${html}</div></div>`
+    SD.html($('modalRoot'), `<div class="overlay" id="ov"><div class="modal" id="md" style="${opts.width ? 'width:' + Number(opts.width) + 'px' : ''}">${html}</div></div>`)
     const first = $('md').querySelector('input:not([type=checkbox]):not([disabled])'); if (first && !opts.noFocus) setTimeout(() => first.focus(), 30)
   }
-  function closeModal () { $('modalRoot').innerHTML = ''; render() }
+  function closeModal () { SD.clear($('modalRoot')); render() }
   function confirmBox (title, text, yes, no, danger) {
     return new Promise(resolve => {
-      modal(`<div class="mh"><h2>${esc(title)}</h2></div><div style="font-size:20px">${esc(text)}</div>
+      modal(`<div class="mh"><h2>${esc(title)}</h2></div><div style="font-size:20px;white-space:pre-line">${esc(text)}</div>
         <div class="foot"><button class="btn ghost" id="cbNo">${esc(no || T('cancel'))}</button><button class="btn ${danger ? 'dan' : 'pri'}" id="cbYes">${esc(yes || T('yes'))}</button></div>`, { width: 600 })
-      $('cbNo').onclick = () => { $('modalRoot').innerHTML = ''; resolve(false) }
-      $('cbYes').onclick = () => { $('modalRoot').innerHTML = ''; resolve(true) }
+      $('cbNo').onclick = () => { SD.clear($('modalRoot')); resolve(false) }
+      $('cbYes').onclick = () => { SD.clear($('modalRoot')); resolve(true) }
     })
   }
 
@@ -707,110 +731,138 @@
     const names = [T('stepAddr'), T('stepAmount'), T('stepReview'), T('stepResult')]
     return `<div class="steps">${names.map((n, k) => (k === i ? `<b>${k + 1}. ${esc(n)}</b>` : `<span>${k + 1}. ${esc(n)}</span>`)).join('<span>→</span>')}</div>`
   }
+  // 2.0.1 (P0 #1): SCDO Shard0 (EVM) send = address -> amount -> CONFIRM SCREEN -> status.
+  // The main process validates the address (format, EIP-55 checksum, classic/zero address = blocked; self, contract,
+  // no checksum = warnings), re-checks chain ID 5680, estimates fee + total, and parks the reviewed parameters under a
+  // one-time token. Nothing is signed until the user presses Confirm on the confirm screen (with the keyfile password);
+  // the keyfile is decrypted and the transaction signed in the main process, for exactly the reviewed parameters.
+  // 2.0.10: full-width IME digits/letters -> half-width before address/amount/key checks
+  const nhw = (s) => (typeof window.normalizeHalfWidth === 'function' ? window.normalizeHalfWidth(s) : String(s == null ? '' : s).normalize('NFKC').replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim())
+  const ADDR_ERR = { FORMAT: 'errAddr', CHECKSUM: 'errChecksum', CLASSIC_ADDR: 'errOldAddrToNew', ZERO_ADDR: 'errZeroAddr' }
+  const ADDR_WARN = { SELF: 'warnSelf', CONTRACT: 'warnContract', TOKEN_CONTRACT: 'warnTokenContract', NO_CHECKSUM: 'warnNoChecksum', CONTRACT_UNKNOWN: 'warnContractUnknown' }
+  const SEND_ERR = { INSUFFICIENT: 'errTooMuch', NO_FEE_BALANCE: 'errNoFeeBal', WRONG_PASSWORD: 'wrongPw', REVIEW_EXPIRED: 'errReviewExpired', WRONG_CHAIN: 'errWrongChain', BAD_AMOUNT: 'errAmount', ADDRESS_CHANGED: 'errAddr', NO_PASSWORD: 'errPw', NONCE_BUSY: 'errNonceBusy', NETWORK: 'errNetwork', BROADCAST_TIMEOUT: 'errBcastTimeout', NONCE_READ: 'errNetwork', REPLACED: 'errReplaced' }
   function sendModal (f) {
     const a = accByFile(f); if (!a || !a.evm) return
-    const s = { asset: 'SCDO', to: '', amount: '', fee: null }
-    const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : 18, t } }
+    const s = { asset: 'SCDO', to: '', amount: '', fee: null, check: null, review: null }
+    api.invoke('s0:balances', a.evm).then(r => { st.s0[a.filename] = balFromIpc(r) }).catch(() => {}) // 2.0.2 D-07: fresh balance for 'Available' when the modal opens
+    const dec = () => { if (s.asset === 'SCDO') return 18; const t = (S0CFG.tokens || []).find(x => x.symbol === s.asset); return t ? t.decimals : 18 }
+    const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : dec(), t } }
     const balText = () => { const b = bal(); if (s.asset === 'SCDO') return b.wei != null ? fmtWei(b.wei) + ' SCDO' : '…'; return b.t && b.t.balance != null ? fmtNum(b.t.balance, b.dec) + ' ' + s.asset : '…' }
     const head = (i) => `<div class="mh"><h2>${esc(T('sendTitle'))}</h2>${stepsHtml(i)}</div>`
     const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.evm)}</div></div>`
+    const netLine = `<div class="lbl" id="sNet">${esc(T('network'))}${PU.c()}<b>SCDO Shard0 (EVM)</b> · ${esc(T('chainIdN', { n: S0CFG.chainId }))}</div>`
+    const cancelReview = () => { if (s.review && s.review.token) api.invoke('s0:cancelReview', s.review.token); s.review = null }
     function step1 () {
-      modal(`${head(0)}${fromLine}
+      modal(`${head(0)}${fromLine}${netLine}
         <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPh'))}" value="${esc(s.to)}"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      wireAssetPicker(a, () => s.asset, (v) => { s.to = $('sTo').value.trim(); s.asset = v; s.amount = ''; s.fee = null; step1() })
-      const go = () => {
-        const to = $('sTo').value.trim()
-        if (/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { $('sErr').textContent = T('errOldAddrToNew'); return }
-        if (!Shard0.isAddress(to)) { $('sErr').textContent = T('errAddr'); return }
-        if (to.toLowerCase() === a.evm.toLowerCase()) { $('sErr').textContent = T('errSelf'); return }
-        s.to = ethers.getAddress(to); step2()
+        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
+        <div class="err" id="sErr"></div><div class="warnbox" id="sWarn" style="display:none"></div>
+        <div class="foot"><button class="btn ghost" data-act="closeModal" id="sCancel">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
+      wireAssetPicker(a, () => s.asset, (v) => { s.to = nhw($('sTo').value); s.asset = v; s.amount = ''; s.fee = null; step1() })
+      const go = async () => {
+        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
+        $('sErr').textContent = ''; SD.spin($('sErr'), T('checkingAddr')); $('sNext').disabled = true
+        let chk
+        try { chk = await api.invoke('s0:checkAddress', a.evm, to, s.asset) } catch (e) { chk = { ok: false, errors: ['FORMAT'] } }
+        if (!$('sNext')) return
+        $('sNext').disabled = false; $('sErr').textContent = ''
+        if (!chk.ok) { $('sErr').textContent = T(ADDR_ERR[chk.errors[0]] || 'errAddr'); return }
+        s.to = chk.address; s.check = chk; step2()
       }
       $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
     }
     async function estimate () {
-      try { s.fee = await shard0().estimateSend(a.evm, s.to, s.amount && Number(s.amount) > 0 ? s.amount : '0', s.asset) } catch (e) { s.fee = null }
+      try { const f = await api.invoke('s0:estimate', a.evm, s.to, s.amount && Number(s.amount) > 0 ? s.amount : '0', s.asset); s.fee = f ? { estFeeWei: BigInt(f.estFeeWei), maxFeeWei: BigInt(f.maxFeeWei) } : null } catch (e) { s.fee = null }
       return s.fee
     }
-    function feeText () { return s.fee ? T('feeAbout', { v: fmtWei(s.fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(s.fee.maxFeeWei, 8) }) + PU.r() : '…' }
+    function feeText (fee) { fee = fee || s.fee; return fee ? T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(fee.maxFeeWei, 8) }) + PU.r() : '…' }
     function step2 () {
-      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>
+      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>${netLine}
         <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
         <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}${esc(s.asset)}${PU.r()}</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
+        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
         <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeText())}</div></div>
         <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
+        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('reviewBtn'))}</button></div>`)
       estimate().then(() => { const e = $('sFee'); if (e) e.textContent = feeText() })
       wireAssetPicker(a, () => s.asset, (v) => { s.asset = v; s.amount = ''; s.fee = null; step2() })
-      $('sBack').onclick = () => { s.amount = $('sAmt').value.trim(); step1() }
+      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
       $('sMax').onclick = async () => {
         const b = bal()
         if (s.asset === 'SCDO') {
           if (b.wei == null) return
           const fee = (await estimate()) || { maxFeeWei: 0n }
           let v = b.wei - fee.maxFeeWei; if (v < 0n) v = 0n
-          $('sAmt').value = ethers.formatEther(v)
-        } else if (b.raw != null) $('sAmt').value = ethers.formatUnits(b.raw, b.dec)
+          $('sAmt').value = formatEther(v)
+        } else if (b.raw != null) $('sAmt').value = formatUnits(b.raw, b.dec)
         const e = $('sFee'); if (e) e.textContent = feeText()
       }
       const go = async () => {
-        const v = $('sAmt').value.trim().replace(/,/g, '')
-        const b = bal()
-        let amt
-        try { if (!/^\d+(\.\d+)?$/.test(v)) throw new Error('x'); amt = ethers.parseUnits(v, b.dec); if (amt <= 0n) throw new Error('x') } catch (e) { $('sErr').textContent = T('errAmount'); return }
+        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
+        try { if (parseUnits(v, dec()) <= 0n) throw new Error('x') } catch (e) { $('sErr').textContent = T('errAmount'); return }
         s.amount = v
-        const fee = (await estimate()) || { maxFeeWei: 0n }
-        const scdoWei = (st.s0[a.filename] || {}).nativeWei
-        if (s.asset === 'SCDO') { if (scdoWei != null && amt + fee.maxFeeWei > scdoWei) { $('sErr').textContent = T('errTooMuch'); return } } else {
-          if (b.raw != null && amt > b.raw) { $('sErr').textContent = T('errTooMuch'); return }
-          if (scdoWei != null && fee.maxFeeWei > scdoWei) { $('sErr').textContent = T('errNoFeeBal'); return }
-        }
-        step3()
+        $('sNext').disabled = true; SD.spin($('sErr'), T('preparingReview'))
+        let r
+        try { r = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }) } catch (e) { r = { ok: false, error: e.message } }
+        if (!$('sNext')) { if (r && r.token) api.invoke('s0:cancelReview', r.token); return }
+        $('sNext').disabled = false; $('sErr').textContent = ''
+        if (r.check && !r.check.ok) { $('sErr').textContent = T(ADDR_ERR[r.check.errors[0]] || 'errAddr'); return }
+        if (!r.ok) { $('sErr').textContent = r.errors && r.errors.length ? T(SEND_ERR[r.errors[0]] || 'errAmount') : (SEND_ERR[r.error] ? T(SEND_ERR[r.error]) : T('errReview', { e: r.error || '?' })); return }
+        s.review = r; step3()
       }
       $('sNext').onclick = go; $('sAmt').onkeydown = (e) => { if (e.key === 'Enter') go() }
     }
+    // the confirm screen
     function step3 () {
-      const total = s.asset === 'SCDO' && s.fee ? fmtNum(ethers.formatEther(ethers.parseEther(s.amount) + s.fee.estFeeWei), 8) + ' SCDO' : null
-      modal(`${head(2)}<div class="review">
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.evm)}</div></div></div>
-        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#2933ff">${esc(fmtNum(s.amount, 18))} ${esc(s.asset)}</div></div>
-        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeText())}</div></div>
-        ${total ? `<div class="r"><div class="k">${esc(T('total'))}</div><div class="v">${esc(total)}</div></div>` : ''}</div>
+      const r = s.review
+      const fee = { estFeeWei: BigInt(r.fee.estFeeWei), maxFeeWei: BigInt(r.fee.maxFeeWei) }
+      const warns = (r.check.warnings || []).filter(w => ADDR_WARN[w])
+      const total = r.totalEstWei ? fmtNum(formatEther(r.totalEstWei), 8) + ' SCDO' + PU.l() + T('feeMax', { v: fmtNum(formatEther(r.totalMaxWei), 8) }) + PU.r() : fmtNum(r.amount, 18) + ' ' + r.asset + ' + ' + T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) })
+      modal(`<div class="mh"><h2>${esc(T('confirmTitle'))}</h2>${stepsHtml(2)}</div><div class="review" id="sReview">
+        <div class="r"><div class="k">${esc(T('network'))}</div><div class="v" id="cfNet">SCDO Shard0 (EVM) · ${esc(T('chainIdN', { n: r.network.chainId }))}</div></div>
+        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(r.from)}</div></div></div>
+        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v"><div class="mono" style="font-size:19px" id="cfTo">${esc(r.to)}</div><div class="lbl" style="color:#146c2e">✔ ${esc(T(r.check.warnings.includes('NO_CHECKSUM') ? 'addrOkNoChecksum' : 'addrOkChecksum'))}</div></div></div>
+        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047" id="cfAmt">${esc(fmtNum(r.amount, 18))} ${esc(r.asset)}</div></div>
+        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400" id="cfFee">${esc(feeText(fee))}</div></div>
+        <div class="r"><div class="k">${esc(T('total'))}</div><div class="v" id="cfTotal">${esc(total)}</div></div></div>
+        ${warns.map(w => `<div class="warnbox" data-warn="${esc(w)}">⚠ ${esc(T(ADDR_WARN[w]))}</div>`).join('')}
+        ${warns.length ? `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px;cursor:pointer"><input type="checkbox" id="sAck" style="width:22px;height:22px"> ${esc(T('ackWarnings'))}</label>` : ''}
         <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
-        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw"></div>
+        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw" autocomplete="off"></div>
         <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo">${esc(T('confirmSend'))}</button></div>`)
-      $('sBack').onclick = step2
+        <div class="foot"><button class="btn ghost" id="sCancel">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo" ${warns.length ? 'disabled' : ''}>${esc(T('confirmSend'))}</button></div>`)
+      const ack = $('sAck'); if (ack) ack.onchange = () => { $('sGo').disabled = !ack.checked }
+      $('sCancel').onclick = () => { cancelReview(); closeModal(); toast(T('sendCanceled')) }
+      $('sBack').onclick = () => { cancelReview(); step2() }
       const go = async () => {
+        if (ack && !ack.checked) { $('sErr').textContent = T('ackWarnings'); return }
         const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; $('sBack').disabled = true; $('sErr').innerHTML = `<span class="spin"></span> ${esc(T('sending'))}`
-        let priv
-        try { priv = await client.decKeyFile(a.filename, pw) } catch (e) { $('sErr').textContent = T('wrongPw'); $('sGo').disabled = false; $('sBack').disabled = false; return }
+        $('sGo').disabled = true; $('sBack').disabled = true; $('sCancel').disabled = true; SD.spin($('sErr'), T('sending'))
         $('sPw').value = ''
-        try {
-          const r = await shard0().send(priv, s.to, s.amount, s.asset)
-          priv = null
-          s0txAdd({ t: Date.now(), from: a.evm, to: s.to, amount: s.amount, asset: s.asset, hash: r.hash, status: 'pending' })
-          step4(r.hash)
-        } catch (e) { priv = null; $('sErr').textContent = String(e.shortMessage || e.message || e); $('sGo').disabled = false; $('sBack').disabled = false }
+        let res
+        try { res = await api.invoke('s0:send', { token: r.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
+        if (res && res.ok) { s.review = null; loadActivity(a.evm); step4(res.hash); return }
+        if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { s.review = null; loadActivity(a.evm); step4(res.hash, T('errBcastTimeout')); return } // rerun N-3: outcome unknown -> Pending, keep checking
+        if (res && res.error === 'WRONG_PASSWORD') {
+          // the token is single-use: build a fresh review so the user can retry with the right password
+          try { const r2 = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }); if (r2 && r2.ok) { s.review = r2; step3(); $('sErr').textContent = T('wrongPw'); return } } catch (e) {}
+        }
+        if ($('sErr')) { $('sErr').textContent = T('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? T(SEND_ERR[res.error]) : String((res && res.error) || 'error')); $('sBack').disabled = false; $('sCancel').disabled = false }
+        loadActivity(a.evm) // rerun N-3: the failed attempt is listed in Activity as Failed
       }
-      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter') go() }
+      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter' && !$('sGo').disabled) go() }
     }
-    function step4 (hash) {
-      modal(`${head(3)}<div class="statusbar warn" id="sStat" style="font-size:24px"><span class="spin"></span> ${esc(T('waiting'))}</div>
+    function step4 (hash, note) {
+      modal(`${head(3)}<div class="statusbar warn" id="sStat" style="font-size:24px"><span class="spin"></span> ${esc(T('waiting'))}</div>${note ? `<div class="err" style="margin-top:8px">${esc(note)}</div>` : ''}
         <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
         <div style="margin-top:10px"><button class="link" data-act="openTx" data-v="${esc(hash)}">${esc(T('openExplorer'))} →</button></div>
         <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
-      shard0().waitReceipt(hash, 240000).then(rc => {
-        const ok = rc && rc.status === 1
-        s0txUpdate(hash, { status: ok ? 'done' : 'fail', block: rc && rc.blockNumber })
-        const e = $('sStat'); if (e) { e.className = 'statusbar ' + (ok ? 'good' : 'bad'); e.textContent = ok ? '✅ ' + T('confirmed', { n: rc.blockNumber }) : '❌ ' + T('failed') }
-        refreshS0()
-      }).catch(() => {})
+      const notYet = () => { const e = $('sStat'); if (e) { e.className = 'statusbar warn'; e.textContent = T('notConfirmedYet') } loadActivity(a.evm) }
+      api.invoke('s0:waitReceipt', hash).then(rc => {
+        if (rc && rc.timeout) { notYet(); return }
+        const e = $('sStat'); if (e) { e.className = 'statusbar ' + (rc.ok ? 'good' : 'bad'); e.textContent = rc.ok ? '✅ ' + T('confirmed', { n: rc.block }) : '❌ ' + T('failed') }
+        loadActivity(a.evm); refreshS0()
+      }).catch(notYet)
     }
     step1()
   }
@@ -825,16 +877,16 @@
     const feeLine = () => feeScdo() == null ? '…' : T('feeAbout', { v: fmtNum(feeScdo(), 8) })
     function step1 () {
       modal(`${head(0)}<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.pubkey)}</div></div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPhOld', { n: a.shard }))}" value="${esc(s.to)}"></div>
+        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPhOld', { n: a.shard }))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
         <div class="err" id="sErr"></div>
         <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
       const go = () => {
-        const to = $('sTo').value.trim()
+        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
         if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { $('sErr').textContent = T('errAddrOld'); return }
-        if (String(to[0]) !== String(a.shard) && !(client.config && client.config.allowCrossShard)) { $('sErr').textContent = T('errCross', { n: a.shard }); return }
+        if (String(to[0]) !== String(a.shard) && !CFG.allowCrossShard) { $('sErr').textContent = T('errCross', { n: a.shard }); return }
         if (to.toLowerCase() === a.pubkey.toLowerCase()) { $('sErr').textContent = T('errSelf'); return }
         s.to = to
-        try { client.estimateGas(a.pubkey, to, '', (info, err) => { if (!err && info) s.gas = Number(info); const e = $('sFee'); if (e) e.textContent = feeLine() }) } catch (e) {}
+        api.invoke('old:estimateGas', a.pubkey, to).then(g => { if (g) s.gas = Number(g); const e = $('sFee'); if (e) e.textContent = feeLine() }).catch(() => {})
         step2()
       }
       $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
@@ -843,14 +895,14 @@
       const b = balV()
       modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono">${esc(s.to)}</div></div>
         <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}SCDO${PU.r()}</div><div class="lbl">${esc(T('available', { v: b == null ? '…' : fmtNum(b) + ' SCDO' }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
+        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
         <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeLine())}</div></div>
         <div class="err" id="sErr"></div>
         <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      $('sBack').onclick = () => { s.amount = $('sAmt').value.trim(); step1() }
+      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
       $('sMax').onclick = () => { const bb = balV(); if (bb == null) return; const v = Math.max(0, bb - (feeScdo() || 0.00021)); $('sAmt').value = String(Math.floor(v * 1e8) / 1e8) }
       const go = () => {
-        const v = $('sAmt').value.trim().replace(/,/g, '')
+        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
         if (!/^\d+(\.\d{1,8})?$/.test(v) || Number(v) <= 0) { $('sErr').textContent = T('errAmount'); return }
         const bb = balV(); if (bb != null && Number(v) + (feeScdo() || 0) > bb) { $('sErr').textContent = T('errTooMuch'); return }
         s.amount = v; step3()
@@ -861,7 +913,7 @@
       modal(`${head(2)}<div class="review">
         <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.pubkey)}</div></div></div>
         <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#2933ff">${esc(fmtNum(s.amount, 8))} SCDO</div></div>
+        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047">${esc(fmtNum(s.amount, 8))} SCDO</div></div>
         <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeLine())}</div></div></div>
         <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
         <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw"></div>
@@ -870,16 +922,16 @@
       $('sBack').onclick = step2
       const go = () => {
         const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; $('sErr').innerHTML = `<span class="spin"></span> ${esc(T('sending'))}`
-        const accStr = JSON.stringify({ pubkey: a.pubkey, shard: a.shard, filename: a.filename.split(' ').join('[sPaCe]') })
-        client.sendtx(accStr, pw, s.to, s.amount, s.price, s.gas || 21000, '', (result, err, hash, txRecord) => {
-          if (err) { const em = String((err && err.message) || err); $('sErr').textContent = /decrypt|passphrase/i.test(em) ? T('wrongPw') : em; $('sGo').disabled = false; return }
-          try { if (txRecord) client.saveRecord(txRecord) } catch (e) {}
+        $('sGo').disabled = true; SD.spin($('sErr'), T('sending'))
+        $('sPw').value = ''
+        api.invoke('old:send', { file: a.filename, password: pw, to: s.to, amount: s.amount, price: s.price, gas: s.gas || 21000 }).then(res => {
+          if (!res || !res.ok) { const em = String((res && res.error) || 'error'); if ($('sErr')) { $('sErr').textContent = em === 'WRONG_PASSWORD' ? T('wrongPw') : em; $('sGo').disabled = false } return }
+          const hash = res.hash
           modal(`${head(3)}<div class="statusbar good" style="font-size:22px">✅ ${esc(T('sentOld'))}</div>
             <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
             <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
+          refreshOld()
         })
-        $('sPw').value = ''
       }
       $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter') go() }
     }
@@ -894,13 +946,13 @@
       <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
       <details style="margin-top:14px"><summary style="font-size:18px;cursor:pointer;color:#3d4160">${esc(T('advanced'))}</summary>
         <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="1" style="width:120px"></div>
-        <div class="field"><div class="lbl">${esc(T('createPriv'))}</div><input class="inp mono" id="cPriv" type="password" placeholder="0x…" autocomplete="off"></div></details>
+        <div class="field"><div class="lbl">${esc(T('createPriv'))}</div><input class="inp mono" id="cPriv" type="password" placeholder="0x…" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div></details>
       <div class="infobox">${esc(T('createSave'))}</div>
       <div class="err" id="cErr"></div>
       <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="cGo">${esc(T('create'))}</button></div>`)
     $('cGo').onclick = async () => {
       const name = $('cName').value.trim(); const pw = $('cPw1').value; const pw2 = $('cPw2').value
-      const shard = ($('cShard').value.trim() || '1'); let priv = $('cPriv').value.trim()
+      const shard = ($('cShard').value.trim() || '1'); let priv = nhw($('cPriv').value); if ($('cPriv')) $('cPriv').value = priv
       const errs = []
       if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) errs.push(T('errName'))
       if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
@@ -908,22 +960,19 @@
       if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
       if (priv) { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
       if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
-      try {
-        if (!priv) priv = client.keyTool.generateKeys(shard).privatekey
-        else { const addr = client.getAddressFromPriKey(priv, shard); if (st.accounts.some(x => x.pubkey === addr)) { $('cErr').textContent = T('errExist'); return } }
-      } catch (e) { $('cErr').textContent = T('errKey'); return }
-      $('cGo').disabled = true; $('cErr').innerHTML = '<span class="spin"></span>'
+      $('cGo').disabled = true; SD.spin($('cErr'), '')
       const no = name ? 0 : nextNo()
-      const file = (name || 'account' + no) + '.' + Date.now()
-      try {
-        await client.keyStore(file, priv, pw, shard)
-        if (name) ui.names[file] = name; else ui.accNo[file] = no
-        saveUi()
-        client.rememberEvmAddress(file, priv)
-        priv = null
-        st.sel = file; localStorage.setItem('selAcc112', file)
-        closeModal(); toast(T('createOk')); refreshS0(); refreshOld()
-      } catch (e) { $('cErr').textContent = String(e.message || e); $('cGo').disabled = false }
+      const CERR = { EXISTS: 'errExist', BAD_KEY: 'errKey', BAD_NAME: 'errName', BAD_PASSWORD: 'pwRule', BAD_SHARD: 'errShard' }
+      $('cPriv').value = ''; $('cPw1').value = ''; $('cPw2').value = ''
+      const r = await api.invoke('acct:create', { name, password: pw, shard, priv, no })
+      priv = null
+      if (!r || !r.ok) { if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return }
+      const file = r.file
+      if (name) ui.names[file] = name; else ui.accNo[file] = no
+      saveUi()
+      st.sel = file; localStorage.setItem('selAcc112', file)
+      await reloadAccounts()
+      closeModal(); toast(T('createOk')); refreshS0(); refreshOld()
     }
   }
   function renameModal (f) {
@@ -937,16 +986,16 @@
       const v = $('rnName').value.trim()
       if (v.length > 40 || /[\u0000-\u001f<>]/.test(v)) { $('rnErr').textContent = T('errName'); return }
       if (v && !(ui.accNo[f] && v === T('accountN', { n: ui.accNo[f] }))) ui.names[f] = v
-      else { delete ui.names[f]; if (needsNo(f)) { if (!ui.accNo[f]) ui.accNo[f] = nextNo() } else delete ui.accNo[f] } // empty = default: file name, or 账户 N for unnamed files
+      else { delete ui.names[f]; if (needsNo(f)) { if (!ui.accNo[f]) ui.accNo[f] = nextNo() } else delete ui.accNo[f] } // empty = default: file name, or 帳戶 N for unnamed files
       saveUi(); closeModal(); toast(T('renameOk')); render()
     }
     $('rnGo').onclick = go; $('rnName').onkeydown = (e) => { if (e.key === 'Enter') go() }
     setTimeout(() => { const i = $('rnName'); if (i) { i.focus(); i.select() } }, 30)
   }
-  function useOtherAddr (id) {
-    const inp = $(id + '-in'); const raw = inp ? inp.value.trim() : ''
+  async function useOtherAddr (id) {
+    const inp = $(id + '-in'); const raw = nhw(inp ? inp.value : ''); if (inp) inp.value = raw
     let addr = ''
-    try { addr = require('ethers').getAddress(raw) } catch (e) { addr = '' }
+    try { const c = await api.invoke('s0:checkAddress', '', raw, 'SCDO'); addr = c && c.ok ? c.address : '' } catch (e) { addr = '' }
     if (!addr || /^0x0{40}$/.test(addr)) { toast(T('errRewardAddr'), 5000); return }
     if (!ui.rewardExtra.some(x => x.toLowerCase() === addr.toLowerCase())) ui.rewardExtra.push(addr)
     saveUi()
@@ -955,18 +1004,13 @@
     toast('✔ ' + addr); render()
   }
   async function importKeyfiles () {
-    const r = await ipcRenderer.invoke('dialog:open', { properties: ['openFile', 'multiSelections'] })
+    const r = await api.invoke('acct:import') // the main process shows the file dialog, validates and copies
     if (!r || r.canceled) return
-    loadAccounts()
-    for (const src of r.filePaths) {
-      const name = path.basename(src)
-      const pub = client.keyfileisvalid(src)
-      if (!pub) { toast(T('importFail', { n: name }), 6000); continue }
-      if (st.accounts.some(x => x.filename === name)) { toast(T('errNameExist') + PU.c() + name, 6000); continue }
-      if (st.accounts.some(x => x.pubkey === pub)) { toast(T('errExist') + PU.c() + name, 6000); continue }
-      try { fs.copyFileSync(src, path.join(client.accountPath, name), fs.constants.COPYFILE_EXCL); toast(T('importOk', { n: name })) } catch (e) { toast(String(e.message || e), 6000) }
-      loadAccounts()
+    for (const x of r.results) {
+      if (x.ok) toast(T('importOk', { n: x.name }))
+      else toast(x.code === 'FORMAT' ? T('importFail', { n: x.name }) : x.code === 'NAME_EXISTS' ? T('errNameExist') + PU.c() + x.name : x.code === 'EXISTS' ? T('errExist') + PU.c() + x.name : String(x.error || x.code), 6000)
     }
+    await reloadAccounts()
     render(); refreshOld()
   }
 
@@ -974,7 +1018,9 @@
     const inp = $(inputId); const pw = inp ? inp.value : ''
     if (!pw) { toast(T('errPw')); return }
     toast('…', 20000)
-    try { await client.decKeyFile(f, pw); if (inp) inp.value = ''; toast('✔'); loadAccounts(); render(); refreshS0() } catch (e) { toast(T('wrongPw')) }
+    if (inp) inp.value = ''
+    const r = await api.invoke('acct:unlock', f, pw)
+    if (r && r.ok) { toast('✔'); await reloadAccounts(); render(); refreshS0() } else toast(T('wrongPw'))
   }
 
   function setHidden (chain, f, hide) {
@@ -987,10 +1033,10 @@
   // ----- delete: password + "I understand" + final confirm; keyfile is backed up and verified first -----
   async function deleteModal (f) {
     const a = accByFile(f); if (!a) return
-    const paths = await ipcRenderer.invoke('keyfile:paths')
+    const paths = await api.invoke('keyfile:paths')
     const s0b = st.s0[a.filename]; const oldb = st.old[a.pubkey]
     const nonZero = (s0b && s0b.nativeWei != null && s0b.nativeWei > 0n) || (s0b && (s0b.tokens || []).some(t => t.raw != null && t.raw > 0n)) || (oldb != null && oldb > 0)
-    const balLine = `${esc(T('newChainShort'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('oldChainShort'))}${PU.c()}${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
+    const balLine = `${esc(T('s0Short'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('classicShort'))}${PU.c()}${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
     modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delTitle'))}</h2></div>
       <div class="infobox"><div style="font-size:21px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
         <div class="lbl">${esc(T('newAddrLabel'))}</div><div class="mono">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>
@@ -1007,30 +1053,29 @@
     $('dPw').oninput = upd; $('dChk').onchange = upd
     $('dNext').onclick = async () => {
       const pw = $('dPw').value
-      $('dNext').disabled = true; $('dErr').innerHTML = `<span class="spin"></span> ${esc(T('delChecking'))}`
-      try { await client.decKeyFile(a.filename, pw) } catch (e) { $('dErr').textContent = T('wrongPw'); upd(); return }
+      $('dNext').disabled = true; SD.spin($('dErr'), T('delChecking'))
+      const ur = await api.invoke('acct:unlock', a.filename, pw)
+      if (!ur || !ur.ok) { $('dErr').textContent = T('wrongPw'); upd(); return }
       $('dPw').value = ''
-      loadAccounts(); const a2 = accByFile(f) || a
+      await reloadAccounts(); const a2 = accByFile(f) || a
       // fresh balances on both chains before the final confirm
       let fresh0 = null; let freshOld = null
-      try { if (a2.evm) fresh0 = await Promise.race([shard0().balances(a2.evm), new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), 15000))]) } catch (e) {}
-      try {
-        freshOld = await new Promise(resolve => { const tm = setTimeout(() => resolve(null), 15000); client.getBalance(a2, (info, err) => { clearTimeout(tm); resolve(err || !info ? null : Number(info.Balance) / 1e8) }) })
-      } catch (e) {}
+      try { if (a2.evm) fresh0 = balFromIpc(await Promise.race([api.invoke('s0:balances', a2.evm), new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), 15000))])) } catch (e) {}
+      try { freshOld = await Promise.race([api.invoke('old:balance', a2.pubkey, a2.shard), new Promise(resolve => setTimeout(() => resolve(null), 15000))]) } catch (e) {}
       if (fresh0) st.s0[a2.filename] = fresh0
       if (freshOld != null) st.old[a2.pubkey] = freshOld
       const has = (fresh0 && (fresh0.nativeWei > 0n || fresh0.tokens.some(t => t.raw != null && t.raw > 0n))) || (freshOld != null && freshOld > 0)
       const tokLine = fresh0 ? fresh0.tokens.filter(t => t.raw != null && t.raw > 0n).map(t => fmtNum(t.balance) + ' ' + t.symbol).join(PU.com()) : ''
       modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delConfirmTitle'))}</h2></div>
         <div style="font-size:21px" class="wrap">${esc(T('delConfirmText', { n: accLabel(a2) }))}</div>
-        <div class="infobox" style="font-size:19px">${esc(T('newChainShort'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('oldChainShort'))}${PU.c()}${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
+        <div class="infobox" style="font-size:19px">${esc(T('s0Short'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('classicShort'))}${PU.c()}${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
         ${has ? `<div class="warnbox" style="background:#fdecec;border-color:#e53935;color:#b71c1c;font-weight:700;font-size:20px">⚠ ${esc(T('delHasBal'))}</div>` : ''}
         <div class="infobox">${esc(T('delBackup'))}<div class="mono" style="font-size:16px">${esc(paths.today)}</div></div>
         <div class="err" id="dErr"></div>
         <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn dan" id="dGo">${esc(T('delConfirmBtn'))}</button></div>`, { width: 760, noFocus: true })
       $('dGo').onclick = async () => {
-        $('dGo').disabled = true; $('dErr').innerHTML = `<span class="spin"></span> ${esc(T('delBacking'))}`
-        const r = await ipcRenderer.invoke('keyfile:backupDelete', a2.filename)
+        $('dGo').disabled = true; SD.spin($('dErr'), T('delBacking'))
+        const r = await api.invoke('keyfile:backupDelete', a2.filename)
         if (!r || !r.ok) {
           $('dErr').textContent = r && r.stage === 'delete' ? T('delFailDelete', { p: r.backup || '', e: r.error || '' }) : T('delFailBackup', { e: (r && r.error) || '?' })
           return
@@ -1038,7 +1083,8 @@
         ui.hidden.new = ui.hidden.new.filter(x => x !== a2.filename); ui.hidden.old = ui.hidden.old.filter(x => x !== a2.filename); saveUi()
         delete st.s0[a2.filename]
         if (st.sel === a2.filename) { st.sel = ''; localStorage.setItem('selAcc112', '') }
-        $('modalRoot').innerHTML = ''
+        await reloadAccounts()
+        SD.clear($('modalRoot'))
         modal(`<div class="mh"><h2>✅ ${esc(T('delDone'))}</h2></div><div style="font-size:19px">${esc(T('delDoneText'))}</div>
           <div class="addrbox mono" style="font-size:16px">${esc(r.backup)}</div>
           <div class="foot"><button class="btn sec" data-act="openBackups">${esc(T('openBackups'))}</button><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 760, noFocus: true })
@@ -1046,14 +1092,43 @@
     }
   }
 
+  async function setLangUi (v, fromHdr) {
+    const want = v === 'CN' ? 'CN' : 'EN'
+    if (fromHdr && want === LANG) return
+    const wasSettings = !!($('md') && $('setAbout'))
+    let r = null
+    try { r = await api.invoke('wallet:setLang', want) } catch (e) { r = { ok: false, error: e.message } }
+    if (!r || !r.ok) { toast((r && r.error) || 'language not saved', 6000); return }
+    LANG = r.lang === 'CN' ? 'CN' : 'EN'
+    applyLangAttr()
+    try { api.invoke('app:titles') } catch (e) {}
+    if ($('md')) SD.clear($('modalRoot'))
+    render(); if (!fromHdr || wasSettings) settingsModal()
+  }
+  // 2.0.5: release notes in Settings > About (latest 3 versions, older ones behind an expander)
+  function relNotesHtml () {
+    const N = (window.I18N112[lang()] || {}).relNotes || window.I18N112.EN.relNotes || []
+    const one = (n) => `<div class="rn"><div class="rnv">${esc(n.v)}</div><ul>${n.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`
+    let h = N.slice(0, 3).map(one).join('')
+    if (N.length > 3) h += `<details class="rnmore" id="rnMore"><summary>${esc(T('earlierVersions'))}</summary>${N.slice(3).map(one).join('')}</details>`
+    return h
+  }
   // ----- settings (gear): language, accounts, backup/export, advanced, about -----
   async function settingsModal () {
-    const paths = await ipcRenderer.invoke('keyfile:paths')
+    const paths = await api.invoke('keyfile:paths')
     const nHid = new Set(ui.hidden.new.concat(ui.hidden.old)).size
-    const cfg = client.config || {}
+    const cfg = CFG
+    // 2.0.7: mining notification toggles (P1) and update channel (P3) from the main-process settings store
+    let nt = null; let chan = 'stable'
+    try { nt = await api.invoke('notify:get') } catch (e) {}
+    try { chan = ((await api.invoke('update:getChannel')) || {}).channel || 'stable' } catch (e) {}
+    const NT_TYPES = ['firstShare', 'payout', 'hashZero', 'stopNonUser', 'nodeBehind']
+    const notifyHtml = nt && nt.config ? `<div class="setsec" id="setNotify"><div class="sh">${esc(T('notifyTitle'))}</div><div class="lbl">${esc(T('notifyHint'))}</div>
+      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}</div>` : ''
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
     modal(`<div class="mh"><h2>⚙ ${esc(T('settings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      <div class="setsec"><div class="sh">${esc(T('language'))}</div><div class="seg"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN">English</button></div></div>
+      <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
       <div class="setsec"><div class="sh">${esc(T('accounts'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ghost" data-act="toggleHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button>
         <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
@@ -1063,8 +1138,64 @@
         <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
         <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
-      <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">ScdoWalletBeta ${esc(APPVER)} · 2026-09-29</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })
+      ${notifyHtml}
+      <div class="setsec"><div class="sh">${esc(T('updTitle'))}</div>
+        <div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
+        <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
+          <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
+        <div class="lbl" style="margin-top:6px">${esc(T('chanHint'))}</div>
+        <div class="row" style="flex-wrap:wrap;margin-top:8px">
+          <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
+          <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div></div>
+      <div class="setsec" id="setAbout"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-05</div><div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div></div>`, { width: 820, noFocus: true })
+    fillAboutHash()
   }
+  // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
+  async function fillAboutHash () {
+    let r = null
+    try { r = await api.invoke('about:buildHash') } catch (e) {}
+    const box = $('aboutHash'); if (!box) return
+    if (!r || !r.sha256) { SD.html(box, `<div class="lbl">${esc(T('aboutHash'))}${PU.c()}${esc(T('aboutHashNone'))}</div>${r && r.verifyUrl ? `<button class="btn ghost small" data-act="openVerify" data-v="${esc(r.verifyUrl)}" style="margin-top:6px">${esc(T('aboutHashVerify'))}</button>` : ''}`); return }
+    SD.html(box, `<div class="lbl" style="margin-top:8px;font-weight:600">${esc(T('aboutHash'))}${PU.c()}<span class="mono">${esc(r.file)}</span></div>
+      <div class="mono" id="aboutSha" style="font-size:15px;word-break:break-all;user-select:all">${esc(r.sha256)}</div>
+      <div class="lbl">${esc(T('aboutHashSrc_' + r.source))}</div>
+      <div class="row" style="flex-wrap:wrap;margin-top:6px"><button class="btn ghost small" data-act="copy" data-v="${esc(r.sha256)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="openVerify" data-v="${esc(r.verifyUrl)}" id="aboutVerify">${esc(T('aboutHashVerify'))}</button></div>
+      <div class="lbl" style="margin-top:6px">${esc(T('aboutHashHow'))}</div>`)
+  }
+  // ----- 1.1.6 auto-update (settings button + prompt modal + progress) -----
+  async function checkUpdate () {
+    const s = $('updState'); if (s) s.textContent = T('updChecking')
+    let r
+    try { r = await api.invoke('update:check', true) } catch (e) { if (s) s.textContent = T('updOffline'); return }
+    // 2.0.6: a signature / verification failure is not a connection problem - say which one it is
+    if (!r || !r.ok) { if (s) s.textContent = T(r && r.errorKind === 'verify' ? 'updVerifyFail' : 'updOffline'); return }
+    if (r.state === 'none') { if (s) s.textContent = T('updLatest'); return }
+    if (r.state === 'available' || r.state === 'required') { if (s) s.textContent = ''; window.__updManifest = r.manifest; updatePromptModal(r.manifest, r.state === 'required') }
+  }
+  function updatePromptModal (manifest, required) {
+    const chObj = (manifest && manifest.changelog) || {}
+    const ch = chObj[lang() === 'CN' ? 'zh' : 'en'] || chObj.en || chObj.zh || ''
+    modal(`<div class="mh"><h2>${esc(required ? T('updRequired') : T('updFound'))} ${esc(manifest.version)}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      ${ch ? `<div class="lbl" style="white-space:pre-line;font-size:16px;margin:10px 0">${esc(ch)}</div>` : ''}
+      <div class="foot">
+        <button class="btn sec" data-act="updLater">${esc(T('updLater'))}</button>
+        ${required ? '' : `<button class="btn ghost" data-act="updSkip">${esc(T('updSkip'))}</button>`}
+        <button class="btn pri" data-act="updGo">${esc(T('updGo'))}</button>
+      </div>`, { width: 640, noFocus: true })
+    window.__updManifest = manifest
+  }
+  async function updGo () {
+    const manifest = window.__updManifest; if (!manifest) return
+    modal(`<div class="mh"><h2>${esc(T('updInstalling'))}</h2></div>
+      <div style="font-size:17px;margin:10px 0">${esc(T('updQuit'))}</div>
+      <div style="height:14px;background:#e5e8f5;border-radius:7px;margin:12px 0;overflow:hidden"><div id="updProg" style="height:100%;width:0%;background:#43A047;border-radius:7px;transition:width .3s"></div></div>
+      <div class="lbl" id="updPct" style="text-align:center">0%</div>`, { width: 560, noFocus: true })
+    try {
+      const r = await api.invoke('update:install', manifest)
+      if (!r || !r.ok) { toast(T(r && r.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + PU.c() + ((r && r.error) || ''), 8000); closeModal() }
+    } catch (e) { toast(T('updChkFail', { e: e.message }), 8000) }
+  }
+
   function backupPickModal () {
     const l = st.accounts
     modal(`<div class="mh"><h2>${esc(T('backupKeyfile'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
@@ -1072,56 +1203,55 @@
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 820, noFocus: true })
   }
 
-  function setLang (l) {
-    const cfg = client.config
-    cfg.lang = l === 'CN' ? 'CN' : 'EN'; cfg.langChosen112 = true
-    try { fs.writeFileSync(client.configpath || path.join(os.homedir(), '.ScdoWallet', 'viewconfig_1.1.json'), JSON.stringify(cfg, null, 2)) } catch (e) { console.error(e) }
-    try { const lp = path.join(os.homedir(), '.ScdoWallet', 'lang.json'); const j = readJson(lp, null); if (j) { j.lang = cfg.lang; writeJson(lp, j) } } catch (e) {}
-    ipcRenderer.invoke('menu:rebuild')
-    const wasSettings = !!($('md') && $('md').querySelector('[data-act=lang]'))
-    $('modalRoot').innerHTML = ''; render()
-    if (wasSettings) settingsModal()
-  }
 
   // ----- miner -----
   async function ensureGpu (force) {
     if (st.gpu && !force) return st.gpu
-    try { st.gpu = await ipcRenderer.invoke('miner:gpu') } catch (e) { st.gpu = { nvidia: false, names: [] } }
+    try { st.gpu = await api.invoke('miner:gpu') } catch (e) { st.gpu = { nvidia: false, names: [] } }
     if (st.tab === 'mine') render()
     return st.gpu
   }
   async function mineStart () {
     const sel = $('mReward'); if (!sel || !/^0x[0-9a-fA-F]{40}$/.test(sel.value)) { toast(T('pickAddr')); return }
     const wallet = sel.value; localStorage.setItem('minerReward', wallet)
-    if (process.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
+    if (api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
       localStorage.setItem('defenderAsked112', '1')
-      if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000) }
+      if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000) }
     }
-    const r = await ipcRenderer.invoke('miner:start', wallet, { mode: 'mine' })
-    if (!r.ok) { if (r.code === 'NO_NVIDIA') { localStorage.setItem('minerAutoResume', '0'); await ensureGpu(true) } toast(r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code), 7000); return }
-    localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'mine')
+    if (!(await okWithOtherRigel())) return
+    const r = await api.invoke('miner:start', wallet, { mode: 'mine' })
+    if (!r.ok) { if (r.code === 'NO_NVIDIA') await ensureGpu(true); toast(r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code), 7000); return }
+    // 1.1.5: the on/off state is saved by the main process (miner-intent.json), not in localStorage
+  }
+  // 1.1.5: another Rigel (e.g. the SCDO-Mining task of the standalone miner package) already uses the GPU -> ask first
+  async function okWithOtherRigel (list) {
+    try { if (!list) list = await api.invoke('miner:otherRigels') } catch (e) { list = [] }
+    if (!list || !list.length) return true
+    const where = list.map(x => x.exe || ('pid ' + x.pid)).join('\n')
+    return confirmBox(T('otherRigelTitle'), T('otherRigelAsk', { p: where }), T('otherRigelYes'), T('otherRigelNo'))
   }
   async function nodeStart () {
     const sel = $('nPayout')
     let payout = sel ? sel.value : payoutDefault()
     if (!/^0x[0-9a-fA-F]{40}$/.test(payout || '')) payout = ''
     if (payout) localStorage.setItem('nodePayout', payout)
-    const r = await ipcRenderer.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
+    const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(r.error || r.code, 7000); return }
-    localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'node')
   }
-  async function minerStop () {
-    localStorage.setItem('minerAutoResume', '0')
+  async function minerStop (src) {
     const ext = st.miner && st.miner.phase === 'external'
+    // 2.0.6: "Stop mining" asks first (main-process dialog, Cancel is the default); node-only stop does not
+    if (!ext && src !== 'node') { let ok = false; try { ok = await api.invoke('miner:confirmStop') } catch (e) {} if (!ok) return }
     if (!ext) toast(T('stopping'), 60000)
-    await ipcRenderer.invoke('miner:stop')
+    await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
     const prev = st.miner
     st.miner = m
-    if (m && m.code === 'DEFENDER' && (!prev || prev.code !== 'DEFENDER') && process.platform === 'win32') {
-      confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
+    renderMinePill()
+    if (m && m.code === 'DEFENDER' && (!prev || prev.code !== 'DEFENDER') && api.platform === 'win32') {
+      confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
     renderMinerLive()
   }
@@ -1133,43 +1263,53 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'netMenu') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; setTab(v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); api.invoke('remit:logout').catch(() => {}); remitReset(); if (st.tab !== 'home') setTab('home'); render(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') setTab('home'); render(); break
       case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
-      case 'lang': setLang(v); break
       case 'settings': settingsModal(); break
+      case 'setLang': setLangUi(v); break
+      case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'send': sendModal(f); break
       case 'sendOld': sendOldModal(f); break
       case 'create': createModal(); break
-      case 'import': if ($('md')) $('modalRoot').innerHTML = ''; importKeyfiles(); break
+      case 'import': if ($('md')) SD.clear($('modalRoot')); importKeyfiles(); break
       case 'unlock': unlock(f, el.getAttribute('data-in')); break
       case 'hide': setHidden(el.getAttribute('data-chain') || 'new', f, true); break
       case 'unhide': setHidden(el.getAttribute('data-chain') || 'new', f, false); break
-      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { $('modalRoot').innerHTML = ''; render(); settingsModal() } else render(); break
+      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); settingsModal() } else render(); break
       case 'delete': deleteModal(f); break
       case 'rename': renameModal(f); break
       case 'useOtherAddr': useOtherAddr(v); break
       case 'closeModal': closeModal(); break
-      case 'openTx': openExternal(shard0().explorerTx(v)); break
+      case 'openTx': if (/^0x[0-9a-fA-F]{64}$/.test(String(v || ''))) openExternal(shard0().explorerTx(v)); break
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
       case 'backupPick': backupPickModal(); break
-      case 'backupOne': { const r = await ipcRenderer.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }
-      case 'openBackups': ipcRenderer.invoke('keyfile:openBackups'); break
+      case 'backupOne': { const r = await api.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }
+      case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'mineStart': mineStart(); break
       case 'nodeStart': nodeStart(); break
-      case 'minerStop': minerStop(); break
+      case 'minerStop': minerStop(el.id === 'btnNode' || (st.miner && st.miner.mode === 'node') ? 'node' : 'mine'); break
       case 'toggleLog': st.logOpen = !st.logOpen; st.advOpen = true; render(); break
-      case 'openLogs': ipcRenderer.invoke('miner:openLogs'); break
-      case 'defender': { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
+      case 'openLogs': api.invoke('miner:openLogs'); break
       case 'remitSign': remitLogin(f); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); render(); break
       case 'remitRefresh': remitRefresh(); break
+      case 'checkUpdate': checkUpdate(); break
+      case 'updatedOk': closeModal(); try { api.invoke('app:updatedSeen') } catch (e) {} break
+      case 'updGo': updGo(); break
+      case 'updLater': closeModal(); break
+      case 'updSkip': { const m = window.__updManifest; if (m && m.version) api.invoke('update:skip', m.version); window.__updManifest = null; closeModal(); break }
+      case 'defender': { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
+      case 'netStatsRefresh': window.SCDOMining.networkStats.refresh(); break
+      case 'notifyToggle': { const sw = el.querySelector('.sw'); const on = !(sw && sw.classList.contains('on')); const r = await api.invoke('notify:set', v, on); if (r && r.ok && sw) sw.classList.toggle('on', !!r.config[v]); break }
+      case 'setChannel': { const r = await api.invoke('update:setChannel', v); if (r && r.ok) { const a = $('chanStable'); const b = $('chanBeta'); if (a) a.className = 'btn ' + (r.channel === 'stable' ? 'pri' : 'ghost'); if (b) b.className = 'btn ' + (r.channel === 'beta' ? 'pri' : 'ghost'); toast(T('chanSaved', { c: T(r.channel === 'beta' ? 'chanBeta' : 'chanStable') })) } break }
+      case 'openVerify': if (/^https:\/\/scdoscan\.io\/downloads\/wallet\/[\w./-]+\.sha256$/.test(String(v || ''))) openExternal(v); break
     }
   })
   document.addEventListener('change', (ev) => {
@@ -1184,37 +1324,61 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; if ($('dd')) closeDd(); else if ($('md')) closeModal() }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'homePw') { const b = document.querySelector('[data-act=unlock][data-in=homePw]'); if (b) b.click() }
-    if (ev.key === 'Enter' && ev.target && ev.target.id === 'remitPw') { const b = document.querySelector('[data-act=remitSign]'); if (b && !b.disabled) b.click() }
   })
 
-  // legacy hooks called by menu.js via executeJavaScript
-  window.addKeyfilePopup = () => createModal()
-  window.importAccounts = () => importKeyfiles()
-  window.showInfo = () => settingsModal()
-  window.toggleEditNetwork = () => settingsModal()
-  window.toggleTooltip = () => {}
-  window.openRemittance = () => { if ($('md')) $('modalRoot').innerHTML = ''; setTab('remit'); render() }
+  // application menu (main process) -> page, over the allowlisted 'menu:action' event
+  api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') { if ($('md')) SD.clear($('modalRoot')); setTab('remit'); render() } })
+
+  // ---------------- 1.1.6 auto-update events ----------------
+  api.on('update:available', (p) => {
+    if (!p || !p.manifest) return
+    // don't stack a prompt on top of an existing update prompt
+    if ($('md') && $('md').querySelector('[data-act=updGo]')) return
+    window.__updManifest = p.manifest
+    updatePromptModal(p.manifest, !!p.required)
+  })
+  api.on('update:progress', (p) => {
+    const b = $('updProg'); if (!b) return
+    const pc = (p && p.percent) || 0
+    b.style.width = pc + '%'
+    const t = $('updPct'); if (t) t.textContent = pc + '%'
+  })
+  api.on('update:done', (p) => {
+    if (!p || !p.ok) { toast(T(p && p.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + (p && p.error ? PU.c() + p.error : ''), 8000); closeModal() }
+  })
 
   // ---------------- boot ----------------
-  let APPVER = '1.1.4'
-  ipcRenderer.on('miner:status', (e, m) => onMinerStatus(m))
+  let APPVER = '2.0.9'
+  api.on('miner:status', (m) => onMinerStatus(m))
   async function boot () {
-    try { const info = await ipcRenderer.invoke('app:info'); if (info && info.version) APPVER = info.version } catch (e) {}
-    const cfg = client.config
-    if (!cfg.langChosen112) {
-      const zh = /^zh/i.test(navigator.language || '') || /^zh/i.test(Intl.DateTimeFormat().resolvedOptions().locale || '')
-      if (zh && cfg.lang !== 'CN') { cfg.lang = 'CN'; try { fs.writeFileSync(client.configpath, JSON.stringify(cfg, null, 2)) } catch (e) {} ipcRenderer.invoke('menu:rebuild') }
-    }
+    let info = null
+    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.displayVersion || info.version } catch (e) {}
+    try { st.miner = await api.invoke('miner:status') } catch (e) {}
+    loadAccounts()
     render()
+    if (window.__scdoBootDone) window.__scdoBootDone() // 2.0.6: the loading screen goes away once the real page is drawn
+    // 2.0.6: right after an update, say so (titled dialog) and show the mining state
+    if (info && info.updated) {
+      const x = minePillText(st.miner)
+      modal(`<div class="mh"><h2>${esc(T('updatedTitle', { v: APPVER }))}</h2></div>
+        <div style="font-size:18px;margin:10px 0">${esc(T('updatedMsg', { v: APPVER }))}</div>
+        <div class="minepill ${x.cls}" id="updMine" style="display:inline-block;margin:6px 0 10px">${esc(x.t)}</div>
+        <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
+        <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
+    }
     refreshS0(); refreshOld()
     setInterval(refreshS0, 15000); setInterval(refreshOld, 30000)
-    try { st.miner = await ipcRenderer.invoke('miner:status') } catch (e) {}
-    ensureGpu().then(g => {
-      if (localStorage.getItem('minerAutoResume') === '1' && !(st.miner && st.miner.running)) {
-        const mode = localStorage.getItem('minerMode') || 'mine'
-        if (mode === 'node') nodeStart()
-        else if (g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
-      }
+    try { st.miner = await api.invoke('miner:status') } catch (e) {}
+    // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
+    try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
+    ensureGpu().then(async () => {
+      let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
+      if (!rc || !rc.autoResume || rc.running || (st.miner && st.miner.running)) return
+      if (rc.mode === 'node') { nodeStart(); return }
+      if (!rc.gpuOk || !rc.reward) return
+      if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
+      const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
+      if (r && !r.ok) toast(r.error || r.code, 7000)
     })
     if (st.tab === 'mine') render()
   }

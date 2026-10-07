@@ -194,7 +194,7 @@ function scdoClient() {
         return new Q((resolve, reject) => {
             try {
                 var args = this.nonMiningArgs(shardNum);
-                const proc = spawn(this.nodePath(), args);
+                const proc = spawn(this.nodePath(), args, { windowsHide: true });
 
                 proc.stdout.on('data', data => {
                     resolve(data.toString())
@@ -228,7 +228,7 @@ function scdoClient() {
                     args.push('-a 127.0.0.1:8024')
                 }
 
-                const proc = spawn(this.binPath(), args);
+                const proc = spawn(this.binPath(), args, { windowsHide: true });
 
                 proc.stdout.on('data', data => {
                     resolve(data);
@@ -255,7 +255,7 @@ function scdoClient() {
         return new Q((resolve, reject) => {
             try {
                 var args = this.miningArgs(shardNum)
-                const proc = spawn(this.nodePath(), args);
+                const proc = spawn(this.nodePath(), args, { windowsHide: true });
                 console.log(proc)
                 this.execute('echo "starting mine before proc on"')
                 proc.stdout.on('data', data => {
@@ -302,7 +302,7 @@ function scdoClient() {
                 'key',
             ];
             args.push('--shard', shard)
-            const proc = spawn(this.nodePath(), args);
+            const proc = spawn(this.nodePath(), args, { windowsHide: true });
 
             proc.stdout.on('data', data => {
                 var output = `${data}`
@@ -363,7 +363,7 @@ function scdoClient() {
 
     this.execute = function(command) {
         const exec = require('child_process').exec
-        exec(command, (err, stdout, stderr) => {
+        exec(command, { windowsHide: true }, (err, stdout, stderr) => {
             process.stdout.write(stdout)
         })
     };
@@ -374,7 +374,7 @@ function scdoClient() {
             'key',
         ];
         args.push('--shard', shard)
-        const proc = spawn(this.nodePath(), args);
+        const proc = spawn(this.nodePath(), args, { windowsHide: true });
 
         proc.stdout.on('data', data => {
             var output = `${data}`
@@ -427,7 +427,7 @@ function scdoClient() {
                     args.push('--')
                     args.push('-')
 
-                    const proc = spawn(this.solcPath(), args);
+                    const proc = spawn(this.solcPath(), args, { windowsHide: true });
                     proc.stdin.write(input);
                     proc.stdin.end();
 
@@ -477,7 +477,7 @@ function scdoClient() {
                     args.push('--shard', shardnum)
                 }
 
-                const proc = spawn(this.binPath(), args);
+                const proc = spawn(this.binPath(), args, { windowsHide: true });
 
                 proc.stdout.on('data', data => {
                     var output = `${data}`
@@ -529,13 +529,19 @@ function scdoClient() {
             var Shard0 = require('./evm').Shard0;
             var c = this.readEvmCache();
             var scdoAddr = keystore.scdoAddressFromPriv(privateKey, 1).slice(4); // shard-independent part
-            c[fileName] = { evm: Shard0.addressFromPrivateKey(privateKey), key: scdoAddr };
+            // 2.0.6: 'addrTail' (was 'key' up to 2.0.5) = the public, shard-independent address part - never a private key
+            c[fileName] = { evm: Shard0.addressFromPrivateKey(privateKey), addrTail: scdoAddr };
             fs.writeFileSync(this.evmCachePath, JSON.stringify(c, null, 2));
         } catch (e) { console.log("evm cache", e); }
     };
     this.evmAddressOf = function (fileName) {
         var c = this.readEvmCache();
         return c[fileName] ? c[fileName].evm : null;
+    };
+    // 2.0.6: shard-independent address part; reads the pre-2.0.6 field name 'key' too
+    this.addrTailOf = function (fileName) {
+        var e = this.readEvmCache()[fileName];
+        return e ? (e.addrTail || e.key || null) : null;
     };
 
     this.keyfileisvalid = function (keyfilepath) {

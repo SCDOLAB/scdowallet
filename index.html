@@ -1,12 +1,23 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>ScdoWalletBeta</title>
+  <!-- 2.0.1: no 'unsafe-inline' / 'unsafe-eval' scripts, no http:, Trusted Types enforced for every HTML sink -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types scdo-parse scdo-html default">
+  <title>SCDO Wallet</title>
   <link href="./src/css/app112.css" rel="stylesheet" />
+  <link href="./src/css/mining201.css" rel="stylesheet" />
 </head>
 <body>
+  <!-- 2.0.6: loading screen painted with the very first frame (plain HTML, no script needed); boot.js adds the mining status -->
+  <div id="bootSplash" class="bootsplash" role="status" aria-live="polite">
+    <img src="./assets/icon-128.png" alt="" width="96" height="96">
+    <div class="bt" id="bootTitle">SCDO Wallet</div>
+    <div class="bs" id="bootMsg">正在載入錢包… · Loading wallet…</div>
+    <div class="bspin"></div>
+    <div class="bm" id="bootMine"></div>
+    <div class="bslow" id="bootSlow"></div>
+  </div>
   <div id="app">
     <header class="top" id="hdr"></header>
     <nav class="tabs" id="tabs"></nav>
@@ -15,8 +26,23 @@
   <div id="ddRoot"></div>
   <div id="modalRoot"></div>
   <div id="toast"></div>
+  <script src="./src/js/boot.js"></script>
+  <script src="./src/js/safeDom.js"></script>
   <script src="./src/js/qrcode.js"></script>
   <script src="./src/js/i18n112.js"></script>
+  <script src="./src/js/mining/types.js"></script>
+  <script src="./src/js/mining/osPlatform.js"></script>
+  <script src="./src/js/mining/stringMask.js"></script>
+  <script src="./src/js/mining/gpuDetector.js"></script>
+  <script src="./src/js/mining/networkStats.js"></script>
+  <script src="./src/js/mining/minerLogger.js"></script>
+  <script src="./src/js/mining/gpuPreflightCard.js"></script>
+  <script src="./src/js/mining/miningNetworkStats.js"></script>
+  <script src="./src/js/mining/miningSettingsPanel.js"></script>
+  <script src="./src/js/mining/logExportButton.js"></script>
+  <script src="./src/js/mining/payoutProgressCard.js"></script>
+  <script src="./src/js/mining/miningPage.js"></script>
+  <script src="./src/js/halfWidth.js"></script>
   <script src="./src/js/app112.js"></script>
 </body>
 </html>

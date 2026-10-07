@@ -1,230 +1,105 @@
-const { Menu, app } = require('electron')
-function createMenu (mainWindow) {
-  //reinitiate i18 to reload language from settings
-  var i18n = new(require('./../../translations/i18n'))
-  
-  const application = {
-    label: i18n.__("ScdoWallet"),
-    submenu: [
-      {
-        label: i18n.__("Toggle Developer Options"),
-        accelerator: "CmdOrCtrl+shift+I",
-        // click: () => {
-        //   mainWindow.webContents.openDevTools()
-        // }
-        role: 'toggledevtools'
-      },
-      {
-        label: i18n.__("Version") + app.getVersion(),
-        enabled: false
-      },
-      {
-        type: "separator"
-      },
-      {
-        label: i18n.__("Minimize"),
-        accelerator: "CmdOrCtrl+M",
-        role: "minimize"
-      },
-      {
-        label: i18n.__("Toggle Fullscreen"),
-        accelerator: "CmdOrCtrl+shift+F",
-        role: 'togglefullscreen'
-      },
-      {
-        label: i18n.__("Close"),
-        accelerator: "CmdOrCtrl+W",
-        role: "close"
-      },
-      {
-        label: i18n.__("Quit"),
-        accelerator: "CmdOrCtrl+Q",
-        click: () => {
-          app.quit()
-        }
-      }
-    ]
-  }
-  
-  const file = {
-    label: i18n.__("File"),
-    submenu:[
-      {
-        label: i18n.__("Create Keyfile(s)"),
-        accelerator: "CmdOrCtrl+N",
-        click: () => {
-          mainWindow.webContents.executeJavaScript('addKeyfilePopup()');
-        }
-      },
-      {
-        label: i18n.__("Import Keyfile(s)"),
-        accelerator: "CmdOrCtrl+I",
-        click: () => {
-            // var importKey = require('./src/js/index.js');
-            mainWindow.webContents.executeJavaScript('importAccounts()')
-            // importKey();
-            // console.log("really")
-        }
-      }
-      // {
-      //   label: i18n.__("Manage Keyfile(s)"),
-      //   accelerator: "CmdOrCtrl+K",
-      //   enabled:true,
-      //   click: () => {
-      //     mainWindow.webContents.executeJavaScript("shell.openItem(client.accountPath)");  
-      //   }
-      // },
-      // {
-      //   label: i18n.__("Manage Trasaction(s)"),
-      //   enabled:true,
-      //   click: () => {
-      //     mainWindow.webContents.executeJavaScript("shell.openItem(client.rcPath)");  
-      //   }
-      // }
-    ]
-  }
-  
-  const edit = {
-    label: i18n.__("Edit"),
-    submenu: [
-      {
-        label: i18n.__("Copy"),
-        accelerator: "CmdOrCtrl+C",
-        selector: "copy:"
-      },
-      {
-        label: i18n.__("Paste"),
-        accelerator: "CmdOrCtrl+V",
-        selector: "paste:"
-      },
-      {
-        label: i18n.__("Select All"),
-        accelerator: "CmdOrCtrl+A",
-        selector: "selectAll:"
-      },
-      {
-        label: i18n.__("Refresh"),
-        accelerator: "CmdOrCtrl+R",
-        click: function () {
-          mainWindow.reload();
-        }
-      }
-    ]
-  }
-  
-  const language = {
-    label:i18n.__("Language"),
-    submenu: [
-      {
-        label: "English",
-        type: "radio",
-        id:"EN",
-        click: function () {
-          // global.languageSetting = "en"
-          // mainWindow.webContents.executeJavaScript('switchLanguage()');
-          refreshMenu(mainWindow,"EN");
-        }
-      },
-      {
-        label: "中文",
-        type: "radio",
-        id:"CN",
-        click: function () {
-          // global.languageSetting = "cn"
-          // mainWindow.webContents.executeJavaScript('switchLanguage()');
-          refreshMenu(mainWindow,"CN");
-        },
-      }
-    ]
-  }
-  
-  var langused = i18n.lang()
-  
-  for (var item of language.submenu) {
-    console.log();
-    if ( item.id == langused) {
-      item.checked = true;
-    }
-  }
-  
-  const view = {
-    label: i18n.__("View"),
-    submenu: [
-      language,
-      {
-        label: i18n.__("Show NetWork Info"),
-        accelerator: "CmdOrCtrl+E",
-        click: () => {
-          mainWindow.webContents.executeJavaScript('showInfo()')
-        }
-      },
-      {
-        label: i18n.__("Edit NetWork Info"),
-        accelerator: "CmdOrCtrl+shift+N",
-        click: () => {
-          mainWindow.webContents.executeJavaScript('toggleEditNetwork()')
-        }
-      }
-    ]
-  }
-  
-  const help = {
-    label: i18n.__("Help"),
-    role: "help",
-    submenu: [
-      {
-        label: i18n.__("Toggle Tooltip"),
-        accelerator: "CmdOrCtrl+T",
-        click: async () => {
-          mainWindow.webContents.executeJavaScript('toggleTooltip()')
-        }
-      },
-      {
-        label:  i18n.__('Learn More'),
-        click: async () => {
-          const { shell } = require("electron")
-          await shell.openExternal("https://scdoproject.gitbook.io/scdo-wiki/en/wallet")
-        }
-      }
-      // ,
-      // {
-      //   label: "了解更多",
-      //   click: async () => {
-      //     const { shell } = require("electron")
-      //     await shell.openExternal("https://scdo-scdotech.gitbook.io/wiki/chinese/ScdoWallet-windows")
-      //   }
-      // }
-    ]
-  }
-  
-  const remit = {
-    // Entry label is 匯款. English menus add the English word, matching the 2.0.12 menu.
-    label: i18n.lang() === 'CN' ? i18n.__('Remittance') : ('匯款 ' + i18n.__('Remittance')),
-    click: () => {
-      mainWindow.webContents.executeJavaScript('openRemittance()')
-    }
-  }
+// SCDO Wallet 2.0.12: application menu follows wallet language (EN / CN=繁體中文).
+// Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
+const { Menu, app, shell } = require('electron')
 
-  const template = [
-    application,
-    file,
-    edit,
-    view,
-    remit,
-    help
-  ]
-  
-  // return 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+const LABELS = {
+  EN: {
+    app: 'SCDO Wallet',
+    toggleDevTools: 'Toggle Developer Tools',
+    version: (v) => 'Version ' + v,
+    minimize: 'Minimize Window',
+    fullscreen: 'Toggle Fullscreen',
+    close: 'Close Window (keep running in the tray)',
+    file: 'File',
+    create: 'Create Account',
+    import: 'Import Keyfile(s)',
+    edit: 'Edit',
+    copy: 'Copy',
+    paste: 'Paste',
+    selectAll: 'Select All',
+    refresh: 'Refresh',
+    view: 'View',
+    settings: 'Settings / Network Info',
+    remit: '匯款 Remittance',
+    help: 'Help',
+    learnMore: 'Learn More'
+  },
+  CN: {
+    app: 'SCDO 錢包',
+    toggleDevTools: '切換開發人員工具',
+    version: (v) => '版本 ' + v,
+    minimize: '最小化視窗',
+    fullscreen: '切換全螢幕',
+    close: '關閉視窗（繼續在系統匣執行）',
+    file: '檔案',
+    create: '建立帳戶',
+    import: '匯入金鑰檔',
+    edit: '編輯',
+    copy: '複製',
+    paste: '貼上',
+    selectAll: '全選',
+    refresh: '重新整理',
+    view: '檢視',
+    settings: '設定 / 網路資訊',
+    remit: '匯款',
+    help: '說明',
+    learnMore: '了解更多'
+  }
 }
 
-function refreshMenu(win, lang) {
-  var i18n = new(require('./../../translations/i18n'));
-  i18n.langChange(lang);
-  createMenu(win);
-  win.webContents.executeJavaScript('switchLanguage()');
-  // win.reload();
-  win.webContents.executeJavaScript('location.reload()');
+function buildTemplate (mainWindow, lang) {
+  const L = LABELS[lang === 'CN' ? 'CN' : 'EN']
+  const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
+  return [
+    {
+      label: L.app,
+      submenu: [
+        { label: L.toggleDevTools, accelerator: 'CmdOrCtrl+Shift+I', role: 'toggleDevTools' },
+        { label: L.version(app.getVersion()), enabled: false },
+        { type: 'separator' },
+        { label: L.minimize, accelerator: 'CmdOrCtrl+M', role: 'minimize' },
+        { label: L.fullscreen, accelerator: 'CmdOrCtrl+Shift+F', role: 'togglefullscreen' },
+        // 2.0.6: closing the window hides the wallet to the tray (mining keeps running); quitting is done from the tray menu
+        { label: L.close, accelerator: 'CmdOrCtrl+W', role: 'close' }
+      ]
+    },
+    {
+      label: L.file,
+      submenu: [
+        { label: L.create, accelerator: 'CmdOrCtrl+N', click: act('create') },
+        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') }
+      ]
+    },
+    {
+      label: L.edit,
+      submenu: [
+        { label: L.copy, accelerator: 'CmdOrCtrl+C', role: 'copy' },
+        { label: L.paste, accelerator: 'CmdOrCtrl+V', role: 'paste' },
+        { label: L.selectAll, accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
+        { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
+      ]
+    },
+    {
+      label: L.view,
+      submenu: [
+        { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
+      ]
+    },
+    { label: L.remit, click: act('remit') },
+    {
+      label: L.help,
+      role: 'help',
+      submenu: [
+        { label: L.learnMore, click: () => shell.openExternal('https://scdoscan.io/downloads/wallet/') }
+      ]
+    }
+  ]
+}
+
+function createMenu (mainWindow, lang) {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate(mainWindow, lang === 'CN' ? 'CN' : 'EN')))
 }
 
 module.exports.createMenu = createMenu
+module.exports.buildTemplate = buildTemplate
+module.exports.LABELS = LABELS

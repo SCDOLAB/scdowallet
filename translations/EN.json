@@ -1,7 +1,7 @@
 {
   "Version":"Version",
-  "ScdoWallet":"ScdoWallet",
-  "Quit":"Exit Scdo Wallet",
+  "ScdoWallet":"SCDO Wallet",
+  "Quit":"Exit SCDO Wallet",
   "File":"File",
   "Create Keyfile(s)":"Create Keyfile(s)",
   "Manage Keyfile(s)":"Manage Keyfile(s)",
