@@ -12,6 +12,7 @@ const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File } = require('../src/miner/zpow/bins')
+const { ZpowManager } = require('../src/miner/zpow/manager')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
 assert.strictEqual(REAL.length, 42)
@@ -133,19 +134,21 @@ assert.ok(!ui.includes('CPU_BUDGET'))
 assert.ok(!ui.includes('gpuClashNote'))
 const mainSrc = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
 assert.ok(!mainSrc.includes('decideStart'))
-assert.ok(!mainSrc.includes('zpowCpu'))
-assert.ok(mainSrc.includes('zpowGpu'))
-assert.ok(!mainSrc.includes('ZMINER_ARGS'))
+assert.ok(mainSrc.includes('zpowCpu') && mainSrc.includes('zpowGpu'))
+assert.ok(mainSrc.includes("opts.backend === 'gpu' ? 'gpu' : 'cpu'"))
+assert.ok(!mainSrc.includes('started as the GPU node'))
 assert.ok(i18n.includes('82.223.19.88:3341'))
-assert.ok(!i18n.includes('CPU pool'))
-assert.ok(!i18n.includes('CPU 礦池'))
+assert.ok(i18n.includes('3342–3344'))
+assert.ok(i18n.includes('CPU pool'))
+assert.ok(i18n.includes('CPU 礦池'))
+assert.ok(i18n.includes('classicCpu'))
 assert.ok(!i18n.includes('CPU-only'))
 assert.ok(!i18n.includes('CPU only'))
-assert.ok(!i18n.includes('classicCpu'))
-assert.ok(!i18n.includes('zminer'))
-assert.ok(!ui.includes('data-v="cpu"'))
-assert.ok(!ui.includes("backend: 'cpu'"))
-assert.ok(ui.includes("backend: 'gpu'"))
+assert.ok(ui.includes('data-v="${id}"'))
+assert.ok(ui.includes("['cpu', T('classicCpu'), false]"))
+assert.ok(ui.includes("backend: 'cpu'"))
+assert.ok(ui.includes("localStorage.getItem('minerRunClassicCpu') === '1'"))
+assert.ok(!ui.includes("minerRunClassicCpu') === '1' && !classicGpu"))
 
 // --- argv templates (pluggable miner) ---
 assert.deepStrictEqual(renderArgs(ZMINER_ARGS, { pool: 'h:1', user: REAL, worker: 'wallet', threads: 3 }),
@@ -196,4 +199,45 @@ async function shaChecks () {
   fs.rmSync(sumDir, { recursive: true, force: true })
 }
 
-shaChecks().then(() => console.log('zpow-mining: ok')).catch(err => { console.error(err); process.exit(1) })
+const ZMINER_EXE_SHA256 = '39a161d5e7620c302994ae36b0cd0ba04e4acfc26b4844d86c88988bbb7adc32'
+const ZMINER_LINUX_SHA256 = '59679cd5e421be4c2194cdc851c869368847b3c55cd85dfa64b41983d5d3cbaf'
+
+async function publishedZminer () {
+  const root = path.join(__dirname, '..')
+  const sums = fs.readFileSync(path.join(root, 'miner-zpow', 'SHA256SUMS'), 'utf8')
+  assert.strictEqual(lookupSha(sums, 'zminer.exe'), ZMINER_EXE_SHA256)
+  assert.strictEqual(lookupSha(sums, 'zminer-linux-amd64'), ZMINER_LINUX_SHA256)
+  const distExe = path.join(root, 'miner-zpow', 'dist', 'zminer.exe')
+  const distLinux = path.join(root, 'miner-zpow', 'dist', 'zminer-linux-amd64')
+  if (fs.existsSync(distExe)) assert.strictEqual(await sha256File(distExe), ZMINER_EXE_SHA256)
+  if (fs.existsSync(distLinux)) assert.strictEqual(await sha256File(distLinux), ZMINER_LINUX_SHA256)
+  const mgr = new ZpowManager({ platform: 'linux', root, dataRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-zpow-caps-')) })
+  const caps = mgr.capabilities({})
+  assert.strictEqual(caps.pools[1].stratum, '82.223.19.88:3341')
+  assert.strictEqual(caps.pools[1].statsPort, 8341)
+  assert.strictEqual(caps.pools[2].port, 3342)
+  assert.strictEqual(caps.pools[3].port, 3343)
+  assert.strictEqual(caps.pools[4].port, 3344)
+  assert.strictEqual(caps.pools[2].live, false)
+  if (!fs.existsSync(distLinux)) return
+  assert.strictEqual(caps.cpu.available, true)
+  assert.ok(String(caps.cpu.path).endsWith('zminer-linux-amd64'))
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-zminer-'))
+  const live = new ZpowManager({
+    platform: 'linux',
+    root,
+    dataRoot,
+    env: { SCDO_ZPOW_POOLS: JSON.stringify({ 1: { host: '127.0.0.1', port: 9, statsPort: 9 } }) }
+  })
+  const started = await live.start(REAL, { backend: 'cpu', shard: 1, threads: 1 })
+  assert.strictEqual(started.mode, 'cpu')
+  assert.strictEqual(started.backend, 'zminer')
+  assert.strictEqual(started.pool.stratum, '127.0.0.1:9')
+  assert.ok(started.running)
+  const gpu = new ZpowManager({ platform: 'linux', root, dataRoot: dataRoot + '-gpu' })
+  await assert.rejects(gpu.start(REAL, { backend: 'gpu', shard: 1 }), err => err.code === 'NO_CLASSIC_NODE' || err.code === 'NO_CUDART')
+  await live.stop()
+  fs.rmSync(dataRoot, { recursive: true, force: true })
+}
+
+shaChecks().then(publishedZminer).then(() => console.log('zpow-mining: ok')).catch(err => { console.error(err); process.exit(1) })

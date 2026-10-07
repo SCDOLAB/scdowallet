@@ -17,11 +17,13 @@ Put the files in place before building and check them against `SHA256SUMS` in th
 
 ## Classic shards 1–4
 
-Classic mining uses the go-scdo CUDA node, packed the same way as Shard0: the Windows `extraResources` copy the whole `miner-bin/win32` folder into `miner/bin`. Drop the files here (they are not stored in git):
+The Windows `extraResources` copy the whole `miner-bin/win32` folder into `miner/bin`, the same path Shard0 already uses. Drop these files here (they are not stored in git):
 
-    miner-bin/win32/classic/node.exe
+    miner-bin/win32/zminer.exe
+    miner-bin/win32/SHA256SUMS          # must list zminer.exe; the wallet refuses to start it without a match
+    miner-bin/win32/classic/node.exe    # go-scdo CUDA node
     miner-bin/win32/classic/libcudart.dll
 
-Shard 1 points at pool `82.223.19.88:3341` (HTTP stats `8341`). Shards 2–4 use the same host on `3342–3344` / `8342–8344` and are not live yet.
+`zminer.exe` is the CPU pool miner. Shard 1 is `82.223.19.88:3341`. Shards 2–4 use `3342–3344` and are not live yet. The published `zminer.exe` hash in `miner-zpow/SHA256SUMS` is `39a161d5e7620c302994ae36b0cd0ba04e4acfc26b4844d86c88988bbb7adc32`.
 
-`scripts/build-classic-node.sh` explains the CUDA build. Set `SCDO_CLASSIC_NODE` if the exe lives somewhere else, and `SCDO_CUDART_DIR` if the DLL is not beside it. A different GPU binary can be plugged in with `SCDO_ZPOW_GPU_BIN` and `SCDO_ZPOW_GPU_ARGS` (a JSON argv array; `{pool}` `{user}` `{threads}` `{shard}` are replaced). The wallet does not start a CPU miner.
+`node.exe` is the Classic GPU miner. `scripts/build-zminer.sh` builds `zminer.exe` (Go 1.12.7). `scripts/build-classic-node.sh` explains the CUDA build. Set `SCDO_ZMINER_EXE` or `SCDO_CLASSIC_NODE` if a binary lives somewhere else. A different GPU binary can be plugged in with `SCDO_ZPOW_GPU_BIN` and `SCDO_ZPOW_GPU_ARGS`.
