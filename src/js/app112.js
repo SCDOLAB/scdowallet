@@ -1,4 +1,4 @@
-// ScdoWalletBeta 1.1.4 renderer (1.1.4: network menu can switch to SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) or SCDO Shard4 (Classic) and the choice is kept; names SCDO Shard0 (EVM) / Classic accounts.
+// ScdoWallet renderer (1.1.4: network menu can switch to SCDO Shard1 (Classic), SCDO Shard2 (Classic), SCDO Shard3 (Classic) or SCDO Shard4 (Classic) and the choice is kept; names SCDO Shard0 (EVM) / Classic accounts.
 // 1.1.3: MetaMask-style asset dropdown on the Send page): new UI modelled on mainstream wallets (MetaMask / Trust / OKX / Rabby / Exodus):
 // account switcher at the top, big balance, Receive / Send action row, assets + activity, network selector,
 // settings gear. Uses the existing APIs: src/api/scdoClient.js (keyfiles, Classic shards), src/api/evm.js (SCDO Shard0 (EVM)),
@@ -203,7 +203,7 @@
         ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
       </div>`
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
-    $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">ScdoWalletBeta ${esc(APPVER)}</div></div></div>
+    $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">ScdoWallet ${esc(APPVER)}</div></div></div>
       ${sw}<div class="spacer"></div>
       <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
       <div class="lang"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN" id="langCN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN" id="langEN">English</button></div>
@@ -728,7 +728,7 @@
     const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
     main.innerHTML = (pages[st.tab] || pageHome)()
     main.scrollTop = y
-    document.title = 'ScdoWalletBeta ' + APPVER
+    document.title = 'ScdoWallet ' + APPVER
   }
   // cheap updates of numbers without re-rendering inputs the user may be typing into
   function renderLive () {
@@ -1205,7 +1205,7 @@
         <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
         <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
-      <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">ScdoWalletBeta ${esc(APPVER)} · 2026-09-29</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })
+      <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">ScdoWallet ${esc(APPVER)} · 2026-10-07</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })
   }
   function backupPickModal () {
     const l = st.accounts

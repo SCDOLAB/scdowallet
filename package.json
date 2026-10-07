@@ -1,7 +1,7 @@
 {
     "name": "ScdoWallet",
-    "version": "2.0.12",
-    "productName": "ScdoWalletBeta",
+    "version": "3.0.0",
+    "productName": "ScdoWallet",
     "description": "Wallet for Scdo (shards 1-4 + shard0 EVM)",
     "main": "main.js",
     "scripts": {
@@ -13,7 +13,7 @@
     },
     "build": {
         "appId": "io.scdoscan.scdowallet",
-        "productName": "ScdoWalletBeta",
+        "productName": "ScdoWallet",
         "copyright": "SCDO Laboratory",
         "npmRebuild": false,
         "buildDependenciesFromSource": false,
@@ -70,7 +70,7 @@
             "oneClick": false,
             "perMachine": false,
             "allowToChangeInstallationDirectory": true,
-            "shortcutName": "ScdoWalletBeta",
+            "shortcutName": "ScdoWallet",
             "artifactName": "${productName}-${version}-win-x64-setup.${ext}"
         },
         "portable": {

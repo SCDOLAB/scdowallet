@@ -3,6 +3,11 @@ const { shell, BrowserWindow, Menu, Tray, app, ipcMain, dialog, session, nativeI
 const path = require('path')
 const fs = require('fs')
 
+// 3.0.0 is named ScdoWallet. A 2.0.12 install stored settings under ScdoWalletBeta
+// (the old productName). Keep that directory when it exists so the upgrade stays in place.
+const legacyUserData = path.join(app.getPath('appData'), 'ScdoWalletBeta')
+if (fs.existsSync(legacyUserData)) app.setPath('userData', legacyUserData)
+
 ipcMain.on('compileContract', (event, input) => {
   var solc = require('solc')
   solc = solc.setupMethods(require('./src/api/solidity.js'))
@@ -24,6 +29,7 @@ ipcMain.on('compileContract', (event, input) => {
 // Miner data dir: <userData>/miner, except on Windows when that path has spaces or non-ASCII
 // characters (e.g. a Chinese user name) – GPU miners/geth are fragile there, so use
 // C:\ProgramData\ScdoWalletBeta\miner (users may create folders there) instead.
+// The folder name stays ScdoWalletBeta so a 2.0.12 miner database is reused.
 function minerDataRoot () {
   const def = path.join(app.getPath('userData'), 'miner')
   if (process.platform !== 'win32' || /^[\x21-\x7e]+$/.test(def)) return def
@@ -224,7 +230,7 @@ function createWindow () {
     backgroundColor: '#f3f5ff',
     icon: path.join(__dirname, 'src', 'img', 'app-icon.png'), // build/ is not packaged by electron-builder
     resizable: true,
-    title: 'ScdoWalletBeta ' + app.getVersion(),
+    title: 'ScdoWallet ' + app.getVersion(),
     webPreferences: {
       // the 2020 UI code uses require() in the page; it only ever loads local files (see
       // will-navigate / window-open guards below), never remote content.
@@ -268,7 +274,7 @@ function ensureTray () {
     let img = nativeImage.createFromPath(path.join(__dirname, 'src', 'img', 'app-icon.png'))
     if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 })
     tray = new Tray(img)
-    tray.setToolTip('ScdoWalletBeta')
+    tray.setToolTip('ScdoWallet')
     updateTray()
   } catch (e) { tray = null }
   return tray
@@ -281,7 +287,7 @@ function updateTray () {
   if (zpowCpu && zpowCpu.wantRunning) parts.push('Classic CPU')
   const running = parts.length > 0
   const label = running ? parts.join(' · ') : '未在挖礦 / Not mining'
-  tray.setToolTip('ScdoWalletBeta — ' + label)
+  tray.setToolTip('ScdoWallet — ' + label)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label, enabled: false },
     { label: running ? '停止挖礦 / Stop mining' : '未在挖礦 / Not mining', enabled: running, click: () => { stopAllMiners().catch(() => {}) } },
