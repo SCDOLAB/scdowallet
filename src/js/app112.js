@@ -445,7 +445,7 @@
     if (!m) return ''
     if (m.phase === 'error') return 'bad'
     if (['MINING', 'NODE_RUNNING', 'EXTERNAL_NODE', 'CLASSIC_MINING', 'CLASSIC_GPU'].includes(m.code)) return 'good'
-    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN', 'CLASSIC_SYNCING', 'CLASSIC_PAUSED', 'POOL_CONNECTING', 'RESTARTING'].includes(m.code)) return 'warn'
+    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN', 'CLASSIC_STARTING', 'CLASSIC_CHECKING', 'CLASSIC_SYNCING', 'CLASSIC_PAUSED', 'POOL_CONNECTING', 'RESTARTING'].includes(m.code)) return 'warn'
     return ''
   }
   function cardFeatureOps (a, chain) {

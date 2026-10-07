@@ -79,8 +79,15 @@ function maxHeight () {
   return best
 }
 
-// ETA from download_getStatus (Downloaded / Duration) or from local-height samples.
+// A node that is still this far behind the network is syncing, not mining.
+const BEHIND_BLOCKS = 8
+// ETA rate uses heights inside this window. Shorter spans are too noisy.
+const ETA_WINDOW_MS = 3 * 60 * 1000
+const ETA_MIN_SPAN_SEC = 30
+
 // network is the higher of the peer target and the public getInfo tip.
+// ETA prefers the rolling height window. download_getStatus is only a fallback
+// before that window has 30s of progress.
 function mergeSyncView (opts) {
   opts = opts || {}
   const local = num(opts.local)
@@ -88,26 +95,50 @@ function mergeSyncView (opts) {
   const amount = num(opts.amount)
   const durationSec = num(opts.durationSec)
   const network = maxHeight(opts.peerTarget, opts.publicTip)
-  let etaSec = null
-  if (durationSec > 0 && downloaded > 0 && amount != null && amount > downloaded) {
+  const haveSamples = !!(opts.samples && opts.samples.length >= 2)
+  let etaSec = etaFromSamples(opts.samples, local, network, opts.now)
+  if (etaSec == null && !haveSamples && durationSec > 0 && downloaded > 0 && amount != null && amount > downloaded) {
     etaSec = (amount - downloaded) * durationSec / downloaded
-  } else if (local != null && network != null && local >= network) {
+  } else if (etaSec == null && local != null && network != null && local >= network) {
     etaSec = 0
-  } else {
-    etaSec = etaFromSamples(opts.samples, local, network)
   }
   return { localBlock: local, networkBlock: network, etaSec }
 }
 
-function etaFromSamples (samples, local, network) {
+function etaFromSamples (samples, local, network, now) {
+  if (local != null && network != null && local >= network) return 0
   if (!samples || samples.length < 2 || local == null || network == null || network <= local) return null
-  const first = samples[0]
-  const last = samples[samples.length - 1]
-  if (!first || !last) return null
+  const end = now != null ? Number(now) : Number(samples[samples.length - 1].t)
+  const cutoff = end - ETA_WINDOW_MS
+  const windowed = []
+  for (const s of samples) {
+    const t = Number(s && s.t)
+    if (t >= cutoff && t <= end) windowed.push(s)
+  }
+  if (windowed.length < 2) return null
+  const first = windowed[0]
+  const last = windowed[windowed.length - 1]
   const dt = (Number(last.t) - Number(first.t)) / 1000
   const dh = Number(last.h) - Number(first.h)
-  if (!(dt >= 5) || !(dh > 0)) return null
+  if (!(dt >= ETA_MIN_SPAN_SEC) || !(dh > 0)) return null
   return (network - local) * dt / dh
+}
+
+// Classic GPU status before and after the first height. Mining is only claimed
+// once both heights are known and the node is within a few blocks of the tip.
+function classicGpuPhase (s) {
+  s = s || {}
+  const local = num(s.localBlock)
+  const network = num(s.networkBlock)
+  if (local == null && network == null) {
+    return { code: s.gpuActive || s.nodeSeen ? 'CLASSIC_CHECKING' : 'CLASSIC_STARTING', phase: 'starting' }
+  }
+  const gapKnown = local != null && network != null
+  const behind = !gapKnown || (network - local) > BEHIND_BLOCKS
+  if (s.paused && gapKnown) return { code: 'CLASSIC_PAUSED', phase: 'syncing' }
+  if (behind) return { code: 'CLASSIC_SYNCING', phase: 'syncing' }
+  if (s.gpuActive) return { code: 'CLASSIC_GPU', phase: 'mining' }
+  return { code: 'CLASSIC_SYNCING', phase: 'syncing' }
 }
 
 // Blocks found by this process divided by hours since start. Null until both exist.
@@ -137,5 +168,8 @@ module.exports = {
   looksLikeStatus,
   peerTargetOf,
   mergeSyncView,
-  etaFromSamples
+  etaFromSamples,
+  classicGpuPhase,
+  BEHIND_BLOCKS,
+  ETA_WINDOW_MS
 }

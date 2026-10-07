@@ -7,7 +7,7 @@ const path = require('path')
 const crypto = require('crypto')
 const { parseClassicAddress, parseShard0Address, parseMiningAddress, normalizeMiningInput, ownRewardAddress } = require('../src/miner/zpow/address')
 const { poolForShard, minerStatsUrl, defaultCpuThreads, poolsFromEnv, DEFAULT_POOLS } = require('../src/miner/zpow/pools')
-const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView } = require('../src/miner/zpow/status')
+const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase, ETA_WINDOW_MS } = require('../src/miner/zpow/status')
 const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
@@ -130,14 +130,50 @@ assert.strictEqual(syncing.etaSec, 1950)
 const sampled = mergeSyncView({
   local: 1000,
   publicTip: 2000,
-  downloaded: 0,
-  amount: 0,
-  durationSec: 0,
-  samples: [{ t: 0, h: 800 }, { t: 10000, h: 1000 }]
+  downloaded: 100,
+  amount: 4000,
+  durationSec: 50,
+  samples: [{ t: 0, h: 800 }, { t: 60000, h: 1000 }],
+  now: 60000
 })
 assert.strictEqual(sampled.networkBlock, 2000)
-assert.strictEqual(sampled.etaSec, 50)
+assert.strictEqual(sampled.etaSec, 300)
+assert.strictEqual(ETA_WINDOW_MS, 180000)
+const rolled = mergeSyncView({
+  local: 1100,
+  publicTip: 2100,
+  samples: [{ t: 0, h: 0 }, { t: 200000, h: 1000 }, { t: 380000, h: 1100 }],
+  now: 380000
+})
+assert.strictEqual(rolled.etaSec, 1800)
+assert.strictEqual(mergeSyncView({
+  local: 1000,
+  publicTip: 5000,
+  samples: [{ t: 0, h: 900 }, { t: 10000, h: 1000 }],
+  now: 10000
+}).etaSec, null)
 assert.strictEqual(mergeSyncView({ local: 2000, publicTip: 2000, samples: [] }).etaSec, 0)
+assert.deepStrictEqual(classicGpuPhase({}), { code: 'CLASSIC_STARTING', phase: 'starting' })
+assert.deepStrictEqual(classicGpuPhase({ gpuActive: true }), { code: 'CLASSIC_CHECKING', phase: 'starting' })
+assert.deepStrictEqual(classicGpuPhase({ gpuActive: true, localBlock: 100, networkBlock: 6270100 }), { code: 'CLASSIC_SYNCING', phase: 'syncing' })
+assert.deepStrictEqual(classicGpuPhase({ gpuActive: true, paused: true, localBlock: 100, networkBlock: 6270100 }), { code: 'CLASSIC_PAUSED', phase: 'syncing' })
+assert.deepStrictEqual(classicGpuPhase({ gpuActive: true, localBlock: 6270000, networkBlock: 6270003 }), { code: 'CLASSIC_GPU', phase: 'mining' })
+assert.strictEqual(classicGpuPhase({ gpuActive: true, localBlock: 100 }).code, 'CLASSIC_SYNCING')
+const phaseMgr = new ZpowManager({ platform: 'linux', root: path.join(__dirname, '..'), dataRoot: os.tmpdir() })
+phaseMgr.state.mode = 'gpu'
+phaseMgr.state.backend = 'classic-node'
+phaseMgr.state.code = 'CLASSIC_STARTING'
+phaseMgr.applyLine('GPU miner called number of blocks=100, number of block threads = 256')
+phaseMgr.state.nodeSeen = true
+phaseMgr.refreshClassicGpu()
+assert.strictEqual(phaseMgr.state.code, 'CLASSIC_CHECKING')
+phaseMgr.state.localBlock = 100
+phaseMgr.state.networkBlock = 6270100
+phaseMgr.refreshClassicGpu()
+assert.strictEqual(phaseMgr.state.code, 'CLASSIC_SYNCING')
+assert.strictEqual(phaseMgr.holdEta(137 * 3600, 0), 137 * 3600)
+assert.strictEqual(phaseMgr.holdEta(119 * 3600, 10000), 137 * 3600)
+assert.strictEqual(phaseMgr.holdEta(168 * 3600, 30000), 168 * 3600)
 assert.strictEqual(blockRatePerHour(2, 0, 3600000), 2)
 assert.strictEqual(blockRatePerHour(0, 0, 3600000), 0)
 assert.strictEqual(blockRatePerHour(1, null, 10), null)
@@ -186,6 +222,11 @@ assert.ok(i18n.includes('3342–3344'))
 assert.ok(i18n.includes('CPU pool'))
 assert.ok(i18n.includes('CPU 礦池'))
 assert.ok(i18n.includes('classicCpu'))
+assert.ok(i18n.includes('正在啟動節點…'))
+assert.ok(i18n.includes('正在檢查同步…'))
+assert.ok(i18n.includes('st_CLASSIC_STARTING:'))
+assert.ok(i18n.includes('st_CLASSIC_CHECKING:'))
+assert.ok(i18n.includes('Checking sync…'))
 assert.ok(i18n.includes('Classic 節點正在同步：本地 {l} / 全網 {n}，預計 {eta}'))
 assert.ok(i18n.includes('正在同步區塊：本地 {l} / 全網 {n}，預計 {eta}'))
 assert.ok(i18n.includes('local {l} / network {n}, ETA {eta}'))

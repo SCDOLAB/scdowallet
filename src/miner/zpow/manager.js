@@ -12,7 +12,7 @@ const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
-const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView } = require('./status')
+const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
@@ -90,6 +90,8 @@ class ZpowManager extends EventEmitter {
     this.restartBaseMs = (opts && opts.restartBaseMs) || 2000
     this.syncTimer = null
     this.syncSamples = []
+    this.etaHold = null
+    this.etaHoldAt = 0
     this.state = this.fresh()
   }
 
@@ -100,7 +102,7 @@ class ZpowManager extends EventEmitter {
       hashrate: null, hashrateSource: null, sharesAccepted: 0, sharesRejected: 0,
       blocksFound: 0, blocksFoundHeights: [], blockRatePerHour: null,
       poolStats: null, poolError: null, startedAt: null, logTail: [], lastError: null,
-      gpuActive: false, paused: false,
+      gpuActive: false, paused: false, nodeSeen: false,
       localBlock: null, networkBlock: null, syncEtaSec: null
     }
   }
@@ -123,7 +125,9 @@ class ZpowManager extends EventEmitter {
     const shown = new Date().toTimeString().slice(0, 8) + ' [zpow] ' + line
     this.state.logTail.push(shown)
     if (this.state.logTail.length > 200) this.state.logTail.shift()
+    if (this.state.mode === 'gpu' && this.state.backend === 'classic-node') this.state.nodeSeen = true
     this.applyLine(line)
+    this.refreshClassicGpu()
     try {
       const dir = path.join(this.o.dataRoot, 'logs')
       fs.mkdirSync(dir, { recursive: true })
@@ -159,13 +163,23 @@ class ZpowManager extends EventEmitter {
       this.set(patch)
       return
     }
-    if (ev.kind === 'gpu-active') this.set({ gpuActive: true, paused: false, phase: 'mining', code: 'CLASSIC_GPU', message: '' })
-    else if (ev.kind === 'block-found') {
+    if (ev.kind === 'gpu-active') {
+      if (this.state.backend === 'classic-node') {
+        this.state.gpuActive = true
+        this.state.paused = false
+      } else this.set({ gpuActive: true, paused: false, phase: 'mining', code: 'CLASSIC_GPU', message: '' })
+    } else if (ev.kind === 'block-found') {
       const heights = this.state.blocksFoundHeights.slice()
       if (!heights.includes(ev.height)) heights.push(ev.height)
       this.set({ blocksFound: heights.length, blocksFoundHeights: heights })
-    }     else if (ev.kind === 'gpu-paused') this.set({ paused: true, gpuActive: false, phase: 'syncing', code: 'CLASSIC_PAUSED', message: '' })
-    else if (ev.kind === 'gpu-resumed' && this.state.paused) this.set({ paused: false, phase: 'starting', code: 'CLASSIC_SYNCING', message: '' })
+    } else if (ev.kind === 'gpu-paused') {
+      this.state.paused = true
+      this.state.gpuActive = false
+      if (this.state.backend !== 'classic-node') this.set({ paused: true, gpuActive: false, phase: 'syncing', code: 'CLASSIC_PAUSED', message: '' })
+    } else if (ev.kind === 'gpu-resumed' && this.state.paused) {
+      this.state.paused = false
+      if (this.state.backend !== 'classic-node') this.set({ paused: false, phase: 'starting', code: 'CLASSIC_SYNCING', message: '' })
+    }
     else if (ev.kind === 'chain-height' || ev.kind === 'sync-target') this.noteHeight(ev.local, ev.network)
     else if (ev.kind === 'login-failed') {
       this.set({ phase: 'error', code: 'LOGIN', lastError: ev.message, message: ev.message })
@@ -199,15 +213,51 @@ class ZpowManager extends EventEmitter {
 
   childPids () { return this.proc && this.proc.pid ? [this.proc.pid] : [] }
 
+  pushSyncSample (h, now) {
+    if (h == null || !Number.isFinite(Number(h))) return
+    const t = now || Date.now()
+    const height = Number(h)
+    const last = this.syncSamples[this.syncSamples.length - 1]
+    if (last && t - last.t < 2000 && last.h === height) return
+    this.syncSamples.push({ t, h: height })
+    const cutoff = t - 4 * 60 * 1000
+    while (this.syncSamples.length > 2 && this.syncSamples[0].t < cutoff) this.syncSamples.shift()
+  }
+
+  // Displayed ETA changes at most every 30s. Caught up (0) updates immediately.
+  holdEta (etaSec, now) {
+    const t = now || Date.now()
+    if (etaSec == null || !Number.isFinite(Number(etaSec))) return this.etaHold
+    const next = Number(etaSec)
+    if (next === 0) {
+      this.etaHold = 0
+      this.etaHoldAt = t
+      return 0
+    }
+    if (this.etaHold != null && t - this.etaHoldAt < 30000) return this.etaHold
+    this.etaHold = next
+    this.etaHoldAt = t
+    return next
+  }
+
+  refreshClassicGpu () {
+    if (this.state.mode !== 'gpu' || this.state.backend !== 'classic-node') return
+    if (this.state.phase === 'error' || this.state.phase === 'stopped') return
+    if (['LOGIN', 'SELFTEST', 'CRASHING', 'RESTARTING'].includes(this.state.code)) return
+    const next = classicGpuPhase(this.state)
+    if (this.state.code === next.code && this.state.phase === next.phase) return
+    this.set({ code: next.code, phase: next.phase, message: '' })
+  }
+
   noteHeight (local, network) {
+    const now = Date.now()
     const patch = {}
     if (local != null && Number.isFinite(Number(local))) {
       const h = Number(local)
       // "from height" is the common ancestor. Do not walk the displayed tip backwards.
       if (this.state.localBlock == null || h >= this.state.localBlock) {
         patch.localBlock = h
-        this.syncSamples.push({ t: Date.now(), h })
-        if (this.syncSamples.length > 30) this.syncSamples.shift()
+        this.pushSyncSample(h, now)
       }
     }
     const view = mergeSyncView({
@@ -217,11 +267,13 @@ class ZpowManager extends EventEmitter {
       downloaded: null,
       amount: null,
       durationSec: null,
-      samples: this.syncSamples
+      samples: this.syncSamples,
+      now
     })
     if (view.localBlock != null) patch.localBlock = view.localBlock
     if (view.networkBlock != null) patch.networkBlock = view.networkBlock
-    if (view.etaSec != null) patch.syncEtaSec = view.etaSec
+    const shown = this.holdEta(view.etaSec, now)
+    if (shown != null) patch.syncEtaSec = shown
     if (Object.keys(patch).length) this.set(patch)
   }
 
@@ -237,11 +289,9 @@ class ZpowManager extends EventEmitter {
     try { info = await call(localUrl, 'scdo_getInfo', []) } catch (e) {}
     try { dl = await call(localUrl, 'download_getStatus', []) } catch (e) {}
     try { pub = await call(pubUrl, 'scdo_getInfo', []) } catch (e) {}
+    const now = Date.now()
     const local = info && info.CurrentBlockHeight
-    if (local != null && Number.isFinite(Number(local))) {
-      this.syncSamples.push({ t: Date.now(), h: Number(local) })
-      if (this.syncSamples.length > 30) this.syncSamples.shift()
-    }
+    if (local != null && Number.isFinite(Number(local))) this.pushSyncSample(Number(local), now)
     const view = mergeSyncView({
       local: local != null ? Number(local) : this.state.localBlock,
       peerTarget: peerTargetOf(dl),
@@ -249,13 +299,16 @@ class ZpowManager extends EventEmitter {
       downloaded: dl && (dl.Downloaded != null ? dl.Downloaded : dl.downloaded),
       amount: dl && (dl.Amount != null ? dl.Amount : dl.amount),
       durationSec: dl && (dl.Duration != null ? dl.Duration : dl.duration),
-      samples: this.syncSamples
+      samples: this.syncSamples,
+      now
     })
     const patch = {}
     if (view.localBlock != null) patch.localBlock = view.localBlock
     if (view.networkBlock != null) patch.networkBlock = view.networkBlock
-    if (view.etaSec != null) patch.syncEtaSec = view.etaSec
+    const shown = this.holdEta(view.etaSec, now)
+    if (shown != null) patch.syncEtaSec = shown
     if (Object.keys(patch).length) this.set(patch)
+    this.refreshClassicGpu()
   }
 
   async start (address, opts) {
@@ -351,12 +404,14 @@ class ZpowManager extends EventEmitter {
       backend: backend === 'cpu' ? 'zminer' : gpuMiner,
       pool: backend === 'gpu' && gpuMiner === 'classic-node' ? null : { stratum: pool.stratum, stats: minerStatsUrl(pool, parsed.address), live: pool.live },
       phase: 'starting',
-      code: backend === 'cpu' ? 'POOL_CONNECTING' : 'CLASSIC_SYNCING',
+      code: backend === 'cpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
       message: '',
       startedAt: Date.now()
     })
     this.restarts = []
     this.syncSamples = []
+    this.etaHold = null
+    this.etaHoldAt = 0
     this.wantRunning = true
     this.launchSpec = { binary, args, cwd, env: nodeEnv, ctrlC }
     this.emit('status', this.status())
