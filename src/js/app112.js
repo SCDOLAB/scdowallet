@@ -101,7 +101,7 @@
     s0: {}, // filename -> { nativeWei, tokens, err }
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
-    miner: null, gpu: null, caps: null, logOpen: false,
+    miner: null, miners: { shard0: { chain: 'shard0', running: false, code: 'IDLE' }, classicCpu: { chain: 'classic', mode: 'cpu', running: false, code: 'IDLE' }, classicGpu: { chain: 'classic', mode: 'gpu', running: false, code: 'IDLE' } }, gpu: null, caps: null, logOpen: false,
     mineShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('mineShard112'))) ? Number(localStorage.getItem('mineShard112')) : 0,
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
@@ -476,10 +476,9 @@
     const pool = (caps.pools && caps.pools[shard]) || poolForShard(shard)
     const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
     if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
-    let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${(dis || running) ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
+    let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${dis ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
     if (!gpuOn) h += `<div class="lbl">${esc(T('classicGpuOff'))}</div>`
     if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T('classicCpuMissing'))}</div>`
-    if (backend !== 'cpu') h += `<div class="infobox">${esc(T('gpuClashNote'))}</div>`
     h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool) {
@@ -514,12 +513,31 @@
     if (backend !== 'cpu') h += `<div class="lbl">${esc(T('classicFirst'))}</div>`
     return h
   }
+  function slotForView () {
+    if (Number(st.mineShard) >= 1) return st.mineBackend === 'cpu' ? 'classicCpu' : 'classicGpu'
+    return 'shard0'
+  }
+  function viewMiner () {
+    return (st.miners && st.miners[slotForView()]) || {}
+  }
+  function storeMiner (m) {
+    if (!st.miners) st.miners = {}
+    if (m && m.shard0 && m.classicCpu && m.classicGpu) {
+      st.miners = { shard0: m.shard0, classicCpu: m.classicCpu, classicGpu: m.classicGpu }
+      return
+    }
+    if (m && m.chain === 'classic' && m.mode === 'cpu') st.miners.classicCpu = m
+    else if (m && m.chain === 'classic') st.miners.classicGpu = m
+    else if (m) st.miners.shard0 = Object.assign({ chain: 'shard0' }, m)
+  }
   function pageMine () {
+    st.miner = viewMiner()
     const m = st.miner || {}
     const running = !!m.running
     const mineShard = [0, 1, 2, 3, 4].includes(Number(st.mineShard)) ? Number(st.mineShard) : 0
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('mineTitle'))}</div>`
-    h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}" ${running ? 'disabled' : ''}>${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
+    h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
+    h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false)
@@ -1235,6 +1253,7 @@
     const threads = backend === 'cpu' ? threadCount() : saveGpuParams().threads
     const gpu = backend === 'cpu' ? {} : saveGpuParams()
     localStorage.setItem('minerClassic', address)
+    localStorage.setItem(backend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu', address)
     const r = await ipcRenderer.invoke('miner:start', address, {
       chain: 'classic', backend, gpuMiner, shard: Number(st.mineShard),
       threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
@@ -1245,8 +1264,9 @@
       toast(text !== key ? text : (r.error || r.code), 8000)
       return
     }
-    localStorage.setItem('minerAutoResume', '1')
-    localStorage.setItem('minerMode', backend === 'gpu' ? 'classic-gpu' : 'classic-cpu')
+    localStorage.setItem('minerAutoResume', '0')
+    if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '1')
+    else localStorage.setItem('minerRunClassicGpu', gpuMiner === 'external' ? 'external' : 'gpu')
   }
   async function mineStart () {
     if (Number(st.mineShard) >= 1) return classicStart()
@@ -1258,7 +1278,7 @@
     }
     const r = await ipcRenderer.invoke('miner:start', wallet, { mode: 'mine' })
     if (!r.ok) { if (r.code === 'NO_NVIDIA') { localStorage.setItem('minerAutoResume', '0'); await ensureGpu(true) } toast(r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code), 7000); return }
-    localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'mine')
+    localStorage.setItem('minerAutoResume', '0'); localStorage.setItem('minerRunShard0', 'mine')
   }
   async function nodeStart () {
     const sel = $('nPayout')
@@ -1267,20 +1287,26 @@
     if (payout) localStorage.setItem('nodePayout', payout)
     const r = await ipcRenderer.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(r.error || r.code, 7000); return }
-    localStorage.setItem('minerAutoResume', '1'); localStorage.setItem('minerMode', 'node')
+    localStorage.setItem('minerAutoResume', '0'); localStorage.setItem('minerRunShard0', 'node')
   }
   async function minerStop () {
-    localStorage.setItem('minerAutoResume', '0')
-    const ext = st.miner && st.miner.phase === 'external'
+    const shard = Number(st.mineShard)
+    const classic = shard >= 1
+    const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
+    if (classic && backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '')
+    else if (classic) localStorage.setItem('minerRunClassicGpu', '')
+    else localStorage.setItem('minerRunShard0', '')
+    const ext = !classic && st.miners.shard0 && st.miners.shard0.phase === 'external'
     if (!ext) toast(T('stopping'), 60000)
-    await ipcRenderer.invoke('miner:stop')
+    await ipcRenderer.invoke('miner:stop', classic ? { chain: 'classic', backend } : { chain: 'shard0' })
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
-    const prev = st.miner
-    st.miner = m
-    if (m && m.chain === 'classic' && m.shard) st.mineShard = Number(m.shard)
-    if (m && m.code === 'DEFENDER' && (!prev || prev.code !== 'DEFENDER') && process.platform === 'win32') {
+    const prev0 = st.miners.shard0
+    storeMiner(m)
+    st.miner = viewMiner()
+    const cur0 = st.miners.shard0
+    if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && process.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
     renderMinerLive()
@@ -1294,8 +1320,8 @@
     if (act !== 'accMenu' && act !== 'netMenu') closeDd()
     switch (act) {
       case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); break
-      case 'mineShard': if (st.miner && st.miner.running) { toast(T('st_CPU_BUDGET'), 5000); break } st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
-      case 'mineBackend': if (st.miner && st.miner.running) { toast(T('st_CPU_BUDGET'), 5000); break } st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
+      case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
+      case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
@@ -1383,31 +1409,33 @@
     render()
     refreshS0(); refreshOld()
     setInterval(refreshS0, 15000); setInterval(refreshOld, 30000)
-    try { st.miner = await ipcRenderer.invoke('miner:status') } catch (e) {}
+    try { storeMiner(await ipcRenderer.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     ensureGpu().then(async g => {
       let caps = null
       try { caps = await ensureCaps() } catch (e) {}
-      if (localStorage.getItem('minerAutoResume') === '1' && !(st.miner && st.miner.running)) {
-        const mode = localStorage.getItem('minerMode') || 'mine'
-        if (mode === 'classic-cpu' || mode === 'classic-gpu') {
-          const addr = localStorage.getItem('minerClassic')
-          const p = parseClassicAddress(addr || '')
-          if (!p) return
-          st.mineShard = p.shard
-          st.mineBackend = mode === 'classic-gpu' ? (localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu') : 'cpu'
-          const gpuOk = mode !== 'classic-gpu' || (caps && ((st.mineBackend === 'external' && caps.external && caps.external.available) || (caps.gpu && caps.gpu.available)))
-          const cpuOk = mode !== 'classic-cpu' || (caps && caps.cpu && caps.cpu.available)
-          if (gpuOk && cpuOk) {
-            const gpu = mode === 'classic-gpu' ? gpuParams() : {}
-            ipcRenderer.invoke('miner:start', p.address, {
-              chain: 'classic', backend: mode === 'classic-gpu' ? 'gpu' : 'cpu',
-              gpuMiner: st.mineBackend === 'external' ? 'external' : 'classic-node', shard: p.shard,
-              threads: mode === 'classic-gpu' ? gpu.threads : threadCount(),
-              threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
-            })
-          }
-        } else if (mode === 'node') nodeStart()
-        else if (g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
+      const legacy = localStorage.getItem('minerAutoResume') === '1'
+      const legacyMode = localStorage.getItem('minerMode') || 'mine'
+      let shard0Mode = localStorage.getItem('minerRunShard0') || ''
+      let classicCpu = localStorage.getItem('minerRunClassicCpu') === '1'
+      let classicGpu = localStorage.getItem('minerRunClassicGpu') || ''
+      if (!shard0Mode && !classicCpu && !classicGpu && legacy) {
+        if (legacyMode === 'classic-cpu') classicCpu = true
+        else if (legacyMode === 'classic-gpu') classicGpu = localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu'
+        else shard0Mode = legacyMode === 'node' ? 'node' : 'mine'
+      }
+      if (shard0Mode === 'node' && !(st.miners.shard0 && st.miners.shard0.running)) nodeStart()
+      else if (shard0Mode === 'mine' && !(st.miners.shard0 && st.miners.shard0.running) && g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
+      if (classicCpu && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps && caps.cpu && caps.cpu.available) {
+        const p = parseClassicAddress(localStorage.getItem('minerClassicCpu') || localStorage.getItem('minerClassic') || '')
+        if (p) ipcRenderer.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
+      }
+      if (classicGpu && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
+        const p = parseClassicAddress(localStorage.getItem('minerClassicGpu') || localStorage.getItem('minerClassic') || '')
+        const gpuOk = classicGpu === 'external' ? (caps && caps.external && caps.external.available) : (caps && caps.gpu && caps.gpu.available)
+        if (p && gpuOk) {
+          const gpu = gpuParams()
+          ipcRenderer.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: classicGpu === 'external' ? 'external' : 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
+        }
       }
     })
     if (st.tab === 'mine') render()

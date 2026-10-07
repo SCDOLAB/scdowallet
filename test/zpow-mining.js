@@ -101,14 +101,39 @@ assert.strictEqual(poolBody.pending, '1.5')
 assert.strictEqual(poolBody.paid, '3')
 assert.strictEqual(poolBody.hashrate, 40)
 
-// --- conflicts ---
-assert.strictEqual(decideStart({ running: false }, { chain: 'classic', mode: 'cpu' }).ok, true)
-assert.strictEqual(decideStart({ running: true, chain: 'shard0', mode: 'mine' }, { chain: 'classic', mode: 'gpu' }).code, 'GPU_CONFLICT')
-assert.strictEqual(decideStart({ running: true, chain: 'classic', mode: 'gpu' }, { chain: 'shard0', mode: 'mine' }).code, 'GPU_CONFLICT')
-assert.strictEqual(decideStart({ running: true, chain: 'shard0', mode: 'mine' }, { chain: 'classic', mode: 'cpu' }).code, 'CPU_BUDGET')
-assert.strictEqual(decideStart({ running: true, chain: 'classic', mode: 'cpu' }, { chain: 'shard0', mode: 'node' }).code, 'CPU_BUDGET')
-assert.strictEqual(decideStart({ running: true, chain: 'classic', mode: 'cpu' }, { chain: 'classic', mode: 'gpu' }).code, 'CPU_BUDGET')
-assert.strictEqual(decideStart({ running: true, chain: 'shard0', mode: 'node' }, { chain: 'classic', mode: 'gpu' }).code, 'CPU_BUDGET')
+// --- any combination of backends is allowed (no refusal, no confirm dialog) ---
+const combos = [
+  [{ running: false }, { chain: 'classic', mode: 'cpu' }],
+  [{ running: true, chain: 'shard0', mode: 'mine' }, { chain: 'classic', mode: 'gpu' }],
+  [{ running: true, chain: 'classic', mode: 'gpu' }, { chain: 'shard0', mode: 'mine' }],
+  [{ running: true, chain: 'shard0', mode: 'mine' }, { chain: 'classic', mode: 'cpu' }],
+  [{ running: true, chain: 'classic', mode: 'cpu' }, { chain: 'shard0', mode: 'node' }],
+  [{ running: true, chain: 'classic', mode: 'cpu' }, { chain: 'classic', mode: 'gpu' }],
+  [{ running: true, chain: 'classic', mode: 'gpu' }, { chain: 'classic', mode: 'cpu' }],
+  [{ running: true, chain: 'shard0', mode: 'node' }, { chain: 'classic', mode: 'gpu' }],
+  [{ running: true, chain: 'shard0', mode: 'mine' }, { chain: 'classic', mode: 'gpu' }]
+]
+for (const args of combos) {
+  const gate = decideStart.apply(null, args)
+  assert.strictEqual(gate.ok, true, JSON.stringify(args))
+  assert.strictEqual(gate.code, undefined)
+  assert.strictEqual(gate.error, undefined)
+}
+const i18n = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
+assert.ok(i18n.includes('mineTogether:'))
+assert.ok(!i18n.includes('gpuClashNote'))
+assert.ok(!i18n.includes('st_GPU_CONFLICT'))
+assert.ok(!i18n.includes('st_CPU_BUDGET'))
+assert.ok(!i18n.includes('不能同時'))
+assert.ok(!i18n.includes('cannot run together'))
+const ui = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
+assert.ok(ui.includes("T('mineTogether')"))
+assert.ok(!ui.includes('GPU_CONFLICT'))
+assert.ok(!ui.includes('CPU_BUDGET'))
+assert.ok(!ui.includes('gpuClashNote'))
+const mainSrc = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+assert.ok(!mainSrc.includes('decideStart'))
+assert.ok(mainSrc.includes('zpowCpu') && mainSrc.includes('zpowGpu'))
 
 // --- argv templates (pluggable miner) ---
 assert.deepStrictEqual(renderArgs(ZMINER_ARGS, { pool: 'h:1', user: REAL, worker: 'wallet', threads: 3 }),

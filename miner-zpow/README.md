@@ -1,6 +1,6 @@
 # Classic miners (shards 1–4)
 
-Shard0 stays on Ethash (local geth, scdo-stratum, Rigel). Shards 1–4 use zpow and have two backends. Only one mining backend runs at a time. Shard0 GPU and Classic GPU together on the same card cause TDR resets and each side keeps about a third of its hashrate, so the wallet refuses that pair.
+Shard0 stays on Ethash (local geth, scdo-stratum, Rigel). Shards 1–4 use zpow and have two backends. Shard0 GPU, Classic GPU, and Classic CPU may all run at the same time. The mining page has a short note that two GPU miners on one card may each keep about a third of the hashrate and the driver may reset (TDR). The wallet does not block that.
 
 ## CPU — zminer (pool)
 

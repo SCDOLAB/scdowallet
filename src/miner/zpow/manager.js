@@ -1,4 +1,5 @@
-// Classic shard 1–4 mining, beside the Shard0 Ethash manager.
+// Classic shard 1–4 mining. The main process keeps one instance for CPU and
+// one for GPU, so both can run next to Shard0.
 // CPU: zminer to the pool (pluggable argv template).
 // GPU: go-scdo node.exe CUDA zpow, solo, one shard, coinbase = the user's address.
 // A third binary can be dropped in with SCDO_ZPOW_GPU_BIN / SCDO_ZPOW_GPU_ARGS.
@@ -148,8 +149,8 @@ class ZpowManager extends EventEmitter {
   async start (address, opts) {
     opts = opts || {}
     if (this.wantRunning) {
-      const err = new Error('classic miner already running')
-      err.code = 'CPU_BUDGET'
+      const err = new Error('this miner is already running')
+      err.code = 'ALREADY_RUNNING'
       throw err
     }
     const parsed = parseClassicAddress(address)
