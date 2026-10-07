@@ -190,3 +190,5 @@ pre.log { background: #11142b; color: #d8dcff; font-size: 13px; padding: 12px; b
 .shardchips { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 16px; }
 .shardchips button { border: 2px solid #d5d8ea; background: #fff; color: #3d4160; border-radius: 20px; padding: 6px 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
 .shardchips button.on { background: #2933ff; border-color: #2933ff; color: #fff; }
+.shardchips button:disabled { opacity: .55; cursor: default; }
+input.threads { width: 100%; margin-top: 8px; accent-color: #2933ff; }

@@ -13,6 +13,8 @@
   const { Shard0 } = require('./src/api/evm.js')
   const { ethers } = require('ethers')
   const { miningGpuReady, readyNvidiaNames } = require('./src/miner/gpuSelect.js')
+  const { parseClassicAddress, normalizeMiningInput } = require('./src/miner/zpow/address.js')
+  const { poolForShard, defaultCpuThreads } = require('./src/miner/zpow/pools.js')
   // 2.0.12: 匯款 uses the preload bridge. Decrypt, personal_sign and the bearer token stay in the main process.
   const api = (typeof window !== 'undefined' && window.scdo && typeof window.scdo.invoke === 'function')
     ? window.scdo
@@ -71,6 +73,7 @@
   ui.names = (ui.names && typeof ui.names === 'object' && !Array.isArray(ui.names)) ? ui.names : {}
   ui.accNo = (ui.accNo && typeof ui.accNo === 'object' && !Array.isArray(ui.accNo)) ? ui.accNo : {}
   ui.rewardExtra = Array.isArray(ui.rewardExtra) ? ui.rewardExtra.filter(x => /^0x[0-9a-fA-F]{40}$/.test(x)) : []
+  ui.classicExtra = Array.isArray(ui.classicExtra) ? ui.classicExtra.map(parseClassicAddress).filter(Boolean).map(a => a.address) : []
   const stripTs = (f) => String(f).replace(/\.\d{10,}$/, '').trim()
   const needsNo = (f) => { const b = stripTs(f); return !b || /^new(\s|$|[-_.])/i.test(b) || /^account\d*$/i.test(b) }
   const nextNo = () => Math.max(0, ...Object.values(ui.accNo).map(Number).filter(Number.isFinite)) + 1
@@ -98,7 +101,9 @@
     s0: {}, // filename -> { nativeWei, tokens, err }
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
-    miner: null, gpu: null, logOpen: false,
+    miner: null, gpu: null, caps: null, logOpen: false,
+    mineShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('mineShard112'))) ? Number(localStorage.getItem('mineShard112')) : 0,
+    mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
   }
   let s0 = null
@@ -382,7 +387,7 @@
   function minerText (m) {
     if (!m) return T('st_IDLE')
     const code = m.code || 'IDLE'
-    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '' }
+    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '', shard: m.shard || '' }
     let s = T('st_' + code, p)
     if (s === 'st_' + code) s = m.message || code
     if (code === 'DOWNLOADING' && m.download && m.download.total) s += ' ' + Math.round(100 * m.download.got / m.download.total) + '%'
@@ -391,8 +396,8 @@
   function minerClass (m) {
     if (!m) return ''
     if (m.phase === 'error') return 'bad'
-    if (['MINING', 'NODE_RUNNING', 'EXTERNAL_NODE'].includes(m.code)) return 'good'
-    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN'].includes(m.code)) return 'warn'
+    if (['MINING', 'NODE_RUNNING', 'EXTERNAL_NODE', 'CLASSIC_MINING', 'CLASSIC_GPU'].includes(m.code)) return 'good'
+    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN', 'CLASSIC_SYNCING', 'CLASSIC_PAUSED', 'POOL_CONNECTING'].includes(m.code)) return 'warn'
     return ''
   }
   function rewardOptions () {
@@ -404,11 +409,11 @@
   }
   // address <select>: placeholder when nothing is chosen (never silently preselect an account), wallet accounts by
   // name, saved external addresses, and "other address…" which opens a paste field
-  function addrSelect (id, opts, cur, disabled) {
+  function addrSelect (id, opts, cur, disabled, placeholder, otherLabel) {
     const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
     const open = !!(st.otherOpen && st.otherOpen[id])
-    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(T('rewardOther'))}</option></select>
-      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono" id="${id}-in" placeholder="0x…" style="flex:1;min-width:320px" autocomplete="off"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
+    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
+      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono half" id="${id}-in" placeholder="${esc(placeholder || '0x…')}" style="flex:1;min-width:320px" autocomplete="off"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
   }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
   function payoutDefault () {
@@ -421,11 +426,106 @@
     const opts = rewardOptions(); const cur = payoutDefault()
     return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div>${addrSelect('nPayout', opts, cur, running)}${opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('payoutNone'))}</div>`}</div>`
   }
+  function cpuCount () { return Math.max(1, (os.cpus() || []).length) }
+  function threadCount () {
+    const max = cpuCount()
+    const saved = Number(localStorage.getItem('mineThreads112'))
+    const n = Number.isFinite(saved) && saved >= 1 ? saved : defaultCpuThreads(max)
+    return Math.max(1, Math.min(max, Math.floor(n)))
+  }
+  function gpuParams () {
+    let g = {}
+    try { g = JSON.parse(localStorage.getItem('mineGpu112') || '{}') } catch (e) { g = {} }
+    const n = (v, d) => { const x = Number(normalizeMiningInput(v)); return Number.isFinite(x) && x >= 1 ? Math.floor(x) : d }
+    return { threads: n(g.threads, 1), threadblocks: n(g.threadblocks, 100), blockthreads: n(g.blockthreads, 100) }
+  }
+  function saveGpuParams () {
+    const read = (id, d) => { const el = $(id); return el ? Number(normalizeMiningInput(el.value)) : d }
+    const g = gpuParams()
+    const next = {
+      threads: read('mGpuThreads', g.threads),
+      threadblocks: read('mThreadBlocks', g.threadblocks),
+      blockthreads: read('mBlockThreads', g.blockthreads)
+    }
+    localStorage.setItem('mineGpu112', JSON.stringify(next))
+    return next
+  }
+  function classicOptions (shard) {
+    const opts = []
+    visible('old').forEach(a => {
+      const p = parseClassicAddress(a.pubkey)
+      if (p && p.shard === shard) opts.push({ v: p.address, l: accLabel(a) })
+    })
+    ;(ui.classicExtra || []).forEach(x => {
+      const p = parseClassicAddress(x)
+      if (p && p.shard === shard && !opts.some(o => o.v === p.address)) opts.push({ v: p.address, l: T('rewardOtherLabel') })
+    })
+    return opts
+  }
+  function pageMineClassic (m, running, shard) {
+    const caps = st.caps || {}
+    const gpuOn = !!(caps.gpu && caps.gpu.available)
+    const extOn = !!(caps.external && caps.external.available)
+    let backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
+    if (backend === 'gpu' && !gpuOn) backend = 'cpu'
+    if (backend === 'external' && !extOn) backend = 'cpu'
+    const opts = classicOptions(shard)
+    const saved = localStorage.getItem('minerClassic') || ''
+    const cur = (m.chain === 'classic' && m.wallet) || saved
+    const sel = addrSelect('mClassic', opts, cur, running, shard + 'S0' + shard + '…', T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
+    const pool = (caps.pools && caps.pools[shard]) || poolForShard(shard)
+    const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
+    if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
+    let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${(dis || running) ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
+    if (!gpuOn) h += `<div class="lbl">${esc(T('classicGpuOff'))}</div>`
+    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T('classicCpuMissing'))}</div>`
+    if (backend !== 'cpu') h += `<div class="infobox">${esc(T('gpuClashNote'))}</div>`
+    h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
+    const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
+    if (showPool) {
+      h += `<div class="lbl">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}（HTTP ${esc(pool.statsPort)}）</div>`
+      if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
+    }
+    if (backend === 'cpu') {
+      const threads = threadCount(); const max = cpuCount()
+      h += `<div class="field"><div class="lbl">${esc(T('cpuThreads'))}${PU.c()}<b id="mThreadsVal">${threads}</b> / ${max}</div>
+        <input type="range" class="threads" id="mThreads" min="1" max="${max}" value="${threads}" ${running ? 'disabled' : ''}></div>
+        <div class="lbl">${esc(T('cpuThreadsHint'))}</div>`
+    } else if (backend === 'gpu') {
+      const g = gpuParams()
+      h += `<div class="row" style="gap:12px;flex-wrap:wrap;margin-top:10px">
+        <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl">${esc(T('gpuBlocks'))}<br><input class="inp half" id="mThreadBlocks" inputmode="numeric" value="${g.threadblocks}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl">${esc(T('gpuBlockThreads'))}<br><input class="inp half" id="mBlockThreads" inputmode="numeric" value="${g.blockthreads}" ${running ? 'disabled' : ''}></label>
+      </div>`
+    }
+    const active = running && m.chain === 'classic'
+    const young = m.startedAt && (Date.now() - m.startedAt < 600000)
+    h += `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">${esc(T('hashrate'))}</div><div class="v" id="mHr">${active && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
+        <div class="stat"><div class="lbl">${esc(T('acceptedShares'))}</div><div class="v" id="mAcc">${esc((m.sharesAccepted || 0) + ' / ' + (m.sharesRejected || 0))}</div></div>
+        <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>
+        ${backend === 'cpu' ? `<div class="stat"><div class="lbl">${esc(T('poolPending'))}</div><div class="v" id="mPending">${m.poolStats && m.poolStats.pending != null ? esc(m.poolStats.pending) : '–'}</div></div>
+        <div class="stat"><div class="lbl">${esc(T('poolPaid'))}</div><div class="v" id="mPaid">${m.poolStats && m.poolStats.paid != null ? esc(m.poolStats.paid) : '–'}</div></div>` : `<div class="stat"><div class="lbl">${esc(T('blockRate'))}</div><div class="v" id="mRate">${active && m.blocksFound > 0 && !young && m.blockRatePerHour != null ? esc(Number(m.blockRatePerHour).toFixed(2)) : '–'}</div></div>`}
+      </div>
+      <div class="row" style="margin-top:22px"><button class="btn ${active ? 'dan' : 'pri'} big" data-act="${active ? 'minerStop' : 'mineStart'}" id="btnMine">${esc(active ? T('stopMining') : T('startMining'))}</button></div>
+      <div class="lbl" style="margin-top:10px">${esc(backend === 'cpu' ? T('classicFirst') : T('blockRateHint'))}</div>`
+    if (backend !== 'cpu') h += `<div class="lbl">${esc(T('classicFirst'))}</div>`
+    return h
+  }
   function pageMine () {
     const m = st.miner || {}
     const running = !!m.running
+    const mineShard = [0, 1, 2, 3, 4].includes(Number(st.mineShard)) ? Number(st.mineShard) : 0
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('mineTitle'))}</div>`
-    if (process.platform === 'darwin') return h + `<div class="nogpu">${esc(T('macNo'))}</div></div></div>`
+    h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}" ${running ? 'disabled' : ''}>${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
+    if (mineShard !== 0) {
+      h += pageMineClassic(m, running, mineShard)
+      h += mineAdvanced(false)
+      return h + '</div></div>'
+    }
+    if (process.platform === 'darwin') return h + `<div class="nogpu">${esc(T('macNo'))}</div>` + mineAdvanced(false) + '</div></div>'
     if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div></div>`
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
@@ -462,13 +562,17 @@
         ${ext ? `<button class="btn ghost" data-act="minerStop" id="btnNode">${esc(T('stopWatch'))}</button>` : running ? `<button class="btn dan big" data-act="minerStop" id="btnNode">${esc(T('stopNode'))}</button>` : `<button class="btn pri big" data-act="nodeStart" id="btnNode">${esc(T('runNode'))}</button>`}</div>
         <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
     }
-    h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
+    h += mineAdvanced(miningGpuReady(g))
+    return h + '</div></div>'
+  }
+  function mineAdvanced (showDefender) {
+    const m = st.miner || {}
+    return `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
       <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
-      ${process.platform === 'win32' && miningGpuReady(g) ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
+      ${showDefender ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
       <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(((m.logTail) || []).slice(-80).join('\n'))}</pre></details>`
-    return h + '</div></div>'
   }
 
   // ---------------- 2.0.12 remittance (匯款): unlock + personal_sign, no KYC form ----------------
@@ -633,13 +737,22 @@
     const m = st.miner || {}
     const e = $('minerStatus')
     const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN'].join('|')
-    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout', 'mReward-in', 'nPayout-in'].includes(document.activeElement.id))) render(); return }
+    const focusKeep = ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'mClassic', 'mClassic-in', 'mThreads', 'mGpuThreads', 'mThreadBlocks', 'mBlockThreads']
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && focusKeep.includes(document.activeElement.id))) render(); return }
     if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
     const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
     set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
     set('mPeers', m.peers == null ? '–' : m.peers)
-    if (m.mode === 'mine' && m.running) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
+    if (m.running && (m.mode === 'mine' || m.chain === 'classic')) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
     set('mFound', m.blocksFound || 0)
+    if (m.chain === 'classic') {
+      set('mAcc', (m.sharesAccepted || 0) + ' / ' + (m.sharesRejected || 0))
+      const ps = m.poolStats || {}
+      set('mPending', ps.pending == null ? '–' : String(ps.pending))
+      set('mPaid', ps.paid == null ? '–' : String(ps.paid))
+      const young = m.startedAt && (Date.now() - m.startedAt < 600000)
+      set('mRate', m.blocksFound > 0 && !young && m.blockRatePerHour != null ? Number(m.blockRatePerHour).toFixed(2) : '–')
+    }
     const ns = $('mNodeState'); if (ns) ns.textContent = nodeStateText(m)
     const lg = $('mLog'); if (lg && st.logOpen) { lg.textContent = (m.logTail || []).slice(-80).join('\n'); lg.scrollTop = lg.scrollHeight }
   }
@@ -944,7 +1057,18 @@
     setTimeout(() => { const i = $('rnName'); if (i) { i.focus(); i.select() } }, 30)
   }
   function useOtherAddr (id) {
-    const inp = $(id + '-in'); const raw = inp ? inp.value.trim() : ''
+    const inp = $(id + '-in'); const raw = inp ? normalizeMiningInput(inp.value) : ''
+    if (id === 'mClassic') {
+      const p = parseClassicAddress(raw)
+      const shard = Number(st.mineShard)
+      if (!p || p.shard !== shard) { toast(T('errClassicAddr'), 5000); return }
+      ui.classicExtra = ui.classicExtra || []
+      if (!ui.classicExtra.includes(p.address)) ui.classicExtra.push(p.address)
+      saveUi()
+      localStorage.setItem('minerClassic', p.address)
+      if (st.otherOpen) st.otherOpen[id] = false
+      toast('✔ ' + p.address); render(); return
+    }
     let addr = ''
     try { addr = require('ethers').getAddress(raw) } catch (e) { addr = '' }
     if (!addr || /^0x0{40}$/.test(addr)) { toast(T('errRewardAddr'), 5000); return }
@@ -1090,7 +1214,42 @@
     if (st.tab === 'mine') render()
     return st.gpu
   }
+  async function ensureCaps () {
+    try { st.caps = await ipcRenderer.invoke('miner:caps') } catch (e) { st.caps = st.caps || { cpu: {}, gpu: {} } }
+    if (st.tab === 'mine') render()
+    return st.caps
+  }
+  function classicSelection () {
+    const sel = $('mClassic')
+    const shard = Number(st.mineShard)
+    const raw = sel && sel.value && sel.value !== '__other' ? sel.value : (localStorage.getItem('minerClassic') || '')
+    const p = parseClassicAddress(raw)
+    if (!p || p.shard !== shard) return null
+    return p.address
+  }
+  async function classicStart () {
+    const address = classicSelection()
+    if (!address) { toast(T('errClassicAddr'), 5000); return }
+    const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? 'gpu' : 'cpu'
+    const gpuMiner = st.mineBackend === 'external' ? 'external' : 'classic-node'
+    const threads = backend === 'cpu' ? threadCount() : saveGpuParams().threads
+    const gpu = backend === 'cpu' ? {} : saveGpuParams()
+    localStorage.setItem('minerClassic', address)
+    const r = await ipcRenderer.invoke('miner:start', address, {
+      chain: 'classic', backend, gpuMiner, shard: Number(st.mineShard),
+      threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+    })
+    if (!r.ok) {
+      const key = 'st_' + (r.code || '')
+      const text = T(key)
+      toast(text !== key ? text : (r.error || r.code), 8000)
+      return
+    }
+    localStorage.setItem('minerAutoResume', '1')
+    localStorage.setItem('minerMode', backend === 'gpu' ? 'classic-gpu' : 'classic-cpu')
+  }
   async function mineStart () {
+    if (Number(st.mineShard) >= 1) return classicStart()
     const sel = $('mReward'); if (!sel || !/^0x[0-9a-fA-F]{40}$/.test(sel.value)) { toast(T('pickAddr')); return }
     const wallet = sel.value; localStorage.setItem('minerReward', wallet)
     if (process.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
@@ -1120,6 +1279,7 @@
   function onMinerStatus (m) {
     const prev = st.miner
     st.miner = m
+    if (m && m.chain === 'classic' && m.shard) st.mineShard = Number(m.shard)
     if (m && m.code === 'DEFENDER' && (!prev || prev.code !== 'DEFENDER') && process.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await ipcRenderer.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
@@ -1133,7 +1293,9 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'netMenu') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; setTab(v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
+      case 'tab': if ($('md')) $('modalRoot').innerHTML = ''; setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); break
+      case 'mineShard': if (st.miner && st.miner.running) { toast(T('st_CPU_BUDGET'), 5000); break } st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
+      case 'mineBackend': if (st.miner && st.miner.running) { toast(T('st_CPU_BUDGET'), 5000); break } st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
       case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
@@ -1173,12 +1335,25 @@
     }
   })
   document.addEventListener('change', (ev) => {
-    const t = ev.target; if (!t || (t.id !== 'mReward' && t.id !== 'nPayout')) return
+    const t = ev.target; if (!t || (t.id !== 'mReward' && t.id !== 'nPayout' && t.id !== 'mClassic')) return
     st.otherOpen = st.otherOpen || {}
     const row = $(t.id + '-oth')
     if (t.value === '__other') { st.otherOpen[t.id] = true; if (row) row.style.display = 'flex'; const i = $(t.id + '-in'); if (i) i.focus(); return }
     st.otherOpen[t.id] = false; if (row) row.style.display = 'none'
-    if (/^0x[0-9a-fA-F]{40}$/.test(t.value)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', t.value)
+    if (t.id === 'mClassic' && parseClassicAddress(t.value)) localStorage.setItem('minerClassic', parseClassicAddress(t.value).address)
+    else if (/^0x[0-9a-fA-F]{40}$/.test(t.value)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', t.value)
+  })
+  document.addEventListener('input', (ev) => {
+    const t = ev.target; if (!t) return
+    if (t.classList && t.classList.contains('half')) {
+      const n = normalizeMiningInput(t.value)
+      if (n !== t.value) { const pos = t.selectionStart; t.value = n; try { t.setSelectionRange(pos, pos) } catch (e) {} }
+    }
+    if (t.id === 'mThreads') {
+      localStorage.setItem('mineThreads112', String(t.value))
+      const lab = $('mThreadsVal'); if (lab) lab.textContent = t.value
+    }
+    if (t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads') saveGpuParams()
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
@@ -1209,10 +1384,29 @@
     refreshS0(); refreshOld()
     setInterval(refreshS0, 15000); setInterval(refreshOld, 30000)
     try { st.miner = await ipcRenderer.invoke('miner:status') } catch (e) {}
-    ensureGpu().then(g => {
+    ensureGpu().then(async g => {
+      let caps = null
+      try { caps = await ensureCaps() } catch (e) {}
       if (localStorage.getItem('minerAutoResume') === '1' && !(st.miner && st.miner.running)) {
         const mode = localStorage.getItem('minerMode') || 'mine'
-        if (mode === 'node') nodeStart()
+        if (mode === 'classic-cpu' || mode === 'classic-gpu') {
+          const addr = localStorage.getItem('minerClassic')
+          const p = parseClassicAddress(addr || '')
+          if (!p) return
+          st.mineShard = p.shard
+          st.mineBackend = mode === 'classic-gpu' ? (localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu') : 'cpu'
+          const gpuOk = mode !== 'classic-gpu' || (caps && ((st.mineBackend === 'external' && caps.external && caps.external.available) || (caps.gpu && caps.gpu.available)))
+          const cpuOk = mode !== 'classic-cpu' || (caps && caps.cpu && caps.cpu.available)
+          if (gpuOk && cpuOk) {
+            const gpu = mode === 'classic-gpu' ? gpuParams() : {}
+            ipcRenderer.invoke('miner:start', p.address, {
+              chain: 'classic', backend: mode === 'classic-gpu' ? 'gpu' : 'cpu',
+              gpuMiner: st.mineBackend === 'external' ? 'external' : 'classic-node', shard: p.shard,
+              threads: mode === 'classic-gpu' ? gpu.threads : threadCount(),
+              threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+            })
+          }
+        } else if (mode === 'node') nodeStart()
         else if (g && miningGpuReady(g) && localStorage.getItem('minerReward')) ipcRenderer.invoke('miner:start', localStorage.getItem('minerReward'), { mode: 'mine' })
       }
     })

@@ -33,6 +33,7 @@
             "!**/node_modules/**/build/Release/**",
             "!**/node_modules/**/binding.gyp",
             "!miner-bin/**",
+            "!miner-zpow/**",
             "!scripts/**",
             "!legacy-1.1.1-index.html"
         ],

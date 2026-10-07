@@ -14,3 +14,14 @@ size (about 19-57 MB each):
 Put the files in place before building and check them against `SHA256SUMS` in this folder
 (`sha256sum -c SHA256SUMS`). The released Windows installer contains exactly these files.
 `scdo-shard0-genesis.json` stays in git.
+
+## Classic shards 1–4
+
+These files are also not stored in git. Drop them in `miner-bin/win32/` (the Windows extraResources copy the whole folder):
+
+    miner-bin/win32/zminer.exe
+    miner-bin/win32/SHA256SUMS          # must list zminer.exe; the wallet refuses to start it without a match
+    miner-bin/win32/classic/node.exe    # go-scdo CUDA node (solo GPU). Optional until you have a build.
+    miner-bin/win32/classic/libcudart.dll
+
+`scripts/build-zminer.sh` builds `zminer.exe` (Go 1.12.7, because zpow links go-scdo's binary-only scdorand). GPU solo mining is that Classic node, not zminer. `scripts/build-classic-node.sh` explains the CUDA build; set `SCDO_CLASSIC_NODE` if the exe lives somewhere else. A different GPU binary can be plugged in with `SCDO_ZPOW_GPU_BIN` and `SCDO_ZPOW_GPU_ARGS` (a JSON argv array; `{pool}` `{user}` `{threads}` `{shard}` are replaced).

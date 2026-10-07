@@ -5,3 +5,4 @@ release-builds/
 # large miner binaries are not kept in git (see miner-bin/README.md)
 miner-bin/linux/
 miner-bin/win32/
+miner-zpow/dist/

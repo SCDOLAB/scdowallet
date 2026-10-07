@@ -1,0 +1,21 @@
+name: zminer
+on:
+  push:
+    paths:
+      - 'miner-zpow/**'
+      - 'scripts/build-zminer.sh'
+      - '.github/workflows/zminer.yml'
+  pull_request:
+    paths:
+      - 'miner-zpow/**'
+      - 'scripts/build-zminer.sh'
+      - '.github/workflows/zminer.yml'
+jobs:
+  windows-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build zminer.exe (Go 1.12.7, windows/amd64)
+        run: bash scripts/build-zminer.sh
+      - name: SHA256 of the binaries just built
+        run: cd miner-zpow/dist && sha256sum -c SHA256SUMS
