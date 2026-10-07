@@ -274,6 +274,8 @@ async function publishedZminer () {
   assert.ok(!pkg.executableName)
   assert.strictEqual(pkg.build.beforePack, 'scripts/before-pack-win.js')
   assert.ok(pkg.scripts['dist:win'].startsWith('node scripts/stage-zminer.js'))
+  assert.ok(pkg.scripts['dist:win'].includes('--publish never'))
+  assert.ok(pkg.scripts['dist:win:nsis'].includes('--publish never'))
   const nsh = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf8')
   assert.ok(nsh.includes('scdoReadPerMachineUninstall'))
   assert.ok(nsh.includes('UNINSTALL_REGISTRY_KEY'))
