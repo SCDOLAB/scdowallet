@@ -11,6 +11,7 @@ function badgeState (st) {
   if (!st) return 'grey'
   if (st.phase === 'error') return 'red'
   if (st.running && (st.mode === 'mine' || st.mode === 'pool')) return 'green'
+  if (st.classicNote) return 'green'
   return 'grey'
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 繁體中文)
@@ -21,11 +22,14 @@ const TL = {
 function tooltipText (version, st, lang) {
   const L = TL[lang] || TL.EN
   const head = 'SCDO Wallet ' + version
-  if (!st || (!st.running && st.phase !== 'error')) return head + '\n' + L.notMining
-  if (st.phase === 'error') return (head + '\n' + L.minerError + ': ' + String(st.code || st.message || 'error')).slice(0, 127)
-  if (st.mode === 'node') return head + '\n' + L.nodeOnly
-  if (st.code === 'MINING') return head + '\n' + L.mining + fmtHash(st.hashrate)
-  return head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate) : '')
+  let line
+  if (!st || (!st.running && st.phase !== 'error')) line = head + '\n' + L.notMining
+  else if (st.phase === 'error') line = head + '\n' + L.minerError + ': ' + String(st.code || st.message || 'error')
+  else if (st.mode === 'node') line = head + '\n' + L.nodeOnly
+  else if (st.code === 'MINING') line = head + '\n' + L.mining + fmtHash(st.hashrate)
+  else line = head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate) : '')
+  if (st && st.classicNote) line += '\n' + st.classicNote
+  return line.slice(0, 127)
 }
 
 class TrayStatus {

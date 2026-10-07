@@ -1,26 +1,155 @@
 {
-  "name": "ScdoWallet",
-  "version": "2.0.12",
-  "productName": "SCDO Wallet",
-  "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
-  "main": "main.js",
-  "repository": "https://github.com/SCDOLAB/scdowallet",
-  "author": "SCDO Laboratory <scdolab@users.noreply.github.com>",
-  "license": "CC0-1.0",
-  "dependencies": {
-    "bignumber.js": "^8.1.1",
-    "bluebird": "^3.7.2",
-    "edit-json-file": "^1.8.0",
-    "elliptic": "^6.6.1",
-    "ethers": "^6.17.0",
-    "keccak": "^1.4.0",
-    "ps-node": "^0.1.6",
-    "rlp": "^2.2.7",
-    "scdo.js": "0.5.0",
-    "secp256k1": "^3.8.1",
-    "shelljs": "^0.10.0",
-    "solc": "^0.5.17",
-    "tree-kill": "^1.2.2",
-    "yauzl": "^3.4.0"
-  }
+    "name": "ScdoWallet",
+    "version": "3.0.0",
+    "productName": "SCDO Wallet",
+    "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "test": "node test/run-all.js",
+        "dist:win": "node scripts/stage-zminer.js && electron-builder --win --x64",
+        "dist:win:nsis": "node scripts/stage-zminer.js && electron-builder --win nsis --x64",
+        "dist:mac": "electron-builder --mac --arm64",
+        "dist:linux": "electron-builder --linux --x64"
+    },
+    "build": {
+        "appId": "io.scdoscan.scdowallet",
+        "productName": "SCDO Wallet",
+        "copyright": "SCDO Laboratory",
+        "npmRebuild": false,
+        "buildDependenciesFromSource": false,
+        "directories": {
+            "output": "../dist",
+            "buildResources": "build"
+        },
+        "files": [
+            "**/*",
+            "!cmd/**",
+            "!doc/**",
+            "!test/**",
+            "!src/prototypes/**",
+            "!md/**",
+            "!**/*.md",
+            "!**/node_modules/*/{test,tests,example,examples,docs}/**",
+            "!**/node_modules/**/build/Release/**",
+            "!**/node_modules/**/binding.gyp",
+            "!miner-bin/**",
+            "!miner-zpow/**",
+            "!scripts/**",
+            "!legacy-1.1.1-index.html"
+        ],
+        "asar": true,
+        "beforePack": "scripts/before-pack-win.js",
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "portable",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.ico",
+            "executableName": "ScdoWalletBeta",
+            "artifactName": "SCDOWallet-${version}-win-x64-${target}.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/win32",
+                    "to": "miner/bin"
+                },
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": false,
+            "guid": "57073243-c123-5d9f-8aae-05e2817b09df",
+            "shortcutName": "SCDO Wallet",
+            "uninstallDisplayName": "SCDO Wallet ${version}",
+            "artifactName": "SCDOWallet-${version}-win-x64-setup.${ext}"
+        },
+        "portable": {
+            "artifactName": "SCDOWallet-${version}-win-x64-portable.${ext}"
+        },
+        "mac": {
+            "target": [
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64"
+                    ]
+                }
+            ],
+            "icon": "build/icon-1024.png",
+            "category": "public.app-category.finance",
+            "identity": null,
+            "artifactName": "SCDOWallet-${version}-mac-arm64.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
+        },
+        "linux": {
+            "target": [
+                {
+                    "target": "AppImage",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.png",
+            "category": "Finance",
+            "artifactName": "SCDOWallet-${version}-linux-x64.${ext}",
+            "extraResources": [
+                {
+                    "from": "miner-bin/linux",
+                    "to": "miner/bin"
+                },
+                {
+                    "from": "miner-bin/scdo-shard0-genesis.json",
+                    "to": "miner/scdo-shard0-genesis.json"
+                }
+            ]
+        }
+    },
+    "repository": "https://github.com/SCDOLAB/scdowallet",
+    "keywords": [
+        "Scdo",
+        "Wallet"
+    ],
+    "author": "SCDO Laboratory <scdolab@users.noreply.github.com>",
+    "license": "CC0-1.0",
+    "devDependencies": {
+        "electron": "44.4.5",
+        "electron-builder": "26.17.0"
+    },
+    "dependencies": {
+        "bignumber.js": "^8.1.1",
+        "bluebird": "^3.7.2",
+        "edit-json-file": "^1.8.0",
+        "elliptic": "^6.6.1",
+        "ethers": "^6.17.0",
+        "keccak": "^1.4.0",
+        "ps-node": "^0.1.6",
+        "rlp": "^2.2.7",
+        "scdo.js": "0.5.0",
+        "secp256k1": "^3.8.1",
+        "shelljs": "^0.10.0",
+        "solc": "^0.5.17",
+        "tree-kill": "^1.2.2",
+        "yauzl": "^3.4.0"
+    }
 }

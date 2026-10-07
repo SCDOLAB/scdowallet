@@ -50,6 +50,8 @@ const LABELS = {
 function buildTemplate (mainWindow, lang) {
   const L = LABELS[lang === 'CN' ? 'CN' : 'EN']
   const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
+  // Remittance stays on the allowlisted menu:action channel. The page opens the tab in openRemittance().
+  function openRemittance () { act('remit')() }
   return [
     {
       label: L.app,
@@ -85,7 +87,7 @@ function buildTemplate (mainWindow, lang) {
         { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
       ]
     },
-    { label: L.remit, click: act('remit') },
+    { label: L.remit, click: () => openRemittance() },
     {
       label: L.help,
       role: 'help',

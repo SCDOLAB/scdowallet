@@ -22,6 +22,7 @@ const INVOKE = Object.freeze([
   // miner
   'miner:start', 'miner:stop', 'miner:confirmStop', 'miner:status', 'miner:gpu', 'miner:intent', 'miner:intentClear', 'miner:intentMigrate',
   'miner:otherRigels', 'miner:resumeCheck', 'miner:defender', 'miner:openLogs',
+  'miner:caps', 'miner:classicStatus',
   // mining batch 1
   'mining:gpuPreflight', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining',
   // 2.0.7: mining notification toggles, pool payout card
@@ -29,7 +30,7 @@ const INVOKE = Object.freeze([
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)
   'remit:info', 'remit:login', 'remit:ledger', 'remit:logout'
 ])
-const EVENTS = Object.freeze(['miner:status', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step'])
+const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))
