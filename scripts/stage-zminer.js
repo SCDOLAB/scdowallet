@@ -61,6 +61,14 @@ function ghAvailable () {
   return r.status === 0
 }
 
+function findArtifactExe (dir) {
+  const direct = path.join(dir, 'zminer.exe')
+  if (fs.existsSync(direct)) return direct
+  const nested = path.join(dir, 'dist', 'zminer.exe')
+  if (fs.existsSync(nested)) return nested
+  return null
+}
+
 function fetchArtifact (dest) {
   if (!ghAvailable()) return null
   let sha = process.env.ZMINER_COMMIT || ''
@@ -84,8 +92,8 @@ function fetchArtifact (dest) {
     '--name', 'zminer-windows-amd64', '--dir', dir
   ], { cwd: ROOT, encoding: 'utf8' })
   if (dl.status !== 0) return null
-  const exe = path.join(dir, 'zminer.exe')
-  if (!fs.existsSync(exe)) return null
+  const exe = findArtifactExe(dir)
+  if (!exe) return null
   fs.copyFileSync(exe, dest)
   return dest
 }
@@ -156,7 +164,7 @@ async function stageZminer () {
   return { file: DEST, sha256: want }
 }
 
-module.exports = { stageZminer, expectedHash, sha256File, rejectMismatch }
+module.exports = { stageZminer, expectedHash, sha256File, rejectMismatch, findArtifactExe }
 
 if (require.main === module) {
   stageZminer().then(r => {

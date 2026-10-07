@@ -24,11 +24,15 @@ jobs:
         run: bash scripts/build-zminer.sh
       - name: Built hash matches committed SHA256SUMS
         run: cmp miner-zpow/dist/SHA256SUMS miner-zpow/SHA256SUMS && cd miner-zpow/dist && sha256sum -c SHA256SUMS
+      - name: Stage zminer.exe at the artifact root
+        run: |
+          rm -rf miner-zpow/artifact
+          mkdir -p miner-zpow/artifact
+          cp miner-zpow/dist/zminer.exe miner-zpow/artifact/zminer.exe
+          cp miner-zpow/SHA256SUMS miner-zpow/artifact/SHA256SUMS
       - name: Publish zminer.exe and SHA256SUMS
         uses: actions/upload-artifact@v4
         with:
           name: zminer-windows-amd64
-          path: |
-            miner-zpow/dist/zminer.exe
-            miner-zpow/SHA256SUMS
+          path: miner-zpow/artifact/*
           if-no-files-found: error

@@ -9,11 +9,11 @@ const { parseClassicAddress, parseShard0Address, parseMiningAddress, normalizeMi
 const { poolForShard, minerStatsUrl, defaultCpuThreads, poolsFromEnv, DEFAULT_POOLS } = require('../src/miner/zpow/pools')
 const { parseStatusLine, blockRatePerHour, parsePoolMiner } = require('../src/miner/zpow/status')
 const { decideStart } = require('../src/miner/zpow/conflict')
-const { writeNodeConfig, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
+const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
-const { expectedHash, rejectMismatch, stageZminer } = require('../scripts/stage-zminer')
-const { ZpowManager } = require('../src/miner/zpow/manager')
+const { expectedHash, rejectMismatch, stageZminer, findArtifactExe } = require('../scripts/stage-zminer')
+const { ZpowManager, formatExitMessage } = require('../src/miner/zpow/manager')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
 assert.strictEqual(REAL.length, 42)
@@ -174,14 +174,47 @@ assert.ok(/^0x[0-9a-f]{64}$/.test(cfg.p2p.privateKey))
 assert.strictEqual(cfg.p2p.address, '0.0.0.0:' + SHARD_PORTS[4].p2p)
 assert.strictEqual(cfg.basic.address, '0.0.0.0:' + SHARD_PORTS[4].rpc)
 assert.strictEqual(cfg.httpServer.address, '127.0.0.1:' + SHARD_PORTS[4].http)
-assert.ok(path.isAbsolute(cfg.basic.dataDir))
-assert.ok(cfg.basic.dataDir.startsWith(dir))
+assert.ok(!path.isAbsolute(cfg.basic.dataDir), 'dataDir must be relative; go-scdo joins it onto ~/.scdo')
+assert.ok(!/^[A-Za-z]:/.test(cfg.basic.dataDir))
+const joined = path.normalize(path.join(os.homedir(), '.scdo', cfg.basic.dataDir))
+assert.strictEqual(joined, path.join(dir, 'data'))
 for (const host of PEER_HOSTS) assert.ok(cfg.p2p.staticNodes.includes(host + ':8058'), host)
 const again = writeNodeConfig({ dir, shard: 4, coinbase: '4S04' + 'd'.repeat(37) + '1' })
 assert.strictEqual(JSON.parse(fs.readFileSync(again.file, 'utf8')).p2p.privateKey, cfg.p2p.privateKey)
 assert.strictEqual(JSON.parse(fs.readFileSync(again.file, 'utf8')).basic.coinbase, '4S04' + 'd'.repeat(37) + '1')
 fs.rmSync(dir, { recursive: true, force: true })
 fs.unlinkSync(decoy)
+
+// Windows: absolute dataDir was prefixed, producing C:\Users\Admin\.scdo\C:\Users\...\data
+const winHome = 'C:\\Users\\Admin'
+const winTarget = 'C:\\Users\\Admin\\AppData\\Roaming\\ScdoWalletBeta\\miner\\classic\\shard1\\data'
+const winPlan = planClassicDataDir(winHome, winTarget, 'win32')
+assert.strictEqual(winPlan.envHome, null)
+assert.ok(!path.win32.isAbsolute(winPlan.dataDir))
+assert.ok(!/^[A-Za-z]:/.test(winPlan.dataDir))
+const winJoined = path.win32.normalize(path.win32.join(winHome, '.scdo', winPlan.dataDir))
+assert.strictEqual(winJoined, winTarget)
+assert.ok(!winJoined.includes('.scdo\\C:'))
+const otherDrive = planClassicDataDir(winHome, 'D:\\wallet\\classic\\shard1\\data', 'win32')
+assert.strictEqual(otherDrive.dataDir, 'data')
+assert.ok(otherDrive.envHome)
+const otherJoined = path.win32.normalize(path.win32.join(otherDrive.envHome, '.scdo', otherDrive.dataDir))
+assert.strictEqual(otherJoined, otherDrive.resolved)
+assert.ok(otherJoined.startsWith('D:\\'))
+assert.ok(!otherJoined.includes('.scdo\\D:'))
+const winEnv = nodeProcessEnv({ PATH: 'C:\\Windows' }, otherDrive.envHome, 'win32')
+assert.strictEqual(winEnv.USERPROFILE, otherDrive.envHome)
+assert.strictEqual(winEnv.HOME, otherDrive.envHome)
+assert.strictEqual(winEnv.HOMEDRIVE, 'D:')
+assert.ok(winEnv.HOMEPATH.startsWith('\\'))
+assert.strictEqual(path.win32.normalize(winEnv.HOMEDRIVE + winEnv.HOMEPATH), otherDrive.envHome)
+const exitMsg = formatExitMessage(0, [
+  '12:00:01 [zpow] open C:\\Users\\Admin\\.scdo\\C:\\Users\\Admin\\AppData\\shard1\\data\\db: The system cannot find the path specified.'
+])
+assert.notStrictEqual(exitMsg, 'exit 0')
+assert.ok(!/^exit /.test(exitMsg))
+assert.ok(exitMsg.includes('cannot find the path'))
+assert.ok(exitMsg.includes('node exited (0)'))
 
 async function shaChecks () {
   const sumDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-sha-'))
@@ -223,6 +256,17 @@ async function publishedZminer () {
   const pkg = require('../package.json')
   assert.strictEqual(pkg.build.beforePack, 'scripts/before-pack-win.js')
   assert.ok(pkg.scripts['dist:win'].startsWith('node scripts/stage-zminer.js'))
+  const art = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-art-'))
+  fs.mkdirSync(path.join(art, 'dist'))
+  fs.writeFileSync(path.join(art, 'dist', 'zminer.exe'), 'nested')
+  assert.ok(String(findArtifactExe(art)).endsWith(path.join('dist', 'zminer.exe')))
+  fs.writeFileSync(path.join(art, 'zminer.exe'), 'root')
+  assert.strictEqual(findArtifactExe(art), path.join(art, 'zminer.exe'))
+  fs.rmSync(art, { recursive: true, force: true })
+  const yml = fs.readFileSync(path.join(root, '.github', 'workflows', 'zminer.yml'), 'utf8')
+  assert.ok(yml.includes('path: miner-zpow/artifact/*'))
+  const upload = yml.slice(yml.indexOf('upload-artifact'))
+  assert.ok(!upload.includes('miner-zpow/dist/'))
   const staged = await stageZminer()
   assert.strictEqual(staged.sha256, ZMINER_EXE_SHA256)
   assert.strictEqual(await sha256File(staged.file), ZMINER_EXE_SHA256)
@@ -259,6 +303,47 @@ async function publishedZminer () {
   await assert.rejects(gpu.start(REAL, { backend: 'gpu', shard: 1 }), err => err.code === 'NO_CLASSIC_NODE' || err.code === 'NO_CUDART')
   await live.stop()
   fs.rmSync(dataRoot, { recursive: true, force: true })
+
+  const crashDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-node-crash-'))
+  const nodeBin = path.join(crashDir, 'node')
+  fs.writeFileSync(nodeBin, '#!/bin/sh\necho "db open failed under .scdo prefix" >&2\nexit 0\n')
+  fs.chmodSync(nodeBin, 0o755)
+  fs.writeFileSync(path.join(crashDir, 'libcudart.so.12'), '')
+  const crashRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-crash-root-'))
+  const crashing = new ZpowManager({
+    platform: 'linux',
+    root,
+    dataRoot: crashRoot,
+    restartBaseMs: 400,
+    env: { SCDO_CLASSIC_NODE: nodeBin }
+  })
+  await crashing.start(REAL, { backend: 'gpu', shard: 1 })
+  const seen = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('node exit message was not reported')), 3000)
+    const check = () => {
+      const st = crashing.status()
+      if (st.message && st.message.includes('db open failed under .scdo prefix')) {
+        clearTimeout(timer)
+        resolve(st)
+      }
+    }
+    crashing.on('status', check)
+    check()
+  })
+  assert.notStrictEqual(seen.message, 'exit 0')
+  assert.ok(seen.message.includes('node exited (0)'))
+  assert.ok(seen.message.includes('restarting'))
+  assert.strictEqual(seen.running, true)
+  const cfgPath = path.join(crashRoot, 'classic', 'shard1', 'node1.json')
+  const nodeCfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+  assert.ok(!path.isAbsolute(nodeCfg.basic.dataDir))
+  assert.strictEqual(path.normalize(path.join(os.homedir(), '.scdo', nodeCfg.basic.dataDir)), path.join(crashRoot, 'classic', 'shard1', 'data'))
+  await crashing.stop()
+  await new Promise(r => setTimeout(r, 700))
+  assert.strictEqual(crashing.wantRunning, false)
+  assert.strictEqual(crashing.restartTimer, null)
+  fs.rmSync(crashDir, { recursive: true, force: true })
+  fs.rmSync(crashRoot, { recursive: true, force: true })
 }
 
 shaChecks().then(publishedZminer).then(() => console.log('zpow-mining: ok')).catch(err => { console.error(err); process.exit(1) })

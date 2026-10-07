@@ -14,6 +14,21 @@ const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
 const { parseStatusLine, blockRatePerHour, parsePoolMiner } = require('./status')
 const { writeNodeConfig } = require('./nodeConfig')
+
+// Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
+function formatExitMessage (code, logTail) {
+  const lines = []
+  for (const raw of logTail || []) {
+    const line = String(raw).replace(/^\d\d:\d\d:\d\d \[zpow\] /, '').trim()
+    if (!line || /^exited \(code /.test(line)) continue
+    lines.push(line)
+  }
+  const head = 'node exited (' + (code == null ? 'signal' : String(code)) + ')'
+  if (!lines.length) return head
+  let msg = head + ': ' + lines.slice(-5).join(' | ')
+  if (msg.length > 500) msg = msg.slice(0, 497) + '...'
+  return msg
+}
 const { firstExisting, zminerCandidates, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
 const { renderArgs, externalProfile, ZMINER_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
 
@@ -42,6 +57,10 @@ class ZpowManager extends EventEmitter {
     this.proc = null
     this.poller = null
     this.buf = ''
+    this.restarts = []
+    this.restartTimer = null
+    this.launchSpec = null
+    this.restartBaseMs = (opts && opts.restartBaseMs) || 2000
     this.state = this.fresh()
   }
 
@@ -177,7 +196,7 @@ class ZpowManager extends EventEmitter {
     const blockthreads = asInt(opts.blockthreads, 100)
     const pool = poolForShard(parsed.shard, poolsFromEnv(env) || this.o.pools)
 
-    let binary, args, cwd, shaOpts, ctrlC = false
+    let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null
     if (backend === 'cpu') {
       if (!caps.cpu.available) {
         const err = new Error('zminer binary not found. Run scripts/build-zminer.sh and place zminer.exe in miner-bin/win32/, or set SCDO_ZMINER_EXE.')
@@ -226,6 +245,7 @@ class ZpowManager extends EventEmitter {
         config: written.file, threads, threadblocks, blockthreads
       })
       cwd = path.dirname(binary)
+      nodeEnv = written.nodeEnv
       ctrlC = true
     }
     await assertSha256(binary, shaOpts)
@@ -242,33 +262,68 @@ class ZpowManager extends EventEmitter {
       message: '',
       startedAt: Date.now()
     })
+    this.restarts = []
     this.wantRunning = true
+    this.launchSpec = { binary, args, cwd, env: nodeEnv, ctrlC }
     this.emit('status', this.status())
-    this.proc = spawnMiner({ binary, args, cwd })
-    this.proc.on('error', e => this.log('spawn error: ' + e.message))
+    this.armChild()
+    if (this.state.pool) this.poller = setInterval(() => this.pollPool().catch(() => {}), 15000)
+    this.pollPool().catch(() => {})
+    return this.status()
+  }
+
+  armChild () {
+    const spec = this.launchSpec
+    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
+    this.proc = proc
+    proc.on('error', e => this.log('spawn error: ' + e.message))
     const onData = (buf) => {
       this.buf += buf.toString()
       const lines = this.buf.split(/\r?\n/)
       this.buf = lines.pop()
       lines.forEach(l => this.log(l))
     }
-    this.proc.stdout.on('data', onData)
-    this.proc.stderr.on('data', onData)
-    this.proc.on('exit', (code) => {
-      this.proc = null
+    proc.stdout.on('data', onData)
+    proc.stderr.on('data', onData)
+    proc.on('exit', (code) => {
+      if (this.proc === proc) this.proc = null
       this.log('exited (code ' + code + ')')
       if (!this.wantRunning) return
+      const message = formatExitMessage(code, this.state.logTail)
       if (code === 2 || code === 3) {
         this.wantRunning = false
-        this.set({ phase: 'error', code: code === 3 ? 'SELFTEST' : 'LOGIN', lastError: 'exit ' + code, message: 'exit ' + code })
+        this.set({ phase: 'error', code: code === 3 ? 'SELFTEST' : 'LOGIN', lastError: message, message })
         return
       }
-      this.set({ phase: 'error', code: 'CRASHING', lastError: 'exit ' + code, message: 'exit ' + code })
-      this.wantRunning = false
+      this.scheduleRestart(code, message)
     })
-    if (this.state.pool) this.poller = setInterval(() => this.pollPool().catch(() => {}), 15000)
-    this.pollPool().catch(() => {})
-    return this.status()
+  }
+
+  scheduleRestart (code, message) {
+    const now = Date.now()
+    const recent = (this.restarts || []).filter(t => now - t < 10 * 60 * 1000)
+    recent.push(now)
+    this.restarts = recent
+    if (recent.length >= 6) {
+      this.wantRunning = false
+      const stopped = message + ' — stopped after 6 exits in 10 min'
+      this.set({ phase: 'error', code: 'CRASHING', lastError: stopped, message: stopped })
+      return
+    }
+    const delay = Math.min(30000, this.restartBaseMs * Math.pow(2, recent.length - 1))
+    const shown = delay >= 1000 ? Math.round(delay / 1000) + 's' : (delay / 1000).toFixed(1) + 's'
+    const waiting = message + ' — restarting in ' + shown
+    this.set({ phase: 'starting', code: 'RESTARTING', lastError: message, message: waiting })
+    if (this.restartTimer) clearTimeout(this.restartTimer)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null
+      if (!this.wantRunning || this.proc) return
+      this.log('restarting after exit ' + code)
+      try { this.armChild() } catch (e) {
+        this.wantRunning = false
+        this.set({ phase: 'error', code: 'CRASHING', lastError: e.message, message: e.message })
+      }
+    }, delay)
   }
 
   async pollPool () {
@@ -284,6 +339,7 @@ class ZpowManager extends EventEmitter {
 
   async stop () {
     this.wantRunning = false
+    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
     if (this.poller) { clearInterval(this.poller); this.poller = null }
     const proc = this.proc
     this.proc = null
@@ -302,4 +358,4 @@ class ZpowManager extends EventEmitter {
   }
 }
 
-module.exports = { ZpowManager, httpGetJson }
+module.exports = { ZpowManager, httpGetJson, formatExitMessage }

@@ -3,6 +3,7 @@
 // (for example ~/.scdo) are never opened.
 'use strict'
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 
@@ -39,6 +40,46 @@ function insideDir (parent, child) {
   return rel === '' || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel))
 }
 
+// go-scdo has no --datadir flag. cmd/node/cmd/config.go always does
+// filepath.Join(common.GetDefaultDataFolder(), basic.dataDir), and
+// GetDefaultDataFolder is filepath.Join(user.Current().HomeDir, ".scdo").
+// An absolute dataDir is concatenated, which on Windows produced
+// C:\Users\Admin\.scdo\C:\Users\...\shard1\data\...
+function pathFor (platform) {
+  return platform === 'win32' ? path.win32 : path.posix
+}
+
+function planClassicDataDir (home, target, platform) {
+  const p = pathFor(platform || 'posix')
+  const normTarget = p.normalize(target)
+  const base = p.join(home, '.scdo')
+  const rel = p.relative(base, normTarget)
+  if (rel && rel !== '.' && !p.isAbsolute(rel)) {
+    const joined = p.normalize(p.join(base, rel))
+    if (joined === normTarget) return { dataDir: rel, envHome: null, resolved: normTarget }
+  }
+  // Different volume: .. cannot escape C:\Users\.scdo onto D:\. Point the
+  // child HOME/USERPROFILE at a directory this wallet owns so
+  // Join(home, ".scdo", "data") stays under the classic shard folder.
+  const envHome = p.join(p.dirname(normTarget), 'node-home')
+  const resolved = p.normalize(p.join(envHome, '.scdo', 'data'))
+  return { dataDir: 'data', envHome, resolved }
+}
+
+function nodeProcessEnv (baseEnv, envHome, platform) {
+  if (!envHome) return null
+  const env = Object.assign({}, baseEnv || {})
+  env.HOME = envHome
+  env.USERPROFILE = envHome
+  if ((platform || '') === 'win32') {
+    const parsed = path.win32.parse(envHome)
+    env.HOMEDRIVE = parsed.root.replace(/\\+$/, '')
+    const rest = envHome.slice(parsed.root.length)
+    env.HOMEPATH = rest.charAt(0) === '\\' ? rest : '\\' + rest
+  }
+  return env
+}
+
 function readOrCreateKey (file) {
   try {
     const cur = fs.readFileSync(file, 'utf8').trim()
@@ -64,8 +105,10 @@ function buildNodeConfig (opts) {
     err.code = 'BAD_ADDRESS'
     throw err
   }
-  if (!opts.dataDir || !path.isAbsolute(opts.dataDir)) {
-    const err = new Error('classic node dataDir must be an absolute path inside the wallet data dir')
+  const dataPlatform = opts.platform || 'posix'
+  const dataPath = pathFor(dataPlatform)
+  if (!opts.dataDir || dataPath.isAbsolute(opts.dataDir) || /^[A-Za-z]:[\\/]/.test(opts.dataDir)) {
+    const err = new Error('classic node dataDir must be relative to ~/.scdo (go-scdo joins an absolute path onto the default home)')
     err.code = 'BAD_DATADIR'
     throw err
   }
@@ -120,13 +163,22 @@ function writeNodeConfig (opts) {
   }
   const resolved = path.resolve(dir)
   const keyFile = path.resolve(opts.keyFile || path.join(resolved, 'p2p.key'))
-  const dataDir = path.resolve(opts.dataDir || path.join(resolved, 'data'))
+  const target = path.resolve(opts.dataDir || path.join(resolved, 'data'))
   if (!insideDir(resolved, keyFile) || keyFile === resolved) {
     const err = new Error('refusing to read a node key outside the wallet data dir')
     err.code = 'BAD_KEY'
     throw err
   }
-  if (!insideDir(resolved, dataDir) || dataDir === resolved) {
+  if (!insideDir(resolved, target) || target === resolved) {
+    const err = new Error('refusing to place chain data outside the wallet data dir')
+    err.code = 'BAD_DATADIR'
+    throw err
+  }
+  const home = opts.home || os.homedir()
+  const platform = opts.platform || process.platform
+  const plan = planClassicDataDir(home, target, platform)
+  const dataDir = path.resolve(plan.resolved)
+  if (!insideDir(resolved, dataDir)) {
     const err = new Error('refusing to place chain data outside the wallet data dir')
     err.code = 'BAD_DATADIR'
     throw err
@@ -137,11 +189,13 @@ function writeNodeConfig (opts) {
     shard: opts.shard,
     coinbase: opts.coinbase,
     p2pKey,
-    dataDir
+    dataDir: plan.dataDir,
+    platform
   })
   const file = path.join(resolved, 'node' + Number(opts.shard) + '.json')
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 })
-  return { file, config: cfg, keyFile, dataDir }
+  const nodeEnv = nodeProcessEnv(opts.env || process.env, plan.envHome, platform)
+  return { file, config: cfg, keyFile, dataDir, relativeDataDir: plan.dataDir, envHome: plan.envHome, nodeEnv }
 }
 
 module.exports = {
@@ -151,5 +205,7 @@ module.exports = {
   staticNodes,
   newP2PKey,
   buildNodeConfig,
-  writeNodeConfig
+  writeNodeConfig,
+  planClassicDataDir,
+  nodeProcessEnv
 }

@@ -6,3 +6,4 @@ release-builds/
 miner-bin/linux/
 miner-bin/win32/
 miner-zpow/dist/
+miner-zpow/artifact/
