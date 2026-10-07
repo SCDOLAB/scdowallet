@@ -1,19 +1,19 @@
 {
     "name": "ScdoWallet",
-    "version": "2.0.12",
-    "productName": "ScdoWalletBeta",
-    "description": "Wallet for Scdo (shards 1-4 + shard0 EVM)",
+    "version": "3.0.0",
+    "productName": "SCDO Wallet",
+    "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
     "scripts": {
         "start": "electron .",
         "test": "node test/run-all.js",
-        "dist:win": "electron-builder --win --x64",
+        "dist:win": "node scripts/stage-zminer.js && electron-builder --win --x64",
         "dist:mac": "electron-builder --mac --arm64",
         "dist:linux": "electron-builder --linux --x64"
     },
     "build": {
         "appId": "io.scdoscan.scdowallet",
-        "productName": "ScdoWalletBeta",
+        "productName": "SCDO Wallet",
         "copyright": "SCDO Laboratory",
         "npmRebuild": false,
         "buildDependenciesFromSource": false,
@@ -33,10 +33,12 @@
             "!**/node_modules/**/build/Release/**",
             "!**/node_modules/**/binding.gyp",
             "!miner-bin/**",
+            "!miner-zpow/**",
             "!scripts/**",
             "!legacy-1.1.1-index.html"
         ],
         "asar": true,
+        "beforePack": "scripts/before-pack-win.js",
         "win": {
             "target": [
                 {
@@ -53,7 +55,8 @@
                 }
             ],
             "icon": "build/icon.ico",
-            "artifactName": "${productName}-${version}-win-x64-${target}.${ext}",
+            "executableName": "ScdoWalletBeta",
+            "artifactName": "SCDOWallet-${version}-win-x64-${target}.${ext}",
             "extraResources": [
                 {
                     "from": "miner-bin/win32",
@@ -68,12 +71,14 @@
         "nsis": {
             "oneClick": false,
             "perMachine": false,
-            "allowToChangeInstallationDirectory": true,
-            "shortcutName": "ScdoWalletBeta",
-            "artifactName": "${productName}-${version}-win-x64-setup.${ext}"
+            "allowToChangeInstallationDirectory": false,
+            "guid": "57073243-c123-5d9f-8aae-05e2817b09df",
+            "shortcutName": "SCDO Wallet",
+            "uninstallDisplayName": "SCDO Wallet ${version}",
+            "artifactName": "SCDOWallet-${version}-win-x64-setup.${ext}"
         },
         "portable": {
-            "artifactName": "${productName}-${version}-win-x64-portable.${ext}"
+            "artifactName": "SCDOWallet-${version}-win-x64-portable.${ext}"
         },
         "mac": {
             "target": [
@@ -87,7 +92,7 @@
             "icon": "build/icon-1024.png",
             "category": "public.app-category.finance",
             "identity": null,
-            "artifactName": "${productName}-${version}-mac-arm64.${ext}",
+            "artifactName": "SCDOWallet-${version}-mac-arm64.${ext}",
             "extraResources": [
                 {
                     "from": "miner-bin/scdo-shard0-genesis.json",
@@ -106,7 +111,7 @@
             ],
             "icon": "build/icon.png",
             "category": "Finance",
-            "artifactName": "${productName}-${version}-linux-x64.${ext}",
+            "artifactName": "SCDOWallet-${version}-linux-x64.${ext}",
             "extraResources": [
                 {
                     "from": "miner-bin/linux",

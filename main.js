@@ -1,7 +1,14 @@
 // ScdoWallet main process (2026-09 upgrade: Electron 44, no `remote`, shard0 EVM + built-in GPU miner)
-const { shell, BrowserWindow, app, ipcMain, dialog, session } = require('electron')
+const { shell, BrowserWindow, Menu, Tray, app, ipcMain, dialog, session, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
+
+// 2.0.0 rename: the product is "SCDO Wallet", but Electron would otherwise derive
+// userData from productName. 2.0.12 always pins %APPDATA%\ScdoWalletBeta (miner
+// intent, updater state, Local Storage). 3.0.0 does the same, including a first
+// launch that does not already have that folder. Keyfiles stay in
+// %USERPROFILE%\.ScdoWallet and are not moved.
+try { app.setPath('userData', path.join(app.getPath('appData'), 'ScdoWalletBeta')) } catch (e) { console.error('userData pin failed', e) }
 
 ipcMain.on('compileContract', (event, input) => {
   var solc = require('solc')
@@ -24,6 +31,7 @@ ipcMain.on('compileContract', (event, input) => {
 // Miner data dir: <userData>/miner, except on Windows when that path has spaces or non-ASCII
 // characters (e.g. a Chinese user name) – GPU miners/geth are fragile there, so use
 // C:\ProgramData\ScdoWalletBeta\miner (users may create folders there) instead.
+// The folder name stays ScdoWalletBeta so a 2.0.12 miner database is reused.
 function minerDataRoot () {
   const def = path.join(app.getPath('userData'), 'miner')
   if (process.platform !== 'win32' || /^[\x21-\x7e]+$/.test(def)) return def
@@ -41,13 +49,28 @@ ipcMain.handle('shell:openExternal', (e, url) => {
 const ScdoClient = require('./src/api/scdoClient')
 const createMenu = require('./src/js/menu.js').createMenu
 
-// ---------------- built-in shard0 miner ----------------
+// ---------------- built-in miners ----------------
+// Shard0: Ethash GPU (geth + scdo-stratum + Rigel), bundled from miner-bin.
+// Classic shards 1–4: zminer CPU to the pool, and the go-scdo CUDA node.
+// Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// A saved CPU choice stays on zminer.
 const { MinerManager } = require('./src/miner/manager')
+const { ZpowManager } = require('./src/miner/zpow/manager')
 function minerBinDir () {
   if (app.isPackaged) return path.join(process.resourcesPath, 'miner', 'bin')
   return path.join(__dirname, 'miner-bin', process.platform)
 }
 let miner = null
+let zpowCpu = null
+let zpowGpu = null
+let tray = null
+function zpowOptions () {
+  return {
+    binDir: minerBinDir(),
+    dataRoot: process.env.SCDO_MINER_DIR || minerDataRoot(),
+    root: __dirname
+  }
+}
 function getMiner () {
   if (!miner) {
     const res = app.isPackaged ? path.join(process.resourcesPath, 'miner') : path.join(__dirname, 'miner-bin')
@@ -57,16 +80,72 @@ function getMiner () {
       dataRoot: process.env.SCDO_MINER_DIR || minerDataRoot(),
       rigelExe: process.env.SCDO_RIGEL_EXE || undefined
     })
-    miner.on('status', st => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st) })
+    miner.on('status', st => publishMiner(Object.assign({ chain: 'shard0' }, st)))
   }
   return miner
 }
+function getZpow (kind) {
+  if (kind === 'cpu') {
+    if (!zpowCpu) {
+      zpowCpu = new ZpowManager(zpowOptions())
+      zpowCpu.on('status', st => publishMiner(st))
+    }
+    return zpowCpu
+  }
+  if (!zpowGpu) {
+    zpowGpu = new ZpowManager(zpowOptions())
+    zpowGpu.on('status', st => publishMiner(st))
+  }
+  return zpowGpu
+}
+function publishMiner (st) {
+  updateTray()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st)
+}
+function minerSnapshot () {
+  const idleClassic = (mode) => ({ chain: 'classic', mode, running: false, code: 'IDLE' })
+  return {
+    shard0: Object.assign({ chain: 'shard0' }, getMiner().status()),
+    classicCpu: zpowCpu ? zpowCpu.status() : idleClassic('cpu'),
+    classicGpu: zpowGpu ? zpowGpu.status() : idleClassic('gpu')
+  }
+}
+function stopAllMiners () {
+  const jobs = []
+  if (zpowCpu && zpowCpu.wantRunning) jobs.push(zpowCpu.stop())
+  if (zpowGpu && zpowGpu.wantRunning) jobs.push(zpowGpu.stop())
+  if (miner && miner.wantRunning) jobs.push(miner.stop())
+  return Promise.all(jobs)
+}
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
-  try { await getMiner().start(wallet, opts || {}); return { ok: true } } catch (err) { return { ok: false, error: err.message, code: err.code } }
+  opts = opts || {}
+  try {
+    const classic = opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu'
+    if (classic) {
+      const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
+      await getZpow(backend).start(wallet, Object.assign({}, opts, { chain: 'classic', backend }))
+      return { ok: true }
+    }
+    await getMiner().start(wallet, opts)
+    return { ok: true }
+  } catch (err) { return { ok: false, error: err.message, code: err.code } }
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
-ipcMain.handle('miner:stop', async () => { if (miner) await miner.stop(); return { ok: true } })
-ipcMain.handle('miner:status', () => getMiner().status())
+ipcMain.handle('miner:caps', () => { try { return getZpow('cpu').capabilities() } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } } })
+ipcMain.handle('miner:stop', async (e, opts) => {
+  opts = opts || {}
+  try {
+    if (!opts.chain) { await stopAllMiners(); return { ok: true } }
+    if (opts.chain === 'classic') {
+      const slot = opts.backend === 'cpu' ? zpowCpu : zpowGpu
+      if (slot && slot.wantRunning) await slot.stop()
+      return { ok: true }
+    }
+    if (miner && miner.wantRunning) await miner.stop()
+    return { ok: true }
+  } catch (err) { return { ok: false, error: err.message } }
+})
+ipcMain.handle('miner:status', () => minerSnapshot())
 ipcMain.handle('miner:defender', async () => {
   try { await getMiner().defenderExclusion(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
 })
@@ -155,7 +234,7 @@ function createWindow () {
     backgroundColor: '#f3f5ff',
     icon: path.join(__dirname, 'src', 'img', 'app-icon.png'), // build/ is not packaged by electron-builder
     resizable: true,
-    title: 'ScdoWalletBeta ' + app.getVersion(),
+    title: 'SCDO Wallet ' + app.getVersion(),
     webPreferences: {
       // the 2020 UI code uses require() in the page; it only ever loads local files (see
       // will-navigate / window-open guards below), never remote content.
@@ -189,14 +268,44 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write' || perm === 'clipboard-read'))
     createWindow()
     createMenu(mainWindow)
+    ensureTray()
   })
+}
+
+function ensureTray () {
+  if (tray) return tray
+  try {
+    let img = nativeImage.createFromPath(path.join(__dirname, 'src', 'img', 'app-icon.png'))
+    if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 })
+    tray = new Tray(img)
+    tray.setToolTip('SCDO Wallet')
+    updateTray()
+  } catch (e) { tray = null }
+  return tray
+}
+function updateTray () {
+  if (!tray) return
+  const parts = []
+  if (miner && miner.wantRunning) parts.push('Shard0 ' + ((miner.status().mode) || ''))
+  if (zpowCpu && zpowCpu.wantRunning) parts.push('Classic CPU')
+  if (zpowGpu && zpowGpu.wantRunning) parts.push('Classic GPU')
+  const running = parts.length > 0
+  const label = running ? parts.join(' · ') : '未在挖礦 / Not mining'
+  tray.setToolTip('SCDO Wallet — ' + label)
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label, enabled: false },
+    { label: running ? '停止挖礦 / Stop mining' : '未在挖礦 / Not mining', enabled: running, click: () => { stopAllMiners().catch(() => {}) } },
+    { type: 'separator' },
+    { label: '顯示錢包 / Show wallet', click: () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() } } }
+  ]))
 }
 
 let quitting = false
 app.on('before-quit', (e) => {
-  if (quitting || !miner || !miner.wantRunning) return
+  const busy = (miner && miner.wantRunning) || (zpowCpu && zpowCpu.wantRunning) || (zpowGpu && zpowGpu.wantRunning)
+  if (quitting || !busy) return
   e.preventDefault(); quitting = true
-  miner.stop().finally(() => app.quit())
+  stopAllMiners().finally(() => app.quit())
 })
 
 app.on('window-all-closed', function () {
