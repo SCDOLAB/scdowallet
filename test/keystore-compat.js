@@ -6,7 +6,14 @@ const fs = require('fs'); const os = require('os'); const path = require('path')
 const { spawn } = require('child_process')
 const ks = require('../src/api/keystore')
 const Scdo = require('scdo.js')
-const GO = path.join(__dirname, '..', 'cmd', 'linux', 'client')
+// 2.0.12 ships cmd/linux/client, cmd/win32/client.exe and cmd/mac/client.
+// A Windows test run cannot execute the Linux ELF.
+function clientBin () {
+  if (process.platform === 'win32') return path.join(__dirname, '..', 'cmd', 'win32', 'client.exe')
+  if (process.platform === 'darwin') return path.join(__dirname, '..', 'cmd', 'mac', 'client')
+  return path.join(__dirname, '..', 'cmd', 'linux', 'client')
+}
+const GO = clientBin()
 
 function run (args, password) {
   return new Promise((resolve, reject) => {
@@ -19,6 +26,10 @@ function run (args, password) {
 }
 
 ;(async () => {
+  if (!fs.existsSync(GO)) {
+    console.log('keystore-compat: SKIP (no client binary at ' + GO + ')')
+    return
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kscompat-'))
   const pw = 'Test#Pass123'
   for (const shard of [1, 2, 3, 4]) {

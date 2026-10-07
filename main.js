@@ -3,10 +3,12 @@ const { shell, BrowserWindow, Menu, Tray, app, ipcMain, dialog, session, nativeI
 const path = require('path')
 const fs = require('fs')
 
-// 3.0.0 is named ScdoWallet. A 2.0.12 install stored settings under ScdoWalletBeta
-// (the old productName). Keep that directory when it exists so the upgrade stays in place.
-const legacyUserData = path.join(app.getPath('appData'), 'ScdoWalletBeta')
-if (fs.existsSync(legacyUserData)) app.setPath('userData', legacyUserData)
+// 2.0.0 rename: the product is "SCDO Wallet", but Electron would otherwise derive
+// userData from productName. 2.0.12 always pins %APPDATA%\ScdoWalletBeta (miner
+// intent, updater state, Local Storage). 3.0.0 does the same, including a first
+// launch that does not already have that folder. Keyfiles stay in
+// %USERPROFILE%\.ScdoWallet and are not moved.
+try { app.setPath('userData', path.join(app.getPath('appData'), 'ScdoWalletBeta')) } catch (e) { console.error('userData pin failed', e) }
 
 ipcMain.on('compileContract', (event, input) => {
   var solc = require('solc')
@@ -230,7 +232,7 @@ function createWindow () {
     backgroundColor: '#f3f5ff',
     icon: path.join(__dirname, 'src', 'img', 'app-icon.png'), // build/ is not packaged by electron-builder
     resizable: true,
-    title: 'ScdoWallet ' + app.getVersion(),
+    title: 'SCDO Wallet ' + app.getVersion(),
     webPreferences: {
       // the 2020 UI code uses require() in the page; it only ever loads local files (see
       // will-navigate / window-open guards below), never remote content.
@@ -274,7 +276,7 @@ function ensureTray () {
     let img = nativeImage.createFromPath(path.join(__dirname, 'src', 'img', 'app-icon.png'))
     if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 })
     tray = new Tray(img)
-    tray.setToolTip('ScdoWallet')
+    tray.setToolTip('SCDO Wallet')
     updateTray()
   } catch (e) { tray = null }
   return tray
@@ -287,7 +289,7 @@ function updateTray () {
   if (zpowCpu && zpowCpu.wantRunning) parts.push('Classic CPU')
   const running = parts.length > 0
   const label = running ? parts.join(' · ') : '未在挖礦 / Not mining'
-  tray.setToolTip('ScdoWallet — ' + label)
+  tray.setToolTip('SCDO Wallet — ' + label)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label, enabled: false },
     { label: running ? '停止挖礦 / Stop mining' : '未在挖礦 / Not mining', enabled: running, click: () => { stopAllMiners().catch(() => {}) } },

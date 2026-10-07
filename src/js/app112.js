@@ -203,7 +203,7 @@
         ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
       </div>`
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
-    $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">ScdoWallet ${esc(APPVER)}</div></div></div>
+    $('hdr').innerHTML = `<div class="brand"><img src="./src/img/app-icon.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
       ${sw}<div class="spacer"></div>
       <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
       <div class="lang"><button class="${lang() === 'CN' ? 'on' : ''}" data-act="lang" data-v="CN" id="langCN">中文</button><button class="${lang() === 'EN' ? 'on' : ''}" data-act="lang" data-v="EN" id="langEN">English</button></div>
@@ -728,7 +728,7 @@
     const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
     main.innerHTML = (pages[st.tab] || pageHome)()
     main.scrollTop = y
-    document.title = 'ScdoWallet ' + APPVER
+    document.title = 'SCDO Wallet ' + APPVER
   }
   // cheap updates of numbers without re-rendering inputs the user may be typing into
   function renderLive () {
@@ -1205,7 +1205,7 @@
         <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
         <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
-      <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">ScdoWallet ${esc(APPVER)} · 2026-10-07</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })
+      <div class="setsec"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-07</div><div class="lbl">${esc(T('changes'))}</div></div>`, { width: 820, noFocus: true })
   }
   function backupPickModal () {
     const l = st.accounts
