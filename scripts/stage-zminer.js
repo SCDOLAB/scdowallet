@@ -86,9 +86,13 @@ function fetchArtifact (dest) {
   try { runs = JSON.parse(list.stdout || '[]') } catch (e) { return null }
   const ok = runs.find(r => r.conclusion === 'success')
   if (!ok) return null
+  return downloadRun(ok.databaseId, dest)
+}
+
+function downloadRun (id, dest) {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'zminer-art-'))
   const dl = spawnSync('gh', [
-    'run', 'download', String(ok.databaseId), '--repo', 'SCDOLAB/scdowallet',
+    'run', 'download', String(id), '--repo', 'SCDOLAB/scdowallet',
     '--name', 'zminer-windows-amd64', '--dir', dir
   ], { cwd: ROOT, encoding: 'utf8' })
   if (dl.status !== 0) return null
@@ -96,6 +100,42 @@ function fetchArtifact (dest) {
   if (!exe) return null
   fs.copyFileSync(exe, dest)
   return dest
+}
+
+// Newest successful zminer-windows-amd64 artifact whose file hash is the
+// committed one. Not limited to this commit: a Windows pack of an unrelated
+// commit still needs that exact prebuilt exe.
+function fetchVerifiedArtifact (dest, want) {
+  if (!ghAvailable() || !want) return null
+  const list = spawnSync('gh', [
+    'run', 'list', '--repo', 'SCDOLAB/scdowallet', '--workflow', 'zminer.yml',
+    '--status', 'success', '--json', 'databaseId,conclusion', '--limit', '15'
+  ], { cwd: ROOT, encoding: 'utf8' })
+  if (list.status !== 0) return null
+  let runs = []
+  try { runs = JSON.parse(list.stdout || '[]') } catch (e) { return null }
+  for (const run of runs) {
+    if (!run || run.conclusion && run.conclusion !== 'success') continue
+    const got = downloadRun(run.databaseId, dest)
+    if (!got) continue
+    try {
+      if (sha256File(got) === want) return got
+    } catch (e) { /* try the next run */ }
+  }
+  return null
+}
+
+function canBuildHere () {
+  if (process.env.ZMINER_BUILD === '0') return false
+  return process.platform !== 'win32'
+}
+
+function missingMessage (want) {
+  return 'miner-zpow/dist/zminer.exe is missing and no prebuilt matched sha256 ' + want + '. ' +
+    'scripts/build-zminer.sh only runs on Linux (Go 1.12.7 linux-amd64). ' +
+    'On Windows, set ZMINER_URL to that exact file, log in with gh so the zminer-windows-amd64 artifact can be downloaded, ' +
+    'or place the verified exe at miner-zpow/dist/zminer.exe. ' +
+    'Set ZMINER_SKIP=1 to continue this build without the CPU miner.'
 }
 
 function buildLocal () {
@@ -121,11 +161,19 @@ async function obtain (work) {
     await download(process.env.ZMINER_URL, dest)
     return dest
   }
-  if (fs.existsSync(DIST) && sha256File(DIST) === expectedHash()) return DIST
+  const want = expectedHash()
+  if (fs.existsSync(DIST) && sha256File(DIST) === want) return DIST
   if (process.env.ZMINER_FETCH !== '0') {
     const dest = path.join(work, 'from-artifact.exe')
     const got = fetchArtifact(dest)
-    if (got) return got
+    if (got && sha256File(got) === want) return got
+    const any = fetchVerifiedArtifact(path.join(work, 'from-any.exe'), want)
+    if (any) return any
+  }
+  if (!canBuildHere()) {
+    const err = new Error(missingMessage(want))
+    err.code = 'ZMINER_MISSING'
+    throw err
   }
   return buildLocal()
 }
@@ -143,7 +191,17 @@ function rejectMismatch (file, want) {
 async function stageZminer () {
   const want = expectedHash()
   const work = fs.mkdtempSync(path.join(require('os').tmpdir(), 'zminer-stage-'))
-  const src = await obtain(work)
+  let src
+  try {
+    src = await obtain(work)
+  } catch (err) {
+    if (process.env.ZMINER_SKIP === '1' && (err.code === 'ZMINER_MISSING' || err.code === 'BUILD_FAILED')) {
+      console.error(err.message || err)
+      console.error('ZMINER_SKIP=1: continuing without packing zminer.exe')
+      return { file: null, sha256: null, skipped: true }
+    }
+    throw err
+  }
   rejectMismatch(src, want)
   fs.mkdirSync(DEST_DIR, { recursive: true })
   const staged = path.join(work, 'staged.exe')
@@ -164,10 +222,17 @@ async function stageZminer () {
   return { file: DEST, sha256: want }
 }
 
-module.exports = { stageZminer, expectedHash, sha256File, rejectMismatch, findArtifactExe }
+module.exports = {
+  stageZminer, expectedHash, sha256File, rejectMismatch, findArtifactExe,
+  canBuildHere, missingMessage, fetchVerifiedArtifact
+}
 
 if (require.main === module) {
   stageZminer().then(r => {
+    if (r && r.skipped) {
+      console.log('skipped zminer.exe')
+      return
+    }
     console.log('staged ' + r.file)
     console.log(r.sha256 + '  zminer.exe')
   }).catch(err => {

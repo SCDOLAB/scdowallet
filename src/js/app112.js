@@ -190,7 +190,15 @@
     localStorage.setItem('selAcc112', a.filename)
     const classic = parseClassicAddress(a.pubkey)
     if (classic) localStorage.setItem('minerClassic', classic.address)
-    if (a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm)) localStorage.setItem('minerReward', a.evm)
+    // Shard0 reward is only this card. A locked 0x is read from the keystore
+    // public address when that field is already 0x; a Classic address cannot
+    // become 0x, so the dropdown stays on "pick an address" instead of another wallet.
+    if (chain !== 'old') {
+      let own = window.SCDOZpow && window.SCDOZpow.ownRewardAddress ? window.SCDOZpow.ownRewardAddress(a) : null
+      if (!own && a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm)) own = a.evm
+      if (own) localStorage.setItem('minerReward', own)
+      else localStorage.removeItem('minerReward')
+    }
     const shard = classic ? classic.shard : Number(a.shard)
     st.mineShard = chain === 'old' && [1, 2, 3, 4].includes(shard) ? shard : 0
     localStorage.setItem('mineShard112', String(st.mineShard))
@@ -414,11 +422,24 @@
   function minerText (m) {
     if (!m) return T('st_IDLE')
     const code = m.code || 'IDLE'
-    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '', shard: m.shard || '' }
+    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '', shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
     let s = T('st_' + code, p)
     if (s === 'st_' + code) s = m.message || code
     if (code === 'DOWNLOADING' && m.download && m.download.total) s += ' ' + Math.round(100 * m.download.got / m.download.total) + '%'
     return s
+  }
+  function fmtSyncEta (sec) {
+    const cn = lang() === 'CN'
+    const n = Number(sec)
+    if (sec == null || !Number.isFinite(n) || n < 0) return cn ? '計算中' : 'calculating'
+    if (n < 5) return cn ? '即將完成' : 'almost done'
+    const s = Math.round(n)
+    if (s < 60) return s + (cn ? ' 秒' : 's')
+    const mins = Math.round(s / 60)
+    if (mins < 60) return mins + (cn ? ' 分鐘' : ' min')
+    const h = Math.floor(mins / 60)
+    const rm = mins % 60
+    return h + (cn ? ' 小時' : 'h') + (rm ? (cn ? ' ' + rm + ' 分鐘' : ' ' + rm + ' min') : '')
   }
   function minerClass (m) {
     if (!m) return ''
@@ -433,7 +454,8 @@
   function rewardOptions () {
     const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
     const chosen = accByFile(st.sel)
-    if (chosen && chosen.evm && !l.some(o => o.v.toLowerCase() === chosen.evm.toLowerCase())) l.unshift({ v: chosen.evm, l: accLabel(chosen) })
+    const own = chosen && window.SCDOZpow && window.SCDOZpow.ownRewardAddress ? window.SCDOZpow.ownRewardAddress(chosen) : (chosen && chosen.evm)
+    if (own && !l.some(o => o.v.toLowerCase() === String(own).toLowerCase())) l.unshift({ v: own, l: accLabel(chosen) })
     const extra = ui.rewardExtra.slice()
     for (const k of ['minerReward', 'nodePayout']) { const x = localStorage.getItem(k); if (x && /^0x[0-9a-fA-F]{40}$/.test(x) && !extra.some(y => y.toLowerCase() === x.toLowerCase())) extra.push(x) }
     for (const x of extra) if (!l.some(o => o.v.toLowerCase() === x.toLowerCase())) l.push({ v: x, l: T('rewardOtherLabel') })
@@ -603,7 +625,7 @@
     if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
-      const cur = (running && m.wallet) || saved
+      const cur = saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>

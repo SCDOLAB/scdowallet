@@ -43,13 +43,36 @@ function parseMiningAddress (value, expect) {
   return classic || shard0
 }
 
+// 0x from a keystore's public address field. No unlock: the field is either
+// already an EVM address (0x or 40 hex) or a Classic 1S01… string, which is
+// not the same 20 bytes and cannot be turned into 0x here.
+function shard0FromKeystoreAddress (value) {
+  const direct = parseShard0Address(value)
+  if (direct) return direct.address
+  const raw = normalizeMiningInput(value)
+  if (/^[0-9a-fA-F]{40}$/.test(raw) && !/^0{40}$/i.test(raw)) return '0x' + raw
+  return null
+}
+
+// Reward dropdown for one card. The cached 0x wins. Otherwise the keystore
+// public address. Never a different wallet.
+function ownRewardAddress (account) {
+  if (!account || typeof account !== 'object') return null
+  const evm = parseShard0Address(account.evm)
+  if (evm) return evm.address
+  const field = account.pubkey != null ? account.pubkey : account.address
+  return shard0FromKeystoreAddress(field)
+}
+
 const api = {
   PREFIX,
   normalizeMiningInput,
   classicShardOf,
   parseClassicAddress,
   parseShard0Address,
-  parseMiningAddress
+  parseMiningAddress,
+  shard0FromKeystoreAddress,
+  ownRewardAddress
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOZpow = Object.freeze(api)

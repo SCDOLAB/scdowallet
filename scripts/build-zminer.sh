@@ -8,6 +8,25 @@
 # point them somewhere else. go-scdo is pinned by commit, not by moving master.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ZMINER_EXE_SHA256=f00ab73a384251a4b505bb41406975509299403057f60c6d807ff00b249a65fb
+# This script downloads the Linux Go 1.12.7 toolchain. On Windows it cannot
+# run; a missing miner-zpow/dist/zminer.exe must be fetched (same sha256) or
+# the caller skips with a clear message instead of dying inside curl/sha256sum.
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "scripts/build-zminer.sh only runs on Linux. It cross-compiles zminer.exe with Go 1.12.7 linux-amd64." >&2
+  echo "Expected zminer.exe sha256: ${ZMINER_EXE_SHA256}" >&2
+  echo "On Windows, put that file at miner-zpow/dist/zminer.exe or set ZMINER_URL. scripts/stage-zminer.js downloads a matching GitHub Actions artifact when gh is logged in." >&2
+  if [[ "${ZMINER_SKIP:-}" == 1 ]]; then
+    echo "ZMINER_SKIP=1: not building zminer.exe." >&2
+    exit 0
+  fi
+  if [[ -f "$ROOT/miner-zpow/dist/zminer.exe" ]]; then
+    echo "miner-zpow/dist/zminer.exe is already present; nothing to build." >&2
+    exit 0
+  fi
+  echo "miner-zpow/dist/zminer.exe is missing. Refusing to run the Linux toolchain on $(uname -s)." >&2
+  exit 1
+fi
 GO_SCDO_REF=7ad1df0778abad2e735b7bd4602d2acd8b641838
 GO_TGZ_SHA256=66d83bfb5a9ede000e33c6579a91a29e6b101829ad41fffb5c5bb6c900e109d9
 GO_SCDO=${GO_SCDO:-/tmp/go-scdo}

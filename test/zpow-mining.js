@@ -5,14 +5,14 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
-const { parseClassicAddress, parseShard0Address, parseMiningAddress, normalizeMiningInput } = require('../src/miner/zpow/address')
+const { parseClassicAddress, parseShard0Address, parseMiningAddress, normalizeMiningInput, ownRewardAddress } = require('../src/miner/zpow/address')
 const { poolForShard, minerStatsUrl, defaultCpuThreads, poolsFromEnv, DEFAULT_POOLS } = require('../src/miner/zpow/pools')
-const { parseStatusLine, blockRatePerHour, parsePoolMiner } = require('../src/miner/zpow/status')
+const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView } = require('../src/miner/zpow/status')
 const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
-const { expectedHash, rejectMismatch, stageZminer, findArtifactExe } = require('../scripts/stage-zminer')
+const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere } = require('../scripts/stage-zminer')
 const { ZpowManager, formatExitMessage } = require('../src/miner/zpow/manager')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
@@ -27,6 +27,17 @@ assert.strictEqual(parseShard0Address(s0).kind, 'shard0')
 assert.strictEqual(parseShard0Address('0x' + '00'.repeat(20)), null)
 assert.strictEqual(parseMiningAddress(REAL, 'shard0'), null)
 assert.strictEqual(parseMiningAddress(s0, 'classic'), null)
+// 挖礦 on a locked Shard0 card: only that card's own 0x, never another wallet.
+const other = '0x42c4' + 'ab'.repeat(16) + 'c0e4'
+assert.strictEqual(other.length, 42)
+assert.strictEqual(ownRewardAddress(null), null)
+assert.strictEqual(ownRewardAddress({ evm: null, pubkey: REAL }), null)
+assert.strictEqual(ownRewardAddress({ evm: '', address: REAL }), null)
+assert.notStrictEqual(ownRewardAddress({ evm: null, pubkey: REAL }), other)
+assert.strictEqual(ownRewardAddress({ evm: s0, pubkey: REAL }), s0)
+assert.strictEqual(ownRewardAddress({ evm: null, pubkey: other }), other)
+assert.strictEqual(ownRewardAddress({ evm: null, address: '22'.repeat(20) }), '0x' + '22'.repeat(20))
+assert.strictEqual(ownRewardAddress({ evm: '0x' + '00'.repeat(20), pubkey: other }), other)
 
 function classic (shard, tail) {
   const prefix = shard + 'S0' + shard
@@ -95,6 +106,38 @@ assert.strictEqual(parseStatusLine('saved mined block successfully').kind, 'bloc
 assert.strictEqual(parseStatusLine('got download start event, stop miner').kind, 'gpu-paused')
 assert.strictEqual(parseStatusLine('Miner started').kind, 'gpu-resumed')
 assert.strictEqual(parseStatusLine('login failed: wrong shard').kind, 'login-failed')
+assert.deepStrictEqual(parseStatusLine('got block message and save it. height=9262001, hash:0xabc, time=1'), { kind: 'chain-height', local: 9262001 })
+assert.deepStrictEqual(parseStatusLine('got block message and save it. height:9262002, hash:0xabc, time: 1'), { kind: 'chain-height', local: 9262002 })
+assert.deepStrictEqual(parseStatusLine('mining block height:9262003, reward:1, transaction number:0, debt number: 0'), { kind: 'chain-height', local: 9262003 })
+assert.deepStrictEqual(
+  parseStatusLine('Downloader.doSynchronise start task manager from height=100, target height=9263000 master=abc'),
+  { kind: 'sync-target', local: 100, network: 9263000 }
+)
+assert.strictEqual(peerTargetOf({ StartNum: 1000, Amount: 4000, Downloaded: 100, Duration: '50.00' }), 4999)
+assert.strictEqual(peerTargetOf({ Status: 'NotSyncing' }), null)
+const syncing = mergeSyncView({
+  local: 1100,
+  peerTarget: 4999,
+  publicTip: 5000,
+  downloaded: 100,
+  amount: 4000,
+  durationSec: '50.00',
+  samples: []
+})
+assert.strictEqual(syncing.localBlock, 1100)
+assert.strictEqual(syncing.networkBlock, 5000)
+assert.strictEqual(syncing.etaSec, 1950)
+const sampled = mergeSyncView({
+  local: 1000,
+  publicTip: 2000,
+  downloaded: 0,
+  amount: 0,
+  durationSec: 0,
+  samples: [{ t: 0, h: 800 }, { t: 10000, h: 1000 }]
+})
+assert.strictEqual(sampled.networkBlock, 2000)
+assert.strictEqual(sampled.etaSec, 50)
+assert.strictEqual(mergeSyncView({ local: 2000, publicTip: 2000, samples: [] }).etaSec, 0)
 assert.strictEqual(blockRatePerHour(2, 0, 3600000), 2)
 assert.strictEqual(blockRatePerHour(0, 0, 3600000), 0)
 assert.strictEqual(blockRatePerHour(1, null, 10), null)
@@ -143,6 +186,9 @@ assert.ok(i18n.includes('3342–3344'))
 assert.ok(i18n.includes('CPU pool'))
 assert.ok(i18n.includes('CPU 礦池'))
 assert.ok(i18n.includes('classicCpu'))
+assert.ok(i18n.includes('Classic 節點正在同步：本地 {l} / 全網 {n}，預計 {eta}'))
+assert.ok(i18n.includes('正在同步區塊：本地 {l} / 全網 {n}，預計 {eta}'))
+assert.ok(i18n.includes('local {l} / network {n}, ETA {eta}'))
 assert.ok(!i18n.includes('CPU-only'))
 assert.ok(!i18n.includes('CPU only'))
 assert.ok(ui.includes('data-v="${id}"'))
@@ -155,10 +201,17 @@ assert.ok(ui.includes("cardFeatureOps(a, 'new')") && ui.includes("cardFeatureOps
 assert.ok(ui.includes("T('tabMine')") && ui.includes("T('tabRemit')"))
 const openMine = ui.slice(ui.indexOf('function openMineFor'), ui.indexOf('function openRemitFor'))
 assert.ok(openMine.includes("setTab('mine')"))
-assert.ok(openMine.includes("localStorage.setItem('minerReward', a.evm)"))
+assert.ok(openMine.includes('ownRewardAddress'))
+assert.ok(openMine.includes("localStorage.setItem('minerReward', own)"))
+assert.ok(openMine.includes("localStorage.removeItem('minerReward')"))
+assert.ok(openMine.includes('own = a.evm'))
 assert.ok(openMine.includes("localStorage.setItem('minerClassic', classic.address)"))
 assert.ok(!openMine.includes('confirm'))
 assert.ok(!openMine.includes('mineBackend'))
+assert.ok(ui.includes('const cur = saved'))
+assert.ok(!ui.includes('(running && m.wallet) || saved'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('download_getStatus'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('syncEtaSec'))
 assert.ok(ui.includes('function remitAccount'))
 
 // --- argv templates (pluggable miner) ---
@@ -276,6 +329,20 @@ async function publishedZminer () {
   assert.ok(pkg.scripts['dist:win'].startsWith('node scripts/stage-zminer.js'))
   assert.ok(pkg.scripts['dist:win'].includes('--publish never'))
   assert.ok(pkg.scripts['dist:win:nsis'].includes('--publish never'))
+  const miss = missingMessage(ZMINER_EXE_SHA256)
+  assert.ok(miss.includes(ZMINER_EXE_SHA256))
+  assert.ok(miss.includes('only runs on Linux'))
+  assert.ok(miss.includes('ZMINER_SKIP=1'))
+  assert.strictEqual(typeof canBuildHere(), 'boolean')
+  const buildSh = fs.readFileSync(path.join(root, 'scripts', 'build-zminer.sh'), 'utf8')
+  assert.ok(buildSh.includes('uname -s'))
+  assert.ok(buildSh.includes(ZMINER_EXE_SHA256))
+  assert.ok(buildSh.includes('only runs on Linux'))
+  const ksCompat = fs.readFileSync(path.join(root, 'test', 'keystore-compat.js'), 'utf8')
+  assert.ok(ksCompat.includes('keystore-compat: SKIP'))
+  assert.ok(ksCompat.includes("path.join('windows', 'client.exe')"))
+  assert.ok(ksCompat.includes("path.join('linux', 'client')"))
+  assert.ok(!ksCompat.includes("path.join(__dirname, '..', 'cmd', 'linux', 'client')"))
   const nsh = fs.readFileSync(path.join(root, 'build', 'installer.nsh'), 'utf8')
   assert.ok(nsh.includes('scdoReadPerMachineUninstall'))
   assert.ok(nsh.includes('UNINSTALL_REGISTRY_KEY'))

@@ -12,8 +12,8 @@ const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
-const { parseStatusLine, blockRatePerHour, parsePoolMiner } = require('./status')
-const { writeNodeConfig } = require('./nodeConfig')
+const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView } = require('./status')
+const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
 function formatExitMessage (code, logTail) {
@@ -49,6 +49,33 @@ function httpGetJson (url, timeoutMs) {
   })
 }
 
+function rpcCall (url, method, params, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: params || [] })
+    const u = new URL(url)
+    const mod = u.protocol === 'https:' ? https : http
+    const req = mod.request(u, {
+      method: 'POST',
+      agent: false,
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' },
+      timeout: timeoutMs || 5000
+    }, res => {
+      let d = ''
+      res.on('data', c => { d += c })
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(d)
+          if (j.error) reject(new Error(j.error.message || 'rpc error'))
+          else resolve(j.result)
+        } catch (e) { reject(e) }
+      })
+    })
+    req.on('timeout', () => req.destroy(new Error('timeout')))
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
 class ZpowManager extends EventEmitter {
   constructor (opts) {
     super()
@@ -61,6 +88,8 @@ class ZpowManager extends EventEmitter {
     this.restartTimer = null
     this.launchSpec = null
     this.restartBaseMs = (opts && opts.restartBaseMs) || 2000
+    this.syncTimer = null
+    this.syncSamples = []
     this.state = this.fresh()
   }
 
@@ -71,7 +100,8 @@ class ZpowManager extends EventEmitter {
       hashrate: null, hashrateSource: null, sharesAccepted: 0, sharesRejected: 0,
       blocksFound: 0, blocksFoundHeights: [], blockRatePerHour: null,
       poolStats: null, poolError: null, startedAt: null, logTail: [], lastError: null,
-      gpuActive: false, paused: false
+      gpuActive: false, paused: false,
+      localBlock: null, networkBlock: null, syncEtaSec: null
     }
   }
 
@@ -134,8 +164,9 @@ class ZpowManager extends EventEmitter {
       const heights = this.state.blocksFoundHeights.slice()
       if (!heights.includes(ev.height)) heights.push(ev.height)
       this.set({ blocksFound: heights.length, blocksFoundHeights: heights })
-    } else if (ev.kind === 'gpu-paused') this.set({ paused: true, gpuActive: false, phase: 'syncing', code: 'CLASSIC_PAUSED', message: '' })
+    }     else if (ev.kind === 'gpu-paused') this.set({ paused: true, gpuActive: false, phase: 'syncing', code: 'CLASSIC_PAUSED', message: '' })
     else if (ev.kind === 'gpu-resumed' && this.state.paused) this.set({ paused: false, phase: 'starting', code: 'CLASSIC_SYNCING', message: '' })
+    else if (ev.kind === 'chain-height' || ev.kind === 'sync-target') this.noteHeight(ev.local, ev.network)
     else if (ev.kind === 'login-failed') {
       this.set({ phase: 'error', code: 'LOGIN', lastError: ev.message, message: ev.message })
       this.wantRunning = false
@@ -167,6 +198,65 @@ class ZpowManager extends EventEmitter {
   }
 
   childPids () { return this.proc && this.proc.pid ? [this.proc.pid] : [] }
+
+  noteHeight (local, network) {
+    const patch = {}
+    if (local != null && Number.isFinite(Number(local))) {
+      const h = Number(local)
+      // "from height" is the common ancestor. Do not walk the displayed tip backwards.
+      if (this.state.localBlock == null || h >= this.state.localBlock) {
+        patch.localBlock = h
+        this.syncSamples.push({ t: Date.now(), h })
+        if (this.syncSamples.length > 30) this.syncSamples.shift()
+      }
+    }
+    const view = mergeSyncView({
+      local: patch.localBlock != null ? patch.localBlock : this.state.localBlock,
+      peerTarget: network,
+      publicTip: this.state.networkBlock,
+      downloaded: null,
+      amount: null,
+      durationSec: null,
+      samples: this.syncSamples
+    })
+    if (view.localBlock != null) patch.localBlock = view.localBlock
+    if (view.networkBlock != null) patch.networkBlock = view.networkBlock
+    if (view.etaSec != null) patch.syncEtaSec = view.etaSec
+    if (Object.keys(patch).length) this.set(patch)
+  }
+
+  async pollSync () {
+    if (!this.wantRunning || this.state.mode !== 'gpu' || !SHARD_PORTS[this.state.shard]) return
+    const shard = this.state.shard
+    const localUrl = 'http://127.0.0.1:' + SHARD_PORTS[shard].http
+    const pubUrl = 'https://scdoscan.io/rpc/' + shard
+    const call = this.o.rpc || rpcCall
+    let info = null
+    let dl = null
+    let pub = null
+    try { info = await call(localUrl, 'scdo_getInfo', []) } catch (e) {}
+    try { dl = await call(localUrl, 'download_getStatus', []) } catch (e) {}
+    try { pub = await call(pubUrl, 'scdo_getInfo', []) } catch (e) {}
+    const local = info && info.CurrentBlockHeight
+    if (local != null && Number.isFinite(Number(local))) {
+      this.syncSamples.push({ t: Date.now(), h: Number(local) })
+      if (this.syncSamples.length > 30) this.syncSamples.shift()
+    }
+    const view = mergeSyncView({
+      local: local != null ? Number(local) : this.state.localBlock,
+      peerTarget: peerTargetOf(dl),
+      publicTip: pub && pub.CurrentBlockHeight,
+      downloaded: dl && (dl.Downloaded != null ? dl.Downloaded : dl.downloaded),
+      amount: dl && (dl.Amount != null ? dl.Amount : dl.amount),
+      durationSec: dl && (dl.Duration != null ? dl.Duration : dl.duration),
+      samples: this.syncSamples
+    })
+    const patch = {}
+    if (view.localBlock != null) patch.localBlock = view.localBlock
+    if (view.networkBlock != null) patch.networkBlock = view.networkBlock
+    if (view.etaSec != null) patch.syncEtaSec = view.etaSec
+    if (Object.keys(patch).length) this.set(patch)
+  }
 
   async start (address, opts) {
     opts = opts || {}
@@ -266,12 +356,18 @@ class ZpowManager extends EventEmitter {
       startedAt: Date.now()
     })
     this.restarts = []
+    this.syncSamples = []
     this.wantRunning = true
     this.launchSpec = { binary, args, cwd, env: nodeEnv, ctrlC }
     this.emit('status', this.status())
     this.armChild()
     if (this.state.pool) this.poller = setInterval(() => this.pollPool().catch(() => {}), 15000)
     this.pollPool().catch(() => {})
+    if (backend === 'gpu' && gpuMiner === 'classic-node') {
+      if (this.syncTimer) clearInterval(this.syncTimer)
+      this.syncTimer = setInterval(() => this.pollSync().catch(() => {}), 4000)
+      this.pollSync().catch(() => {})
+    }
     return this.status()
   }
 
@@ -344,6 +440,7 @@ class ZpowManager extends EventEmitter {
     this.wantRunning = false
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
     if (this.poller) { clearInterval(this.poller); this.poller = null }
+    if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null }
     const proc = this.proc
     this.proc = null
     if (proc) {
@@ -361,4 +458,4 @@ class ZpowManager extends EventEmitter {
   }
 }
 
-module.exports = { ZpowManager, httpGetJson, formatExitMessage }
+module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage }

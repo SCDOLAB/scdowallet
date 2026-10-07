@@ -50,7 +50,64 @@ function parseStatusLine (line) {
   if (/Miner started\b/i.test(s)) return { kind: 'gpu-resumed' }
   if (/Miner stopped\b/i.test(s)) return { kind: 'gpu-stopped' }
   if (/login failed:/i.test(s)) return { kind: 'login-failed', message: s }
+  // go-scdo info/debug lines. "found a new mined block" is already a block-found.
+  m = /from height=(\d+),\s*target height=(\d+)/i.exec(s)
+  if (m) return { kind: 'sync-target', local: Number(m[1]), network: Number(m[2]) }
+  m = /got block message and save it\.\s*height[=:]\s*(\d+)/i.exec(s)
+  if (m) return { kind: 'chain-height', local: Number(m[1]) }
+  m = /(?:mining block|new task for the pool|committing a new task to engine),?\s*height:\s*(\d+)/i.exec(s)
+  if (m) return { kind: 'chain-height', local: Number(m[1]) }
   return null
+}
+
+// download_getStatus: Amount = toNo - fromNo + 1, so the peer tip is StartNum + Amount - 1.
+function peerTargetOf (dl) {
+  if (!dl || typeof dl !== 'object') return null
+  const start = num(dl.StartNum != null ? dl.StartNum : dl.startNum)
+  const amount = num(dl.Amount != null ? dl.Amount : dl.amount)
+  if (start == null || amount == null || amount <= 0) return null
+  return start + amount - 1
+}
+
+function maxHeight () {
+  let best = null
+  for (let i = 0; i < arguments.length; i++) {
+    const n = num(arguments[i])
+    if (n == null || n < 0) continue
+    if (best == null || n > best) best = n
+  }
+  return best
+}
+
+// ETA from download_getStatus (Downloaded / Duration) or from local-height samples.
+// network is the higher of the peer target and the public getInfo tip.
+function mergeSyncView (opts) {
+  opts = opts || {}
+  const local = num(opts.local)
+  const downloaded = num(opts.downloaded)
+  const amount = num(opts.amount)
+  const durationSec = num(opts.durationSec)
+  const network = maxHeight(opts.peerTarget, opts.publicTip)
+  let etaSec = null
+  if (durationSec > 0 && downloaded > 0 && amount != null && amount > downloaded) {
+    etaSec = (amount - downloaded) * durationSec / downloaded
+  } else if (local != null && network != null && local >= network) {
+    etaSec = 0
+  } else {
+    etaSec = etaFromSamples(opts.samples, local, network)
+  }
+  return { localBlock: local, networkBlock: network, etaSec }
+}
+
+function etaFromSamples (samples, local, network) {
+  if (!samples || samples.length < 2 || local == null || network == null || network <= local) return null
+  const first = samples[0]
+  const last = samples[samples.length - 1]
+  if (!first || !last) return null
+  const dt = (Number(last.t) - Number(first.t)) / 1000
+  const dh = Number(last.h) - Number(first.h)
+  if (!(dt >= 5) || !(dh > 0)) return null
+  return (network - local) * dt / dh
 }
 
 // Blocks found by this process divided by hours since start. Null until both exist.
@@ -73,4 +130,12 @@ function parsePoolMiner (body) {
   }
 }
 
-module.exports = { parseStatusLine, blockRatePerHour, parsePoolMiner, looksLikeStatus }
+module.exports = {
+  parseStatusLine,
+  blockRatePerHour,
+  parsePoolMiner,
+  looksLikeStatus,
+  peerTargetOf,
+  mergeSyncView,
+  etaFromSamples
+}
