@@ -139,6 +139,17 @@ const notes300 = EN.relNotes.find(n => n.v === '3.0.0').items.join(' ')
 assert.ok(!notes300.includes('匯款'), 'EN 3.0.0 notes still say 匯款')
 for (const k of ['tabRemit', 'remitTitle', 'payTitle']) assert.strictEqual(CN[k], '匯款', 'CN ' + k)
 assert.strictEqual(CN.payGo, '確認匯款')
+// Remit page and Send form text: no developer setting names or raw URLs as instructions, in either language
+for (const [name, table] of [['CN', CN], ['EN', EN]]) {
+  for (const k of Object.keys(table).filter(k => /^(pay|remit)/.test(k) || k === 'tabRemit')) {
+    assert.ok(!String(table[k]).includes('SCDO_'), name + ' ' + k + ' shows a developer setting: ' + table[k])
+  }
+  for (const k of ['remitEnv', 'remitDown']) assert.ok(!/https?:\/\//.test(table[k]), name + ' ' + k + ' shows a raw URL: ' + table[k])
+}
+assert.strictEqual(CN.remitDown, '現在連不上匯款服務，請稍後再試。如果一直連不上，請聯絡客服。')
+assert.strictEqual(EN.remitDown, "The remittance service can't be reached right now. Please try again later. If it keeps failing, contact support.")
+const pageRemit = ui.slice(ui.indexOf('function pageRemit'), ui.indexOf('function remitErrText'))
+assert.ok(pageRemit.length > 0 && !pageRemit.includes('SCDO_'))
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
 const menuCn = menuSrc.slice(menuSrc.indexOf('  CN: {'))
