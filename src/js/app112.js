@@ -2748,7 +2748,7 @@
           <div class="ios-in" id="aiCatInRow" hidden><input class="pill" id="aiCatIn" maxlength="200" placeholder="${esc(T('catInput'))}" autocomplete="off" spellcheck="false"><button type="button" class="send" data-act="catAsk" title="${esc(T('catSend'))}" aria-label="${esc(T('catSend'))}"><img src="./assets/ui/up.svg" alt=""></button></div>
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
-          ${contactHtml('catContact')}
+          <details class="cat-help"><summary>${esc(T('help_title'))}</summary>${contactHtml('catContact')}</details>
         </div>`)
     }
     const panel = $('aiCatPanel')

@@ -95,7 +95,7 @@ function kv (esc, field, label, value, extra) {
   return `<div class="kv-item" data-field="${field}">${extra && extra.bar != null ? `<div class="bar${extra.part ? ' part' : ''}"><i style="width:${Number(extra.bar) || 0}%"></i></div>` : ''}<span class="lbl">${esc(label)}</span><b class="${extra && extra.cls ? esc(extra.cls) : ''}"${extra && extra.title ? ` title="${esc(extra.title)}"` : ''}>${extra && extra.html != null ? extra.html : esc(value)}</b></div>`
 }
 // a long balance may break only after a comma or the decimal point (never inside a group of digits)
-function balHtml (esc, v) { return esc(v).replace(/([,.])/g, '$1<wbr>') }
+function balHtml (esc, v) { return esc(v) } // 3.0.4: keep the whole number on one line (never split digits)
 
 // 3.0.4 (v9, iOS look): name + status capsule, the balance (largest, same size on all five), the sync bar,
 // then the other fields as plain grey lines, and the receiving address with copy / QR
