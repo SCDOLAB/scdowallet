@@ -212,7 +212,8 @@ async function main () {
     const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
     const remitFns = app.slice(app.indexOf('function remitErrText'), app.indexOf('// ---------------- render ----------------'))
     assert.ok(!app.includes("['remit', 'tabRemit']"))
-    assert.ok(app.includes('id="btnRemit"'))
+    // 3.0.2 (v8): remittance opens from the 匯款 menu (Ctrl+P) or AI小貓, not a Home button
+    assert.ok(!app.includes('id="btnRemit"') && menu.includes("{ label: L.remitItem, accelerator: 'CmdOrCtrl+P', click: act('remit') }") && app.includes("case 'remit': openRemittance(); break"))
     assert.ok(app.includes('function payModal'))
     assert.ok(app.includes('SCDORemitRoute.routePay'))
     assert.ok(app.includes('id="btnRemitSign"'))
@@ -227,7 +228,7 @@ async function main () {
     assert.ok(menu.includes('openRemittance()'))
     assert.ok(preload.includes("'remit:login'") && preload.includes("'remit:ledger'") && preload.includes("'remit:logout'"))
     assert.ok(main.includes("require('./src/main/remitService').register"))
-    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.0.1')
+    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.0.4')
     assert.strictEqual(cn.Remittance, '匯款')
     assert.strictEqual(global.window.I18N112.CN.tabRemit, '匯款')
     assert.ok(global.window.I18N112.CN.remitZero.includes('不需要填寫'))

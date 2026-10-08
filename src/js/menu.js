@@ -11,16 +11,29 @@ const LABELS = {
     fullscreen: 'Toggle Fullscreen',
     close: 'Close Window (keep running in the tray)',
     file: 'File',
-    create: 'Create Account',
-    import: 'Import Keyfile(s)',
+    create: 'Create a New Address (any of Shard0–Shard4)…',
+    import: 'Import Wallet (keyfile or private key)…',
+    backup: 'Back Up Accounts…',
+    manage: 'Manage Accounts (rename, hide, delete)…',
+    mineStart: 'Start Mining',
+    mineStop: 'Stop Mining…',
+    reward: 'Change the Block Reward Address…',
+    mineSettings: 'Mining Settings (shard, graphics card or processor)…',
+    send: 'Transfer…',
+    remitItem: 'Remittance…',
+    remitLogout: 'Sign Out of the Remittance Gateway',
+    catShow: 'Show AI小貓',
     edit: 'Edit',
     copy: 'Copy',
     paste: 'Paste',
     selectAll: 'Select All',
     refresh: 'Refresh',
     view: 'View',
-    settings: 'Settings / Network Info',
-    remit: 'Send',
+    home: 'Home',
+    accounts: 'Accounts',
+    mining: 'Mining',
+    settings: 'Settings / Network Info…',
+    remit: 'Remittance',
     help: 'Help',
     learnMore: 'Learn More'
   },
@@ -32,15 +45,28 @@ const LABELS = {
     fullscreen: '切換全螢幕',
     close: '關閉視窗（繼續在系統匣執行）',
     file: '檔案',
-    create: '建立帳戶',
-    import: '匯入金鑰檔',
+    create: '建立新地址（Shard0–Shard4 任選）…',
+    import: '匯入錢包（帳戶檔案或私鑰）…',
+    backup: '備份帳戶…',
+    manage: '管理帳戶（改名稱、隱藏、刪除）…',
+    mineStart: '開始挖礦',
+    mineStop: '停止挖礦…',
+    reward: '更改出塊獎勵地址…',
+    mineSettings: '挖礦設定（分片、顯卡或處理器）…',
+    send: '轉帳…',
+    remitItem: '匯款…',
+    remitLogout: '登出匯款閘道',
+    catShow: '顯示 AI小貓',
     edit: '編輯',
     copy: '複製',
     paste: '貼上',
     selectAll: '全選',
     refresh: '重新整理',
     view: '檢視',
-    settings: '設定 / 網路資訊',
+    home: '首頁',
+    accounts: '帳戶',
+    mining: '挖礦',
+    settings: '設定 / 網路資訊…',
     remit: '匯款',
     help: '說明',
     learnMore: '了解更多'
@@ -68,8 +94,16 @@ function buildTemplate (mainWindow, lang) {
     {
       label: L.file,
       submenu: [
+        // 3.0.2: every action is reachable by hand here, so the wallet stays usable without AI小貓
         { label: L.create, accelerator: 'CmdOrCtrl+N', click: act('create') },
-        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') }
+        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') },
+        { label: L.backup, accelerator: 'CmdOrCtrl+B', click: act('backup') },
+        { label: L.manage, click: act('manage') },
+        { type: 'separator' },
+        { label: L.mineStart, accelerator: 'CmdOrCtrl+G', click: act('mineStart') },
+        { label: L.mineStop, accelerator: 'CmdOrCtrl+Shift+G', click: act('mineStop') },
+        { label: L.reward, click: act('reward') },
+        { label: L.mineSettings, click: act('mineSettings') }
       ]
     },
     {
@@ -84,14 +118,29 @@ function buildTemplate (mainWindow, lang) {
     {
       label: L.view,
       submenu: [
+        // 3.0.2: page switching lives here and on the Home cards (no tab bar)
+        { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') },
+        { label: L.accounts, accelerator: 'CmdOrCtrl+2', click: act('acc') },
+        { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mine') },
+        { label: L.remit, accelerator: 'CmdOrCtrl+4', click: () => openRemittance() },
+        { type: 'separator' },
         { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
       ]
     },
-    { label: L.remit, click: () => openRemittance() },
+    {
+      label: L.remit,
+      submenu: [
+        { label: L.send, accelerator: 'CmdOrCtrl+T', click: act('send') },
+        { label: L.remitItem, accelerator: 'CmdOrCtrl+P', click: act('remit') },
+        { label: L.remitLogout, click: act('remitLogout') }
+      ]
+    },
     {
       label: L.help,
       role: 'help',
       submenu: [
+        { label: L.catShow, click: act('catShow') },
+        { type: 'separator' },
         { label: L.learnMore, click: () => shell.openExternal('https://scdoscan.io/downloads/wallet/') }
       ]
     }

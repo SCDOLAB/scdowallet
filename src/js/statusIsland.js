@@ -391,7 +391,65 @@ function summarizeEarnings (log, now, reward) {
   return { todayBlocks: today, totalBlocks: items.length, todayScdo: today * each, totalScdo: items.length * each }
 }
 
-const api = { BLOCK_REWARD_SCDO, buildIsland, absorbBlocks, summarizeEarnings, syncOf, compactHash, compactCount }
+
+// 3.0.2: the header shows one summary row (the per-chain details live in the five dashboard cards):
+// mining (which chains and devices), total speed, graphics-card temperature, overall sync, connected nodes,
+// then today's and total earnings. Every item is written out in full words.
+function speedWords (n, tr) {
+  const x = Math.round(Number(n))
+  if (!Number.isFinite(x) || x <= 0) return ''
+  if (tr('d_unitMyriad') === '萬' && x >= 10000) return tr('d_perSecMyriad', { n: Math.round(x / 10000).toLocaleString('en-US') })
+  return tr('islePerSec', { n: x.toLocaleString('en-US') })
+}
+function summaryIsland (opts) {
+  opts = opts || {}
+  const tr = typeof opts.T === 'function' ? opts.T : (k) => k
+  const full = buildIsland(opts)
+  const parts = []
+  let hash = 0
+  let anyHash = false
+  const pcts = []
+  let peers = null
+  let behind = null
+  ;[0, 1, 2, 3, 4].forEach(n => {
+    const src = shardSources(n, opts)
+    const chain = chainName(n, tr)
+    const gpu = src.gpu && isGpuMine(src.gpu) ? src.gpu : null
+    if (gpu && miningNow(gpu)) { parts.push(tr('d_mineDev', { chain: chain, dev: tr('d_devGpu') })); if (num(gpu.hashrate) > 0) { hash += num(gpu.hashrate); anyHash = true } }
+    if (src.cpu && miningNow(src.cpu)) { parts.push(tr('d_mineDev', { chain: chain, dev: tr('d_devCpu') })); if (num(src.cpu.hashrate) > 0) { hash += num(src.cpu.hashrate); anyHash = true } }
+    if (src.syncFrom) {
+      const sy = syncOf(src.syncFrom)
+      const pct = syncPct(sy)
+      if (pct != null) pcts.push(pct)
+      if (sy.kind === 'syncing' && (behind == null || pct < behind.pct)) behind = { pct: pct, eta: sy.etaSec }
+    }
+    const p = peersOf(gpu || src.cpu || (src.node && src.node.running ? src.node : null) || src.syncFrom)
+    if (p != null) peers = peers == null ? p : Math.max(peers, p)
+  })
+  const chips = []
+  if (parts.length) {
+    chips.push({ key: 'sum-mine', kind: 'rate', live: true, text: tr('d_islMining', { list: parts.join(tr('d_listSep')) }), tip: tipOf(tr('d_islMiningName'), parts.join(tr('d_listSep')), tr('isleTipSpeedExplain', { n: anyHash ? Math.round(hash).toLocaleString('en-US') : tr('isleUnknown') }), '') })
+    const sp = anyHash ? speedWords(hash, tr) : tr('isleSpeedUnknown')
+    chips.push({ key: 'sum-speed', kind: 'rate', text: tr('d_islSpeed', { speed: sp }), tip: tipOf(tr('isleLegSpeedName'), sp, tr('isleTipSpeedExplain', { n: anyHash ? Math.round(hash).toLocaleString('en-US') : tr('isleUnknown') }), anyHash ? tr('isleTipSpeedDetail', { n: Math.round(hash).toLocaleString('en-US') }) : '') })
+  } else {
+    chips.push({ key: 'not-mining', kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
+  }
+  full.money.filter(c => c.kind === 'temp' || c.key === 'temp-none').forEach(c => chips.push(c))
+  if (pcts.length) {
+    const low = Math.min.apply(null, pcts)
+    const text = behind ? tr('d_islSyncEta', { pct: behind.pct, when: (behind.eta != null && Number(behind.eta) >= 5 ? durationWords(behind.eta, tr) : '') || tr('isleEtaCalc') }) : tr('d_islSync', { pct: low })
+    chips.push({ key: 'sum-sync', kind: 'sync', text: text, progress: low / 100, tip: tipOf(tr('isleLegSyncName'), low + '%', tr('isleTipSyncExplain'), '') })
+  }
+  if (peers != null) chips.push({ key: 'sum-peers', kind: 'peer', text: tr('d_islPeers', { n: peers }), tip: tipOf(tr('isleLegPeerName'), tr('islePeerCount', { n: peers }), tr('isleTipPeerExplain'), tr('isleTipPeerDetail', { n: peers })) })
+  // 3.0.3 (no duplicates): mining state, speed, temperature, sync and peers are already on each of the five
+  // Home cards, so the island keeps only what no card shows: today's and total earnings.
+  const money = full.money.filter(c => c.kind === 'earn')
+  const keep = [tr('isleLegEarnName'), tr('isleLegTotalName')]
+  const legend = (full.legend || []).filter(it => it && keep.includes(it.name))
+  return { chips: money, money: [], cardChips: chips, legend: legend, tempC: full.tempC, tempBand: full.tempBand, earn: full.earn, shards: full.shards }
+}
+
+const api = { BLOCK_REWARD_SCDO, buildIsland, summaryIsland, shardSources, syncPct, peersOf, tempBand, miningNow, isGpuMine, speedWords, durationWords, absorbBlocks, summarizeEarnings, syncOf, compactHash, compactCount }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOIsland = Object.freeze(api)
 })()

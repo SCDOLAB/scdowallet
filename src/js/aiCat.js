@@ -71,7 +71,7 @@ function startFail (code) {
     ALREADY_RUNNING: '這個挖礦程式已經在跑。',
     BAD_ADDRESS: '這個地址不能用來挖這條鏈。',
     BAD_SHARD: '地址和這條鏈對不上。',
-    CANCELED: '你取消了 EVM 的顯卡挖礦。'
+    CANCELED: '你取消了 Shard0 EVM 的顯卡挖礦。'
   }
   return map[code] || '沒有啟動。'
 }
@@ -118,11 +118,11 @@ function planMine (ctx) {
     if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等現在這次挖完再換')
   }
   if (ctx.includeShard0) {
-    if (!ctx.shard0Address) bits.push('沒有 EVM 地址，所以沒有一起挖 EVM')
-    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖 EVM')
+    if (!ctx.shard0Address) bits.push('沒有 Shard0 EVM 地址，所以沒有一起挖 Shard0 EVM')
+    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖 Shard0 EVM')
     else {
       jobs.push({ chain: 'shard0', backend: 'gpu', address: ctx.shard0Address })
-      bits.push('另外用顯卡挖 EVM')
+      bits.push('另外用顯卡挖 Shard0 EVM')
     }
   }
   if (!jobs.length) return { say: bits.join('。') + '。', actions: [] }
@@ -181,7 +181,7 @@ function planHeal (ctx) {
       bits.push('Shard' + p.shard + ' 的帳本下載停住了，準備重新啟動，再連上其他節點')
     } else if (p.kind === 'nopeers') {
       jobs.push({ chain: 'shard0', mode: p.mode, address: p.address })
-      bits.push('EVM 還沒有連上其他節點，準備重新連線')
+      bits.push('Shard0 EVM 還沒有連上其他節點，準備重新連線')
     } else if (p.kind === 'mem') {
       const mb = Math.max(0, Math.round(p.free / (1024 * 1024)))
       bits.push('可用記憶體只剩下 ' + mb + ' MB')
@@ -192,7 +192,7 @@ function planHeal (ctx) {
         bits.push('準備重新啟動顯卡挖礦')
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
-        bits.push('準備重新啟動 EVM')
+        bits.push('準備重新啟動 Shard0 EVM')
       } else if (!jobs.length) bits.push('先不要再啟動新的節點')
     }
   }
@@ -275,6 +275,37 @@ function planTransfer (text, ctx) {
   }
 }
 
+// 3.0.2: the AI小貓 popup rows. Each one opens the wallet's existing dialog or form; nothing is signed or sent here.
+// Transfers and remittance open the 匯款 form, which always ends in a visible confirmation (amount, recipient, chain).
+// A private key is only ever typed into the masked import dialog, never into this chat.
+const OPEN_SAY = {
+  create: '已開啟「建立新地址」視窗。同一個帳戶會有一個 Shard1–Shard4 的地址和一個 Shard0 EVM 地址。密碼請你自己輸入，小貓看不到。',
+  import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入；私鑰只在隱藏輸入視窗裡輸入，請不要貼在這裡。',
+  settings: '已開啟「設定」。',
+  reward: '已開啟「挖礦設定」。要改出塊獎勵地址，請先停止挖礦，再選新的地址。',
+  send: '已開啟轉帳表單。金額、收款人和哪條鏈都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
+  remit: '已開啟匯款表單。金額、收款人和走哪條路線都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
+  stop: '要停止全部挖礦嗎？請在確認視窗裡自己按「全部停止」。'
+}
+function openPlan (form) { return { say: OPEN_SAY[form], actions: [{ type: 'open', form: form }] } }
+function planOpen (q, ctx) {
+  if (/^(?:請|幫我)?(?:建立|新增|開)(?:一個)?新?的?(?:地址|帳戶)|^建立新地址|新地址$/.test(q)) return openPlan('create')
+  if (/匯入(?:錢包|帳戶|私鑰|金鑰)|導入(?:錢包|帳戶)/.test(q)) return openPlan('import')
+  if (/^(?:開啟|開)?設定$/.test(q)) return openPlan('settings')
+  if (/(?:出塊)?獎勵地址|收益地址|挖礦設定/.test(q)) return openPlan('reward')
+  if (/^(?:我要)?轉帳$|^(?:我要)?傳送$/.test(q)) return openPlan('send')
+  if (/^(?:我要)?匯款$/.test(q)) return openPlan('remit')
+  if (/^開始[／/]停止挖礦$/.test(q)) return ctx && ctx.mining ? openPlan('stop') : null
+  if (/停止(?:全部)?挖礦|^停挖$/.test(q)) return openPlan('stop')
+  return null
+}
+
+// 3.0.4: official contacts (the same ones as Settings → About)
+const CONTACT = { channel: 't.me/SCDOLabor', group: 't.me/SCDOCommunity', email: 'admin@apeccapital.org' } // no URLs here: the cat never goes online; the links live in the window
+function sayContact () {
+  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。SCDO 實驗室不會向你索取種子、私鑰或密碼。', actions: [] }
+}
+
 function wantsMine (q) {
   return /一鍵挖礦|開始挖礦|幫我挖|啟動挖礦|開挖/.test(q)
 }
@@ -287,12 +318,15 @@ function reply (text, ctx) {
   }
   if (looksLikeSecret(q) || /種子|助記詞|私鑰|密碼是/.test(q) && /顯示|給我|告訴|貼|是多少|看一下/.test(q)) return refuseSecret()
   if (/顯示.*(?:種子|助記詞|私鑰)|(?:種子|助記詞|私鑰).*(?:顯示|給我|告訴我)/.test(q)) return refuseSecret()
+  if (/聯絡|聯繫|客服|求助|幫助|說明|電報|社群|頻道|信箱|電郵|email|e-mail|telegram|support|contact|help/i.test(q)) return sayContact()
+  const opened = planOpen(q, ctx)
+  if (opened) return opened
   const moved = planTransfer(q, ctx)
   if (moved) return moved
   if (/備份|帳戶檔案|助記詞|種子/.test(q)) return planBackup()
   if (/餘額|有多少|多少錢|多少\s*SCDO|資產/.test(q)) return sayBalance(ctx)
-  if (/修復|同步卡住|沒有同伴|沒有節點|連不上|記憶體/.test(q)) return planHeal(ctx)
-  if (wantsMine(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
+  if (/修復|修同步|同步卡住|沒有同伴|沒有節點|連不上|記憶體/.test(q)) return planHeal(ctx)
+  if (wantsMine(q) || /^開始[／/]停止挖礦$/.test(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
     return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|EVM|主鏈|main chain/i.test(q)) }))
   }
   return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
@@ -311,6 +345,8 @@ const api = {
   planHeal: function (ctx) { return safePlan(planHeal(ctx)) },
   heatGuard: function (ctx) { const p = heatGuard(ctx); return p ? safePlan(p) : null },
   parseTransfer: parseTransfer,
+  CONTACT: CONTACT,
+  planOpen: function (text, ctx) { const p = planOpen(clean(text), ctx); return p ? safePlan(p) : null },
   looksLikeSecret: looksLikeSecret,
   startFail: startFail,
   diagnose: diagnose

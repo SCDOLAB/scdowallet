@@ -59,7 +59,7 @@ sandbox.scdo = {
   on: () => () => {},
   invoke: async (ch) => {
     if (ch === 'wallet:boot') return { config: { lang: 'CN', connect: [] }, shard0: { cfg: { tokens: [] } }, ui: {} }
-    if (ch === 'app:info') return { version: '3.0.1', displayVersion: '3.0.1', lang: 'CN' }
+    if (ch === 'app:info') return { version: '3.0.2', displayVersion: '3.0.2', lang: 'CN' }
     return null
   }
 }

@@ -1,14 +1,14 @@
 {
     "name": "ScdoWallet",
-    "version": "3.0.1",
+    "version": "3.0.4",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
     "scripts": {
         "start": "electron .",
         "test": "node test/run-all.js",
-        "dist:win": "node scripts/stage-zminer.js && electron-builder --win --x64 --publish never",
-        "dist:win:nsis": "node scripts/stage-zminer.js && electron-builder --win nsis --x64 --publish never",
+        "dist:win": "node scripts/build-info.js && node scripts/stage-zminer.js && electron-builder --win --x64 --publish never",
+        "dist:win:nsis": "node scripts/build-info.js && node scripts/stage-zminer.js && electron-builder --win nsis --x64 --publish never",
         "dist:mac": "electron-builder --mac --arm64",
         "dist:linux": "electron-builder --linux --x64"
     },

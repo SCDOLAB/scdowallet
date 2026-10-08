@@ -18,7 +18,7 @@ assert.strictEqual(chain0.kind, 'chain')
 assert.strictEqual(chain0.shard, 0)
 assert.strictEqual(chain0.to, ADDR)
 assert.strictEqual(chain0.amount, '1.5')
-assert.strictEqual(chain0.line, '鏈上轉帳 · EVM · 手續費約 …')
+assert.strictEqual(chain0.line, '鏈上轉帳 · Shard0 EVM · 手續費約 …')
 
 const chain1 = route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' })
 assert.strictEqual(chain1.kind, 'chain')
@@ -86,9 +86,10 @@ assert.ok(!src.includes('s0:review'))
 const ui = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
 assert.ok(ui.includes('function payModal (f, prefill)') || ui.includes('function payModal(f, prefill)'))
 assert.ok(ui.includes('id="payRoute"'))
-assert.ok(ui.includes('id="btnRemit"'))
+// 3.0.2 (v8): no Send button on Home; the 匯款 menu, View → Ctrl+4 and AI小貓 open the same form
+assert.ok(!ui.includes('id="btnRemit"') && ui.includes("case 'send': openRemittance(); break") && ui.includes("case 'remit': openRemittance(); break"))
 assert.ok(ui.includes('id="btnRemitSign"'))
-assert.ok(ui.includes("const TABS = ['old', 'new', 'mine']"))
+assert.ok(ui.includes("const TABS = ['home', 'acc', 'mine', 'mineSet']"))
 assert.ok(!ui.includes("['remit', 'tabRemit']"))
 assert.ok(!ui.includes('id="btnSend"'))
 assert.ok(!ui.includes('data-act="sendOld"'))
@@ -106,7 +107,7 @@ assert.ok(fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8').include
 // English mode: route lines, fiat words, and the EN text of the merged Send form carry no Chinese.
 const CJK = /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/
 global.window = { SCDOMining: { lang: 'EN' } }
-assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, 'On-chain transfer · EVM · fee about …')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, 'On-chain transfer · Shard0 EVM · fee about …')
 assert.strictEqual(route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' }).line, 'On-chain transfer · Shard1 · fee about 0.00021 SCDO')
 const enGate = route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts })
 assert.strictEqual(enGate.kind, 'gateway')
@@ -118,7 +119,7 @@ assert.strictEqual(route.routePay({ to: '媽媽', amount: '8 美金', accounts: 
 assert.strictEqual(route.routePay({ to: ADDR, amount: '3', accounts: accounts }).kind, 'chain')
 global.window.SCDOMining.lang = 'CN'
 assert.strictEqual(route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts }).line, '匯款 · 到帳約 …')
-assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, '鏈上轉帳 · EVM · 手續費約 …')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, '鏈上轉帳 · Shard0 EVM · 手續費約 …')
 delete global.window
 
 const vm = require('vm')
@@ -171,23 +172,26 @@ const mBox = { window: {} }
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8'), mBox)
 const M = mBox.window.SCDOMining
 const statsSrc = fs.readFileSync(path.join(__dirname, '../src/js/mining/miningNetworkStats.js'), 'utf8')
-assert.ok(statsSrc.includes("scdoscanMainPublic: 'scdoscan.io EVM public node'") && statsSrc.includes('sourceText(s)'))
+assert.ok(statsSrc.includes("scdoscanMainPublic: 'scdoscan.io Shard0 EVM public node'") && statsSrc.includes('sourceText(s)'))
 M.lang = 'EN'
-assert.strictEqual(M.L('scdoscan.io EVM public node'), 'scdoscan.io EVM public node')
+assert.strictEqual(M.L('scdoscan.io Shard0 EVM public node'), 'scdoscan.io Shard0 EVM public node')
 assert.strictEqual(M.L(' · source: '), ' · source: ')
 M.lang = 'CN'
-assert.strictEqual(M.L('scdoscan.io EVM public node'), 'scdoscan.io EVM 公開節點')
+assert.strictEqual(M.L('scdoscan.io Shard0 EVM public node'), 'scdoscan.io Shard0 EVM 公開節點')
 assert.strictEqual(M.L(' · source: '), ' · 資料來源：')
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
 const menuCn = menuSrc.slice(menuSrc.indexOf('  CN: {'))
-assert.ok(menuEn.includes("remit: 'Send'"))
-assert.ok(!CJK.test(menuEn.replace(/\/\/.*$/gm, '')), 'menu EN has Chinese')
+// 3.0.2 (v8): the top-level menu is 匯款 / Remittance, holding Transfer… and Remittance…
+assert.ok(menuEn.includes("remit: 'Remittance'") && menuEn.includes("send: 'Transfer…'") && menuEn.includes("remitItem: 'Remittance…'"))
+// the only Chinese in the English menu is the deliberate AI小貓 name, as in the English UI
+assert.ok(!CJK.test(menuEn.replace(/\/\/.*$/gm, '').split('AI小貓').join('')), 'menu EN has Chinese')
 assert.ok(menuCn.includes("remit: '匯款'"))
 const payFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
 assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
 
 console.log('remit-route: ok')
-// 3.0.1: the newest notes are first and the English ones have no Chinese
-assert.strictEqual(EN.relNotes[0].v, '3.0.1')
-assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.1 notes contain Chinese')
+// 3.0.2: the newest notes are first and the English ones have no Chinese
+assert.strictEqual(EN.relNotes[0].v, '3.0.4')
+assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.4 notes contain Chinese')
+assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[1].items.join(' ')), 'EN 3.0.2 notes contain Chinese')
