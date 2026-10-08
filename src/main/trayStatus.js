@@ -3,14 +3,22 @@
 'use strict'
 const path = require('path')
 const { Tray, Menu, nativeImage } = require('electron')
+const { tooltipError, minersRunning } = require('../js/minerStartError')
 
-function fmtHash (h) { if (!(h > 0)) return '0 H/s'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s', 'TH/s']; let i = 0; while (h >= 1000 && i < 4) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
+function fmtHash (h, lang) {
+  const raw = Number(h)
+  const n = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
+  const num = n.toLocaleString('en-US')
+  if (lang === 'CN') return '挖礦速度 每秒 ' + num + ' 次'
+  return 'Mining speed ' + num + ' tries per second'
+}
 
 // state of the badge for a miner status object
 function badgeState (st) {
   if (!st) return 'grey'
   if (st.phase === 'error') return 'red'
   if (st.running && (st.mode === 'mine' || st.mode === 'pool')) return 'green'
+  if (st.classicNote) return 'green'
   return 'grey'
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 繁體中文)
@@ -21,11 +29,16 @@ const TL = {
 function tooltipText (version, st, lang) {
   const L = TL[lang] || TL.EN
   const head = 'SCDO Wallet ' + version
-  if (!st || (!st.running && st.phase !== 'error')) return head + '\n' + L.notMining
-  if (st.phase === 'error') return (head + '\n' + L.minerError + ': ' + String(st.code || st.message || 'error')).slice(0, 127)
-  if (st.mode === 'node') return head + '\n' + L.nodeOnly
-  if (st.code === 'MINING') return head + '\n' + L.mining + fmtHash(st.hashrate)
-  return head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate) : '')
+  let line
+  const classic = st && st.classicNote
+  if (classic && !st.running && st.phase !== 'error') return (head + '\n' + L.mining + classic).slice(0, 127)
+  if (!st || (!st.running && st.phase !== 'error')) line = head + '\n' + L.notMining
+  else if (st.phase === 'error') line = head + '\n' + tooltipError(lang, st.code, st.message)
+  else if (st.mode === 'node') line = head + '\n' + L.nodeOnly
+  else if (st.code === 'MINING') line = head + '\n' + L.mining + fmtHash(st.hashrate, lang)
+  else line = head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate, lang) : '')
+  if (st && st.classicNote) line += '\n' + st.classicNote
+  return line.slice(0, 127)
 }
 
 class TrayStatus {
@@ -53,14 +66,14 @@ class TrayStatus {
   rebuild () {
     if (!this.tray || this.tray.isDestroyed()) return
     const st = this.last
-    const active = this.o.isMinerActive()
     const L = this.L()
-    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : L.notMining)
+    const mining = minersRunning(st)
+    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },
       { type: 'separator' },
-      { label: L.stop, id: 'stop', enabled: active, click: () => this.o.onStop() },
+      { label: L.stop, id: 'stop', enabled: mining, click: () => this.o.onStop() },
       { label: L.keep, type: 'checkbox', checked: !!this.o.getKeepMining(), click: (mi) => this.o.onKeepMining(!!mi.checked) },
       { type: 'separator' },
       { label: L.quit, click: () => this.o.onQuit() }
@@ -77,7 +90,7 @@ class TrayStatus {
       this.lastBadge = b
       w.setOverlayIcon(this.badges[b], b === 'green' ? 'Mining' : b === 'red' ? 'Miner error' : 'Not mining')
     }
-    const sig = [st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')
+    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')
     if (sig !== this.sig) { this.sig = sig; this.rebuild() }
   }
 

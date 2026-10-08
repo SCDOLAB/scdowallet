@@ -6,7 +6,26 @@ const fs = require('fs'); const os = require('os'); const path = require('path')
 const { spawn } = require('child_process')
 const ks = require('../src/api/keystore')
 const Scdo = require('scdo.js')
-const GO = path.join(__dirname, '..', 'cmd', 'linux', 'client')
+
+function clientBinary () {
+  const root = path.join(__dirname, '..', 'cmd')
+  const names = {
+    win32: [path.join('windows', 'client.exe'), path.join('win32', 'client.exe')],
+    darwin: [path.join('mac', 'client')],
+    linux: [path.join('linux', 'client')]
+  }
+  for (const rel of names[process.platform] || []) {
+    const file = path.join(root, rel)
+    if (fs.existsSync(file)) return file
+  }
+  return null
+}
+
+const GO = clientBinary()
+if (!GO) {
+  console.log('keystore-compat: SKIP (no ' + process.platform + ' client binary; the Go savekey/deckeyfile round-trip uses cmd/<platform>/client)')
+  process.exit(0)
+}
 
 function run (args, password) {
   return new Promise((resolve, reject) => {

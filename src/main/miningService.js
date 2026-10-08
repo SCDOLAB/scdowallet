@@ -61,10 +61,10 @@ async function gpuPreflight (minerGpu) {
   }
   for (const g of res.gpus) {
     const reasons = []; let status = 'ready'
-    if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in miner (Rigel) supports NVIDIA GPUs only.') } else {
+    if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in miner (Rigel) supports NVIDIA graphics cards only.') } else {
       if (!g.driverVersion) { status = 'notReady'; reasons.push('NVIDIA driver not detected. Install the NVIDIA graphics driver.') }
-      if (!g.cuda) { status = 'notReady'; reasons.push('CUDA runtime (nvcuda.dll / nvidia-smi) not found. Install or repair the NVIDIA driver.') }
-      if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('VRAM could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough VRAM: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
+      if (!g.cuda) { status = 'notReady'; reasons.push('The driver needed for graphics-card mining was not found. Install or repair the latest NVIDIA graphics driver.') }
+      if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('Graphics memory could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough graphics memory: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
     }
     if (!reasons.length) reasons.push('All pre-flight checks passed.')
     g.status = status; g.reasons = reasons
@@ -96,7 +96,7 @@ async function networkStats (localHashrate) {
     const blockTime = n > 0 && dt > 0 ? dt / n : null
     const diff = BigInt(tip.difficulty)
     const hashrate = blockTime ? Number(diff) / blockTime : null
-    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, source: 'scdoscan.io RPC (SCDO Shard0)', asOf: new Date().toISOString() }
+    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io EVM public node', asOf: new Date().toISOString() }
   }
   const lh = Number(localHashrate) > 0 ? Number(localHashrate) : 0
   const share = statsCache.networkHashrate && lh ? (lh / statsCache.networkHashrate) * 100 : 0
@@ -204,4 +204,22 @@ async function poolAccount (addr, fetchText) {
   try { return parsePoolAccount(j) } catch (e) { return { ok: false, unreachable: true, error: 'invalid pool response' } }
 }
 
-module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS }
+// nvidia-smi CSV: "GPU name, 61". The name itself may contain commas.
+function parseGpuTemp (text) {
+  const gpus = []
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const parts = line.split(',').map(s => s.trim()).filter(s => s !== '')
+    if (parts.length < 2) continue
+    const tempC = Number(parts[parts.length - 1])
+    const name = parts.slice(0, -1).join(', ')
+    if (name && Number.isFinite(tempC)) gpus.push({ name, tempC })
+  }
+  return gpus
+}
+async function gpuTemperature () {
+  const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,temperature.gpu', '--format=csv,noheader,nounits'], 8000)
+  const gpus = parseGpuTemp(smi)
+  return { ok: !!smi, gpus }
+}
+
+module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature }

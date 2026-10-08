@@ -49,7 +49,41 @@
     return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(3, mx), maximumFractionDigits: mx, roundingMode: 'trunc' }) // 2.0.2 D-05: never round amounts up
   }
   function fmtWei (wei, dMax) { return fmtNum(formatEther(wei), dMax) }
-  function fmtHash (h) { if (h == null) return '–'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s']; let i = 0; while (h >= 1000 && i < 3) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
+  function groupedTries (h) {
+    if (h == null || h === '') return ''
+    const n = Number(h)
+    if (!Number.isFinite(n) || n < 0) return ''
+    return Math.round(n).toLocaleString('en-US')
+  }
+  function speedText (h, on) {
+    if (!on) return T('mineSpeedOff')
+    const n = groupedTries(h)
+    if (!n) return T('mineSpeedUnknown')
+    return T('mineSpeedLine', { n: n })
+  }
+  function peerText (n) {
+    if (n == null || n === '') return T('minePeersUnknown')
+    return T('minePeersLine', { n: n })
+  }
+  function blockText (n) { return T('mineBlocksLine', { n: n || 0 }) }
+  function shareText (a, r) { return T('mineSharesLine', { a: a || 0, r: r || 0 }) }
+  function scdoLine (key, n) { return (n == null || n === '') ? T('mineAmountUnknown') : T(key, { n: n }) }
+  function rateText (on, young, rate) {
+    if (!on || young || rate == null || !Number.isFinite(Number(rate))) return T('mineRateOff')
+    return T('mineRateLine', { n: String(Number(Number(rate).toFixed(2))) })
+  }
+  function heightWord (v) {
+    const n = Number(v)
+    if (!(n > 0)) return T('mineHeightUnknown')
+    return T('mineHeightNum', { n: Math.round(n).toLocaleString('en-US') })
+  }
+  function tipPack (name, value, explain, detail) {
+    return { name: name || '', value: value || '', explain: explain || '', detail: detail || '' }
+  }
+  function statHtml (id, label, value, tip) {
+    const t = tip || {}
+    return `<div class="stat explain" tabindex="0" data-tip-name="${esc(t.name || label)}" data-tip-value="${esc(t.value || value)}" data-tip-explain="${esc(t.explain || '')}" data-tip-detail="${esc(t.detail || '')}"><div class="lbl">${esc(label)}</div><div class="v" id="${id}">${esc(value)}</div></div>`
+  }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
   function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
   function avatar (name) {
@@ -70,8 +104,10 @@
   // else the file name without its ".<timestamp>" suffix. Files without a usable name (empty, or the old "new …"
   // default) get a stable number: 帳戶 N / Account N.
   ui.names = (ui.names && typeof ui.names === 'object' && !Array.isArray(ui.names)) ? ui.names : {}
+  ui.payees = Array.isArray(ui.payees) ? ui.payees.filter(p => p && typeof p.name === 'string' && p.name.trim()).map(p => ({ name: String(p.name).trim(), kind: 'remit' })).slice(-100) : []
   ui.accNo = (ui.accNo && typeof ui.accNo === 'object' && !Array.isArray(ui.accNo)) ? ui.accNo : {}
   ui.rewardExtra = Array.isArray(ui.rewardExtra) ? ui.rewardExtra.filter(x => /^0x[0-9a-fA-F]{40}$/.test(x)) : []
+  ui.classicExtra = Array.isArray(ui.classicExtra) ? ui.classicExtra.map(a => (window.SCDOZpow ? window.SCDOZpow.parseClassicAddress(a) : null)).filter(Boolean).map(a => a.address) : []
   const stripTs = (f) => String(f).replace(/\.\d{10,}$/, '').trim()
   const needsNo = (f) => { const b = stripTs(f); return !b || /^new(\s|$|[-_.])/i.test(b) || /^account\d*$/i.test(b) }
   const nextNo = () => Math.max(0, ...Object.values(ui.accNo).map(Number).filter(Number.isFinite)) + 1
@@ -81,16 +117,20 @@
     if (ui.accNo[f]) return T('accountN', { n: ui.accNo[f] })
     return stripTs(f) || f
   }
-  // Network shown in the top-right selector: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards; ui.shard = 1..4 (one shard) or 0 (all four).
+  // Network follows the account tab: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards.
+  // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['home', 'new', 'old', 'mine', 'remit']
-  let tab0 = TABS.includes(ui.tab) ? ui.tab : (localStorage.getItem('tab112') || 'home')
-  if (!TABS.includes(tab0)) tab0 = 'home'
+  const TABS = ['old', 'new', 'mine']
+  let savedTab = ui.tab || localStorage.getItem('tab112') || 'old'
+  if (savedTab === 'home') savedTab = 'new'
+  if (savedTab === 'remit') savedTab = ui.net === 'old' ? 'old' : 'new'
+  let tab0 = TABS.includes(savedTab) ? savedTab : 'old'
   if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
   ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
   const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
-  if (ui.net === 'old' && (tab0 === 'home' || tab0 === 'new')) tab0 = 'old'
-  if (ui.net === 'new' && tab0 === 'old') tab0 = 'home'
+  if (ui.net === 'old' && tab0 === 'new') tab0 = 'old'
+  if (ui.net === 'new' && tab0 === 'old') tab0 = 'new'
+  if (ui.tab === 'remit' || ui.tab === 'home') { ui.tab = tab0; saveUi() }
   const st = {
     tab: tab0,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
@@ -99,9 +139,13 @@
     s0: {}, // filename -> { nativeWei, tokens, err }
     old: {}, // pubkey -> number (SCDO) | null
     net: { s0Block: null, s0Ok: null, oldOk: null },
-    miner: null, gpu: null, logOpen: false,
+    miner: null, miners: { shard0: { chain: 'shard0', running: false, code: 'IDLE' }, classicCpu: { chain: 'classic', mode: 'cpu', running: false, code: 'IDLE' }, classicGpu: { chain: 'classic', mode: 'gpu', running: false, code: 'IDLE' } }, gpu: null, caps: null, logOpen: false,
+    mineShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('mineShard112'))) ? Number(localStorage.getItem('mineShard112')) : 0,
+    mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
-    remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
+    remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false,
+    payReview: null
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -172,82 +216,128 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // switch tab; the account tabs also set the network (SCDO Shard0 (EVM) tab -> 'new', Classic accounts tab -> 'old'); Mining keeps it
+  // Account tabs select the network. Classic -> 'old', Shard0 accounts -> 'new'. Mining keeps the last one.
+  // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
-    st.tab = TABS.includes(v) ? v : 'home'
-    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
+    if (v === 'remit') { openRemitFor((headerAccount() || {}).filename || st.sel); return }
+    st.tab = TABS.includes(v) ? v : 'old'
+    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'new') ui.net = 'new'
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
-  function setNet (v, shard) {
-    const net = v === 'old' ? 'old' : 'new'
-    if (net === 'old') { ui.shard = [1, 2, 3, 4].includes(Number(shard)) ? Number(shard) : 0; setTab('old') } else setTab(st.tab === 'old' ? 'home' : st.tab)
-    ui.net = net; saveUi()
+  // The account switcher follows the tab that owns the network. Mining and 匯款 follow the last account tab.
+  function headerChain () {
+    if (st.tab === 'old') return 'old'
+    if (st.tab === 'new') return 'new'
+    return ui.net === 'old' ? 'old' : 'new'
   }
-  const netOldName = () => ui.shard ? T('netOld', { n: ui.shard }) : T('netOldAll')
-  function renderHeader () {
-    const a = selected()
-    const netOld = ui.net === 'old'
-    const netOk = netOld ? st.net.oldOk : st.net.s0Ok
-    let sw
+  function headerAccounts () {
+    if (headerChain() === 'old') return shardFilter(visible('old'))
+    return visible('new')
+  }
+  function headerAccount () {
+    if (headerChain() === 'old') {
+      const list = headerAccounts()
+      return list.find(x => x.filename === st.sel) || list[0] || null
+    }
+    return selected()
+  }
+  // Card buttons open Mining or 匯款 with this keyfile already chosen. No account menu.
+  // Mining still shows Shard0 GPU and Classic Shard1–4 GPU and CPU; the click does not start a miner.
+  function openMineFor (filename, chain) {
+    const a = accByFile(filename)
+    if (!a) return
+    st.sel = a.filename
+    localStorage.setItem('selAcc112', a.filename)
+    const classic = parseClassicAddress(a.pubkey)
+    if (classic) localStorage.setItem('minerClassic', classic.address)
+    // Shard0 reward is only this card. A locked 0x is read from the keystore
+    // public address when that field is already 0x; a Classic address cannot
+    // become 0x, so the dropdown stays on "pick an address" instead of another wallet.
+    if (chain !== 'old') {
+      let own = window.SCDOZpow && window.SCDOZpow.ownRewardAddress ? window.SCDOZpow.ownRewardAddress(a) : null
+      if (!own && a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm)) own = a.evm
+      if (own) localStorage.setItem('minerReward', own)
+      else localStorage.removeItem('minerReward')
+    }
+    const shard = classic ? classic.shard : Number(a.shard)
+    st.mineShard = chain === 'old' && [1, 2, 3, 4].includes(shard) ? shard : 0
+    localStorage.setItem('mineShard112', String(st.mineShard))
+    if ($('md')) SD.clear($('modalRoot'))
+    setTab('mine')
+    render()
+    ensureGpu()
+    ensureCaps()
+  }
+  function openRemitFor (filename) {
+    const a = accByFile(filename)
     if (a) {
-      sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
-        ${avatar(accLabel(a))}
-        <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
-        <div class="aa ${a.evm ? 'mono' : ''}">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
-        ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
-      </div>`
-    } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
-    SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
-      ${sw}<div class="spacer"></div>
-      <div class="minepill" id="minePill" data-act="tab" data-v="mine"></div>
-      <div class="netsel" data-act="netMenu" id="netSel"><span class="dot ${netOk == null ? '' : netOk ? 'ok' : 'bad'}"></span>${esc(netOld ? netOldName() : T('netNew'))} ▾</div>
-      <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
+      st.sel = a.filename
+      localStorage.setItem('selAcc112', a.filename)
+    }
+    if ($('md')) SD.clear($('modalRoot'))
+    payModal(a ? a.filename : '')
+  }
+  function renderHeader () {
+    const a = headerAccount()
+    const nextLang = lang() === 'CN' ? 'EN' : 'CN'
+    const hdr = $('hdr')
+    const island = $('statusIsland')
+    const compact = $('islandCompact')
+    // Mining status arrives about once a second and calls render(). Rebuilding #hdr
+    // would replace every chip, disconnect the open bubble, and close it.
+    if (!hdr || !island || !compact || !$('acctSwitch')) {
+      const chip = `<button type="button" class="acct-chip" data-act="accChip" id="acctSwitch" title="${esc(a ? accLabel(a) : T('noAccount'))}">${avatar(a ? accLabel(a) : '?')}</button>`
+      SD.html(hdr, `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
+      <div class="island" id="statusIsland">
+        <div class="island-compact" id="islandCompact"></div>
+      </div>
+      ${chip}
+      <button type="button" class="lang-one" data-act="hdrLang" data-v="${nextLang}" id="langToggle" title="${esc(T('setLang'))}">${nextLang === 'EN' ? 'EN' : '華'}</button>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
-    renderMinePill()
-    const tabs = [['home', 'tabHome'], ['new', 'tabNew'], ['old', 'tabOld'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
-    SD.html($('tabs'), tabs.map(([k, l]) => `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${esc(T(l))}</button>`).join(''))
+    } else {
+      const sw = $('acctSwitch')
+      const title = a ? accLabel(a) : T('noAccount')
+      if (sw.title !== title || !sw.querySelector('.avatar')) {
+        sw.title = title
+        SD.html(sw, avatar(a ? accLabel(a) : '?'))
+      }
+      const langBtn = $('langToggle')
+      if (langBtn) {
+        const label = nextLang === 'EN' ? 'EN' : '華'
+        if (langBtn.textContent !== label) langBtn.textContent = label
+        if (langBtn.getAttribute('data-v') !== nextLang) langBtn.setAttribute('data-v', nextLang)
+        const tip = T('setLang')
+        if (langBtn.title !== tip) langBtn.title = tip
+      }
+      const gear = $('gear')
+      if (gear) {
+        const tip = T('settings')
+        if (gear.title !== tip) gear.title = tip
+      }
+    }
+    renderIsland()
+    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]
+    SD.html($('tabs'), tabs.map(([k, l]) => {
+      const dot = k === 'old' || k === 'new' ? tabNetDot(k) : ''
+      return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${dot}${esc(T(l))}</button>`
+    }).join(''))
+  }
+  function tabNetDot (chain) {
+    const ok = chain === 'old' ? st.net.oldOk : st.net.s0Ok
+    const title = chain === 'old'
+      ? (st.net.oldOk === false ? T('netDown') : '')
+      : (st.net.s0Ok ? T('netBlock', { n: st.net.s0Block == null ? '…' : st.net.s0Block }) : (st.net.s0Ok === false ? T('netDown') : ''))
+    return `<span class="dot ${ok == null ? '' : ok ? 'ok' : 'bad'}" data-netdot="${chain}" title="${esc(title)}"></span>`
   }
 
   // ---------------- pages ----------------
-  function pageHome () {
-    const a = selected()
-    if (!st.accounts.length) {
-      return `<div class="page"><div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
-        <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div></div>`
-    }
-    const vis = visible('new')
-    const tot = s0Total(vis)
-    const hiddenN = ui.hidden.new.length
-    let top
-    if (!a) top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div><div class="muted" style="margin-top:14px">${esc(T('hiddenHint', { n: hiddenN }))}</div></div>`
-    else if (!a.evm) {
-      top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
-        <div style="font-size:24px;font-weight:700;margin-top:16px">🔒 ${esc(T('unlockTitle'))}</div>
-        <div class="unlockbox"><input class="inp" type="password" id="homePw" placeholder="${esc(T('password'))}" style="width:320px" data-enter="unlockHome">
-        <button class="btn pri" data-act="unlock" data-f="${esc(a.filename)}" data-in="homePw">${esc(T('showAddress'))}</button></div>
-        <div class="actions"><button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
-    } else {
-      const b = st.s0[a.filename]
-      const bal = b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…'
-      top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
-        <div class="bn" id="homeBal">${esc(bal)}<span>SCDO</span></div>
-        <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
-        <div class="actions"><button class="btn pri big" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" id="btnReceive">⬇&nbsp; ${esc(T('receive'))}</button>
-        <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button>
-        <button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
-    }
-    let lower = ''
-    if (a && a.evm) {
-      lower = `<div class="card" style="margin-top:22px"><div class="subtabs">
-        <button class="${st.homeSub === 'assets' ? 'on' : ''}" data-act="homeSub" data-v="assets">${esc(T('assets'))}</button>
-        <button class="${st.homeSub === 'activity' ? 'on' : ''}" data-act="homeSub" data-v="activity">${esc(T('activity'))}</button></div>
-        <div id="homeLower">${st.homeSub === 'assets' ? assetsHtml(a) : activityHtml(a)}</div></div>`
-    }
-    const ot = oldTotal(visible('old'))
-    const oldBox = `<div class="oldbox"><div style="flex:1;min-width:280px"><div class="lbl" style="font-size:17px">${esc(T('oldTotal'))}</div>
-      <div class="ov" id="homeOld">${ot.known ? esc(fmtNum(ot.v)) : '…'} <span style="font-size:19px">SCDO</span></div></div>
-      <button class="link" style="font-size:20px" data-act="tab" data-v="old">${esc(T('viewOld'))}</button></div>`
-    return `<div class="page">${top}${lower}${oldBox}</div>`
+  // Home's balance, sync, and earnings live in the status island. Assets, activity, and send live on the wallet card.
+  function cardHomeFold (a) {
+    if (!a || !a.evm || a.filename !== st.sel) return ''
+    return `<div class="home-fold"><div class="subtabs">
+      <button class="${st.homeSub === 'assets' ? 'on' : ''}" data-act="homeSub" data-v="assets">${esc(T('assets'))}</button>
+      <button class="${st.homeSub === 'activity' ? 'on' : ''}" data-act="homeSub" data-v="activity">${esc(T('activity'))}</button></div>
+      <div id="homeLower">${st.homeSub === 'assets' ? assetsHtml(a) : activityHtml(a)}</div></div>`
   }
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
@@ -319,14 +409,15 @@
     let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(T('newTitle'))}</div><div class="muted" style="font-size:17px;margin-top:4px">${esc(T('newNote'))}</div></div>
       <button class="toggle" data-act="toggleHidden" id="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
       <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
-    if (!st.accounts.length) h += `<div class="hint-box">${esc(T('emptyList'))}</div>`
+    if (!st.accounts.length) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
+      <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div>`
     list.forEach((a, i) => {
       const hid = isHidden('new', a.filename)
       const b = st.s0[a.filename]
       let mid; let right
       if (a.evm) {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:2px;flex-wrap:wrap"><span class="mono addr">${esc(a.evm)}</span>
-          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new">${esc(T('qr'))}</button></div>`
+          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" ${a.filename === st.sel ? 'id="btnReceive"' : ''}>${esc(T('receive'))}</button></div>`
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" data-bal="${esc(a.filename)}">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei)) : '…'} <span>SCDO</span></div></div>`
       } else {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><span class="lockline">🔒 ${esc(T('locked'))}</span>
@@ -335,8 +426,8 @@
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="muted" style="font-size:17px">${esc(T('balanceAfterUnlock'))}</div></div>`
       }
       h += `<div class="card acc ${hid ? 'hidden-acc' : ''}" data-row="${esc(a.filename)}"><div class="main"><div class="nm">${esc(accLabel(a))} ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>${mid}</div>${right}
-        <div class="ops one"><button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
-        <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
+        <div class="ops one">${cardFeatureOps(a, 'new')}<button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
+        <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div>${cardHomeFold(a)}</div>`
     })
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
     return h + '</div>'
@@ -348,8 +439,10 @@
     const chips = `<div class="shardchips" id="shardChips">${[0, 1, 2, 3, 4].map(n => `<button class="${ui.shard === n ? 'on' : ''}" data-act="pickShard" data-v="${n}" id="chip-${n}">${esc(n ? T('shardN', { n }) : T('shardAll'))}</button>`).join('')}</div>`
     let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(ui.shard ? T('oldTitleN', { n: ui.shard }) : T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(ui.shard ? T('oldSubN', { n: ui.shard }) : T('oldSub'))}</span></div>
       <div class="muted" style="font-size:17px;margin-top:4px">${esc(T('oldNote'))}</div></div>
-      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button></div>${chips}`
-    if (!st.accounts.length) h += `<div class="hint-box">${esc(T('emptyList'))}</div>`
+      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
+      <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>${chips}`
+    if (!st.accounts.length) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
+      <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div>`
     else if (!list.length) h += `<div class="hint-box">${esc(T('noShardAcc'))}</div>`
     list.forEach(a => {
       const hid = isHidden('old', a.filename)
@@ -359,7 +452,7 @@
         <button class="btn ghost small" data-act="copy" data-v="${esc(a.pubkey)}">${esc(T('copy'))}</button></div></div>
         <div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" style="color:#3d4160" data-oldbal="${esc(a.pubkey)}">${v != null ? esc(fmtNum(v)) : '…'} <span>SCDO</span></div></div>
         <div class="ops"><button class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">${esc(T('receive'))}</button>
-        <button class="btn sec small" data-act="sendOld" data-f="${esc(a.filename)}">${esc(T('send'))}</button>
+        ${cardFeatureOps(a, 'old')}
         <button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button>
         <button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="old" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
@@ -382,21 +475,45 @@
   function minerText (m) {
     if (!m) return T('st_IDLE')
     const code = m.code || 'IDLE'
-    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '' }
+    // zh-Hant never pastes the English miner sentence into 「出錯：{m}」.
+    if (lang() === 'CN' && code === 'ERROR') return window.SCDOStartError.full('CN', code, m.message)
+    const p = { l: heightWord(m.localBlock), n: heightWord(m.networkBlock), w: m.wallet || '', m: lang() === 'CN' ? '' : (m.message || ''), shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
     let s = T('st_' + code, p)
-    if (s === 'st_' + code) s = m.message || code
+    if (s === 'st_' + code) s = lang() === 'CN' ? window.SCDOStartError.full('CN', code, m.message) : (m.message || code)
     if (code === 'DOWNLOADING' && m.download && m.download.total) s += ' ' + Math.round(100 * m.download.got / m.download.total) + '%'
     return s
+  }
+  function fmtSyncEta (sec) {
+    const cn = lang() === 'CN'
+    const n = Number(sec)
+    if (sec == null || !Number.isFinite(n) || n < 0) return cn ? '還在算' : 'still working it out'
+    if (n < 5) return cn ? '還在算' : 'still working it out'
+    const s = Math.round(n)
+    const plural = (k, word) => k + ' ' + word + (k === 1 ? '' : 's')
+    if (s < 60) return cn ? (s + ' 秒') : plural(s, 'second')
+    const mins = Math.round(s / 60)
+    if (mins < 60) return cn ? (mins + ' 分鐘') : plural(mins, 'minute')
+    const h = Math.floor(mins / 60)
+    const rm = mins % 60
+    const hours = cn ? (h + ' 小時') : plural(h, 'hour')
+    if (!rm || h >= 10) return hours
+    return hours + ' ' + (cn ? (rm + ' 分鐘') : plural(rm, 'minute'))
   }
   function minerClass (m) {
     if (!m) return ''
     if (m.phase === 'error') return 'bad'
-    if (['MINING', 'NODE_RUNNING', 'EXTERNAL_NODE'].includes(m.code)) return 'good'
-    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN'].includes(m.code)) return 'warn'
+    if (['MINING', 'NODE_RUNNING', 'EXTERNAL_NODE', 'CLASSIC_MINING', 'CLASSIC_GPU'].includes(m.code)) return 'good'
+    if (['SYNCING', 'NO_PEERS', 'MINING_STARTING', 'STARTING', 'DOWNLOADING', 'EXTRACTING', 'INIT', 'STOPPING', 'PAUSED', 'EXTERNAL_DOWN', 'CLASSIC_STARTING', 'CLASSIC_CHECKING', 'CLASSIC_SYNCING', 'CLASSIC_PAUSED', 'POOL_CONNECTING', 'RESTARTING'].includes(m.code)) return 'warn'
     return ''
+  }
+  function cardFeatureOps (a, chain) {
+    return `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button><button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
   }
   function rewardOptions () {
     const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
+    const chosen = accByFile(st.sel)
+    const own = chosen && window.SCDOZpow && window.SCDOZpow.ownRewardAddress ? window.SCDOZpow.ownRewardAddress(chosen) : (chosen && chosen.evm)
+    if (own && !l.some(o => o.v.toLowerCase() === String(own).toLowerCase())) l.unshift({ v: own, l: accLabel(chosen) })
     const extra = ui.rewardExtra.slice()
     for (const k of ['minerReward', 'nodePayout']) { const x = localStorage.getItem(k); if (x && /^0x[0-9a-fA-F]{40}$/.test(x) && !extra.some(y => y.toLowerCase() === x.toLowerCase())) extra.push(x) }
     for (const x of extra) if (!l.some(o => o.v.toLowerCase() === x.toLowerCase())) l.push({ v: x, l: T('rewardOtherLabel') })
@@ -404,11 +521,11 @@
   }
   // address <select>: placeholder when nothing is chosen (never silently preselect an account), wallet accounts by
   // name, saved external addresses, and "other address…" which opens a paste field
-  function addrSelect (id, opts, cur, disabled) {
+  function addrSelect (id, opts, cur, disabled, placeholder, otherLabel) {
     const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
     const open = !!(st.otherOpen && st.otherOpen[id])
-    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(T('rewardOther'))}</option></select>
-      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono" id="${id}-in" placeholder="0x…" style="flex:1;min-width:320px" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
+    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
+      <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono half" id="${id}-in" placeholder="${esc(placeholder || '0x…')}" style="flex:1;min-width:320px" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
   }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
   function payoutDefault () {
@@ -421,30 +538,167 @@
     const opts = rewardOptions(); const cur = payoutDefault()
     return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div>${addrSelect('nPayout', opts, cur, running)}${opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('payoutNone'))}</div>`}</div>`
   }
+  function miningInput (v) {
+    const z = window.SCDOZpow
+    if (z && z.normalizeMiningInput) return z.normalizeMiningInput(v)
+    return String(v == null ? '' : v).normalize('NFKC').replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/\u3000/g, ' ').replace(/\s+/g, '')
+  }
+  function parseClassicAddress (v) {
+    const z = window.SCDOZpow
+    return z && z.parseClassicAddress ? z.parseClassicAddress(v) : null
+  }
+  function cpuCount () { return Math.max(1, Number(st.caps && st.caps.cpuCount) || 1) }
+  function threadCount () {
+    const max = cpuCount()
+    const saved = Number(localStorage.getItem('mineThreads112'))
+    const n = Number.isFinite(saved) && saved >= 1 ? saved : ((st.caps && st.caps.threadsDefault) || max)
+    return Math.max(1, Math.min(max, Math.floor(n)))
+  }
+  function gpuParams () {
+    let g = {}
+    try { g = JSON.parse(localStorage.getItem('mineGpu112') || '{}') } catch (e) { g = {} }
+    const n = (v, d) => { const x = Number(miningInput(v)); return Number.isFinite(x) && x >= 1 ? Math.floor(x) : d }
+    return { threads: n(g.threads, 1), threadblocks: n(g.threadblocks, 100), blockthreads: n(g.blockthreads, 100) }
+  }
+  function saveGpuParams () {
+    const read = (id, d) => { const el = $(id); return el ? Number(miningInput(el.value)) : d }
+    const g = gpuParams()
+    const next = {
+      threads: read('mGpuThreads', g.threads),
+      threadblocks: read('mThreadBlocks', g.threadblocks),
+      blockthreads: read('mBlockThreads', g.blockthreads)
+    }
+    localStorage.setItem('mineGpu112', JSON.stringify(next))
+    return next
+  }
+  function classicOptions (shard) {
+    const opts = []
+    const addClassic = (a) => {
+      const p = parseClassicAddress(a.pubkey)
+      if (p && p.shard === shard && !opts.some(o => o.v === p.address)) opts.push({ v: p.address, l: accLabel(a) })
+    }
+    visible('old').forEach(addClassic)
+    const chosen = accByFile(st.sel)
+    if (chosen) addClassic(chosen)
+    ;(ui.classicExtra || []).forEach(x => {
+      const p = parseClassicAddress(x)
+      if (p && p.shard === shard && !opts.some(o => o.v === p.address)) opts.push({ v: p.address, l: T('rewardOtherLabel') })
+    })
+    return opts
+  }
+  function pageMineClassic (m, running, shard) {
+    const caps = st.caps || {}
+    const gpuOn = !!(caps.gpu && caps.gpu.available)
+    const extOn = !!(caps.external && caps.external.available)
+    const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
+    const opts = classicOptions(shard)
+    const saved = localStorage.getItem('minerClassic') || ''
+    const cur = (running && m.chain === 'classic' && m.wallet) || saved
+    const sel = addrSelect('mClassic', opts, cur, running, T('classicAddrPh', { n: shard, p: shard + 'S0' + shard }), T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
+    const pool = (caps.pools && caps.pools[shard]) || {}
+    const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
+    if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
+    let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${dis ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
+    if (!gpuOn) h += `<div class="lbl">${esc(T('classicGpuOff'))}</div>`
+    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T('classicCpuMissing'))}</div>`
+    h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
+    const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
+    if (showPool && pool.stratum) {
+      h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
+      if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
+    }
+    if (backend === 'cpu') {
+      const threads = threadCount(); const max = cpuCount()
+      const cores = T('cpuCoresLine', { n: threads, max: max })
+      h += `<div class="field"><div class="lbl explain" id="mThreadsLab" tabindex="0" data-tip-name="${esc(T('cpuCoresName'))}" data-tip-value="${esc(cores)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(cores)}</div>
+        <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
+        <div class="lbl">${esc(T('cpuThreadsHint'))}</div>`
+    } else if (backend === 'gpu') {
+      const g = gpuParams()
+      h += `<div class="row" style="gap:12px;flex-wrap:wrap;margin-top:10px">
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuThreads'))}" data-tip-value="${esc(String(g.threads))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuBlocks'))}" data-tip-value="${esc(String(g.threadblocks))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuBlocks'))}<br><input class="inp half" id="mThreadBlocks" inputmode="numeric" value="${g.threadblocks}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuBlockThreads'))}" data-tip-value="${esc(String(g.blockthreads))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuBlockThreads'))}<br><input class="inp half" id="mBlockThreads" inputmode="numeric" value="${g.blockthreads}" ${running ? 'disabled' : ''}></label>
+      </div>`
+    }
+    const active = running && m.chain === 'classic'
+    const young = m.startedAt && (Date.now() - m.startedAt < 600000)
+    const hr = speedText(m.hashrate, active)
+    const shares = shareText(m.sharesAccepted, m.sharesRejected)
+    const found = blockText(m.blocksFound)
+    const pending = scdoLine('minePendingLine', m.poolStats && m.poolStats.pending)
+    const paid = scdoLine('minePaidLine', m.poolStats && m.poolStats.paid)
+    const rate = rateText(active && m.blocksFound > 0, young, m.blockRatePerHour)
+    h += `<div class="stats">
+        ${statHtml('mHr', T('hashrate'), hr, tipPack(T('hashrate'), hr, T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
+        ${statHtml('mAcc', T('acceptedShares'), shares, tipPack(T('acceptedShares'), shares, T('mineTipShares')))}
+        ${statHtml('mFound', T('blocksFound'), found, tipPack(T('blocksFound'), found, T('mineTipBlocks')))}
+        ${backend === 'cpu'
+          ? statHtml('mPending', T('poolPending'), pending, tipPack(T('poolPending'), pending, T('mineTipPending'))) + statHtml('mPaid', T('poolPaid'), paid, tipPack(T('poolPaid'), paid, T('mineTipPaid')))
+          : statHtml('mRate', T('blockRate'), rate, tipPack(T('blockRate'), rate, T('mineTipRate')))}
+      </div>
+      <div class="row" style="margin-top:22px"><button class="btn ${active ? 'dan' : 'pri'} big" data-act="${active ? 'minerStop' : 'mineStart'}" id="btnMine">${esc(active ? T('stopMining') : T('startMining'))}</button></div>
+      <div class="lbl" style="margin-top:10px">${esc(backend === 'cpu' ? T('classicFirst') : T('blockRateHint'))}</div>`
+    if (backend !== 'cpu') h += `<div class="lbl">${esc(T('classicFirst'))}</div>`
+    return h
+  }
+  function slotForView () {
+    if (Number(st.mineShard) >= 1) return st.mineBackend === 'cpu' ? 'classicCpu' : 'classicGpu'
+    return 'shard0'
+  }
+  function viewMiner () { return (st.miners && st.miners[slotForView()]) || {} }
+  function storeMiner (m) {
+    if (!st.miners) st.miners = {}
+    if (m && m.shard0 && m.classicCpu && m.classicGpu) {
+      st.miners = { shard0: m.shard0, classicCpu: m.classicCpu, classicGpu: m.classicGpu }
+      return
+    }
+    if (m && m.chain === 'classic' && m.mode === 'cpu') st.miners.classicCpu = m
+    else if (m && m.chain === 'classic') st.miners.classicGpu = m
+    else if (m) st.miners.shard0 = Object.assign({ chain: 'shard0' }, m)
+  }
+  function mineAdvanced (showDefender, m) {
+    m = m || {}
+    return `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
+      <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
+      <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
+      ${showDefender ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
+      <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
+      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
+  }
   function pageMine () {
+    st.miner = viewMiner()
     const m = st.miner || {}
     const running = !!m.running
+    const mineShard = [0, 1, 2, 3, 4].includes(Number(st.mineShard)) ? Number(st.mineShard) : 0
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('mineTitle'))}</div>`
+    h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
+    h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
+    if (mineShard !== 0) {
+      h += pageMineClassic(m, running, mineShard)
+      h += mineAdvanced(false, m)
+      return h + '</div></div>'
+    }
     if (api.platform === 'darwin') return h + `</div><div id="miningBatch1"></div></div>`
     if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div><div id="miningBatch1"></div></div>`
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
     const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
-    const statusBar = `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>`
-    const blocks = `<div class="stat"><div class="lbl">${esc(T('localNet'))}</div><div class="v" id="mBlocks">${m.localBlock == null ? '–' : esc(m.localBlock)} / ${m.networkBlock == null ? (st.net.s0Block == null ? '–' : esc(st.net.s0Block)) : esc(m.networkBlock)}</div></div>
-      <div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
+    const statusBar = ''
+    const peerLine = peerText(m.peers)
+    const blocks = statHtml('mPeers', T('peers'), peerLine, tipPack(T('peers'), peerLine, T('mineTipPeer')))
     if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
-      const cur = m.wallet || saved
+      const cur = saved
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
         ${statusBar}
         ${m.mode === 'pool' && running && m.poolUrl ? `<div class="infobox" id="poolNow">${esc(T('poolNow', { u: m.poolUrl }))}</div>` : ''}
-        <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
-        <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>${blocks}</div>
+        <div class="stats">${statHtml('mHr', T('hashrate') + (mineMode ? '' : ' ' + T('hashrateHint')), speedText(m.hashrate, mineMode), tipPack(T('hashrate'), speedText(m.hashrate, mineMode), T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
+        ${statHtml('mFound', T('blocksFound'), blockText(m.blocksFound), tipPack(T('blocksFound'), blockText(m.blocksFound), T('mineTipBlocks')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
           ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
@@ -458,27 +712,28 @@
       // external node answering: one green line only (no separate status bar that could contradict it)
       if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
       h += ext ? `<div class="lbl" style="margin-top:8px">${esc(T('extPayout'))}</div>` : payoutField(m, running)
-      h += `${extOk ? '' : statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
+      h += `${extOk ? '' : statusBar}<div class="stats">${statHtml('mNodeState', T('nodeState'), nodeStateText(m), tipPack(T('nodeState'), nodeStateText(m), T('mineTipNode')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap">
         ${ext ? `<button class="btn ghost" data-act="minerStop" id="btnNode">${esc(T('stopWatch'))}</button>` : running ? `<button class="btn dan big" data-act="minerStop" id="btnNode">${esc(T('stopNode'))}</button>` : `<button class="btn pri big" data-act="nodeStart" id="btnNode">${esc(T('runNode'))}</button>`}</div>
         <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
     }
-    h += `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
-      <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
-      <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
-      ${api.platform === 'win32' && g.nvidia ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
-      <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
-      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
+    h += mineAdvanced(api.platform === 'win32' && g.nvidia, m)
     return h + '</div><div id="miningBatch1"></div></div>'
   }
 
-  // ---------------- 2.0.12 remittance (匯款): unlock + personal_sign, no KYC form ----------------
-  // Keyfile decryption, the personal_sign and the bearer token all stay in the main process (remitService).
-  // The page only gets the signed-in address and that address's own ledger.
+  // ---------------- 2.0.12 remittance gateway: unlock + personal_sign, no KYC form ----------------
+  // The 匯款 tab is gone. payModal is the only entry. This block stays next to remitLogin:
+  // keyfile decryption, personal_sign and the bearer token all stay in the main process.
+  // The screen only receives the signed-in address and that address's own ledger.
   const sameAddr = (x, y) => !!x && !!y && String(x).toLowerCase() === String(y).toLowerCase()
   function remitReset () { st.remit = { phase: 'idle', error: '', address: '', ledger: null, base: st.remit.base || '' } }
+  function remitAccount () {
+    const exact = st.accounts.find(x => x.filename === st.sel)
+    if (exact) return exact
+    return selected()
+  }
   function remitOwnsSession () {
-    const a = selected()
+    const a = remitAccount()
     return !!(a && a.evm && st.remit.phase === 'in' && st.remit.address && sameAddr(a.evm, st.remit.address))
   }
   function remitSteps (phase) {
@@ -510,7 +765,7 @@
     }).join('')
   }
   function pageRemit () {
-    const a = selected()
+    const a = remitAccount()
     if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) SD.text(el, r.base) } }).catch(() => {})
     const signedIn = remitOwnsSession()
     if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
@@ -567,8 +822,10 @@
     const inp = $('remitPw')
     const pw = inp ? inp.value : ''
     if (!pw) { toast(T('errPw')); return }
+    const inPay = !!$('payRoute')
     st.remit.phase = 'challenge'; st.remit.error = ''; st.remit.address = ''; st.remit.ledger = null
-    render()
+    if (inPay) { const el = $('payStatus'); if (el) el.textContent = T('remitChallenge') }
+    else render()
     let r = null
     try { r = await api.invoke('remit:login', a.filename, pw) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
     await reloadAccounts()
@@ -576,12 +833,16 @@
     if (r && r.ok && (!own || sameAddr(own, r.address))) {
       st.remit = { phase: 'in', error: '', address: r.address, ledger: r.ledger, base: st.remit.base }
       toast(T('remitIn'))
+      if (inPay && $('payRoute')) payShowLedger()
+      else render()
     } else {
       if (r && r.ok) { api.invoke('remit:logout').catch(() => {}); r = { ok: false, foreign: true } }
       st.remit.phase = 'error'; st.remit.address = ''; st.remit.ledger = null
       st.remit.error = remitErrText(r)
+      if (inPay && $('payErr')) $('payErr').textContent = st.remit.error
+      else render()
     }
-    render(); refreshS0()
+    refreshS0()
   }
   async function remitRefresh () {
     if (!remitOwnsSession()) return
@@ -596,7 +857,13 @@
     }
     render()
   }
-  api.on('remit:step', (p) => { if (['challenge', 'sign', 'session', 'ledger'].includes(p) && st.remit.phase !== 'in' && st.remit.phase !== 'error' && st.remit.phase !== 'idle') { st.remit.phase = p; if (st.tab === 'remit') render() } })
+  api.on('remit:step', (p) => {
+    if (!['challenge', 'sign', 'session', 'ledger'].includes(p) || st.remit.phase === 'in' || st.remit.phase === 'error' || st.remit.phase === 'idle') return
+    st.remit.phase = p
+    const el = $('payStatus')
+    if (!el) return
+    el.textContent = p === 'challenge' ? T('remitChallenge') : p === 'sign' ? T('remitSigning') : p === 'session' ? T('remitSession') : T('remitLedgerLoad')
+  })
 
   // ---------------- render ----------------
   function render () {
@@ -604,25 +871,22 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
-    SD.html(main, (pages[st.tab] || pageHome)())
+    const pages = { new: pageNew, old: pageOld, mine: pageMine }
+    SD.html(main, (pages[st.tab] || pageNew)())
     if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
     main.scrollTop = y
     document.title = 'SCDO Wallet ' + APPVER
   }
   function mountMining () {
-    const root = $('miningBatch1'); if (!root) return
+    const root = $('miningBatch1'); if (!root) { try { window.SCDOMining.MiningPage.unmount() } catch (e) {} return }
     window.SCDOMining.MiningPage.mount(root, { miner: st.miner, toast, rerender: () => { if (st.tab === 'mine' && !$('md') && !(document.activeElement && document.activeElement.id === 'poolUrl')) render() } })
   }
   // cheap updates of numbers without re-rendering inputs the user may be typing into
   function renderLive () {
     renderHeaderNetOnly()
+    renderIsland()
     if ($('md')) return
-    if (st.tab === 'home') {
-      const active = document.activeElement
-      if (active && active.tagName === 'INPUT') return
-      render()
-    } else if (st.tab === 'new') {
+    if (st.tab === 'new') {
       document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) SD.valueUnit(el, fmtWei(b.nativeWei), 'SCDO') })
     } else if (st.tab === 'old') {
       document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) SD.valueUnit(el, fmtNum(v), 'SCDO') })
@@ -634,38 +898,512 @@
     if (m.mode === 'pool' && m.poolUrl) return String(m.poolUrl).replace(/^[a-z0-9+]+:\/\//i, '')
     return T('poolLocal')
   }
-  function minePillText (m) {
-    m = m || {}
-    if (m.phase === 'error') return { cls: 'bad', t: '⛏ ' + T('pillError') }
-    if (!m.running) return { cls: '', t: '⛏ ' + T('pillStopped') }
-    if (m.mode === 'node') return { cls: '', t: T('pillNode') }
-    const hr = m.code === 'MINING' && m.hashrate > 0 ? ' · ' + fmtHash(m.hashrate) : ''
-    return { cls: m.code === 'MINING' ? 'ok' : 'warn', t: '⛏ ' + (m.code === 'MINING' ? T('pillMining') : T('pillStarting')) + hr + ' · ' + T('poolLbl') + ' ' + poolLabel(m) }
+  function currentMinePill () {
+    const shard0 = (st.miners && st.miners.shard0) || st.miner
+    const miners = {
+      shard0: shard0 && shard0.chain === 'classic' ? null : shard0,
+      classicCpu: st.miners && st.miners.classicCpu,
+      classicGpu: st.miners && st.miners.classicGpu
+    }
+    const x = window.SCDOMinePill.formatMinePill(miners, T)
+    const s0 = miners.shard0 || {}
+    if (s0.running && s0.mode !== 'node' && s0.phase !== 'error') {
+      const hr = s0.code === 'MINING' && s0.hashrate > 0 ? ' · ' + speedText(s0.hashrate, true) : ''
+      x.t += hr + ' · ' + T('poolLbl') + ' ' + poolLabel(s0)
+    }
+    return x
   }
-  function renderMinePill () {
-    const e = $('minePill'); if (!e) return
-    const x = minePillText(st.miner)
-    e.className = 'minepill ' + x.cls; e.textContent = x.t; e.title = x.t
+  function headerBalanceText () {
+    const a = headerAccount()
+    if (!a) return T('noAccount')
+    const name = String(accLabel(a) || '').trim()
+    let amt
+    if (headerChain() === 'old') {
+      const v = st.old[a.pubkey]
+      amt = (v != null ? fmtNum(v) : '…') + ' SCDO'
+    } else if (!a.evm) amt = T('lockedShort')
+    else {
+      const b = st.s0[a.filename]
+      amt = (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+    }
+    return (name ? name + ' ' : '') + amt
+  }
+  function headerBalanceName () {
+    const a = headerAccount()
+    return a ? String(accLabel(a) || '').trim() : ''
+  }
+  function headerBalanceMark () {
+    const name = headerBalanceName()
+    return name ? name[0].toUpperCase() : ''
+  }
+  function earnEvents () {
+    const out = []
+    const push = (m, shard) => {
+      if (!m || !Array.isArray(m.blocksFoundHeights) || shard == null || !Number.isFinite(Number(shard))) return
+      for (const h of m.blocksFoundHeights) out.push({ shard: Number(shard), height: h })
+    }
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    push(s0 && s0.chain !== 'classic' ? s0 : null, 0)
+    const cpu = st.miners && st.miners.classicCpu
+    const gpu = st.miners && st.miners.classicGpu
+    push(cpu, cpu && cpu.shard)
+    push(gpu, gpu && gpu.shard)
+    return out
+  }
+  function noteEarn () {
+    let prev = null
+    try { prev = JSON.parse(localStorage.getItem('mineEarn112') || 'null') } catch (e) { prev = null }
+    const next = window.SCDOIsland.absorbBlocks(prev, earnEvents(), Date.now())
+    try { localStorage.setItem('mineEarn112', JSON.stringify(next)) } catch (e) {}
+    st.earn = next
+    return next
+  }
+  function islandModel () {
+    const earn = st.earn || noteEarn()
+    return window.SCDOIsland.buildIsland({
+      shard0: (st.miners && st.miners.shard0) || st.miner,
+      classicCpu: st.miners && st.miners.classicCpu,
+      classicGpu: st.miners && st.miners.classicGpu,
+      temps: st.gpuTemp && st.gpuTemp.gpus,
+      earnLog: earn,
+      now: Date.now(),
+      balanceText: headerBalanceText(),
+      balanceMark: headerBalanceMark(),
+      balanceName: headerBalanceName(),
+      T,
+      etaText: fmtSyncEta,
+      hashText: (h) => speedText(h, true)
+    })
+  }
+  function chipClass (c) {
+    const tone = c.kind === 'earn' || c.kind === 'bal' ? 'gold' : c.kind
+    let cls = 'isle-chip ' + tone
+    if (c.kind === 'earn') cls += ' earn'
+    if (c.kind === 'bal') cls += ' bal'
+    if (c.kind === 'temp' && c.band) cls += ' temp-' + c.band
+    if (c.live) cls += ' live'
+    if ((c.kind === 'sync' || c.kind === 'eta') && c.progress < 0.995) cls += ' shimmer'
+    return cls
+  }
+  function chipEl (c) {
+    const el = document.createElement('span')
+    el.setAttribute('data-key', c.key || c.kind)
+    el.className = chipClass(c)
+    if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
+    if (c.kind === 'sync') {
+      const bar = document.createElement('i')
+      bar.className = 'isle-bar'
+      bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+      el.appendChild(bar)
+    }
+    if (c.live) {
+      const icon = document.createElement('span')
+      icon.className = 'isle-spin'
+      icon.setAttribute('aria-hidden', 'true')
+      icon.textContent = '\u26CF'
+      el.appendChild(icon)
+    }
+    if (c.mark) {
+      const av = document.createElement('span')
+      av.className = 'isle-av'
+      paintAvatar(av, c)
+      el.appendChild(av)
+    }
+    const val = document.createElement('span')
+    val.className = 'isle-val'
+    val.textContent = c.text
+    el.appendChild(val)
+    armChip(el, c)
+    return el
+  }
+  function paintAvatar (av, c) {
+    if (av.textContent !== c.mark) av.textContent = c.mark
+    const name = c.name || ''
+    if (av.title !== name) av.title = name
+    if (av.getAttribute('aria-label') !== name) av.setAttribute('aria-label', name)
+    if (av.getAttribute('role') !== 'img') av.setAttribute('role', 'img')
+  }
+  function applyChipFace (el, c) {
+    el.className = chipClass(c)
+    if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
+    const bar = el.querySelector('.isle-bar')
+    if (bar) bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+  }
+  function syncChip (el, c) {
+    applyChipFace(el, c)
+    let bar = el.querySelector('.isle-bar')
+    if (c.kind === 'sync') {
+      if (!bar) {
+        bar = document.createElement('i')
+        bar.className = 'isle-bar'
+        el.insertBefore(bar, el.firstChild)
+      }
+      bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+    } else if (bar) bar.remove()
+    let spin = el.querySelector('.isle-spin')
+    if (c.live) {
+      if (!spin) {
+        spin = document.createElement('span')
+        spin.className = 'isle-spin'
+        spin.setAttribute('aria-hidden', 'true')
+        spin.textContent = '\u26CF'
+        const val = el.querySelector('.isle-val')
+        el.insertBefore(spin, val || null)
+      }
+    } else if (spin) spin.remove()
+    const val = el.querySelector('.isle-val')
+    let av = el.querySelector('.isle-av')
+    if (c.mark) {
+      if (!av) {
+        av = document.createElement('span')
+        av.className = 'isle-av'
+        el.insertBefore(av, val || null)
+      }
+      paintAvatar(av, c)
+    } else if (av) av.remove()
+    armChip(el, c)
+    if (val && val.textContent !== c.text) {
+      val.textContent = c.text
+      el.classList.remove('isle-tick')
+      void el.offsetWidth
+      el.classList.add('isle-tick')
+    }
+    const pop = $('islePop')
+    if (islePopAnchor === el && pop && !pop.hidden && c.tip) {
+      fillIslePop(c.tip)
+      placeIslePop(el)
+    }
+  }
+  function paintChipRow (host, chips) {
+    const list = chips || []
+    const have = {}
+    for (const el of host.children) {
+      const k = el.getAttribute('data-key')
+      if (k && !have[k]) have[k] = el
+    }
+    const keep = {}
+    list.forEach(c => {
+      const key = c.key || c.kind
+      keep[key] = true
+      let el = have[key]
+      if (!el) el = chipEl(c)
+      else syncChip(el, c)
+      host.appendChild(el)
+    })
+    for (const el of [...host.children]) {
+      if (!keep[el.getAttribute('data-key')]) el.remove()
+    }
+    if (islePopAnchor && !islePopAnchor.isConnected) closeIslePop(true)
+  }
+  function ensureLine (compact, id, className) {
+    let line = compact.querySelector('#' + id)
+    if (!line) {
+      line = document.createElement('div')
+      line.id = id
+      line.className = className
+      compact.appendChild(line)
+    }
+    return line
+  }
+  function miningBusy () {
+    const cpu = st.miners && st.miners.classicCpu
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    if (cpu && cpu.running) return true
+    if (gpu && gpu.running) return true
+    return !!(s0 && s0.running && s0.mode !== 'node')
+  }
+  function renderActBar () {
+    const bar = $('actBar')
+    if (!bar) return
+    const on = miningBusy()
+    const locked = on || st.actStarting
+    const stop = on ? `<button type="button" class="btn danl act-stop" data-act="stopAll" id="actStop">${esc(T('isleStopAll'))}</button>` : ''
+    SD.html(bar, `<div class="act-main"><button type="button" class="btn pri" data-act="isleStart" id="actStart" ${locked ? 'disabled' : ''}>${esc(locked ? T('actMining') : T('isleStart'))}</button><button type="button" class="btn sec" data-act="tab" data-v="mine" id="actGoMine">${esc(T('actGoMine'))}</button><button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button></div>${stop}`)
+  }
+  function renderIsland () {
+    const compact = $('islandCompact')
+    if (!compact || !window.SCDOIsland) return
+    if (islePopAnchor && !islePopAnchor.isConnected) closeIslePop(true)
+    const model = islandModel()
+    compact.removeAttribute('title')
+    paintChipRow(ensureLine(compact, 'islandLine', 'island-line'), model.chips)
+    const bot = ensureLine(compact, 'islandMoney', 'island-line island-money')
+    bot.id = 'islandMoney'
+    paintChipRow(bot, model.money)
+    ensureIsleHelp(compact)
+    renderIsleLegend(model.legend || [])
+    renderActBar()
+  }
+  let islePopTimer = 0
+  let islePopHideTimer = 0
+  let islePopToken = 0
+  let islePopPinned = false
+  let islePopAnchor = null
+  let isleLegendOn = false
+  function islePopBox () {
+    let el = $('islePop')
+    if (el) return el
+    el = document.createElement('div')
+    el.id = 'islePop'
+    el.className = 'isle-pop'
+    el.setAttribute('role', 'tooltip')
+    el.hidden = true
+    el.addEventListener('mouseenter', () => { clearTimeout(islePopHideTimer) })
+    el.addEventListener('mouseleave', () => { if (!islePopPinned) queueIslePopHide() })
+    document.body.appendChild(el)
+    return el
+  }
+  function fillIslePop (tip) {
+    const el = islePopBox()
+    el.textContent = ''
+    const name = document.createElement('b')
+    name.className = 'isle-pop-name'
+    name.textContent = tip.name || ''
+    const value = document.createElement('div')
+    value.className = 'isle-pop-value'
+    value.textContent = tip.value || ''
+    const explain = document.createElement('p')
+    explain.className = 'isle-pop-explain'
+    explain.textContent = tip.explain || ''
+    el.appendChild(name)
+    el.appendChild(value)
+    el.appendChild(explain)
+    if (tip.detail) {
+      const detail = document.createElement('p')
+      detail.className = 'isle-pop-detail'
+      detail.textContent = tip.detail
+      el.appendChild(detail)
+    }
+    return el
+  }
+  function placeIslePop (anchor) {
+    const el = islePopBox()
+    el.hidden = false
+    el.style.left = '0px'
+    el.style.top = '0px'
+    const r = anchor.getBoundingClientRect()
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const margin = 8
+    let left = r.left
+    let top = r.bottom + 8
+    if (top + h > window.innerHeight - margin) top = r.top - h - 8
+    if (top < margin) top = margin
+    if (left + w > window.innerWidth - margin) left = window.innerWidth - w - margin
+    if (left < margin) left = margin
+    el.style.left = Math.round(left) + 'px'
+    el.style.top = Math.round(top) + 'px'
+  }
+  function tipFromAnchor (anchor) {
+    if (!anchor) return null
+    if (anchor._isleTip && anchor._isleTip.explain) return anchor._isleTip
+    if (!anchor.getAttribute) return null
+    const explain = anchor.getAttribute('data-tip-explain')
+    if (!explain) return null
+    return {
+      name: anchor.getAttribute('data-tip-name') || '',
+      value: anchor.getAttribute('data-tip-value') || '',
+      explain: explain,
+      detail: anchor.getAttribute('data-tip-detail') || ''
+    }
+  }
+  function dismissIsleLegend () {
+    if (!isleLegendOn) return
+    isleLegendOn = false
+    const box = $('isleLegend')
+    if (box) box.remove()
+  }
+  function openIslePop (anchor, pin) {
+    const tip = tipFromAnchor(anchor)
+    if (!tip || !tip.explain) return
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    dismissIsleLegend()
+    if (islePopAnchor && islePopAnchor !== anchor) islePopAnchor.removeAttribute('aria-describedby')
+    fillIslePop(tip)
+    anchor.setAttribute('aria-describedby', 'islePop')
+    islePopAnchor = anchor
+    if (pin) islePopPinned = true
+    placeIslePop(anchor)
+  }
+  function closeIslePop (force) {
+    if (islePopPinned && !force) return
+    islePopPinned = false
+    clearTimeout(islePopTimer)
+    const el = $('islePop')
+    if (el) el.hidden = true
+    if (islePopAnchor) { islePopAnchor.removeAttribute('aria-describedby'); islePopAnchor = null }
+  }
+  function queueIslePop (anchor) {
+    const token = ++islePopToken
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    islePopTimer = setTimeout(() => { if (token === islePopToken) openIslePop(anchor, false) }, 300)
+  }
+  function queueIslePopHide () {
+    islePopToken++
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    islePopHideTimer = setTimeout(() => closeIslePop(false), 200)
+  }
+  function armChip (el, c) {
+    el._isleTip = c.tip || null
+    if (el._isleArmed) return
+    el._isleArmed = true
+    if (el.tagName !== 'BUTTON') el.tabIndex = 0
+    el.addEventListener('mouseenter', () => queueIslePop(el))
+    el.addEventListener('mouseleave', () => queueIslePopHide())
+    el.addEventListener('focus', () => openIslePop(el, false))
+    el.addEventListener('blur', () => queueIslePopHide())
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      openIslePop(el, true)
+    })
+  }
+  document.addEventListener('mouseover', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const from = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (from === el) return
+    queueIslePop(el)
+  })
+  document.addEventListener('mouseout', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const to = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (to === el) return
+    queueIslePopHide()
+  })
+  document.addEventListener('focusin', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (el) openIslePop(el, false)
+  })
+  document.addEventListener('focusout', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const to = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (to === el) return
+    queueIslePopHide()
+  })
+  function ensureIsleHelp (compact) {
+    let btn = compact.querySelector('#isleHelp')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.id = 'isleHelp'
+      btn.className = 'isle-help'
+      btn.setAttribute('data-act', 'isleHelp')
+      btn.textContent = '?'
+      compact.appendChild(btn)
+    }
+    btn.setAttribute('aria-label', T('isleHelpBtn'))
+  }
+  function renderIsleLegend (items) {
+    let box = $('isleLegend')
+    if (!isleLegendOn) { if (box) box.remove(); return }
+    if (!box) {
+      box = document.createElement('div')
+      box.id = 'isleLegend'
+      box.className = 'isle-legend'
+      box.setAttribute('role', 'dialog')
+      box.setAttribute('aria-modal', 'true')
+      document.body.appendChild(box)
+    }
+    box.textContent = ''
+    const h = document.createElement('h2')
+    h.textContent = T('isleHelpTitle')
+    box.appendChild(h)
+    ;(items || []).forEach(it => {
+      const p = document.createElement('p')
+      const b = document.createElement('b')
+      b.textContent = it.name || ''
+      p.appendChild(b)
+      p.appendChild(document.createTextNode((it.name ? (lang() === 'CN' ? '。' : ': ') : '') + (it.text || '')))
+      box.appendChild(p)
+    })
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'btn sec'
+    close.setAttribute('data-act', 'isleHelpClose')
+    close.textContent = T('isleHelpClose')
+    box.appendChild(close)
   }
   function renderHeaderNetOnly () {
-    const d = document.querySelector('.netsel .dot'); if (!d) return
-    const ok = ui.net === 'old' ? st.net.oldOk : st.net.s0Ok
-    d.className = 'dot ' + (ok == null ? '' : ok ? 'ok' : 'bad')
+    document.querySelectorAll('[data-netdot]').forEach(d => {
+      const ok = d.getAttribute('data-netdot') === 'old' ? st.net.oldOk : st.net.s0Ok
+      d.className = 'dot ' + (ok == null ? '' : ok ? 'ok' : 'bad')
+    })
   }
   function renderMinerLive () {
     if (st.tab !== 'mine' || $('md')) return
+    st.miner = viewMiner()
     const m = st.miner || {}
     const e = $('minerStatus')
-    const sig = [!!m.running, m.mode, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN'].join('|')
-    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'poolUrl'].includes(document.activeElement.id))) render(); return }
-    if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
-    const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
-    set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
-    set('mPeers', m.peers == null ? '–' : m.peers)
-    if ((m.mode === 'mine' || m.mode === 'pool') && m.running) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
-    set('mFound', m.blocksFound || 0)
-    const ns = $('mNodeState'); if (ns) ns.textContent = nodeStateText(m)
-    const lg = $('mLog'); if (lg && st.logOpen) { lg.textContent = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'); lg.scrollTop = lg.scrollHeight }
+    const sig = [!!m.running, m.mode, m.chain, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN', m.code].join('|')
+    const focusKeep = ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'poolUrl', 'mClassic', 'mClassic-in', 'mThreads', 'mGpuThreads', 'mThreadBlocks', 'mBlockThreads']
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && focusKeep.includes(document.activeElement.id))) render(); return }
+    if (e) {
+      const cls = 'statusbar ' + minerClass(m)
+      if (e.className !== cls) e.className = cls
+      const label = minerText(m)
+      if (e.textContent !== label) e.textContent = label
+    }
+    const set = (id, v, detail) => {
+      const x = $(id)
+      if (!x) return
+      const s = v == null ? '' : String(v)
+      if (x.textContent === s) return
+      x.textContent = s
+      const box = x.closest && x.closest('.explain')
+      if (!box) return
+      box.setAttribute('data-tip-value', s)
+      if (detail != null) box.setAttribute('data-tip-detail', detail)
+      if (islePopAnchor === box && $('islePop') && !$('islePop').hidden) fillIslePop(tipFromAnchor(box))
+    }
+    const netH = m.networkBlock == null || !(Number(m.networkBlock) > 0) ? (st.net.s0Block == null ? '…' : st.net.s0Block) : m.networkBlock
+    set('mBlocks', heightWord(m.localBlock) + ' · ' + heightWord(netH))
+    set('mPeers', peerText(m.peers))
+    if (m.running && (m.mode === 'mine' || m.mode === 'pool' || m.chain === 'classic')) set('mHr', speedText(m.hashrate, true), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') }))
+    set('mFound', blockText(m.blocksFound))
+    if (m.chain === 'classic') {
+      set('mAcc', shareText(m.sharesAccepted, m.sharesRejected))
+      const ps = m.poolStats || {}
+      set('mPending', scdoLine('minePendingLine', ps.pending))
+      set('mPaid', scdoLine('minePaidLine', ps.paid))
+      const young = m.startedAt && (Date.now() - m.startedAt < 600000)
+      set('mRate', rateText(m.blocksFound > 0, young, m.blockRatePerHour))
+    }
+    const ns = $('mNodeState')
+    if (ns) set('mNodeState', nodeStateText(m))
+    const lg = $('mLog')
+    if (lg && st.logOpen) {
+      const text = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n')
+      if (lg.textContent !== text) {
+        lg.textContent = text
+        lg.scrollTop = lg.scrollHeight
+      }
+    }
+  }
+  // Hashrate and log lines can arrive dozens of times a second. Paint once per second, in one frame.
+  let minerDomRaf = 0
+  let minerDomTimer = null
+  let minerDomAt = 0
+  function scheduleMinerDom () {
+    const wait = minerDomAt + 1000 - Date.now()
+    if (wait > 0) {
+      if (minerDomTimer != null) return
+      minerDomTimer = setTimeout(() => { minerDomTimer = null; scheduleMinerDom() }, wait)
+      return
+    }
+    if (minerDomRaf) return
+    minerDomRaf = requestAnimationFrame(flushMinerDom)
+  }
+  function flushMinerDom () {
+    minerDomRaf = 0
+    minerDomAt = Date.now()
+    renderIsland()
+    renderMinerLive()
   }
 
   // ---------------- dropdowns ----------------
@@ -676,24 +1414,50 @@
     // .overlay (z-index 50 > .dd 40), so it covered the menu and every click on a menu item only closed the menu.
     SD.html($('ddRoot'), `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${Number(r.bottom + 8)}px;${alignRight ? 'right:' + Number(Math.max(10, window.innerWidth - r.right)) + 'px' : 'left:' + Number(r.left) + 'px'};min-width:${Number(Math.max(r.width, 320))}px;max-width:760px">${html}</div>`)
   }
-  function accMenu (anchor) {
-    const vis = visible('new')
+  function accSwitchList () {
+    const chain = headerChain()
+    const vis = headerAccounts()
+    const cur = headerAccount()
     let h = `<div class="lbl" style="padding:6px 14px">${esc(T('switchAccount'))}</div>`
     vis.forEach(a => {
-      const b = st.s0[a.filename]
-      h += `<div class="it ${a.filename === st.sel ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
-        <div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
-        <div style="font-weight:700;white-space:nowrap">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei, 3)) + ' SCDO' : ''}</div></div>`
+      const addr = chain === 'old'
+        ? `<div class="mono" style="font-size:15px">${esc(a.pubkey || '')}</div>`
+        : `<div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>`
+      let bal = ''
+      if (chain === 'old') {
+        const v = st.old[a.pubkey]
+        if (v != null) bal = esc(fmtNum(v, 3)) + ' SCDO'
+      } else {
+        const b = st.s0[a.filename]
+        if (b && b.nativeWei != null) bal = esc(fmtWei(b.nativeWei, 3)) + ' SCDO'
+      }
+      h += `<div class="it ${cur && a.filename === cur.filename ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
+        ${addr}</div>
+        <div style="font-weight:700;white-space:nowrap">${bal}</div></div>`
     })
     if (!vis.length) h += `<div class="it muted">${esc(T('noAccount'))}</div>`
-    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="new">⚙ ${esc(T('manageAccounts'))}</div>`
-    openDd(anchor, h)
+    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="${chain === 'old' ? 'old' : 'new'}">⚙ ${esc(T('manageAccounts'))}</div>`
+    return h
   }
-  function netMenu (anchor) {
-    const h = `<div class="lbl" style="padding:6px 14px">${esc(T('netPick'))}</div>
-      <div class="it ${ui.net !== 'old' ? 'on' : ''}" data-act="pickNet" data-v="new" id="net-new" title="${esc(st.net.s0Ok ? T('netBlock', { n: st.net.s0Block }) : st.net.s0Ok === false ? T('netDown') : '')}"><span class="dot ${st.net.s0Ok == null ? '' : st.net.s0Ok ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netNewLong'))}</div><div class="lbl">${esc(T('netNewSub'))}</div></div><span class="ck">${ui.net !== 'old' ? '✓' : ''}</span></div>
-      ${[1, 2, 3, 4].map(n => `<div class="it ${ui.net === 'old' && ui.shard === n ? 'on' : ''}" data-act="pickNet" data-v="old" data-shard="${n}" id="net-s${n}" title="${esc(st.net.oldOk === false ? T('netDown') : '')}"><span class="dot ${st.net.oldOk == null ? '' : st.net.oldOk ? 'ok' : 'bad'}"></span><div style="flex:1"><div style="font-weight:700">${esc(T('netOldLong', { n }))}</div><div class="lbl">${esc(T('netOldSub', { n }))}</div></div><span class="ck">${ui.net === 'old' && ui.shard === n ? '✓' : ''}</span></div>`).join('')}`
-    openDd(anchor, h, true)
+  function accChipMenu (anchor) {
+    const a = headerAccount()
+    const chain = headerChain()
+    let head = ''
+    if (!a) head = `<div class="lbl" style="padding:8px 14px">${esc(T('noAccount'))}</div>`
+    else if (chain === 'old') {
+      const addr = a.pubkey || ''
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="mono" style="padding:0 14px 8px;font-size:15px;word-break:break-all">${addr ? esc(addr) : esc(T('noAccount'))}</div>
+        ${addr ? `<div class="row" style="padding:0 14px 8px;gap:8px"><button type="button" class="btn sec small" data-act="copy" data-v="${esc(addr)}">⧉ ${esc(T('copy'))}</button><button type="button" class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">▦ ${esc(T('qr'))}</button></div>` : ''}`
+    } else if (a.evm) {
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="mono" style="padding:0 14px 8px;font-size:15px;word-break:break-all">${esc(a.evm)}</div>
+        <div class="row" style="padding:0 14px 8px;gap:8px"><button type="button" class="btn sec small" data-act="copy" data-v="${esc(a.evm)}">⧉ ${esc(T('copy'))}</button><button type="button" class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new">▦ ${esc(T('qr'))}</button></div>`
+    } else {
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="lockline" style="padding:0 14px 8px">🔒 ${esc(T('locked'))}</div>`
+    }
+    openDd(anchor, head + accSwitchList(), true)
   }
 
   // ---------------- modals ----------------
@@ -702,7 +1466,23 @@
     SD.html($('modalRoot'), `<div class="overlay" id="ov"><div class="modal" id="md" style="${opts.width ? 'width:' + Number(opts.width) + 'px' : ''}">${html}</div></div>`)
     const first = $('md').querySelector('input:not([type=checkbox]):not([disabled])'); if (first && !opts.noFocus) setTimeout(() => first.focus(), 30)
   }
-  function closeModal () { SD.clear($('modalRoot')); render() }
+  function closeModal () {
+    if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+    st.payReview = null
+    SD.clear($('modalRoot')); render()
+  }
+  function confirmStopAll () {
+    return new Promise(resolve => {
+      modal(`<div class="mh" id="stopAllDlg"><h2>${esc(T('stopAllTitle'))}</h2></div>
+        <div class="foot"><button type="button" class="btn ghost" id="cbNo">${esc(T('cancel'))}</button><button type="button" class="btn danl" id="cbYes">${esc(T('stopAllYes'))}</button></div>`, { width: 560, noFocus: true })
+      const no = $('cbNo')
+      const yes = $('cbYes')
+      const done = (v) => { SD.clear($('modalRoot')); resolve(v) }
+      no.onclick = () => done(false)
+      yes.onclick = () => done(true)
+      no.focus()
+    })
+  }
   function confirmBox (title, text, yes, no, danger) {
     return new Promise(resolve => {
       modal(`<div class="mh"><h2>${esc(title)}</h2></div><div style="font-size:20px;white-space:pre-line">${esc(text)}</div>
@@ -741,201 +1521,349 @@
   const ADDR_ERR = { FORMAT: 'errAddr', CHECKSUM: 'errChecksum', CLASSIC_ADDR: 'errOldAddrToNew', ZERO_ADDR: 'errZeroAddr' }
   const ADDR_WARN = { SELF: 'warnSelf', CONTRACT: 'warnContract', TOKEN_CONTRACT: 'warnTokenContract', NO_CHECKSUM: 'warnNoChecksum', CONTRACT_UNKNOWN: 'warnContractUnknown' }
   const SEND_ERR = { INSUFFICIENT: 'errTooMuch', NO_FEE_BALANCE: 'errNoFeeBal', WRONG_PASSWORD: 'wrongPw', REVIEW_EXPIRED: 'errReviewExpired', WRONG_CHAIN: 'errWrongChain', BAD_AMOUNT: 'errAmount', ADDRESS_CHANGED: 'errAddr', NO_PASSWORD: 'errPw', NONCE_BUSY: 'errNonceBusy', NETWORK: 'errNetwork', BROADCAST_TIMEOUT: 'errBcastTimeout', NONCE_READ: 'errNetwork', REPLACED: 'errReplaced' }
-  function sendModal (f) {
-    const a = accByFile(f); if (!a || !a.evm) return
-    const s = { asset: 'SCDO', to: '', amount: '', fee: null, check: null, review: null }
-    api.invoke('s0:balances', a.evm).then(r => { st.s0[a.filename] = balFromIpc(r) }).catch(() => {}) // 2.0.2 D-07: fresh balance for 'Available' when the modal opens
-    const dec = () => { if (s.asset === 'SCDO') return 18; const t = (S0CFG.tokens || []).find(x => x.symbol === s.asset); return t ? t.decimals : 18 }
-    const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : dec(), t } }
-    const balText = () => { const b = bal(); if (s.asset === 'SCDO') return b.wei != null ? fmtWei(b.wei) + ' SCDO' : '…'; return b.t && b.t.balance != null ? fmtNum(b.t.balance, b.dec) + ' ' + s.asset : '…' }
-    const head = (i) => `<div class="mh"><h2>${esc(T('sendTitle'))}</h2>${stepsHtml(i)}</div>`
-    const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.evm)}</div></div>`
-    const netLine = `<div class="lbl" id="sNet">${esc(T('network'))}${PU.c()}<b>SCDO Shard0 (EVM)</b> · ${esc(T('chainIdN', { n: S0CFG.chainId }))}</div>`
-    const cancelReview = () => { if (s.review && s.review.token) api.invoke('s0:cancelReview', s.review.token); s.review = null }
-    function step1 () {
-      modal(`${head(0)}${fromLine}${netLine}
-        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
-        <div class="err" id="sErr"></div><div class="warnbox" id="sWarn" style="display:none"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal" id="sCancel">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      wireAssetPicker(a, () => s.asset, (v) => { s.to = nhw($('sTo').value); s.asset = v; s.amount = ''; s.fee = null; step1() })
-      const go = async () => {
-        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
-        $('sErr').textContent = ''; SD.spin($('sErr'), T('checkingAddr')); $('sNext').disabled = true
-        let chk
-        try { chk = await api.invoke('s0:checkAddress', a.evm, to, s.asset) } catch (e) { chk = { ok: false, errors: ['FORMAT'] } }
-        if (!$('sNext')) return
-        $('sNext').disabled = false; $('sErr').textContent = ''
-        if (!chk.ok) { $('sErr').textContent = T(ADDR_ERR[chk.errors[0]] || 'errAddr'); return }
-        s.to = chk.address; s.check = chk; step2()
-      }
-      $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
-    }
-    async function estimate () {
-      try { const f = await api.invoke('s0:estimate', a.evm, s.to, s.amount && Number(s.amount) > 0 ? s.amount : '0', s.asset); s.fee = f ? { estFeeWei: BigInt(f.estFeeWei), maxFeeWei: BigInt(f.maxFeeWei) } : null } catch (e) { s.fee = null }
-      return s.fee
-    }
-    function feeText (fee) { fee = fee || s.fee; return fee ? T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(fee.maxFeeWei, 8) }) + PU.r() : '…' }
-    function step2 () {
-      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>${netLine}
-        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}${esc(s.asset)}${PU.r()}</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
-        <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeText())}</div></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('reviewBtn'))}</button></div>`)
-      estimate().then(() => { const e = $('sFee'); if (e) e.textContent = feeText() })
-      wireAssetPicker(a, () => s.asset, (v) => { s.asset = v; s.amount = ''; s.fee = null; step2() })
-      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
-      $('sMax').onclick = async () => {
-        const b = bal()
-        if (s.asset === 'SCDO') {
-          if (b.wei == null) return
-          const fee = (await estimate()) || { maxFeeWei: 0n }
-          let v = b.wei - fee.maxFeeWei; if (v < 0n) v = 0n
-          $('sAmt').value = formatEther(v)
-        } else if (b.raw != null) $('sAmt').value = formatUnits(b.raw, b.dec)
-        const e = $('sFee'); if (e) e.textContent = feeText()
-      }
-      const go = async () => {
-        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
-        try { if (parseUnits(v, dec()) <= 0n) throw new Error('x') } catch (e) { $('sErr').textContent = T('errAmount'); return }
-        s.amount = v
-        $('sNext').disabled = true; SD.spin($('sErr'), T('preparingReview'))
-        let r
-        try { r = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }) } catch (e) { r = { ok: false, error: e.message } }
-        if (!$('sNext')) { if (r && r.token) api.invoke('s0:cancelReview', r.token); return }
-        $('sNext').disabled = false; $('sErr').textContent = ''
-        if (r.check && !r.check.ok) { $('sErr').textContent = T(ADDR_ERR[r.check.errors[0]] || 'errAddr'); return }
-        if (!r.ok) { $('sErr').textContent = r.errors && r.errors.length ? T(SEND_ERR[r.errors[0]] || 'errAmount') : (SEND_ERR[r.error] ? T(SEND_ERR[r.error]) : T('errReview', { e: r.error || '?' })); return }
-        s.review = r; step3()
-      }
-      $('sNext').onclick = go; $('sAmt').onkeydown = (e) => { if (e.key === 'Enter') go() }
-    }
-    // the confirm screen
-    function step3 () {
-      const r = s.review
-      const fee = { estFeeWei: BigInt(r.fee.estFeeWei), maxFeeWei: BigInt(r.fee.maxFeeWei) }
-      const warns = (r.check.warnings || []).filter(w => ADDR_WARN[w])
-      const total = r.totalEstWei ? fmtNum(formatEther(r.totalEstWei), 8) + ' SCDO' + PU.l() + T('feeMax', { v: fmtNum(formatEther(r.totalMaxWei), 8) }) + PU.r() : fmtNum(r.amount, 18) + ' ' + r.asset + ' + ' + T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) })
-      modal(`<div class="mh"><h2>${esc(T('confirmTitle'))}</h2>${stepsHtml(2)}</div><div class="review" id="sReview">
-        <div class="r"><div class="k">${esc(T('network'))}</div><div class="v" id="cfNet">SCDO Shard0 (EVM) · ${esc(T('chainIdN', { n: r.network.chainId }))}</div></div>
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(r.from)}</div></div></div>
-        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v"><div class="mono" style="font-size:19px" id="cfTo">${esc(r.to)}</div><div class="lbl" style="color:#146c2e">✔ ${esc(T(r.check.warnings.includes('NO_CHECKSUM') ? 'addrOkNoChecksum' : 'addrOkChecksum'))}</div></div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047" id="cfAmt">${esc(fmtNum(r.amount, 18))} ${esc(r.asset)}</div></div>
-        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400" id="cfFee">${esc(feeText(fee))}</div></div>
-        <div class="r"><div class="k">${esc(T('total'))}</div><div class="v" id="cfTotal">${esc(total)}</div></div></div>
-        ${warns.map(w => `<div class="warnbox" data-warn="${esc(w)}">⚠ ${esc(T(ADDR_WARN[w]))}</div>`).join('')}
-        ${warns.length ? `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px;cursor:pointer"><input type="checkbox" id="sAck" style="width:22px;height:22px"> ${esc(T('ackWarnings'))}</label>` : ''}
-        <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
-        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw" autocomplete="off"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sCancel">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo" ${warns.length ? 'disabled' : ''}>${esc(T('confirmSend'))}</button></div>`)
-      const ack = $('sAck'); if (ack) ack.onchange = () => { $('sGo').disabled = !ack.checked }
-      $('sCancel').onclick = () => { cancelReview(); closeModal(); toast(T('sendCanceled')) }
-      $('sBack').onclick = () => { cancelReview(); step2() }
-      const go = async () => {
-        if (ack && !ack.checked) { $('sErr').textContent = T('ackWarnings'); return }
-        const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; $('sBack').disabled = true; $('sCancel').disabled = true; SD.spin($('sErr'), T('sending'))
-        $('sPw').value = ''
-        let res
-        try { res = await api.invoke('s0:send', { token: r.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
-        if (res && res.ok) { s.review = null; loadActivity(a.evm); step4(res.hash); return }
-        if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { s.review = null; loadActivity(a.evm); step4(res.hash, T('errBcastTimeout')); return } // rerun N-3: outcome unknown -> Pending, keep checking
-        if (res && res.error === 'WRONG_PASSWORD') {
-          // the token is single-use: build a fresh review so the user can retry with the right password
-          try { const r2 = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }); if (r2 && r2.ok) { s.review = r2; step3(); $('sErr').textContent = T('wrongPw'); return } } catch (e) {}
-        }
-        if ($('sErr')) { $('sErr').textContent = T('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? T(SEND_ERR[res.error]) : String((res && res.error) || 'error')); $('sBack').disabled = false; $('sCancel').disabled = false }
-        loadActivity(a.evm) // rerun N-3: the failed attempt is listed in Activity as Failed
-      }
-      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter' && !$('sGo').disabled) go() }
-    }
-    function step4 (hash, note) {
-      modal(`${head(3)}<div class="statusbar warn" id="sStat" style="font-size:24px"><span class="spin"></span> ${esc(T('waiting'))}</div>${note ? `<div class="err" style="margin-top:8px">${esc(note)}</div>` : ''}
-        <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
-        <div style="margin-top:10px"><button class="link" data-act="openTx" data-v="${esc(hash)}">${esc(T('openExplorer'))} →</button></div>
-        <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
-      const notYet = () => { const e = $('sStat'); if (e) { e.className = 'statusbar warn'; e.textContent = T('notConfirmedYet') } loadActivity(a.evm) }
-      api.invoke('s0:waitReceipt', hash).then(rc => {
-        if (rc && rc.timeout) { notYet(); return }
-        const e = $('sStat'); if (e) { e.className = 'statusbar ' + (rc.ok ? 'good' : 'bad'); e.textContent = rc.ok ? '✅ ' + T('confirmed', { n: rc.block }) : '❌ ' + T('failed') }
-        loadActivity(a.evm); refreshS0()
-      }).catch(notYet)
-    }
-    step1()
+  // ----- one 匯款 form: the wallet picks chain or gateway; the user presses 確認匯款 -----
+  // Nothing here runs s0:send, old:send, or remit:login until that button.
+  function signingAddress (payer, route) {
+    if (!payer) return ''
+    if (!route || route.kind === 'gateway' || route.kind === 'incomplete' || route.shard === 0) return payer.evm || ''
+    return payer.pubkey || ''
   }
-
-  // ----- send on a Classic shard (same shard only), same stepped pattern -----
-  function sendOldModal (f) {
-    const a = accByFile(f); if (!a) return
-    const s = { to: '', amount: '', gas: null, price: 1 }
-    const head = (i) => `<div class="mh"><h2>${esc(T('sendOldTitle', { n: a.shard }))}</h2>${stepsHtml(i)}</div>`
-    const balV = () => st.old[a.pubkey]
-    const feeScdo = () => s.gas == null ? null : s.gas * s.price / 1e8
-    const feeLine = () => feeScdo() == null ? '…' : T('feeAbout', { v: fmtNum(feeScdo(), 8) })
-    function step1 () {
-      modal(`${head(0)}<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.pubkey)}</div></div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPhOld', { n: a.shard }))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      const go = () => {
-        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
-        if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { $('sErr').textContent = T('errAddrOld'); return }
-        if (String(to[0]) !== String(a.shard) && !CFG.allowCrossShard) { $('sErr').textContent = T('errCross', { n: a.shard }); return }
-        if (to.toLowerCase() === a.pubkey.toLowerCase()) { $('sErr').textContent = T('errSelf'); return }
-        s.to = to
-        api.invoke('old:estimateGas', a.pubkey, to).then(g => { if (g) s.gas = Number(g); const e = $('sFee'); if (e) e.textContent = feeLine() }).catch(() => {})
-        step2()
-      }
-      $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
+  function payerValid (payer, route) {
+    if (!payer) return false
+    if (!route || route.kind === 'incomplete') return true
+    if (route.kind === 'gateway') return !!(payer.evm && /^0x[0-9a-fA-F]{40}$/.test(payer.evm))
+    if (route.kind !== 'chain') return false
+    if (route.shard === 0) return !!(payer.evm && /^0x[0-9a-fA-F]{40}$/.test(payer.evm))
+    return String(payer.shard) === String(route.shard) && /^[1-4]S[0-9a-fA-F]{40}$/.test(payer.pubkey || '')
+  }
+  function payersForRoute (route) {
+    const all = st.accounts || []
+    if (!route || route.kind === 'incomplete') return all.slice()
+    return all.filter(a => payerValid(a, route))
+  }
+  function allPayees () {
+    const out = []
+    const push = (name) => {
+      const n = nhw(name)
+      if (!n || /^0x[0-9a-fA-F]{40}$/.test(n) || /^[1-4]S[0-9a-fA-F]{40}$/.test(n)) return
+      if (!out.some(p => p.name === n)) out.push({ name: n, kind: 'remit' })
     }
-    function step2 () {
-      const b = balV()
-      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono">${esc(s.to)}</div></div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}SCDO${PU.r()}</div><div class="lbl">${esc(T('available', { v: b == null ? '…' : fmtNum(b) + ' SCDO' }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
-        <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeLine())}</div></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
-      $('sMax').onclick = () => { const bb = balV(); if (bb == null) return; const v = Math.max(0, bb - (feeScdo() || 0.00021)); $('sAmt').value = String(Math.floor(v * 1e8) / 1e8) }
-      const go = () => {
-        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
-        if (!/^\d+(\.\d{1,8})?$/.test(v) || Number(v) <= 0) { $('sErr').textContent = T('errAmount'); return }
-        const bb = balV(); if (bb != null && Number(v) + (feeScdo() || 0) > bb) { $('sErr').textContent = T('errTooMuch'); return }
-        s.amount = v; step3()
-      }
-      $('sNext').onclick = go; $('sAmt').onkeydown = (e) => { if (e.key === 'Enter') go() }
+    for (const p of (Array.isArray(ui.payees) ? ui.payees : [])) push(p && p.name)
+    const ledger = st.remit && st.remit.ledger
+    const entries = !ledger || typeof ledger !== 'object' ? [] : (Array.isArray(ledger) ? ledger : (ledger.entries || ledger.items || ledger.transfers || ledger.records || []))
+    for (const e of entries) { if (!e || typeof e !== 'object') continue; push(e.payee); push(e.beneficiary) }
+    return out
+  }
+  function rememberPayee (name) {
+    const n = nhw(name)
+    if (!n || /^0x[0-9a-fA-F]{40}$/.test(n) || /^[1-4]S[0-9a-fA-F]{40}$/.test(n)) return
+    if ((st.accounts || []).some(a => accLabel(a) === n)) return
+    ui.payees = Array.isArray(ui.payees) ? ui.payees : []
+    if (ui.payees.some(p => p && p.name === n)) return
+    ui.payees.push({ name: n, kind: 'remit' })
+    if (ui.payees.length > 100) ui.payees = ui.payees.slice(-100)
+    saveUi()
+  }
+  function payModal (f, prefill) {
+    const TC = (k, p) => T(k, p)
+    const opened = accByFile(f) || headerAccount()
+    if (!opened) {
+      modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+        <div class="muted" style="font-size:20px">${esc(TC('remitNeedAccount'))}</div>
+        <div class="foot"><button class="btn pri" data-act="create">${esc(TC('createAccount'))}</button><button class="btn sec" data-act="import">${esc(TC('importAccount'))}</button></div>`, { width: 640 })
+      return
     }
-    function step3 () {
-      modal(`${head(2)}<div class="review">
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.pubkey)}</div></div></div>
-        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047">${esc(fmtNum(s.amount, 8))} SCDO</div></div>
-        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeLine())}</div></div></div>
-        <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
-        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo">${esc(T('confirmSend'))}</button></div>`)
-      $('sBack').onclick = step2
-      const go = () => {
-        const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; SD.spin($('sErr'), T('sending'))
-        $('sPw').value = ''
-        api.invoke('old:send', { file: a.filename, password: pw, to: s.to, amount: s.amount, price: s.price, gas: s.gas || 21000 }).then(res => {
-          if (!res || !res.ok) { const em = String((res && res.error) || 'error'); if ($('sErr')) { $('sErr').textContent = em === 'WRONG_PASSWORD' ? T('wrongPw') : em; $('sGo').disabled = false } return }
-          const hash = res.hash
-          modal(`${head(3)}<div class="statusbar good" style="font-size:22px">✅ ${esc(T('sentOld'))}</div>
-            <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
-            <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
-          refreshOld()
-        })
-      }
-      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter') go() }
+    const s = {
+      to: prefill && prefill.to ? String(prefill.to) : '',
+      amount: prefill && prefill.amount ? String(prefill.amount) : '',
+      feeText: '',
+      feeFor: null,
+      gas: null,
+      payerFile: opened.filename
     }
-    step1()
+    if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+    st.payReview = null
+    const accountsForRoute = () => (st.accounts || []).map(a => ({ label: accLabel(a), filename: a.filename, address: a.pubkey || '', evm: a.evm || '', shard: a.shard }))
+    const currentRoute = () => window.SCDORemitRoute.routePay({
+      to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText || '…', etaText: ''
+    })
+    let feeTimer = 0
+    let feeGen = 0
+    function chosenPayer (route) {
+      const payer = accByFile(s.payerFile)
+      return payer && payerValid(payer, route) ? payer : null
+    }
+    function paintPayer (route) {
+      const box = $('payFrom')
+      if (!box) return chosenPayer(route)
+      const choices = payersForRoute(route)
+      const key = (route.kind || '') + ':' + (route.shard == null ? '' : route.shard) + ':' + choices.map(a => a.filename).join('|')
+      let sel = $('payPayer')
+      if (!sel || sel.getAttribute('data-key') !== key) {
+        const opts = ['<option value="">' + esc(TC('payPick')) + '</option>'].concat(choices.map(a => {
+          const addr = signingAddress(a, route)
+          return '<option value="' + esc(a.filename) + '">' + esc(accLabel(a) + (addr ? ' · ' + addr : '')) + '</option>'
+        }))
+        SD.html(box, '<select class="inp" id="payPayer" data-key="' + esc(key) + '">' + opts.join('') + '</select><div id="paySign" class="mono" style="font-size:15px;margin-top:6px"></div>')
+        sel = $('payPayer')
+        if (sel) sel.onchange = () => {
+          s.payerFile = sel.value || ''
+          s.feeText = ''
+          s.feeFor = null
+          s.gas = null
+          if (st.payReview && st.payReview.file !== s.payerFile) dropReview()
+          sync()
+        }
+      }
+      const payer = chosenPayer(route)
+      if (sel) sel.value = payer ? payer.filename : ''
+      const sign = $('paySign')
+      const addr = payer ? signingAddress(payer, route) : ''
+      if (sign) {
+        if (payer && addr) sign.textContent = TC('paySignAddr') + addr
+        else if (payer && route.kind === 'chain' && route.shard === 0) sign.textContent = TC('payUnlock')
+        else if (!payer) sign.textContent = choices.length ? TC('payPick') : TC('payNoPayer')
+        else sign.textContent = ''
+      }
+      const self = $('paySelf')
+      const hit = !!(addr && route.to && addr.toLowerCase() === String(route.to).toLowerCase() && (route.kind === 'chain'))
+      if (self) {
+        self.style.display = hit ? 'block' : 'none'
+        self.textContent = hit ? TC('warnSelf') : ''
+      }
+      return payer
+    }
+    function paint (route) {
+      route = route || currentRoute()
+      const line = $('payRoute')
+      if (line) {
+        const text = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : (route.line || TC('payRouteWait'))
+        if (line.textContent !== text) line.textContent = text
+        line.classList.add('explain')
+        line.tabIndex = 0
+        line.setAttribute('data-tip-name', TC('payRouteName'))
+        line.setAttribute('data-tip-value', text)
+        line.setAttribute('data-tip-explain', TC('payRouteExplain'))
+        line.setAttribute('data-tip-detail', route.kind === 'chain' ? TC('payRouteDetailChain') : TC('payRouteDetailGate'))
+      }
+      const payer = paintPayer(route)
+      const note = $('payNote')
+      if (note) note.textContent = route.kind === 'gateway' ? TC('payGateNote') : route.kind === 'chain' ? TC('payChainNote') : ''
+      return route && payer ? route : route
+    }
+    function dropReview () {
+      if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+      st.payReview = null
+      const extra = $('payExtra')
+      if (extra && !extra.querySelector('#remitLedger')) extra.textContent = ''
+    }
+    function sync () {
+      const to = $('payTo'); const amt = $('payAmt')
+      s.to = nhw(to ? to.value : s.to)
+      s.amount = nhw(amt ? amt.value : s.amount)
+      let route = window.SCDORemitRoute.routePay({
+        to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText, etaText: ''
+      })
+      if (route.kind === 'chain' && route.shard >= 1) {
+        if (!s.feeText || s.feeFor !== route.shard) {
+          s.feeText = '0.00021 SCDO'
+          s.gas = 21000
+          s.feeFor = route.shard
+        }
+      } else if (route.kind !== 'chain') {
+        s.feeText = ''
+        s.feeFor = null
+      } else if (s.feeFor !== 0) {
+        s.feeText = ''
+        s.feeFor = 0
+      }
+      route = currentRoute()
+      if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount || st.payReview.file !== s.payerFile)) dropReview()
+      paint(route)
+      clearTimeout(feeTimer)
+      if (route.kind !== 'chain') return
+      const gen = ++feeGen
+      const snap = route
+      feeTimer = setTimeout(async () => {
+        const payer = chosenPayer(snap)
+        let text = snap.shard >= 1 ? '0.00021 SCDO' : ''
+        let gas = snap.shard >= 1 ? 21000 : null
+        try {
+          if (snap.shard === 0 && payer && payer.evm) {
+            const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
+            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei), 8) + ' SCDO'
+          } else if (snap.shard >= 1) {
+            if (payer && payer.pubkey) {
+              const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
+              if (g) gas = Number(g)
+            }
+            text = fmtNum(gas / 1e8, 8) + ' SCDO'
+          }
+        } catch (e) {
+          if (snap.shard >= 1) text = '0.00021 SCDO'
+        }
+        if (gen !== feeGen || !$('payRoute')) return
+        if (text) s.feeText = text
+        if (gas) s.gas = gas
+        paint()
+      }, 350)
+    }
+    modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      <div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap" style="font-size:18px;font-weight:700"></div>
+      <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
+      <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
+        <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
+      <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
+        <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"></div>
+      <div class="infobox" id="payRoute"></div>
+      <div class="lbl" id="payNote" style="margin-top:8px"></div>
+      <div id="payExtra"></div>
+      <div id="payStatus" style="margin-top:8px"></div>
+      <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
+      <div class="err" id="payErr"></div>
+      <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(TC('cancel'))}</button><button class="btn pri" type="button" id="btnRemitSign">${esc(TC('payGo'))}</button></div>`, { width: 680 })
+    const chips = $('payeeChips')
+    const names = allPayees().map(p => p.name).slice(0, 8)
+    if (chips && names.length) {
+      SD.html(chips, names.map(n => `<button type="button" class="btn ghost small" data-payee="${esc(n)}">${esc(n)}</button>`).join(''))
+      chips.querySelectorAll('[data-payee]').forEach(b => {
+        b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const i = $('payTo'); if (i) i.value = b.getAttribute('data-payee') || ''; sync() }
+      })
+    }
+    const toEl = $('payTo'); const amtEl = $('payAmt'); const pwEl = $('remitPw'); const go = $('btnRemitSign')
+    if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
+    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
+    if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
+    if (go) go.onclick = () => { confirmPay() }
+    sync()
+    function showDone (text) {
+      const extra = $('payExtra')
+      if (extra) SD.html(extra, `<div class="statusbar good" style="font-size:20px">${esc(text)}</div>`)
+      const b = $('btnRemitSign'); if (b) b.disabled = true
+    }
+    async function confirmPay () {
+      const btn = $('btnRemitSign'); const err = $('payErr')
+      if (err) err.textContent = ''
+      s.to = nhw($('payTo') ? $('payTo').value : s.to)
+      s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      const route = paint()
+      if (route.kind !== 'chain' && route.kind !== 'gateway') {
+        if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
+        return
+      }
+      const payer = chosenPayer(route)
+      if (!payer) { if (err) err.textContent = TC('payNoPayer'); return }
+      const pw = $('remitPw') ? $('remitPw').value : ''
+      if (route.kind === 'gateway') {
+        rememberPayee(route.to)
+        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { payShowLedger(); return }
+        if (!pw) { if (err) err.textContent = TC('errPw'); return }
+        await remitLogin(payer.filename)
+        if ($('remitPw')) $('remitPw').value = ''
+        return
+      }
+      if (route.shard === 0) { await confirmShard0(route, payer, pw, err, btn); return }
+      await confirmClassic(route, payer, pw, err, btn)
+    }
+    async function confirmShard0 (route, payer, pw, err, btn) {
+      if (!payer.evm) { if (err) err.textContent = TC('payUnlock'); return }
+      if (st.payReview && st.payReview.to === route.to && st.payReview.amount === route.amount && st.payReview.file === payer.filename) {
+        const ack = $('payAck')
+        if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
+        if (!pw) { if (err) err.textContent = TC('errPw'); return }
+        const token = st.payReview.token
+        st.payReview = null
+        if ($('remitPw')) $('remitPw').value = ''
+        if (btn) btn.disabled = true
+        if (err) SD.spin(err, TC('sending'))
+        let res
+        try { res = await api.invoke('s0:send', { token: token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
+        finishShard0(res, route, payer, err, btn)
+        return
+      }
+      if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+      st.payReview = null
+      if (btn) btn.disabled = true
+      if (err) SD.spin(err, TC('checkingAddr'))
+      let chk
+      try { chk = await api.invoke('s0:checkAddress', payer.evm, route.to, 'SCDO') } catch (e) { chk = { ok: false, errors: ['FORMAT'] } }
+      if (!$('btnRemitSign')) return
+      if (!chk.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[chk.errors[0]] || 'errAddr'); return }
+      if (chk.address) { s.to = chk.address; const inp = $('payTo'); if (inp) inp.value = chk.address; route.to = chk.address }
+      if (err) SD.spin(err, TC('preparingReview'))
+      let rev
+      try { rev = await api.invoke('s0:review', { file: payer.filename, to: chk.address, amount: route.amount, asset: 'SCDO' }) } catch (e) { rev = { ok: false, error: e.message } }
+      if (!$('btnRemitSign')) { if (rev && rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
+      if (rev.check && !rev.check.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[rev.check.errors[0]] || 'errAddr'); if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
+      if (!rev.ok) {
+        if (btn) btn.disabled = false
+        if (err) err.textContent = rev.errors && rev.errors.length ? TC(SEND_ERR[rev.errors[0]] || 'errAmount') : (SEND_ERR[rev.error] ? TC(SEND_ERR[rev.error]) : TC('errReview', { e: rev.error || '?' }))
+        return
+      }
+      const warns = ((rev.check && rev.check.warnings) || []).filter(w => ADDR_WARN[w])
+      if (warns.length) {
+        st.payReview = { token: rev.token, to: chk.address, amount: route.amount, file: payer.filename, warns: warns }
+        const extra = $('payExtra')
+        if (extra) SD.html(extra, warns.map(w => `<div class="warnbox">⚠ ${esc(TC(ADDR_WARN[w]))}</div>`).join('') + `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px"><input type="checkbox" id="payAck" style="width:22px;height:22px"> ${esc(TC('ackWarnings'))}</label>`)
+        const ack = $('payAck')
+        if (ack) ack.onchange = () => { const b = $('btnRemitSign'); if (b) b.disabled = !ack.checked }
+        if (btn) btn.disabled = true
+        if (err) err.textContent = ''
+        return
+      }
+      if (!pw) { if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+      if ($('remitPw')) $('remitPw').value = ''
+      if (err) SD.spin(err, TC('sending'))
+      let res
+      try { res = await api.invoke('s0:send', { token: rev.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
+      finishShard0(res, route, payer, err, btn)
+    }
+    function finishShard0 (res, route, payer, err, btn) {
+      if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || '')); loadActivity(payer.evm); refreshS0(); return }
+      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash); loadActivity(payer.evm); return }
+      if (err) err.textContent = TC('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? TC(SEND_ERR[res.error]) : String((res && res.error) || 'error'))
+      if (btn) btn.disabled = false
+      loadActivity(payer.evm)
+    }
+    async function confirmClassic (route, payer, pw, err, btn) {
+      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
+      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
+      if (String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()) {
+        const box = $('paySelf')
+        if (box) { box.style.display = 'block'; box.textContent = TC('warnSelf') }
+      }
+      if (!/^\d+(\.\d{1,8})?$/.test(route.amount) || !(Number(route.amount) > 0)) { if (err) err.textContent = TC('errAmount'); return }
+      let gas = s.gas
+      try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
+      const fee = (gas || 21000) / 1e8
+      const bal = st.old[payer.pubkey]
+      if (bal != null && Number(route.amount) + fee > bal) { if (err) err.textContent = TC('errTooMuch'); return }
+      if (!pw) { if (err) err.textContent = TC('errPw'); return }
+      if ($('remitPw')) $('remitPw').value = ''
+      if (btn) btn.disabled = true
+      if (err) SD.spin(err, TC('sending'))
+      let res
+      try { res = await api.invoke('old:send', { file: payer.filename, password: pw, to: route.to, amount: route.amount, price: 1, gas: gas || 21000 }) } catch (e) { res = { ok: false, error: e.message } }
+      if (!$('payRoute')) return
+      if (!res || !res.ok) {
+        const em = String((res && res.error) || 'error')
+        if (err) err.textContent = em === 'WRONG_PASSWORD' ? TC('wrongPw') : em
+        if (btn) btn.disabled = false
+        return
+      }
+      showDone(TC('sentOld') + ' ' + (res.hash || ''))
+      refreshOld()
+    }
+  }
+  function payShowLedger () {
+    const box = $('payExtra')
+    if (!box) return false
+    SD.html(box, `<div class="ok" id="remitStatus" style="font-size:20px;font-weight:700">${esc(T('remitIn'))}</div>
+      <div class="mono" id="remitAddr">${esc(st.remit.address || '')}</div>
+      <div id="remitLedger">${remitLedgerHtml(st.remit.ledger)}</div>`)
+    const stEl = $('payStatus'); if (stEl) stEl.textContent = ''
+    return true
   }
 
   // ----- create / import -----
@@ -993,7 +1921,18 @@
     setTimeout(() => { const i = $('rnName'); if (i) { i.focus(); i.select() } }, 30)
   }
   async function useOtherAddr (id) {
-    const inp = $(id + '-in'); const raw = nhw(inp ? inp.value : ''); if (inp) inp.value = raw
+    const inp = $(id + '-in'); const raw = id === 'mClassic' ? miningInput(inp ? inp.value : '') : nhw(inp ? inp.value : ''); if (inp) inp.value = raw
+    if (id === 'mClassic') {
+      const p = parseClassicAddress(raw)
+      const shard = Number(st.mineShard)
+      if (!p || p.shard !== shard) { toast(T('errClassicAddr'), 5000); return }
+      ui.classicExtra = ui.classicExtra || []
+      if (!ui.classicExtra.includes(p.address)) ui.classicExtra.push(p.address)
+      saveUi()
+      localStorage.setItem('minerClassic', p.address)
+      if (st.otherOpen) st.otherOpen[id] = false
+      toast('✔ ' + p.address); render(); return
+    }
     let addr = ''
     try { const c = await api.invoke('s0:checkAddress', '', raw, 'SCDO'); addr = c && c.ok ? c.address : '' } catch (e) { addr = '' }
     if (!addr || /^0x0{40}$/.test(addr)) { toast(T('errRewardAddr'), 5000); return }
@@ -1129,6 +2068,8 @@
     modal(`<div class="mh"><h2>⚙ ${esc(T('settings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
       <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
+      <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
       <div class="setsec"><div class="sh">${esc(T('accounts'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ghost" data-act="toggleHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button>
         <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
@@ -1211,8 +2152,45 @@
     if (st.tab === 'mine') render()
     return st.gpu
   }
+  async function ensureCaps () {
+    try { st.caps = await api.invoke('miner:caps') } catch (e) { st.caps = st.caps || { cpu: {}, gpu: {} } }
+    if (st.tab === 'mine') render()
+    return st.caps
+  }
+  function classicSelection () {
+    const sel = $('mClassic')
+    const shard = Number(st.mineShard)
+    const raw = sel && sel.value && sel.value !== '__other' ? sel.value : (localStorage.getItem('minerClassic') || '')
+    const p = parseClassicAddress(raw)
+    if (!p || p.shard !== shard) return null
+    return p.address
+  }
+  async function classicStart () {
+    const address = classicSelection()
+    if (!address) { toast(T('errClassicAddr'), 5000); return }
+    const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? 'gpu' : 'cpu'
+    const gpuMiner = st.mineBackend === 'external' ? 'external' : 'classic-node'
+    const threads = backend === 'cpu' ? threadCount() : saveGpuParams().threads
+    const gpu = backend === 'cpu' ? {} : saveGpuParams()
+    localStorage.setItem('minerClassic', address)
+    localStorage.setItem(backend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu', address)
+    const r = await api.invoke('miner:start', address, {
+      chain: 'classic', backend, gpuMiner, shard: Number(st.mineShard),
+      threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+    })
+    if (!r.ok) {
+      const key = 'st_' + (r.code || '')
+      const stText = r.code && r.code !== 'ERROR' && T(key) !== key ? T(key) : ''
+      toast(window.SCDOStartError.classicStartText(lang(), r.code, r.error, stText), 8000)
+      return
+    }
+    if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '1')
+    else localStorage.setItem('minerRunClassicGpu', gpuMiner === 'external' ? 'external' : 'gpu')
+  }
   async function mineStart () {
-    const sel = $('mReward'); if (!sel || !/^0x[0-9a-fA-F]{40}$/.test(sel.value)) { toast(T('pickAddr')); return }
+    if (Number(st.mineShard) >= 1) return classicStart()
+    const sel = $('mReward'); if (!sel || !/^0x[0-9a-fA-F]{40}$/.test(miningInput(sel.value))) { toast(T('pickAddr')); return }
+    if (sel) sel.value = miningInput(sel.value)
     const wallet = sel.value; localStorage.setItem('minerReward', wallet)
     if (api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
       localStorage.setItem('defenderAsked112', '1')
@@ -1220,7 +2198,12 @@
     }
     if (!(await okWithOtherRigel())) return
     const r = await api.invoke('miner:start', wallet, { mode: 'mine' })
-    if (!r.ok) { if (r.code === 'NO_NVIDIA') await ensureGpu(true); toast(r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code), 7000); return }
+    if (!r.ok) {
+      if (r.code === 'NO_NVIDIA') await ensureGpu(true)
+      const text = r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : window.SCDOStartError.full(lang(), r.code, r.error)
+      toast(text, 7000)
+      return
+    }
     // 1.1.5: the on/off state is saved by the main process (miner-intent.json), not in localStorage
   }
   // 1.1.5: another Rigel (e.g. the SCDO-Mining task of the standalone miner package) already uses the GPU -> ask first
@@ -1236,47 +2219,95 @@
     if (!/^0x[0-9a-fA-F]{40}$/.test(payout || '')) payout = ''
     if (payout) localStorage.setItem('nodePayout', payout)
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
-    if (!r.ok) { toast(r.error || r.code, 7000); return }
+    if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
+  }
+  async function stopAll () {
+    const ok = await confirmStopAll()
+    if (!ok) return
+    localStorage.setItem('minerRunClassicCpu', '')
+    localStorage.setItem('minerRunClassicGpu', '')
+    const mode = localStorage.getItem('minerMode')
+    if (mode === 'classic-cpu' || mode === 'classic-gpu') localStorage.removeItem('minerMode')
+    try { await api.invoke('miner:stop', 'mine') } catch (e) {}
+    try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
+    try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    try { await api.invoke('miner:intentClear') } catch (e) {}
+    toast(T('stopped'))
   }
   async function minerStop (src) {
-    const ext = st.miner && st.miner.phase === 'external'
-    // 2.0.6: "Stop mining" asks first (main-process dialog, Cancel is the default); node-only stop does not
-    if (!ext && src !== 'node') { let ok = false; try { ok = await api.invoke('miner:confirmStop') } catch (e) {} if (!ok) return }
+    const classic = Number(st.mineShard) >= 1
+    if (classic) {
+      const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
+      if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '')
+      else localStorage.setItem('minerRunClassicGpu', '')
+      toast(T('stopping'), 60000)
+      await api.invoke('miner:stop', { chain: 'classic', backend })
+      toast(T('stopped'))
+      return
+    }
+    const ext = st.miners && st.miners.shard0 && st.miners.shard0.phase === 'external'
     if (!ext) toast(T('stopping'), 60000)
     await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
-    const prev = st.miner
-    st.miner = m
-    renderMinePill()
-    if (m && m.code === 'DEFENDER' && (!prev || prev.code !== 'DEFENDER') && api.platform === 'win32') {
+    const prev0 = st.miners && st.miners.shard0
+    storeMiner(m)
+    st.miner = viewMiner()
+    noteEarn()
+    noteCatHeights()
+    catWatch()
+    const cur0 = st.miners.shard0
+    if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && api.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
-    renderMinerLive()
+    scheduleMinerDom()
   }
 
   // ---------------- events (one delegated handler) ----------------
   document.addEventListener('click', async (ev) => {
+    const explained = ev.target.closest && ev.target.closest('.explain')
+    const inChip = ev.target.closest && ev.target.closest('.isle-chip')
+    const inHelp = ev.target.closest && ev.target.closest('#isleHelp')
+    const inLegend = ev.target.closest && ev.target.closest('#isleLegend')
+    const inPop = ev.target.closest && (inChip || explained || ev.target.closest('#islePop') || inHelp || inLegend)
+    if (explained && !inChip) openIslePop(explained, true)
+    if (!inPop) closeIslePop(true)
+    if (isleLegendOn && !inLegend && !inHelp) dismissIsleLegend()
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
-    if (act !== 'accMenu' && act !== 'netMenu') closeDd()
+    if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') ensureGpu(); if (v === 'old') refreshOld(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
+      case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
+      case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
+      case 'isleStart': {
+        if (miningBusy() || st.actStarting) break
+        st.actStarting = true
+        renderActBar()
+        askCat('開始挖礦').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
+        break
+      }
+      case 'catOpen': st.catOpen = !st.catOpen; if (st.catOpen && !st.catLog.length && window.SCDOCat) st.catLog.push(window.SCDOCat.reply('', catCtx()).say); renderCat(); break
+      case 'catClose': st.catOpen = false; renderCat(); break
+      case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }
+      case 'catChip': askCat(v); break
+      case 'catEnabled': localStorage.setItem('aiCat112', catOn() ? '0' : '1'); renderCat(); settingsModal(); break
+      case 'stopAll': stopAll(); break
+      case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
+      case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
-      case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
-      case 'netMenu': if ($('dd')) closeDd(); else netMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (st.tab !== 'home') setTab('home'); render(); break
-      case 'pickNet': setNet(v, el.getAttribute('data-shard')); render(); if (v === 'old') refreshOld(); else refreshS0(); break
+      case 'accMenu':
+      case 'accChip': if ($('dd')) closeDd(); else accChipMenu(el); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine') setTab('new'); render(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
-      case 'send': sendModal(f); break
-      case 'sendOld': sendOldModal(f); break
+      case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'create': createModal(); break
       case 'import': if ($('md')) SD.clear($('modalRoot')); importKeyfiles(); break
       case 'unlock': unlock(f, el.getAttribute('data-in')); break
@@ -1285,6 +2316,8 @@
       case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); settingsModal() } else render(); break
       case 'delete': deleteModal(f); break
       case 'rename': renameModal(f); break
+      case 'cardMine': openMineFor(f, el.getAttribute('data-chain') || 'new'); break
+      case 'cardRemit': openRemitFor(f); break
       case 'useOtherAddr': useOtherAddr(v); break
       case 'closeModal': closeModal(); break
       case 'openTx': if (/^0x[0-9a-fA-F]{64}$/.test(String(v || ''))) openExternal(shard0().explorerTx(v)); break
@@ -1313,21 +2346,62 @@
     }
   })
   document.addEventListener('change', (ev) => {
-    const t = ev.target; if (!t || (t.id !== 'mReward' && t.id !== 'nPayout')) return
+    const t = ev.target; if (!t) return
+    if (t.id === 'mClassic') {
+      st.otherOpen = st.otherOpen || {}
+      const row = $(t.id + '-oth')
+      if (t.value === '__other') { st.otherOpen[t.id] = true; if (row) row.style.display = 'flex'; const i = $(t.id + '-in'); if (i) i.focus(); return }
+      st.otherOpen[t.id] = false; if (row) row.style.display = 'none'
+      const p = parseClassicAddress(t.value)
+      if (p) localStorage.setItem('minerClassic', p.address)
+      return
+    }
+    if (t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads') { t.value = miningInput(t.value); saveGpuParams(); return }
+    if (t.id !== 'mReward' && t.id !== 'nPayout') return
     st.otherOpen = st.otherOpen || {}
     const row = $(t.id + '-oth')
     if (t.value === '__other') { st.otherOpen[t.id] = true; if (row) row.style.display = 'flex'; const i = $(t.id + '-in'); if (i) i.focus(); return }
     st.otherOpen[t.id] = false; if (row) row.style.display = 'none'
-    if (/^0x[0-9a-fA-F]{40}$/.test(t.value)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', t.value)
+    const addr = miningInput(t.value)
+    if (addr !== t.value) t.value = addr
+    if (/^0x[0-9a-fA-F]{40}$/.test(addr)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
+  })
+  document.addEventListener('input', (ev) => {
+    const t = ev.target; if (!t || ev.isComposing) return
+    if (t.id === 'mThreads') {
+      const lab = $('mThreadsLab')
+      const cores = T('cpuCoresLine', { n: t.value, max: t.max })
+      if (lab) { lab.textContent = cores; lab.setAttribute('data-tip-value', cores) }
+      localStorage.setItem('mineThreads112', String(t.value))
+      return
+    }
+    const half = t.id === 'mClassic-in' || t.id === 'mReward-in' || t.id === 'nPayout-in' || t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads' || t.id === 'cPriv'
+    if (!half) return
+    const next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    if (next !== t.value) {
+      const pos = t.selectionStart
+      t.value = next
+      try { t.setSelectionRange(pos, pos) } catch (e) {}
+    }
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; if ($('dd')) closeDd(); else if ($('md')) closeModal() }
-    if (ev.key === 'Enter' && ev.target && ev.target.id === 'homePw') { const b = document.querySelector('[data-act=unlock][data-in=homePw]'); if (b) b.click() }
+    if (ev.key === 'Escape') {
+      if ($('stopAllDlg')) { const n = $('cbNo'); if (n) n.click(); return }
+      const popOpen = islePopPinned || ($('islePop') && !$('islePop').hidden)
+      const legendOpen = isleLegendOn
+      if (popOpen) closeIslePop(true)
+      if (legendOpen) dismissIsleLegend()
+      if (popOpen || legendOpen) return
+      if (window.__closeAssetList && window.__closeAssetList()) return
+      if ($('dd')) closeDd(); else if ($('md')) closeModal()
+    }
+    if (ev.key === 'Enter' && ev.target && ev.target.id === 'aiCatIn') { ev.preventDefault(); askCat(ev.target.value); ev.target.value = '' }
   })
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
-  api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') { if ($('md')) SD.clear($('modalRoot')); setTab('remit'); render() } })
+  function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
+  api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') openRemittance() })
 
   // ---------------- 1.1.6 auto-update events ----------------
   api.on('update:available', (p) => {
@@ -1347,30 +2421,274 @@
     if (!p || !p.ok) { toast(T(p && p.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + (p && p.error ? PU.c() + p.error : ''), 8000); closeModal() }
   })
 
+  async function refreshGpuTemp () {
+    try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
+    renderIsland()
+    catWatch()
+  }
+
+  // AI小貓: local rules only. It may start or restart a miner, and it may open a form.
+  // It never calls s0:send, old:send, remit:login, or s0:review.
+  function catOn () { return localStorage.getItem('aiCat112') !== '0' }
+  function catTemp () {
+    const temps = ((st.gpuTemp && st.gpuTemp.gpus) || []).map(t => Number(t.tempC)).filter(n => Number.isFinite(n))
+    return temps.length ? Math.max.apply(null, temps) : null
+  }
+  function noteCatHeights () {
+    const gpu = st.miners && st.miners.classicGpu
+    if (gpu && gpu.running) {
+      const slot = st.catH.classic || { h: null, at: gpu.startedAt || Date.now() }
+      if (gpu.localBlock != null && gpu.localBlock !== slot.h) { slot.h = gpu.localBlock; slot.at = Date.now() }
+      st.catH.classic = slot
+    }
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    if (s0 && s0.running && (s0.peers === 0 || s0.code === 'NO_PEERS')) {
+      if (!st.catH.peersAt) st.catH.peersAt = s0.startedAt || Date.now()
+    } else st.catH.peersAt = 0
+  }
+  function catBalances () {
+    const a = headerAccount()
+    if (!a) return []
+    if (headerChain() === 'old') {
+      const v = st.old[a.pubkey]
+      return [{ label: accLabel(a), text: (v != null ? fmtNum(v) : '…') + ' SCDO' }]
+    }
+    if (!a.evm) return [{ label: accLabel(a), text: '尚未解鎖' }]
+    const b = st.s0[a.filename]
+    return [{ label: accLabel(a), text: (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO' }]
+  }
+  function catCtx (extra) {
+    const caps = st.caps || {}
+    const accounts = (st.accounts || []).map(a => {
+      const p = parseClassicAddress(a.pubkey)
+      return { label: accLabel(a), file: a.filename, shard: p ? p.shard : Number(a.shard), address: p ? p.address : '', evm: a.evm || '' }
+    })
+    const sel = headerAccount()
+    let shard0Address = ''
+    if (sel && window.SCDOZpow && window.SCDOZpow.ownRewardAddress) shard0Address = window.SCDOZpow.ownRewardAddress(sel) || ''
+    if (!shard0Address) {
+      const evm = (st.accounts || []).find(a => a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm))
+      if (evm) shard0Address = evm.evm
+    }
+    const classic = parseClassicAddress(sel && sel.pubkey)
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = (st.miners && st.miners.shard0) || st.miner || {}
+    const slot = st.catH.classic
+    return Object.assign({
+      now: Date.now(),
+      tempC: catTemp(),
+      gpu: { available: !!(caps.gpu && caps.gpu.available), nvidia: !!(st.gpu && st.gpu.nvidia) },
+      cpu: { available: !!(caps.cpu && caps.cpu.available) },
+      accounts: accounts,
+      preferShard: classic ? classic.shard : 0,
+      shard0Address: shard0Address,
+      selectedFile: sel ? sel.filename : '',
+      pools: caps && caps.pools ? caps.pools : null,
+      classicGpu: gpu ? { running: !!gpu.running, mode: gpu.mode, shard: gpu.shard, wallet: gpu.wallet, localBlock: gpu.localBlock, networkBlock: gpu.networkBlock, heightAgeMs: slot && slot.at ? Date.now() - slot.at : 0, code: gpu.code } : null,
+      shard0: { running: !!s0.running, code: s0.code, peers: s0.peers, mode: s0.mode, wallet: s0.wallet, peerAgeMs: st.catH.peersAt ? Date.now() - st.catH.peersAt : 0 },
+      mem: st.mem,
+      balances: catBalances(),
+      payees: allPayees()
+    }, extra || {})
+  }
+  function renderCat () {
+    const root = $('aiCatRoot')
+    if (!root) return
+    if (!catOn() || !window.SCDOCat) { SD.clear(root); return }
+    if (!$('aiCatBtn')) {
+      SD.html(root, `<button type="button" class="ai-cat-btn" id="aiCatBtn" data-act="catOpen" title="AI小貓" aria-label="AI小貓"><span class="ai-ear l"></span><span class="ai-ear r"></span><span class="ai-face"><span class="ai-eye"></span><span class="ai-eye"></span></span></button>
+        <div class="ai-panel" id="aiCatPanel" hidden>
+          <div class="ai-hd"><b>AI小貓</b><button type="button" class="btn ghost small" data-act="catClose" aria-label="關閉">✕</button></div>
+          <div class="ai-log" id="aiCatLog"></div>
+          <div class="ai-chips">
+            <button type="button" class="btn sec small" data-act="catChip" data-v="開始挖礦">開始挖礦</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 EVM">也挖 EVM</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="自我修復">自我修復</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="餘額">餘額</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="備份帳戶">備份帳戶</button>
+          </div>
+          <div class="ai-ask"><input class="inp" id="aiCatIn" maxlength="200" placeholder="例如：匯 100 給小明" autocomplete="off"><button type="button" class="btn pri" data-act="catAsk">問</button></div>
+        </div>`)
+    }
+    const panel = $('aiCatPanel')
+    if (panel) panel.hidden = !st.catOpen
+    const log = $('aiCatLog')
+    if (!log) return
+    log.textContent = ''
+    for (const line of st.catLog) {
+      const d = document.createElement('div')
+      d.className = 'ai-line'
+      d.textContent = line
+      log.appendChild(d)
+    }
+    log.scrollTop = log.scrollHeight
+  }
+  async function startCatJob (job) {
+    if (!job || !job.address) return { fail: window.SCDOCat.startFail('BAD_ADDRESS') }
+    if (job.chain === 'classic') {
+      const backend = job.backend === 'gpu' ? 'gpu' : 'cpu'
+      const gpu = gpuParams()
+      const threads = backend === 'cpu' ? threadCount() : gpu.threads
+      let r
+      try {
+        r = await api.invoke('miner:start', job.address, {
+          chain: 'classic', backend: backend, gpuMiner: 'classic-node', shard: job.shard,
+          threads: threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+        })
+      } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
+      if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+      localStorage.setItem(backend === 'cpu' ? 'minerRunClassicCpu' : 'minerRunClassicGpu', backend === 'cpu' ? '1' : 'gpu')
+      localStorage.setItem(backend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu', job.address)
+      return { ok: true }
+    }
+    if (!(await okWithOtherRigel())) return { fail: window.SCDOCat.startFail('CANCELED') }
+    let r
+    try { r = await api.invoke('miner:start', job.address, { mode: job.mode === 'node' ? 'node' : 'mine' }) } catch (e) { r = { ok: false } }
+    if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+    return { ok: true }
+  }
+  async function runCatAction (action) {
+    if (!action || action.type === 'send' || action.type === 'sign' || action.type === 'spend' || action.type === 'review' || action.type === 'login') return { ok: false }
+    if (action.type === 'stopGpu') {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      localStorage.setItem('minerRunClassicGpu', '')
+      const s0 = (st.miners && st.miners.shard0) || st.miner
+      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
+      return { ok: true }
+    }
+    if (action.type === 'startJobs' || action.type === 'restartJobs') {
+      const fails = []
+      for (const job of action.jobs || []) {
+        if (action.type === 'restartJobs') {
+          try {
+            if (job.chain === 'classic') await api.invoke('miner:stop', { chain: 'classic', backend: job.backend === 'gpu' ? 'gpu' : 'cpu' })
+            else await api.invoke('miner:stop', job.mode === 'node' ? 'node' : 'mine')
+          } catch (e) {}
+        }
+        const r = await startCatJob(job)
+        if (r && r.fail) fails.push(r.fail)
+      }
+      return fails.length ? { fail: fails.join('') } : { ok: true }
+    }
+    if (action.type === 'prefill') {
+      if (!action.file) return { fail: '請先選擇帳戶。' }
+      payModal(action.file, { to: action.to || '', amount: action.amount || '' })
+      return { ok: true }
+    }
+    if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }
+    return { ok: true }
+  }
+  async function applyCatPlan (plan, opt) {
+    if (!plan) return
+    const fails = []
+    for (const action of plan.actions || []) {
+      const r = await runCatAction(action)
+      if (r && r.fail) fails.push(r.fail)
+    }
+    const say = (plan.say || '') + (fails.length ? fails.join('') : '')
+    if (!say) return
+    st.catLog.push(say)
+    if (st.catLog.length > 30) st.catLog.shift()
+    renderCat()
+    if (opt && opt.toast) toast(say, 6000)
+  }
+  async function askCat (text) {
+    const raw = String(text || '')
+    if (/開始挖礦|一鍵挖礦|也挖|自我修復|修復/.test(raw)) {
+      try { await ensureCaps() } catch (e) {}
+      try { await ensureGpu() } catch (e) {}
+      try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) {}
+      try { st.mem = await api.invoke('app:mem') } catch (e) {}
+    }
+    if (!window.SCDOCat.looksLikeSecret(raw)) {
+      const shown = raw.normalize('NFKC').trim().slice(0, 200)
+      if (shown) st.catLog.push('你：' + shown)
+    }
+    await applyCatPlan(window.SCDOCat.reply(raw, catCtx()))
+  }
+  async function catWatch () {
+    if (!catOn() || !window.SCDOCat) return
+    noteCatHeights()
+    const heat = window.SCDOCat.heatGuard(catCtx())
+    if (heat && Date.now() - st.catHeatAt > 60000) {
+      st.catHeatAt = Date.now()
+      await applyCatPlan(heat, { toast: true })
+      return
+    }
+    if (catTemp() != null && catTemp() < 80) st.catHeatAt = 0
+    if (Date.now() - st.catWatchAt < 30000) return
+    st.catWatchAt = Date.now()
+    try { st.mem = await api.invoke('app:mem') } catch (e) {}
+    const heal = window.SCDOCat.planHeal(catCtx())
+    if (!heal.actions.length) { st.catHealKey = ''; return }
+    const key = JSON.stringify(heal.actions)
+    if (key === st.catHealKey && Date.now() - st.catHealAt < 10 * 60 * 1000) return
+    st.catHealKey = key
+    st.catHealAt = Date.now()
+    await applyCatPlan(heal, { toast: true })
+  }
+
+  // Chip shimmer, pulse, and the spinning pick keep painting while the window
+  // is in the background. Pause them on hide and on blur; resume on focus.
+  function bindIsleMotion () {
+    const root = document.documentElement
+    if (!root || !root.classList || typeof window.addEventListener !== 'function') return
+    let focused = typeof document.hasFocus !== 'function' || document.hasFocus()
+    const apply = () => {
+      root.classList.toggle('isle-paused', document.hidden === true || !focused)
+    }
+    document.addEventListener('visibilitychange', apply)
+    window.addEventListener('blur', () => { focused = false; apply() })
+    window.addEventListener('focus', () => { focused = true; apply() })
+    apply()
+  }
+  bindIsleMotion()
+
   // ---------------- boot ----------------
   let APPVER = '2.0.9'
   api.on('miner:status', (m) => onMinerStatus(m))
+  api.on('miner:classic', (m) => onMinerStatus(m))
   async function boot () {
     let info = null
     try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.displayVersion || info.version } catch (e) {}
-    try { st.miner = await api.invoke('miner:status') } catch (e) {}
+    try { storeMiner(await api.invoke('miner:status')) } catch (e) {}
+    try { const c = await api.invoke('miner:classicStatus'); if (c) { st.miners.classicCpu = c.classicCpu; st.miners.classicGpu = c.classicGpu } } catch (e) {}
+    st.miner = viewMiner()
     loadAccounts()
     render()
     if (window.__scdoBootDone) window.__scdoBootDone() // 2.0.6: the loading screen goes away once the real page is drawn
     // 2.0.6: right after an update, say so (titled dialog) and show the mining state
     if (info && info.updated) {
-      const x = minePillText(st.miner)
+      const x = currentMinePill()
       modal(`<div class="mh"><h2>${esc(T('updatedTitle', { v: APPVER }))}</h2></div>
         <div style="font-size:18px;margin:10px 0">${esc(T('updatedMsg', { v: APPVER }))}</div>
         <div class="minepill ${x.cls}" id="updMine" style="display:inline-block;margin:6px 0 10px">${esc(x.t)}</div>
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld()
-    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000)
-    try { st.miner = await api.invoke('miner:status') } catch (e) {}
+    refreshS0(); refreshOld(); refreshGpuTemp(); renderCat()
+    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000)
+    try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
+    ensureCaps().then(async caps => {
+      const classicCpu = localStorage.getItem('minerRunClassicCpu') === '1'
+      let classicGpu = localStorage.getItem('minerRunClassicGpu') || ''
+      if (!classicCpu && !classicGpu && localStorage.getItem('minerMode') === 'classic-cpu') localStorage.setItem('minerRunClassicCpu', '1')
+      if (localStorage.getItem('minerRunClassicCpu') === '1' && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps && caps.cpu && caps.cpu.available) {
+        const p = parseClassicAddress(localStorage.getItem('minerClassicCpu') || localStorage.getItem('minerClassic') || '')
+        if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
+      }
+      if (!classicGpu && localStorage.getItem('minerMode') === 'classic-gpu') classicGpu = localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu'
+      if (classicGpu && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
+        const p = parseClassicAddress(localStorage.getItem('minerClassicGpu') || localStorage.getItem('minerClassic') || '')
+        const gpuOk = classicGpu === 'external' ? (caps && caps.external && caps.external.available) : (caps && caps.gpu && caps.gpu.available)
+        if (p && gpuOk) {
+          const gpu = gpuParams()
+          api.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: classicGpu === 'external' ? 'external' : 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
+        }
+      }
+    }).catch(() => {})
     ensureGpu().then(async () => {
       let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
       if (!rc || !rc.autoResume || rc.running || (st.miner && st.miner.running)) return
@@ -1378,7 +2696,7 @@
       if (!rc.gpuOk || !rc.reward) return
       if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
       const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
-      if (r && !r.ok) toast(r.error || r.code, 7000)
+      if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
     })
     if (st.tab === 'mine') render()
   }

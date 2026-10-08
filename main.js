@@ -68,6 +68,7 @@ function minerDataRoot () {
 
 const DISPLAY_VERSION = (() => { try { return require('./package.json').displayVersion || app.getVersion() } catch (e) { return app.getVersion() } })() // 1.1.5b/1.1.6: optional display label from package.json
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), displayVersion: DISPLAY_VERSION, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
+ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
@@ -114,7 +115,11 @@ async function confirmStopMining () {
   const r = w ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
   return r.response === 1
 }
-function miningNow () { const st = miner ? miner.status() : null; return !!(st && st.running && (st.mode === 'mine' || st.mode === 'pool')) }
+function miningNow () {
+  const st = miner ? miner.status() : null
+  if (st && st.running && (st.mode === 'mine' || st.mode === 'pool')) return true
+  return !!((zpowCpu && zpowCpu.wantRunning) || (zpowGpu && zpowGpu.wantRunning))
+}
 // 2.0.6: window title; after an update it says so ("SCDO Wallet 2.0.6 — 已更新")
 let justUpdated = null
 function windowTitle () { const name = uiLang() === 'CN' ? 'SCDO 錢包' : 'SCDO Wallet'; return name + ' ' + DISPLAY_VERSION + (justUpdated ? ' — ' + mt('updated') : '') }
@@ -218,13 +223,74 @@ async function pollPayout () {
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
-// ---------------- built-in shard0 miner ----------------
+// ---------------- built-in miners ----------------
+// Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
+// Classic shards 1–4: zminer CPU to the pool, and the go-scdo CUDA node (libcudart.dll beside node.exe; no goGpuDet.dll).
+// Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// Shard0 GPU, Classic GPU and Classic CPU may all run together. Nothing here refuses a start.
 const { MinerManager } = require('./src/miner/manager')
+const { ZpowManager } = require('./src/miner/zpow/manager')
 function minerBinDir () {
   if (app.isPackaged) return path.join(process.resourcesPath, 'miner', 'bin')
   return path.join(__dirname, 'miner-bin', process.platform)
 }
 let miner = null
+let zpowCpu = null
+let zpowGpu = null
+function zpowOptions () {
+  return {
+    binDir: minerBinDir(),
+    dataRoot: (!app.isPackaged && process.env.SCDO_MINER_DIR) || minerDataRoot(),
+    root: __dirname
+  }
+}
+function classicNote () {
+  const parts = []
+  const shardOf = (z) => { const n = Number(z && z.state && z.state.shard); return n >= 1 && n <= 4 ? ' Shard' + n : '' }
+  if (zpowCpu && zpowCpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu))
+  if (zpowGpu && zpowGpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card') + shardOf(zpowGpu))
+  return parts.join(' · ')
+}
+function refreshTray () {
+  if (!tray) return
+  const st = miner ? Object.assign({}, miner.status()) : { running: false }
+  const note = classicNote()
+  if (note) st.classicNote = note
+  tray.update(st)
+}
+function publishClassic (st) {
+  refreshTray()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:classic', st)
+}
+function getZpow (kind) {
+  if (kind === 'cpu') {
+    if (!zpowCpu) {
+      zpowCpu = new ZpowManager(zpowOptions())
+      zpowCpu.on('status', st => publishClassic(st))
+    }
+    return zpowCpu
+  }
+  if (!zpowGpu) {
+    zpowGpu = new ZpowManager(zpowOptions())
+    zpowGpu.on('status', st => publishClassic(st))
+  }
+  return zpowGpu
+}
+function idleClassic (mode) {
+  return { chain: 'classic', mode, running: false, code: 'IDLE', phase: 'idle' }
+}
+function classicSnapshot () {
+  return {
+    classicCpu: zpowCpu ? zpowCpu.status() : idleClassic('cpu'),
+    classicGpu: zpowGpu ? zpowGpu.status() : idleClassic('gpu')
+  }
+}
+async function stopClassic (backend) {
+  const jobs = []
+  if ((!backend || backend === 'cpu') && zpowCpu && zpowCpu.wantRunning) jobs.push(zpowCpu.stop())
+  if ((!backend || backend === 'gpu') && zpowGpu && zpowGpu.wantRunning) jobs.push(zpowGpu.stop())
+  await Promise.all(jobs)
+}
 function getMiner () {
   if (!miner) {
     const res = app.isPackaged ? path.join(process.resourcesPath, 'miner') : path.join(__dirname, 'miner-bin')
@@ -238,7 +304,7 @@ function getMiner () {
     })
     miner.on('status', st => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st)
-      if (tray) tray.update(st)
+      refreshTray()
       try { getNotifier().onStatus(st) } catch (e) { console.error('notifier', e) } // 2.0.7 (P1)
       if (st && st.running && st.mode === 'pool' && st.wallet && lastPayoutTx[st.wallet.toLowerCase()] === undefined && !pollPayout.started) { pollPayout.started = true; setTimeout(() => { pollPayout.started = false; pollPayout() }, 15000) }
     })
@@ -288,6 +354,7 @@ function showStopWindow (parent) {
 }
 function closeStopWindow () { if (stopWin && !stopWin.isDestroyed()) { stopWin.setClosable(true); stopWin.destroy() } stopWin = null }
 function minerActive () {
+  if ((zpowCpu && zpowCpu.wantRunning) || (zpowGpu && zpowGpu.wantRunning)) return true
   if (!miner) return false
   return !!(miner.wantRunning || miner.stopping || miner.cleaning || Object.values(miner.procs).some(Boolean))
 }
@@ -303,6 +370,17 @@ async function stopMinerVisibly (parent) {
 
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   opts = opts || {}
+  if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
+    const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
+    try {
+      await getZpow(backend).start(wallet, Object.assign({}, opts, { chain: 'classic', backend }))
+      refreshTray()
+      return { ok: true }
+    } catch (err) {
+      try { getMiner().log('wallet', 'classic ' + backend + ' start failed: ' + (err && err.code ? err.code + ' ' : '') + (err && err.message || err)) } catch (e) {}
+      return { ok: false, error: err.message, code: err.code }
+    }
+  }
   const cfg = readIntent() || {}
   const mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
   const startOpts = { mode, payout: opts.payout }
@@ -315,6 +393,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
+    try { getMiner().log('wallet', 'start failed: ' + (err && err.message || err)) } catch (e) {}
     if (err.code === 'NO_NVIDIA') writeIntent({ autoResume: false })
     return { ok: false, error: err.message, code: err.code }
   }
@@ -347,6 +426,10 @@ ipcMain.handle('miner:resumeCheck', async () => {
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async (e, src) => {
+  if (src && typeof src === 'object' && src.chain === 'classic') {
+    const backend = optsBackend(src)
+    try { await stopClassic(backend); refreshTray(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
+  }
   writeIntent({ autoResume: false }) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
   try { getMiner().log('wallet', 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')') } catch (err) {}
@@ -360,9 +443,13 @@ ipcMain.handle('miner:defender', async () => {
   try { await getMiner().defenderExclusion(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
 })
 ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dataRoot, 'logs')))
+ipcMain.handle('miner:caps', () => { try { return getZpow('cpu').capabilities() } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } } })
+ipcMain.handle('miner:classicStatus', () => classicSnapshot())
+function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu' }
 
 // ---------------- 2.0.1 mining batch 1 ----------------
 ipcMain.handle('mining:gpuPreflight', async () => { let g = null; try { g = await getMiner().gpu() } catch (e) {} return miningService.gpuPreflight(g) })
+ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature() } catch (err) { return { ok: false, gpus: [], error: err.message } } })
 ipcMain.handle('mining:networkStats', async () => {
   const st = miner ? miner.status() : null
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0
@@ -401,11 +488,14 @@ function createTray () {
       lang: uiLang(),
       onStop: async () => {
         if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
-        writeIntent({ autoResume: false }); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {} if (miner) await stopMinerVisibly(mainWindow)
+        writeIntent({ autoResume: false }); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
+        if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
+        try { await stopClassic() } catch (err) { console.error('classic stop failed', err) }
+        refreshTray()
       },
       onQuit: () => requestQuit({ confirm: true, reason: 'tray' })
     })
-    tray.update(miner ? miner.status() : null)
+    refreshTray()
   } catch (e) { console.error('tray failed', e) }
 }
 
@@ -618,7 +708,7 @@ function gracefulQuit (reason) {
     if (!silent) showStopWindow()
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
     const t0 = Date.now()
-    try { await afterCleanup(); if (miner) await miner.stop() } catch (e) { console.error('stop on quit failed', e) }
+    try { await afterCleanup(); if (miner) await miner.stop(); await stopClassic() } catch (e) { console.error('stop on quit failed', e) }
     const left = 1200 - (Date.now() - t0); if (left > 0) await new Promise(resolve => setTimeout(resolve, left))
     readyToQuit = true
     closeStopWindow()
@@ -634,8 +724,10 @@ app.on('before-quit', (e) => {
 })
 // 2.0.1: last line of defence - whatever happened above, no miner child (geth / proxy / rigel) outlives the wallet
 function killMinerChildrenSync () {
-  if (!miner) return
-  for (const pid of miner.childPids()) {
+  const pids = []
+  if (miner) pids.push(...miner.childPids())
+  for (const z of [zpowCpu, zpowGpu]) if (z) pids.push(...z.childPids())
+  for (const pid of pids) {
     try {
       if (process.platform === 'win32') require('child_process').execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 10000 })
       else process.kill(pid, 'SIGKILL')

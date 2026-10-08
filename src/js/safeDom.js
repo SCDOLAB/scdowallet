@@ -7,7 +7,7 @@
   const TAGS = new Set(['div', 'span', 'b', 'i', 'em', 'strong', 'small', 'br', 'hr', 'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'li',
     'button', 'input', 'select', 'option', 'label', 'details', 'summary', 'img', 'pre', 'code', 'nav', 'section', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'canvas'])
   const ATTRS = new Set(['class', 'id', 'style', 'title', 'type', 'placeholder', 'value', 'disabled', 'selected', 'checked', 'readonly',
-    'maxlength', 'inputmode', 'autocomplete', 'src', 'alt', 'role', 'hidden', 'open', 'for', 'name', 'width', 'height', 'tabindex', 'colspan', 'rowspan', 'spellcheck'])
+    'maxlength', 'min', 'max', 'step', 'inputmode', 'autocomplete', 'src', 'alt', 'role', 'hidden', 'open', 'for', 'name', 'width', 'height', 'tabindex', 'colspan', 'rowspan', 'spellcheck', 'lang', 'autocapitalize'])
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
   const okSrc = (v) => /^\.\/src\/img\/[\w./-]+$/.test(v) || /^\.\/assets\/[\w./-]+$/.test(v) || /^data:image\/(png|gif|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)
   const tt = window.trustedTypes
