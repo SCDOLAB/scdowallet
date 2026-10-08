@@ -62,8 +62,19 @@ for (const L of ['CN', 'EN']) {
   }
   assert.strictEqual(T('d_noGpuUse'), L === 'CN' ? '沒有使用' : 'Not in use')
   assert.strictEqual(T('d_accHead'), L === 'CN' ? '帳戶（Shard0–Shard4）' : 'Accounts (Shard0–Shard4)')
+  // 3.0.3: the footer is ONE line with the grand total; per-shard totals live only on the cards
   const foot = dash.footerHtml({ all: '15', per: ['1', '2', '3', '4', '5'] }, T, esc)
-  for (const id of ['footAll', 'foot0', 'foot1', 'foot2', 'foot3', 'foot4']) assert.ok(foot.includes('id="' + id + '"'))
+  assert.ok(foot.includes('id="footAll">15 SCDO</b>') && foot.includes(esc(T('d_totalLine'))))
+  for (let i = 0; i < 5; i++) assert.ok(!foot.includes('id="foot' + i + '"'), 'footer repeats shard ' + i)
+  assert.strictEqual(T('d_totalLine'), L === 'CN' ? '總餘額（Shard0–Shard4 全部合計）' : 'Total balance (Shard0–Shard4 together)')
+  // no duplicates: no mining/idle/syncing badges (the speed and sync fields say it), no lead line repeating the cat label
+  const busy = dash.chainModels({ T, isl, miners: { shard0: { chain: 'shard0', running: true, code: 'MINING', mode: 'gpu', hashrate: 5e6, localBlock: 10, networkBlock: 10 } }, temps: [], gpuNames: ['RTX'], balances: ['1', '2', '3', '4', '5'], accounts: [{}, {}, {}, {}, {}], blocks: [0, 0, 0, 0, 0], net: {}, eta: s => s })
+  for (const m of busy) for (const p of m.pills) assert.ok(![T('d_pillGpu', { chain: m.name }), T('d_pillCpu'), T('d_pillIdle'), T('d_pillSyncing')].includes(p.text), 'duplicate badge ' + p.text)
+  assert.ok(!dash.homeHtml(busy, [], T, esc).includes(esc(T('d_lead'))))
+  // the status island keeps only what no card shows (earnings)
+  const sum = isl.summaryIsland({ T, shard0: { chain: 'shard0', running: true, code: 'MINING', mode: 'gpu', hashrate: 5e6, localBlock: 10, networkBlock: 10, peers: 3 }, classicCpu: null, classicGpu: null, gpuTemps: [{ tempC: 60 }] })
+  for (const c of sum.chips) assert.strictEqual(c.kind, 'earn', 'island repeats ' + c.key)
+  assert.strictEqual(sum.money.length, 0)
 }
 
 // ---- no 主鏈 / main chain, no Classic split in the UI strings ----------------------
@@ -128,10 +139,11 @@ for (const L of ['CN', 'EN']) for (const k of ['cf_title', 'cf_titleSign', 'cf_a
 // ---- private key: masked dialog only, never into the chat ---------------------
 const create = ui.slice(ui.indexOf('function createModal'), ui.indexOf('function createModal') + 4000)
 assert.ok(/type="password"[^>]*id="cPriv"|id="cPriv"[^>]*type="password"/.test(create), 'private key field is masked')
-// ---- footer: large balances (10,027,844.2529) wrap to a new line instead of overlapping ----
+// ---- footer: one line that wraps (label above number) instead of overlapping; the cat keeps its own space ----
 const css = read('src/css/app112.css')
-assert.ok(css.includes('.foot-bar .sum { flex: 1; min-width: 0; display: flex; flex-wrap: wrap;'), 'footer totals wrap')
-assert.ok(css.includes('.foot-bar .sum > div { flex: 1 0 auto; min-width: max-content; }'), 'each footer total keeps its full number')
+assert.ok(css.includes('.foot-bar .foot-line { flex: 1; min-width: 0; display: flex; flex-wrap: wrap;'))
+assert.ok(css.includes('.foot-bar .foot-line b { font-size: 26px; color: #2E7D32; white-space: nowrap; }'))
+assert.ok(/\.foot-bar \{[^}]*padding: 8px 330px 8px 18px/.test(css), 'footer leaves room for AI小貓 on the right')
 // ---- white text on green is #1d7a34 (5.4:1); #248a3d was 4.40:1 ----
 assert.ok(css.includes('.cat-pop .ios-in .send { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; background: #1d7a34;'))
 assert.ok(css.includes('.btn.pri { background: #1d7a34; color: #fff; }'))

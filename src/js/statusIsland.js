@@ -441,8 +441,12 @@ function summaryIsland (opts) {
     chips.push({ key: 'sum-sync', kind: 'sync', text: text, progress: low / 100, tip: tipOf(tr('isleLegSyncName'), low + '%', tr('isleTipSyncExplain'), '') })
   }
   if (peers != null) chips.push({ key: 'sum-peers', kind: 'peer', text: tr('d_islPeers', { n: peers }), tip: tipOf(tr('isleLegPeerName'), tr('islePeerCount', { n: peers }), tr('isleTipPeerExplain'), tr('isleTipPeerDetail', { n: peers })) })
+  // 3.0.3 (no duplicates): mining state, speed, temperature, sync and peers are already on each of the five
+  // Home cards, so the island keeps only what no card shows: today's and total earnings.
   const money = full.money.filter(c => c.kind === 'earn')
-  return { chips: chips, money: money, legend: full.legend, tempC: full.tempC, tempBand: full.tempBand, earn: full.earn, shards: full.shards }
+  const keep = [tr('isleLegEarnName'), tr('isleLegTotalName')]
+  const legend = (full.legend || []).filter(it => it && keep.includes(it.name))
+  return { chips: money, money: [], cardChips: chips, legend: legend, tempC: full.tempC, tempBand: full.tempBand, earn: full.earn, shards: full.shards }
 }
 
 const api = { BLOCK_REWARD_SCDO, buildIsland, summaryIsland, shardSources, syncPct, peersOf, tempBand, miningNow, isGpuMine, speedWords, durationWords, absorbBlocks, summarizeEarnings, syncOf, compactHash, compactCount }

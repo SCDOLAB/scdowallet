@@ -473,7 +473,7 @@
     f.hidden = !show
     if (!show) return
     const b = chainBalances()
-    const html = window.SCDODash.footerHtml({ all: b.all, per: b.text }, T, esc)
+    const html = window.SCDODash.footerHtml({ all: b.all }, T, esc)
     if (renderFooter.last !== html) { renderFooter.last = html; SD.html(f, html) }
   }
   // repaint the read-only cards in place (no full page render) when the data changed

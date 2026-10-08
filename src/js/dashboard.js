@@ -64,12 +64,10 @@ function chainModels (input) {
     // status pills
     const pills = []
     const err = [gpu, cpu, src.node].some(m => m && m.phase === 'error')
-    if (gpuOn) pills.push({ cls: 'on', text: T('d_pillGpu', { chain: name }) })
-    if (cpuOn) pills.push({ cls: 'on', text: T('d_pillCpu') })
-    if (!gpuOn && gpu && gpu.running) pills.push({ cls: 'warn', text: T('d_pillSyncing') })
+    // 3.0.3 (no duplicates): mining / not mining / syncing badges repeated the 挖礦速度 and 同步進度 fields
+    // of the same card. Only badges that say something the fields don't are kept.
     if (src.node && src.node.running && src.node.mode === 'node') pills.push({ cls: 'off', text: T('d_pillNode') })
     if (err) pills.push({ cls: 'bad', text: T('d_pillError') })
-    if (!pills.length) pills.push({ cls: 'off', text: T('d_pillIdle') })
     const acc = (input.accounts && input.accounts[n]) || {}
     return {
       n,
@@ -120,14 +118,14 @@ function txHtml (rows, T, esc) {
 }
 
 // totals: { all: text, per: [5 x text] }
+// 3.0.3: one line only. Each shard's balance is already on its own card, so the footer no longer repeats them.
 function footerHtml (totals, T, esc) {
-  const names = ['Shard0 EVM', 'Shard1', 'Shard2', 'Shard3', 'Shard4']
-  return `<div class="sec-h foot-h">${esc(T('d_total'))}</div><div class="sum five"><div class="all"><div class="lbl">${esc(T('d_totalAll'))}</div><b id="footAll">${esc(totals.all)} SCDO</b></div>${names.map((nm, i) => `<div><div class="lbl">${esc(nm)}</div><b id="foot${i}">${esc(totals.per[i])}</b></div>`).join('')}</div>`
+  return `<div class="foot-line" id="footLine"><span class="foot-h">${esc(T('d_totalLine'))}</span><b id="footAll">${esc(totals.all)} SCDO</b></div>`
 }
 
 function homeHtml (models, txRows, T, esc) {
   return `<div class="page dash" id="homePage">
-    <div class="dash-h"><span class="h1">${esc(T('d_title'))}</span><span class="lbl">${esc(T('d_lead'))}</span></div>
+    <div class="dash-h"><span class="h1">${esc(T('d_title'))}</span></div>
     <div class="sec-h">${esc(T('d_accHead'))}</div>
     ${tempKeyHtml(T, esc)}
     <div class="chains" id="chainCards">${models.map(m => cardHtml(m, T, esc)).join('')}</div>

@@ -228,7 +228,7 @@ async function main () {
     assert.ok(menu.includes('openRemittance()'))
     assert.ok(preload.includes("'remit:login'") && preload.includes("'remit:ledger'") && preload.includes("'remit:logout'"))
     assert.ok(main.includes("require('./src/main/remitService').register"))
-    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.0.2')
+    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.0.3')
     assert.strictEqual(cn.Remittance, '匯款')
     assert.strictEqual(global.window.I18N112.CN.tabRemit, '匯款')
     assert.ok(global.window.I18N112.CN.remitZero.includes('不需要填寫'))

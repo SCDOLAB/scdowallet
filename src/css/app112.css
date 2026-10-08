@@ -364,12 +364,6 @@ main { padding-bottom: 24px; }
 .foot-bar { flex: none; min-height: 104px; background: #fff; border-top: 3px solid #43A047; display: flex; align-items: center; padding: 8px 330px 8px 18px; gap: 10px; }
 .foot-bar[hidden] { display: none; }
 .foot-bar .foot-h { margin: 0 6px 0 0; white-space: nowrap; }
-.foot-bar .sum { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; column-gap: 20px; row-gap: 6px; }
-.foot-bar .sum > div { flex: 1 0 auto; min-width: max-content; }
-.foot-bar .sum > .all { flex-grow: 1.6; }
-.foot-bar .sum .lbl { font-size: 15px; }
-.foot-bar .sum b { font-size: 18px; color: #3d4160; }
-.foot-bar .sum .all b { color: #2E7D32; font-size: 24px; }
 
 /* AI小貓: launcher (the user's cat art) + iOS material label pill + iOS-style popup (v8 contrast-adjusted colours) */
 #aiCatRoot { position: static; }
@@ -425,4 +419,9 @@ main { padding-bottom: 24px; }
 .island-compact { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
 .island-compact > .island-line { grid-column: 1; }
 .island-compact > .isle-help { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-.foot-bar .sum b { white-space: nowrap; }
+
+/* 3.0.3: one-line footer (overall total only); wraps under the label on narrow windows, never under the cat */
+.foot-bar { min-height: 0; padding-top: 12px; padding-bottom: 12px; }
+.foot-bar .foot-line { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 16px; row-gap: 2px; }
+.foot-bar .foot-line .foot-h { font-size: 22px; font-weight: 700; color: #1b1d33; white-space: normal; margin: 0; }
+.foot-bar .foot-line b { font-size: 26px; color: #2E7D32; white-space: nowrap; }
