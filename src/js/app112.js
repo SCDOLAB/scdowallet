@@ -249,7 +249,7 @@
     const nextLang = lang() === 'CN' ? 'EN' : 'CN'
     SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
       <div class="island" id="statusIsland">
-        <div class="island-compact" id="islandCompact" data-act="island" role="button" tabindex="0"></div>
+        <div class="island-compact" id="islandCompact" data-act="island" tabindex="0"></div>
         <div class="island-panel" id="islandPanel"></div>
       </div>
       ${chip}
@@ -887,34 +887,148 @@
       hashText: fmtHash
     })
   }
+  function chipClass (c) {
+    const tone = c.kind === 'earn' || c.kind === 'bal' ? 'gold' : c.kind
+    let cls = 'isle-chip ' + tone
+    if (c.kind === 'earn') cls += ' earn'
+    if (c.kind === 'bal') cls += ' bal'
+    if (c.kind === 'temp' && c.band) cls += ' temp-' + c.band
+    if (c.live) cls += ' live'
+    if ((c.kind === 'sync' || c.kind === 'eta') && c.progress < 0.995) cls += ' shimmer'
+    return cls
+  }
+  function chipEl (c) {
+    const el = document.createElement(c.kind === 'start' ? 'button' : 'span')
+    if (c.kind === 'start') {
+      el.type = 'button'
+      el.setAttribute('data-act', 'isleStart')
+    }
+    el.className = chipClass(c)
+    if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
+    if (c.kind === 'sync') {
+      const bar = document.createElement('i')
+      bar.className = 'isle-bar'
+      bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+      el.appendChild(bar)
+    }
+    if (c.live) {
+      const icon = document.createElement('span')
+      icon.className = 'isle-spin'
+      icon.setAttribute('aria-hidden', 'true')
+      icon.textContent = '\u26CF'
+      el.appendChild(icon)
+    }
+    const val = document.createElement('span')
+    val.className = 'isle-val'
+    val.textContent = c.text
+    el.appendChild(val)
+    return el
+  }
+  function applyChipFace (el, c) {
+    el.className = chipClass(c)
+    if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
+    const bar = el.querySelector('.isle-bar')
+    if (bar) bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+  }
+  function paintChipRow (host, chips) {
+    const list = chips || []
+    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0].join('\t')).join('\n')
+    const prev = (host.getAttribute('data-sig') || '').split('\n').filter(Boolean)
+    const same = prev.length === list.length && host.childElementCount === list.length && list.every((c, i) => prev[i].startsWith(c.kind + '\t'))
+    if (same && host.getAttribute('data-sig') === sig) {
+      list.forEach((c, i) => {
+        if (c.kind !== 'sync' && c.kind !== 'eta') return
+        const el = host.children[i]
+        el.style.setProperty('--sync', String(c.progress || 0))
+        const bar = el.querySelector('.isle-bar')
+        if (bar) bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+      })
+      return
+    }
+    if (same) {
+      list.forEach((c, i) => {
+        const el = host.children[i]
+        const val = el.querySelector('.isle-val')
+        const oldText = prev[i].split('\t')[1]
+        applyChipFace(el, c)
+        if (val && oldText !== c.text) {
+          val.textContent = c.text
+          el.classList.remove('isle-tick')
+          void el.offsetWidth
+          el.classList.add('isle-tick')
+        }
+      })
+      host.setAttribute('data-sig', sig)
+      return
+    }
+    host.textContent = ''
+    list.forEach(c => host.appendChild(chipEl(c)))
+    host.setAttribute('data-sig', sig)
+  }
+  function ensureLine (compact, id, className) {
+    let line = compact.querySelector('#' + id)
+    if (!line) {
+      line = document.createElement('div')
+      line.id = id
+      line.className = className
+      compact.appendChild(line)
+    }
+    return line
+  }
   function renderIsland () {
     const compact = $('islandCompact')
     const panel = $('islandPanel')
     if (!compact || !panel || !window.SCDOIsland) return
     const model = islandModel()
-    compact.textContent = ''
-    const top = document.createElement('div')
-    top.className = 'island-line'
-    top.id = 'islandLine'
-    top.textContent = model.compactTop
-    const bot = document.createElement('div')
-    bot.className = 'island-line island-money'
+    compact.title = model.compactTop + (model.compactBottom ? '\n' + model.compactBottom : '')
+    paintChipRow(ensureLine(compact, 'islandLine', 'island-line'), model.chips)
+    const bot = ensureLine(compact, 'islandMoney', 'island-line island-money')
     bot.id = 'islandMoney'
-    bot.textContent = model.compactBottom
-    compact.appendChild(top)
-    compact.appendChild(bot)
-    compact.title = model.compactTop + '\n' + model.compactBottom
-    const rows = model.shards.map(s => `<div class="isle-row"><b>Shard${s.n}</b><span>${esc(s.syncText)}</span><span>${esc(s.mineText)}</span></div>`).join('')
-    SD.html(panel, `${rows}
-      <div class="isle-meta">${esc(model.tempC == null ? T('isleNoTemp') : T('isleTemp', { n: model.tempC }))}</div>
-      <div class="isle-meta">${esc(T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }))}</div>
-      <div class="isle-meta">${esc(T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }))}</div>
-      <div class="isle-meta">${esc(T('isleBalance'))} ${esc(model.balanceText)}</div>
-      <div class="isle-actions">
-        <button type="button" class="btn pri" data-act="tab" data-v="mine" id="islandMine">${esc(T('isleGoMine'))}</button>
+    paintChipRow(bot, model.money)
+    let rows = panel.querySelector('.isle-rows')
+    if (!rows || rows.childElementCount !== model.shards.length || !panel.querySelector('.isle-actions')) {
+      panel.textContent = ''
+      rows = document.createElement('div')
+      rows.className = 'isle-rows'
+      model.shards.forEach(s => {
+        const row = document.createElement('div')
+        row.className = 'isle-row'
+        const name = document.createElement('b')
+        name.textContent = 'Shard' + s.n
+        const syncSlot = document.createElement('span')
+        syncSlot.className = 'isle-slot'
+        const mineSlot = document.createElement('span')
+        mineSlot.className = 'isle-slot'
+        row.appendChild(name)
+        row.appendChild(syncSlot)
+        row.appendChild(mineSlot)
+        rows.appendChild(row)
+      })
+      const meta = document.createElement('div')
+      meta.className = 'isle-meta-row'
+      const actions = document.createElement('div')
+      actions.className = 'isle-actions'
+      panel.appendChild(rows)
+      panel.appendChild(meta)
+      panel.appendChild(actions)
+      SD.html(actions, `<button type="button" class="btn pri" data-act="tab" data-v="mine" id="islandMine">${esc(T('isleGoMine'))}</button>
         <button type="button" class="btn dan" data-act="stopAll" id="islandStop">${esc(T('isleStopAll'))}</button>
-        <button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button>
-      </div>`)
+        <button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button>`)
+    }
+    model.shards.forEach((s, i) => {
+      const row = rows.children[i]
+      paintChipRow(row.children[1], [{ kind: 'sync', text: s.syncText, progress: s.progress }])
+      const mineKind = s.liveMine ? 'rate' : (s.syncKind === 'syncing' || s.syncKind === 'checking' ? 'sync' : 'idle')
+      paintChipRow(row.children[2], [{ kind: mineKind, text: s.mineText, progress: s.progress, live: s.liveMine }])
+    })
+    const metaChips = []
+    metaChips.push(model.tempC == null
+      ? { kind: 'idle', text: T('isleNoTemp') }
+      : { kind: 'temp', text: T('isleTemp', { n: model.tempC }), band: model.tempBand })
+    metaChips.push({ kind: 'earn', text: T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }) })
+    metaChips.push({ kind: 'earn', text: T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }) })
+    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || '') })
+    paintChipRow(panel.querySelector('.isle-meta-row'), metaChips)
   }
   function renderHeaderNetOnly () {
     document.querySelectorAll('[data-netdot]').forEach(d => {
@@ -1143,8 +1257,11 @@
         sel = $('payPayer')
         if (sel) sel.onchange = () => {
           s.payerFile = sel.value || ''
+          s.feeText = ''
+          s.feeFor = null
+          s.gas = null
           if (st.payReview && st.payReview.file !== s.payerFile) dropReview()
-          paint(currentRoute())
+          sync()
         }
       }
       const payer = chosenPayer(route)
@@ -1799,6 +1916,7 @@
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
       case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
+      case 'isleStart': askCat('開始挖礦'); break
       case 'catOpen': st.catOpen = !st.catOpen; if (st.catOpen && !st.catLog.length && window.SCDOCat) st.catLog.push(window.SCDOCat.reply('', catCtx()).say); renderCat(); break
       case 'catClose': st.catOpen = false; renderCat(); break
       case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }

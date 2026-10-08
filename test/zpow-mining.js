@@ -368,6 +368,17 @@ const css = fs.readFileSync(path.join(__dirname, '../src/css/app112.css'), 'utf8
 assert.ok(css.includes('header.top > .island { flex: 1 1 auto'))
 assert.ok(css.includes('@media (max-width: 1023px)'))
 assert.ok(css.includes('.island-money { display: none'))
+assert.ok(css.includes('text-overflow: ellipsis'))
+assert.ok(css.includes('flex: 0 0 auto'))
+assert.ok(css.includes('prefers-reduced-motion'))
+assert.ok(css.includes('@keyframes isle-spin'))
+assert.ok(css.includes('@keyframes isle-shimmer'))
+assert.ok(ui.includes('data-act="isleStart"') || ui.includes("data-act', 'isleStart'") || ui.includes("data-act', 'isleStart'") || ui.includes('isleStart'))
+assert.ok(ui.includes('compact.title'))
+const payOn = ui.slice(ui.indexOf('sel.onchange'), ui.indexOf('sel.onchange') + 320)
+assert.ok(payOn.includes('sync()'))
+assert.ok(payOn.includes('s.feeFor = null'))
+assert.ok(!payOn.includes('paint(currentRoute())'))
 assert.ok(ui.includes('data-netdot'))
 assert.ok(ui.includes("data-act=\"pickShard\""))
 assert.ok(i18n.includes("pillShard0: 'Shard0'") || i18n.includes('pillShard0: "Shard0"'))
@@ -387,6 +398,7 @@ const isleT = (k, p) => {
     isleGpu: 'GPU', isleCpu: 'CPU', isleNode: '只跑節點', isleTemp: '顯示卡 {n}°C', isleNoTemp: '無溫度',
     isleToday: '今日 {b} 區塊 · {s} SCDO', isleTodayShort: '今日 {s} SCDO', isleTotal: '累計 {b} 區塊 · {s} SCDO', isleBalance: '餘額',
     isleBoot: '啟動中', isleCalc: '計算中', isleSyncWait: '同步中 (GPU 待命)',
+    isleSyncShort: '同步中', isleIdle: '未在挖礦', isleStart: '開始挖礦',
     pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…'
   }
   let s = m[k] || k
@@ -426,12 +438,15 @@ assert.strictEqual(island.tempC, 70)
 assert.ok(island.compactTop.startsWith('S1 '))
 assert.ok(island.compactTop.includes('100/200'))
 assert.ok(island.compactTop.includes('1h'))
-assert.ok(island.compactTop.includes('同步中 (GPU 待命)'))
-assert.ok(island.compactTop.includes('CPU 挖礦中 1500'))
+assert.ok(island.compactTop.includes('S2 CPU 1.5kH'))
+assert.ok(island.compactTop.includes('S0 2MH'))
+assert.ok(!island.compactTop.includes('挖礦程式啟動中'))
+assert.ok(!island.compactTop.includes('挖礦中'))
 assert.ok(!island.compactTop.includes('S3 '))
 assert.ok(!island.compactTop.includes('S4 '))
 assert.ok(island.compactTop.indexOf('S1 ') < island.compactTop.indexOf('S2 '))
 assert.ok(island.compactTop.indexOf('S2 ') < island.compactTop.indexOf('S0 '))
+assert.strictEqual(island.tempBand, 'warm')
 assert.ok(island.compactBottom.includes('70°C'))
 assert.ok(island.compactBottom.includes('今日 2 SCDO'))
 assert.ok(island.compactBottom.includes('餘額 1.5 SCDO'))
@@ -461,11 +476,12 @@ const wide = buildIsland({
   T: isleT,
   hashText: (h) => (h / 1e6).toFixed(2) + ' MH/s'
 })
-assert.ok(wide.compactTop.includes('S1 3,022,193/9,276,140 · 107h'))
-assert.ok(wide.compactTop.includes('同步中 (GPU 待命)'))
-assert.ok(wide.compactTop.includes('CPU 挖礦中 16.32 MH/s'))
+assert.ok(wide.compactTop.includes('S1 3.02M/9.28M · 107h'))
+assert.ok(wide.compactTop.includes('CPU 16.3MH'))
 assert.ok(!wide.compactTop.includes('挖礦程式啟動中'))
 assert.ok(!wide.compactTop.includes('即將完成'))
+assert.ok(!wide.compactTop.includes('挖礦中'))
+assert.strictEqual(wide.tempBand, 'ok')
 assert.ok(wide.compactBottom.includes('56°C'))
 assert.ok(wide.compactBottom.includes('今日 22 SCDO'))
 assert.ok(wide.compactBottom.includes('餘額 0.000 SCDO'))
@@ -485,6 +501,44 @@ const noEta = buildIsland({
 })
 assert.ok(noEta.shards[0].syncText.includes('計算中'))
 assert.ok(!noEta.shards[0].syncText.includes('即將完成'))
+const idle = buildIsland({ T: isleT })
+assert.strictEqual(idle.compactTop, '開始挖礦')
+assert.strictEqual(idle.chips[0].kind, 'start')
+const syncOnly = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic', mode: 'gpu', localBlock: 3022193, networkBlock: 9276140 },
+  T: isleT
+})
+assert.ok(syncOnly.compactTop.includes('S1 同步中 3.02M/9.28M'))
+assert.ok(syncOnly.compactTop.includes('未在挖礦'))
+assert.ok(syncOnly.compactTop.includes('計算中'))
+assert.ok(!syncOnly.compactTop.includes('即將完成'))
+assert.ok(!syncOnly.compactTop.includes('挖礦中'))
+const hot = buildIsland({ temps: [{ tempC: 85 }], T: isleT })
+assert.strictEqual(hot.tempBand, 'hot')
+assert.strictEqual(hot.money[0].band, 'hot')
+const triple = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_GPU', chain: 'classic', mode: 'gpu', hashrate: 17.4e6, localBlock: 3022193, networkBlock: 9276140, syncEtaSec: 335 * 3600 },
+  classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic', mode: 'cpu', hashrate: 5100 },
+  shard0: { running: true, chain: 'shard0', mode: 'mine', code: 'MINING', hashrate: 31e6, localBlock: 1000, networkBlock: 1000 },
+  T: isleT
+})
+assert.strictEqual(triple.compactTop, 'S1 3.02M/9.28M · 335h · GPU 17.4MH · CPU 5.1kH · S0 31MH')
+assert.ok(triple.chips.filter(c => c.kind === 'rate').length === 3)
+assert.ok(triple.chips.filter(c => c.kind === 'rate').every(c => c.live))
+function chipRowPx (line) {
+  const parts = line.split(' · ')
+  let w = 0
+  parts.forEach((t, i) => {
+    let tw = 0
+    for (const ch of t) tw += ch.codePointAt(0) > 0x2e80 ? 14 : 9.2
+    if (/GPU |CPU |MH|kH/.test(t)) tw += 16
+    w += tw + 16
+    if (i) w += 4
+  })
+  return w
+}
+const triplePx = chipRowPx(triple.compactTop)
+assert.ok(triplePx <= 787, 'three miners at 1024px need ' + triplePx + 'px, budget 787')
 assert.strictEqual(nodeOnly.shards[4].mineText, '只跑節點')
 assert.strictEqual(nodeOnly.shards[4].syncKind, 'synced')
 assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 108 }).kind, 'synced')
@@ -683,6 +737,11 @@ async function publishedZminer () {
   for (const line of boxes) assert.ok(line.includes('/SD IDOK'), line)
   assert.ok(nsh.includes('SetErrorLevel 1223'))
   assert.ok(nsh.includes('SetErrorLevel 1'))
+  assert.ok(nsh.includes('SHChangeNotify'))
+  assert.ok(nsh.includes('0x08000000'))
+  assert.ok(nsh.includes('CreateShortCut "$newStartMenuLink"'))
+  assert.ok(nsh.includes('CreateShortCut "$newDesktopLink"'))
+  assert.ok(nsh.includes('"$appExe" 0'))
   const art = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-art-'))
   fs.mkdirSync(path.join(art, 'dist'))
   fs.writeFileSync(path.join(art, 'dist', 'zminer.exe'), 'nested')

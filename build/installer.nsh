@@ -161,3 +161,39 @@ Var pid
     ${EndIf}
   !endif
 !macroend
+
+; 2.0.12 and 3.0.0 share ScdoWalletBeta.exe, so Windows keeps the old blue
+; icon in the shortcut and the taskbar cache. Recreate both shortcuts against
+; icon index 0, then SHCNE_ASSOCCHANGED (flush) and SHCNE_UPDATEITEM.
+!macro customInstall
+  Push $R1
+  !ifdef MENU_FILENAME
+    CreateDirectory "$SMPROGRAMS\${MENU_FILENAME}"
+    ClearErrors
+  !endif
+  Delete "$newStartMenuLink"
+  CreateShortCut "$newStartMenuLink" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+  ClearErrors
+  WinShell::SetLnkAUMI "$newStartMenuLink" "${APP_ID}"
+  ${ifNot} ${isNoDesktopShortcut}
+    Delete "$newDesktopLink"
+    CreateShortCut "$newDesktopLink" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
+    ClearErrors
+    WinShell::SetLnkAUMI "$newDesktopLink" "${APP_ID}"
+  ${endIf}
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, i 0, i 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$appExe", i 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$newStartMenuLink", i 0)'
+  ${ifNot} ${isNoDesktopShortcut}
+    System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$newDesktopLink", i 0)'
+  ${endIf}
+  StrCpy $R1 "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\SCDO Wallet.lnk"
+  ${If} ${FileExists} "$R1"
+    System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$R1", i 0)'
+  ${EndIf}
+  StrCpy $R1 "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\ScdoWalletBeta.lnk"
+  ${If} ${FileExists} "$R1"
+    System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$R1", i 0)'
+  ${EndIf}
+  Pop $R1
+!macroend
