@@ -8,28 +8,38 @@ import (
 	"github.com/scdoproject/go-scdo/zpool/zp"
 )
 
-// submitQueue is drained when the job or the share target changes. Shares
-// for the previous height never stay in it to be written later.
+// submitQueue is drained when the job, the share target, or the height changes.
+// Shares for a finished height never stay in it to be written later.
 const submitQueue = 256
 
+// maxQueued is the most non-block shares kept waiting. One is already on the
+// wire. A deeper queue is what the low starting difficulty filled, and what
+// still got submitted after this miner had found a block.
+const maxQueued = 1
+
 // share is one CPU-confirmed hit. It is sent only if that job is still the
-// pool's current job and the determinant still meets the current share target.
+// pool's current job, the height is still open, and the determinant still
+// meets the current share target. A block share is sent even after its
+// height has been closed locally, and every other share for that height is not.
 type share struct {
 	jobID  string
 	height uint64
 	nonce  string
 	det    float64
+	block  bool
 }
 
 var (
 	submitMu sync.Mutex
 	submitCh = make(chan share, submitQueue)
 
-	targetMu      sync.Mutex
-	sessionTarget string
-	vardiffReady  uint32 // 1 after this connection's share target has changed
-	probeGen      uint64 // job generation that already has its one warmup share
-	dropped       uint64
+	targetMu       sync.Mutex
+	sessionTarget  string
+	vardiffReady   uint32 // 1 after this connection's share target has changed
+	probeGen       uint64 // job generation that already has its one warmup share
+	dropped        uint64
+	closedHeight   uint64 // highest height known to be mined; 0 means none
+	inflightHeight uint64
 
 	ackCh = make(chan struct{}, 8)
 )
@@ -42,6 +52,36 @@ func (w *work) supersede() {
 	w.staleOnce.Do(func() { close(w.stale) })
 }
 
+// heightOpen reports whether shares for h may still be submitted.
+// A block share is the exception: it is what closed the height.
+func heightOpen(h uint64) bool {
+	c := atomic.LoadUint64(&closedHeight)
+	return c == 0 || h > c
+}
+
+// closeHeight marks h, and every lower height, finished. Queued non-block
+// shares for those heights are discarded. The submitter is left to finish
+// the share already on the wire, then send a queued block if there is one.
+func closeHeight(h uint64) int {
+	if h == 0 {
+		return 0
+	}
+	for {
+		old := atomic.LoadUint64(&closedHeight)
+		if old != 0 && h <= old {
+			return flushHeight(h)
+		}
+		if atomic.CompareAndSwapUint64(&closedHeight, old, h) {
+			break
+		}
+	}
+	n := flushHeight(h)
+	if n > 0 {
+		logf("height %d closed, discarded %d queued shares", h, n)
+	}
+	return n
+}
+
 // shareCurrent reports whether s may be sent for the job the miner is on now.
 func shareCurrent(s share) bool {
 	w, _ := cur.Load().(*work)
@@ -49,6 +89,9 @@ func shareCurrent(s share) bool {
 		return false
 	}
 	if w.job.JobID != s.jobID || w.job.Height != s.height {
+		return false
+	}
+	if !s.block && !heightOpen(s.height) {
 		return false
 	}
 	return zp.DetMeets(s.det, w.shareTarget)
@@ -89,7 +132,7 @@ func enqueueShare(s share) bool {
 		atomic.AddUint64(&dropped, 1)
 		return false
 	}
-	if atomic.LoadUint32(&vardiffReady) == 0 && !shareClearsBlock(s) {
+	if atomic.LoadUint32(&vardiffReady) == 0 && !s.block {
 		w, _ := cur.Load().(*work)
 		if w == nil || atomic.LoadUint64(&probeGen) == w.gen {
 			atomic.AddUint64(&dropped, 1)
@@ -97,22 +140,46 @@ func enqueueShare(s share) bool {
 		}
 		atomic.StoreUint64(&probeGen, w.gen)
 	}
+	if !s.block && len(submitCh) >= maxQueued {
+		atomic.AddUint64(&dropped, 1)
+		return false
+	}
 	select {
 	case submitCh <- s:
 		return true
 	default:
-		if atomic.LoadUint32(&vardiffReady) == 0 {
+		if atomic.LoadUint32(&vardiffReady) == 0 && !s.block {
 			atomic.StoreUint64(&probeGen, 0)
 		}
 		atomic.AddUint64(&dropped, 1)
-		logf("submit queue full, dropped nonce %s", s.nonce)
 		return false
 	}
 }
 
-func shareClearsBlock(s share) bool {
-	w, _ := cur.Load().(*work)
-	return w != nil && w.blockTarget != nil && zp.DetMeets(s.det, w.blockTarget)
+// flushHeight drops queued shares at or below h, except a block share for h.
+func flushHeight(h uint64) int {
+	submitMu.Lock()
+	defer submitMu.Unlock()
+	n := 0
+	kept := make([]share, 0)
+	for {
+		select {
+		case s := <-submitCh:
+			if s.height > h || (s.block && s.height == h) {
+				kept = append(kept, s)
+			} else {
+				n++
+			}
+		default:
+			for _, s := range kept {
+				submitCh <- s
+			}
+			if n > 0 {
+				atomic.AddUint64(&dropped, uint64(n))
+			}
+			return n
+		}
+	}
 }
 
 // flushSubmits removes every queued share. The caller has already published

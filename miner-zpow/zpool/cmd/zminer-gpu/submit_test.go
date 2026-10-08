@@ -17,6 +17,8 @@ func resetMinerState() {
 	flushSubmits()
 	resetSessionTargets()
 	atomic.StoreUint64(&dropped, 0)
+	atomic.StoreUint64(&closedHeight, 0)
+	atomic.StoreUint64(&inflightHeight, 0)
 	drainAck()
 }
 
@@ -105,8 +107,43 @@ func TestWarmupQueuesOneShareUntilTargetChanges(t *testing.T) {
 	if !enqueueShare(share{jobID: "h3", height: 12, nonce: "5", det: 1000}) {
 		t.Fatal("share after vardiff")
 	}
-	if !enqueueShare(share{jobID: "h3", height: 12, nonce: "6", det: 1000}) {
-		t.Fatal("second share after vardiff")
+	// One non-block share waits in the queue. Further hits are dropped
+	// instead of filling it while the starting difficulty is still low.
+	if enqueueShare(share{jobID: "h3", height: 12, nonce: "6", det: 1000}) {
+		t.Fatal("second share queued behind one that is already waiting")
+	}
+}
+
+func TestCloseHeightDropsSharesButKeepsBlock(t *testing.T) {
+	resetMinerState()
+	defer resetMinerState()
+	setJob(jobAt("h1", 10, "100"))
+	if !enqueueShare(share{jobID: "h1", height: 10, nonce: "1", det: 1000}) {
+		t.Fatal("enqueue")
+	}
+	if closeHeight(10) != 1 {
+		t.Fatal("queued share was not discarded")
+	}
+	if prepareSend(share{jobID: "h1", height: 10, nonce: "2", det: 1000}) {
+		t.Fatal("share for a closed height was sendable")
+	}
+	if enqueueShare(share{jobID: "h1", height: 10, nonce: "3", det: 1000}) {
+		t.Fatal("share enqueued after the height closed")
+	}
+	b := share{jobID: "h1", height: 10, nonce: "9", det: 1000, block: true}
+	if !enqueueShare(b) {
+		t.Fatal("block share was not queued")
+	}
+	if !prepareSend(b) {
+		t.Fatal("block share was not sendable")
+	}
+	select {
+	case got := <-submitCh:
+		if !got.block || got.nonce != "9" {
+			t.Fatalf("queue held %+v", got)
+		}
+	default:
+		t.Fatal("block share missing from the queue")
 	}
 }
 

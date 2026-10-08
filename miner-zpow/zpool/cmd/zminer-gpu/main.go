@@ -34,7 +34,7 @@ import (
 	"github.com/scdoproject/go-scdo/zpool/zp"
 )
 
-var version = "0.1.1"
+var version = "0.1.2"
 
 const (
 	defaultBatch = 8192
@@ -209,22 +209,25 @@ func gpuLoop(dev *gpu.Device, batch int) {
 		}
 		for i, det := range dets {
 			w2, _ := cur.Load().(*work)
-			if w2 == nil || w2.job.JobID != jobID || w2.job.Height != height {
+			if w2 == nil || w2.job.JobID != jobID || w2.job.Height != height || !heightOpen(height) {
 				break
 			}
 			if !zp.DetMeets(det, w2.shareTarget) {
 				continue
 			}
-			// One probe share until the pool changes the target. Skip the
-			// extra CPU confirms that a low starting difficulty would produce.
-			if atomic.LoadUint32(&vardiffReady) == 0 && atomic.LoadUint64(&probeGen) == w2.gen && !zp.DetMeets(det, w2.blockTarget) {
+			// A block closes the height. Anything else is not worth a CPU
+			// confirm once this job already has a share queued, or once the
+			// warmup probe for this job exists: the low starting difficulty
+			// produces far more hits than the pool will accept.
+			blockish := zp.DetMeets(det, w2.blockTarget)
+			if !blockish && (len(submitCh) >= maxQueued || (atomic.LoadUint32(&vardiffReady) == 0 && atomic.LoadUint64(&probeGen) == w2.gen)) {
 				atomic.AddUint64(&dropped, 1)
 				continue
 			}
 			confirm := hdr
 			_, cpuDet := zp.Check(&confirm, nonces[i], nil)
 			w3, _ := cur.Load().(*work)
-			if w3 == nil || w3.job.JobID != jobID || w3.job.Height != height {
+			if w3 == nil || w3.job.JobID != jobID || w3.job.Height != height || !heightOpen(height) {
 				break
 			}
 			if math.Float64bits(cpuDet) != math.Float64bits(det) {
@@ -236,10 +239,17 @@ func gpuLoop(dev *gpu.Device, batch int) {
 				}
 				continue
 			}
+			s := share{jobID: w3.job.JobID, height: w3.job.Height, nonce: fmt.Sprint(nonces[i]), det: cpuDet}
 			if zp.DetMeets(cpuDet, w3.blockTarget) {
+				s.block = true
 				logf("BLOCK candidate height=%d nonce=%d", w3.job.Height, nonces[i])
+				// Height H is done as soon as we know it. Drop every other
+				// share for H now; do not wait for the pool's next job.
+				closeHeight(w3.job.Height)
+				enqueueShare(s)
+				break
 			}
-			enqueueShare(share{jobID: w3.job.JobID, height: w3.job.Height, nonce: fmt.Sprint(nonces[i]), det: cpuDet})
+			enqueueShare(s)
 		}
 	}
 }
@@ -352,11 +362,16 @@ func stratumSession(pool, user, worker string) error {
 				if !prepareSend(s) {
 					continue
 				}
-				w, _ := cur.Load().(*work)
-				if w == nil || w.job.JobID != s.jobID || w.job.Height != s.height || !zp.DetMeets(s.det, w.shareTarget) {
+				if !shareCurrent(s) {
 					atomic.AddUint64(&dropped, 1)
 					continue
 				}
+				w, _ := cur.Load().(*work)
+				var stale <-chan struct{}
+				if w != nil {
+					stale = w.stale
+				}
+				atomic.StoreUint64(&inflightHeight, s.height)
 				drainAck()
 				if send("submit", []interface{}{s.jobID, s.nonce}) != nil {
 					c.Close()
@@ -364,7 +379,7 @@ func stratumSession(pool, user, worker string) error {
 				}
 				// One share on the wire. A new job closes w.stale and is
 				// applied before the next submit is written.
-				waitSettle(w.stale)
+				waitSettle(stale)
 			}
 		}
 	}()
@@ -432,6 +447,9 @@ func stratumSession(pool, user, worker string) error {
 			if r.Block {
 				atomic.AddUint64(&blocks, 1)
 				logf("BLOCK accepted by pool!")
+				if h := atomic.LoadUint64(&inflightHeight); h > 0 {
+					closeHeight(h)
+				}
 			}
 			emitStatus()
 		}
@@ -446,11 +464,11 @@ func runHTTP(base, user, worker string) {
 			if !prepareSend(s) {
 				continue
 			}
-			w, _ := cur.Load().(*work)
-			if w == nil || w.job.JobID != s.jobID || w.job.Height != s.height || !zp.DetMeets(s.det, w.shareTarget) {
+			if !shareCurrent(s) {
 				atomic.AddUint64(&dropped, 1)
 				continue
 			}
+			atomic.StoreUint64(&inflightHeight, s.height)
 			b, _ := json.Marshal(map[string]interface{}{"login": user, "worker": worker, "job_id": s.jobID, "nonce": s.nonce})
 			resp, err := cl.Post(base+"/submit", "application/json", bytes.NewReader(b))
 			if err != nil {
@@ -468,6 +486,9 @@ func runHTTP(base, user, worker string) {
 				atomic.AddUint64(&accepted, 1)
 				if r.Block {
 					atomic.AddUint64(&blocks, 1)
+					if h := atomic.LoadUint64(&inflightHeight); h > 0 {
+						closeHeight(h)
+					}
 				}
 			} else {
 				atomic.AddUint64(&rejected, 1)
