@@ -41,6 +41,9 @@ header.top > .island { flex: 1 1 auto; min-width: 0; }
 .island-line .isle-chip.sync, .island-line .isle-chip.eta, .island-line .isle-chip.idle { flex: 0 1 auto; min-width: 0; }
 .island-line .isle-chip.sync .isle-val, .island-line .isle-chip.eta .isle-val, .island-line .isle-chip.idle .isle-val { overflow: hidden; text-overflow: ellipsis; }
 .island-line .isle-chip.rate, .island-line .isle-chip.live, .island-line .isle-chip.gold, .island-line .isle-chip.temp, .island-line .isle-chip.start { flex: 0 0 auto; }
+.island-line .isle-chip.bal { flex: 0 1 auto; min-width: 0; }
+.island-line .isle-chip.bal .isle-val { overflow: hidden; text-overflow: ellipsis; }
+.isle-av { width: 16px; height: 16px; border-radius: 50%; background: #2E7D32; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; flex: none; position: relative; z-index: 1; text-shadow: none; }
 .isle-chip.sync, .isle-chip.eta { background: linear-gradient(180deg, color-mix(in srgb, #81C784 calc(var(--sync, 0) * 100%), #64B5F6), color-mix(in srgb, #1B5E20 calc(var(--sync, 0) * 100%), #0D47A1)); }
 .isle-chip.rate, .isle-chip.temp-ok { background: linear-gradient(180deg, #81C784, #1B5E20); }
 .isle-chip.temp-warm { background: linear-gradient(180deg, #FFB74D, #E65100); }

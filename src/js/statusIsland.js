@@ -28,6 +28,8 @@ function syncOf (m) {
   if (isCpu(m) && m.localBlock == null && m.networkBlock == null) return { kind: 'pool' }
   const local = num(m.localBlock)
   const network = num(m.networkBlock)
+  // A 0 from a miner that has not heard the network yet is not a real height.
+  if (local != null && !(network > 0)) return { kind: 'pending', local, network: null }
   if (local == null || network == null) return { kind: 'checking' }
   if (network - local <= BEHIND_BLOCKS) return { kind: 'synced', local, network }
   return { kind: 'syncing', local, network, etaSec: num(m.syncEtaSec) }
@@ -114,6 +116,7 @@ function syncText (sync, tr, etaText) {
   if (!sync || sync.kind === 'off') return tr('isleOff')
   if (sync.kind === 'pool') return tr('islePool')
   if (sync.kind === 'checking') return tr('isleChecking')
+  if (sync.kind === 'pending') return groupNum(sync.local) + '/…'
   if (sync.kind === 'synced') return tr('isleSynced') + ' ' + groupNum(sync.local) + '/' + groupNum(sync.network)
   return groupNum(sync.local) + '/' + groupNum(sync.network) + ' · ' + panelEta(sync, tr, etaText)
 }
@@ -181,10 +184,12 @@ function buildIsland (opts) {
     const gpu = src.gpu && isGpuMine(src.gpu) ? src.gpu : null
     const rates = [rateOf(gpu, tr('isleGpu')), rateOf(src.cpu, tr('isleCpu'))].filter(Boolean)
     const liveMine = rates.length > 0
+    const gpuWaiting = gpu && gpu.running && !miningNow(gpu) && (sync.kind === 'syncing' || (gpu.code && String(gpu.code).indexOf('SYNC') >= 0))
     return {
       n,
       sync,
       rates,
+      standby: gpuWaiting ? tr('isleGpuIdle') : '',
       liveMine,
       progress: syncProgress(sync),
       syncKind: sync.kind,
@@ -196,20 +201,22 @@ function buildIsland (opts) {
   const chips = []
   views.forEach(s => {
     const sync = s.sync
-    const showHeight = sync.kind === 'syncing' || sync.kind === 'checking' || (sync.kind === 'synced' && !s.rates.length)
-    if (sync.kind === 'off' && !s.rates.length) return
+    const showHeight = sync.kind === 'syncing' || sync.kind === 'checking' || sync.kind === 'pending' || (sync.kind === 'synced' && !s.rates.length)
+    if (sync.kind === 'off' && !s.rates.length && !s.standby) return
     if (sync.kind === 'checking') {
       chips.push({ kind: 'sync', text: 'S' + s.n + ' ' + tr('isleChecking'), progress: 0 })
     } else if (showHeight && sync.local != null) {
       let text = 'S' + s.n + ' '
       if (sync.kind === 'syncing' && !anyMining) text += tr('isleSyncShort') + ' '
-      text += compactCount(sync.local) + '/' + compactCount(sync.network)
+      const netKnown = sync.network != null && Number(sync.network) > 0
+      text += compactCount(sync.local) + '/' + (netKnown ? compactCount(sync.network) : '…')
       chips.push({ kind: 'sync', text: text.trim(), progress: s.progress })
       const eta = etaLabel(sync, tr)
       if (eta) chips.push({ kind: 'eta', text: eta, progress: s.progress })
     } else if (sync.kind === 'pool' && !s.rates.length) {
       chips.push({ kind: 'idle', text: 'S' + s.n + ' ' + tr('islePool') })
     }
+    if (s.standby) chips.push({ kind: 'idle', text: s.standby })
     const withShard = !showHeight
     if (s.rates.length === 1) chips.push(rateChip(s.n, s.rates[0], withShard))
     else s.rates.forEach((r, i) => chips.push(rateChip(s.n, r, withShard && i === 0)))
@@ -223,10 +230,11 @@ function buildIsland (opts) {
   const band = tempBand(tempC)
   const earn = summarizeEarnings(opts.earnLog || [], opts.now == null ? Date.now() : opts.now, opts.rewardScdo == null ? BLOCK_REWARD_SCDO : opts.rewardScdo)
   const balanceText = opts.balanceText || ''
+  const balanceMark = opts.balanceMark || ''
   const money = []
   if (tempC != null) money.push({ kind: 'temp', text: String(tempC) + '°C', band: band })
   money.push({ kind: 'earn', text: tr('isleTodayShort', { b: earn.todayBlocks, s: earn.todayScdo }) })
-  if (balanceText) money.push({ kind: 'bal', text: tr('isleBalance') + ' ' + balanceText })
+  if (balanceText) money.push({ kind: 'bal', text: tr('isleBalance') + ' ' + balanceText, mark: balanceMark })
   const compactTop = chips.map(c => c.text).join(' · ')
   const compactBottom = money.map(c => c.text).join(' · ')
   const shards = views.map(s => ({
@@ -237,7 +245,7 @@ function buildIsland (opts) {
     progress: s.progress,
     liveMine: s.liveMine
   }))
-  return { shards, tempC, tempBand: band, earn, balanceText, compactTop, compactBottom, chips, money }
+  return { shards, tempC, tempBand: band, earn, balanceText, balanceMark, compactTop, compactBottom, chips, money }
 }
 
 function absorbBlocks (state, events, now) {

@@ -839,16 +839,30 @@
     }
     return x
   }
+  function shortAcc (name) {
+    const chars = [...String(name || '').trim()]
+    if (chars.length <= 8) return chars.join('')
+    return chars.slice(0, 8).join('') + '…'
+  }
   function headerBalanceText () {
     const a = headerAccount()
     if (!a) return T('noAccount')
+    const name = shortAcc(accLabel(a))
+    let amt
     if (headerChain() === 'old') {
       const v = st.old[a.pubkey]
-      return (v != null ? fmtNum(v) : '…') + ' SCDO'
+      amt = (v != null ? fmtNum(v) : '…') + ' SCDO'
+    } else if (!a.evm) amt = T('lockedShort')
+    else {
+      const b = st.s0[a.filename]
+      amt = (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
     }
-    if (!a.evm) return T('lockedShort')
-    const b = st.s0[a.filename]
-    return (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+    return (name ? name + ' ' : '') + amt
+  }
+  function headerBalanceMark () {
+    const a = headerAccount()
+    const name = a ? String(accLabel(a)).trim() : ''
+    return name ? name[0].toUpperCase() : ''
   }
   function earnEvents () {
     const out = []
@@ -882,6 +896,7 @@
       earnLog: earn,
       now: Date.now(),
       balanceText: headerBalanceText(),
+      balanceMark: headerBalanceMark(),
       T,
       etaText: fmtSyncEta,
       hashText: fmtHash
@@ -918,6 +933,12 @@
       icon.textContent = '\u26CF'
       el.appendChild(icon)
     }
+    if (c.mark) {
+      const av = document.createElement('span')
+      av.className = 'isle-av'
+      av.textContent = c.mark
+      el.appendChild(av)
+    }
     const val = document.createElement('span')
     val.className = 'isle-val'
     val.textContent = c.text
@@ -932,7 +953,7 @@
   }
   function paintChipRow (host, chips) {
     const list = chips || []
-    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0].join('\t')).join('\n')
+    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || ''].join('\t')).join('\n')
     const prev = (host.getAttribute('data-sig') || '').split('\n').filter(Boolean)
     const same = prev.length === list.length && host.childElementCount === list.length && list.every((c, i) => prev[i].startsWith(c.kind + '\t'))
     if (same && host.getAttribute('data-sig') === sig) {
@@ -951,6 +972,15 @@
         const val = el.querySelector('.isle-val')
         const oldText = prev[i].split('\t')[1]
         applyChipFace(el, c)
+        let av = el.querySelector('.isle-av')
+        if (c.mark) {
+          if (!av) {
+            av = document.createElement('span')
+            av.className = 'isle-av'
+            el.insertBefore(av, val || null)
+          }
+          if (av.textContent !== c.mark) av.textContent = c.mark
+        } else if (av) av.remove()
         if (val && oldText !== c.text) {
           val.textContent = c.text
           el.classList.remove('isle-tick')
@@ -1027,7 +1057,7 @@
       : { kind: 'temp', text: T('isleTemp', { n: model.tempC }), band: model.tempBand })
     metaChips.push({ kind: 'earn', text: T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }) })
     metaChips.push({ kind: 'earn', text: T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }) })
-    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || '') })
+    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || ''), mark: model.balanceMark || '' })
     paintChipRow(panel.querySelector('.isle-meta-row'), metaChips)
   }
   function renderHeaderNetOnly () {
@@ -1044,9 +1074,21 @@
     const sig = [!!m.running, m.mode, m.chain, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN', m.code].join('|')
     const focusKeep = ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'poolUrl', 'mClassic', 'mClassic-in', 'mThreads', 'mGpuThreads', 'mThreadBlocks', 'mBlockThreads']
     if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && focusKeep.includes(document.activeElement.id))) render(); return }
-    if (e) { e.className = 'statusbar ' + minerClass(m); e.textContent = minerText(m) }
-    const set = (id, v) => { const x = $(id); if (x) x.textContent = v }
-    set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + (m.networkBlock == null ? (st.net.s0Block == null ? '–' : st.net.s0Block) : m.networkBlock))
+    if (e) {
+      const cls = 'statusbar ' + minerClass(m)
+      if (e.className !== cls) e.className = cls
+      const label = minerText(m)
+      if (e.textContent !== label) e.textContent = label
+    }
+    const set = (id, v) => {
+      const x = $(id)
+      if (!x) return
+      const s = v == null ? '' : String(v)
+      if (x.textContent === s) return
+      x.textContent = s
+    }
+    const netH = m.networkBlock == null || !(Number(m.networkBlock) > 0) ? (st.net.s0Block == null ? '…' : st.net.s0Block) : m.networkBlock
+    set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + netH)
     set('mPeers', m.peers == null ? '–' : m.peers)
     if (m.running && (m.mode === 'mine' || m.mode === 'pool' || m.chain === 'classic')) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
     set('mFound', m.blocksFound || 0)
@@ -1058,8 +1100,36 @@
       const young = m.startedAt && (Date.now() - m.startedAt < 600000)
       set('mRate', m.blocksFound > 0 && !young && m.blockRatePerHour != null ? Number(m.blockRatePerHour).toFixed(2) : '–')
     }
-    const ns = $('mNodeState'); if (ns) ns.textContent = nodeStateText(m)
-    const lg = $('mLog'); if (lg && st.logOpen) { lg.textContent = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'); lg.scrollTop = lg.scrollHeight }
+    const ns = $('mNodeState')
+    if (ns) set('mNodeState', nodeStateText(m))
+    const lg = $('mLog')
+    if (lg && st.logOpen) {
+      const text = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n')
+      if (lg.textContent !== text) {
+        lg.textContent = text
+        lg.scrollTop = lg.scrollHeight
+      }
+    }
+  }
+  // Hashrate and log lines can arrive dozens of times a second. Paint once per second, in one frame.
+  let minerDomRaf = 0
+  let minerDomTimer = null
+  let minerDomAt = 0
+  function scheduleMinerDom () {
+    const wait = minerDomAt + 1000 - Date.now()
+    if (wait > 0) {
+      if (minerDomTimer != null) return
+      minerDomTimer = setTimeout(() => { minerDomTimer = null; scheduleMinerDom() }, wait)
+      return
+    }
+    if (minerDomRaf) return
+    minerDomRaf = requestAnimationFrame(flushMinerDom)
+  }
+  function flushMinerDom () {
+    minerDomRaf = 0
+    minerDomAt = Date.now()
+    renderIsland()
+    renderMinerLive()
   }
 
   // ---------------- dropdowns ----------------
@@ -1897,14 +1967,13 @@
     storeMiner(m)
     st.miner = viewMiner()
     noteEarn()
-    renderIsland()
     noteCatHeights()
     catWatch()
     const cur0 = st.miners.shard0
     if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && api.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
-    renderMinerLive()
+    scheduleMinerDom()
   }
 
   // ---------------- events (one delegated handler) ----------------
