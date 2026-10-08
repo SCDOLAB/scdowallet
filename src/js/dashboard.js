@@ -114,7 +114,7 @@ function tempKeyHtml (T, esc) {
 // rows: [{ dir: 'in'|'out'|'mine', title, sub, amount, hash }]
 function txHtml (rows, T, esc) {
   if (!rows || !rows.length) return `<div class="card tx" id="recentTx"><div class="r"><span class="muted">${esc(T('d_noTx'))}</span></div></div>`
-  return `<div class="card tx" id="recentTx">${rows.map(r => `<div class="r"${r.hash ? ` data-act="openTx" data-v="${esc(r.hash)}"` : ''}><span class="ic">${r.dir === 'in' ? '\u2B07' : r.dir === 'mine' ? '\u26CF' : '\u2B06'}</span><div class="w"><b>${esc(r.title)}</b><div class="lbl">${esc(r.sub)}</div></div><div class="amt ${r.dir === 'out' ? '' : 'plus'}">${esc(r.amount)}</div></div>`).join('')}</div>`
+  return `<div class="card tx" id="recentTx">${rows.map(r => `<div class="r"${r.hash ? ` data-act="openTx" data-v="${esc(r.hash)}"` : ''}><span class="ic">${r.dir === 'in' ? '\u2B07' : r.dir === 'mine' ? '\u26CF' : r.dir === 'self' ? '\u21C4' : '\u2B06'}</span><div class="w"><b>${esc(r.title)}</b><div class="lbl">${esc(r.sub)}</div></div><div class="amt ${r.dir === 'out' || r.dir === 'self' ? '' : 'plus'}">${esc(r.amount)}</div></div>`).join('')}</div>`
 }
 
 // totals: { all: text, per: [5 x text] }

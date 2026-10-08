@@ -300,6 +300,12 @@ function planOpen (q, ctx) {
   return null
 }
 
+// 3.0.4: official contacts (the same ones as Settings → About)
+const CONTACT = { channel: 't.me/SCDOLabor', group: 't.me/SCDOCommunity', email: 'admin@apeccapital.org' } // no URLs here: the cat never goes online; the links live in the window
+function sayContact () {
+  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。SCDO 實驗室不會向你索取種子、私鑰或密碼。', actions: [] }
+}
+
 function wantsMine (q) {
   return /一鍵挖礦|開始挖礦|幫我挖|啟動挖礦|開挖/.test(q)
 }
@@ -312,6 +318,7 @@ function reply (text, ctx) {
   }
   if (looksLikeSecret(q) || /種子|助記詞|私鑰|密碼是/.test(q) && /顯示|給我|告訴|貼|是多少|看一下/.test(q)) return refuseSecret()
   if (/顯示.*(?:種子|助記詞|私鑰)|(?:種子|助記詞|私鑰).*(?:顯示|給我|告訴我)/.test(q)) return refuseSecret()
+  if (/聯絡|聯繫|客服|求助|幫助|說明|電報|社群|頻道|信箱|電郵|email|e-mail|telegram|support|contact|help/i.test(q)) return sayContact()
   const opened = planOpen(q, ctx)
   if (opened) return opened
   const moved = planTransfer(q, ctx)
@@ -338,6 +345,7 @@ const api = {
   planHeal: function (ctx) { return safePlan(planHeal(ctx)) },
   heatGuard: function (ctx) { const p = heatGuard(ctx); return p ? safePlan(p) : null },
   parseTransfer: parseTransfer,
+  CONTACT: CONTACT,
   planOpen: function (text, ctx) { const p = planOpen(clean(text), ctx); return p ? safePlan(p) : null },
   looksLikeSecret: looksLikeSecret,
   startFail: startFail,

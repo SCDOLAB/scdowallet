@@ -425,3 +425,12 @@ main { padding-bottom: 24px; }
 .foot-bar .foot-line { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 16px; row-gap: 2px; }
 .foot-bar .foot-line .foot-h { font-size: 22px; font-weight: 700; color: #1b1d33; white-space: normal; margin: 0; }
 .foot-bar .foot-line b { font-size: 26px; color: #2E7D32; white-space: nowrap; }
+
+/* 3.0.4: 說明與聯絡 (About + AI小貓), confirm-window warning line */
+.contact { margin: 12px 0 4px; display: flex; flex-direction: column; gap: 4px; }
+.contact .ct-h { font-weight: 700; font-size: 17px; color: #1b1d33; }
+.contact .ct-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 16px; }
+.contact .ct-row .link { font-size: 16px; padding: 0; }
+.cat-pop .contact { margin: 6px 14px 10px; }
+.cat-pop .contact .ct-h, .cat-pop .contact .ct-row, .cat-pop .contact .ct-row .link { font-size: 13px; }
+.cf-warn { margin-top: 10px; font-weight: 700; }

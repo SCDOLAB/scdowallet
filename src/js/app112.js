@@ -43,12 +43,14 @@
   }
   // punctuation that follows the UI language (full-width in Chinese, ASCII in English)
   const PU = { c: () => lang() === 'CN' ? '：' : ': ', l: () => lang() === 'CN' ? '（' : ' (', r: () => lang() === 'CN' ? '）' : ')', bar: () => lang() === 'CN' ? ' ｜ ' : ' | ', com: () => lang() === 'CN' ? '，' : ', ' }
-  function fmtNum (x, dMax) {
-    const n = Number(x); if (!isFinite(n)) return String(x)
-    const mx = Math.max(0, Math.min(20, dMax == null ? 6 : Number(dMax)))
-    return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(3, mx), maximumFractionDigits: mx, roundingMode: 'trunc' }) // 2.0.2 D-05: never round amounts up
-  }
-  function fmtWei (wei, dMax) { return fmtNum(formatEther(wei), dMax) }
+  // 3.0.4: one format for every amount: up to 8 decimals, cut (never rounded up), trailing zeros dropped, comma
+  // thousands separators. String / BigInt maths only (src/js/amount.js); the old dMax argument is ignored.
+  const AMT = window.SCDOAmount
+  function fmtNum (x) { return AMT.fmtDec(x) }
+  function fmtWei (wei) { return AMT.fmtUnits(wei, 18) }
+  // Shard1–Shard4 balances arrive as integer units (8 decimals) in a string
+  function oldRaw (pk) { const v = st.old[pk]; if (v == null) return null; try { return BigInt(v) } catch (e) { return null } }
+  function fmtOld (pk) { const r = oldRaw(pk); return r == null ? null : AMT.fmtUnits(r, 8) }
   function groupedTries (h) {
     if (h == null || h === '') return ''
     const n = Number(h)
@@ -93,6 +95,12 @@
     return `<div class="avatar" style="background:hsl(${hue},62%,48%)">${esc(ch)}</div>`
   }
   function openExternal (url) { api.invoke('shell:openExternal', url) }
+  // 3.0.4: official contacts, shown in Settings → About and in AI小貓 (the main process allows exactly these)
+  const CONTACT = [['help_channel', 'https://t.me/SCDOLabor', 't.me/SCDOLabor'], ['help_group', 'https://t.me/SCDOCommunity', 't.me/SCDOCommunity'], ['help_email', 'mailto:admin@apeccapital.org', 'admin@apeccapital.org']]
+  const CONTACT_URLS = CONTACT.map(c => c[1])
+  function contactHtml (id) {
+    return `<div class="contact" id="${id}"><div class="ct-h">${esc(T('help_title'))}</div>${CONTACT.map(([k, url, text]) => `<div class="ct-row"><span class="lbl">${esc(T(k))}</span><button type="button" class="link" data-act="openLink" data-v="${esc(url)}">${esc(text)}</button></div>`).join('')}</div>`
+  }
 
   // ---------------- state ----------------
   const ui = (BOOT.ui && typeof BOOT.ui === 'object' && !Array.isArray(BOOT.ui)) ? BOOT.ui : {}
@@ -143,7 +151,7 @@
     miner: null, miners: { shard0: { chain: 'shard0', running: false, code: 'IDLE' }, classicCpu: { chain: 'classic', mode: 'cpu', running: false, code: 'IDLE' }, classicGpu: { chain: 'classic', mode: 'gpu', running: false, code: 'IDLE' } }, gpu: null, caps: null, logOpen: false,
     mineShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('mineShard112'))) ? Number(localStorage.getItem('mineShard112')) : 0,
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
-    rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
+    rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
     catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false,
     payReview: null
@@ -212,9 +220,19 @@
       }).catch(() => { if (!answered) { answered = true; clearTimeout(to); doneOne() } })
     })
     api.invoke('old:records').then(r => { st.oldRecords = r || [] }).catch(() => {})
+    loadOldActivity()
+  }
+  // 3.0.4: Shard1–Shard4 history from https://api.scdoscan.io/api/address/{addr}/txs (incoming too), merged in the
+  // main process with this computer's own send records. At most once a minute, or right after a send (force).
+  function loadOldActivity (force) {
+    if (!force && Date.now() - st.oldActAt < 60000) return
+    st.oldActAt = Date.now()
+    const addrs = [...new Set(visible('old').map(a => (parseClassicAddress(a.pubkey) || {}).address).filter(Boolean))]
+    Promise.all(addrs.map(addr => api.invoke('old:activity', addr).then(r => { if (r && Array.isArray(r.rows)) st.oldAct[addr.toLowerCase()] = r.rows }).catch(() => {})))
+      .then(() => renderLive()).catch(() => {})
   }
   function s0Total (list) { let t = 0n; let known = 0; for (const a of list) { const b = st.s0[a.filename]; if (b && b.nativeWei != null) { t += b.nativeWei; known++ } } return { wei: t, known } }
-  function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
+  function oldTotal (list) { let t = 0n; let known = 0; for (const a of list) { const v = oldRaw(a.pubkey); if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
   // 'old' / 'new' (old tab names, deep links) open the Accounts tab at that section and pick that chain.
@@ -367,9 +385,11 @@
     if (!l.length) h = `<div style="padding:22px 26px" class="muted">${esc(T('noActivity'))}</div>`
     l.forEach(r => {
       const stt = r.status === 'done' ? `<span class="tag" style="background:#e8f7ee;color:#146c2e">${esc(T('txDone'))}</span>` : r.status === 'fail' ? `<span class="tag" style="background:#fff1f0;color:#a3160c">${esc(T('txFail'))}</span>` : r.status === 'error' ? `<span class="tag" style="background:#fff1f0;color:#a3160c" title="${esc(r.error || '')}">${esc(T('txNotSent'))}</span>` : r.stuck ? `<span class="tag grey" title="${esc(T('notConfirmedYet'))}">${esc(T('txStuck'))}</span>` : `<span class="tag grey">${esc(T('txPending'))}</span>`
-      h += `<div class="txrow" data-act="openTx" data-v="${esc(r.hash)}"><div style="font-size:26px">${r.dir === 'in' ? '\u2B07' : '\u2B06'}</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px">${esc(r.dir === 'in' ? T('txReceived') : T('txSent'))} ${r.dir === 'in' ? '\u2190' : '\u2192'} <span class="mono" style="font-weight:400;font-size:17px">${esc(r.dir === 'in' ? r.from : r.to)}</span></div>
+      const word = r.dir === 'in' ? T('txReceived') : r.dir === 'self' ? T('txSelf') : r.dir === 'reward' ? T('txReward') : T('txSent')
+      const inward = r.dir === 'in' || r.dir === 'reward'
+      h += `<div class="txrow" data-act="openTx" data-v="${esc(r.hash)}"><div style="font-size:26px">${inward ? '\u2B07' : '\u2B06'}</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px">${esc(word)} ${inward ? '\u2190' : '\u2192'} <span class="mono" style="font-weight:400;font-size:17px">${esc(inward ? r.from : r.to)}</span></div>
         <div class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB'))}${r.block ? ' · #' + esc(r.block) : ''}</div></div>
-        <div style="text-align:right"><div style="font-size:21px;font-weight:700">${r.dir === 'in' ? '+' : '\u2212'}${esc(fmtNum(r.amount))} ${esc(r.asset)}</div>${stt}</div></div>`
+        <div style="text-align:right"><div style="font-size:21px;font-weight:700">${inward ? '+' : r.dir === 'self' ? '' : '\u2212'}${esc(txAmount(r))} ${esc(r.asset)}</div>${stt}</div></div>`
     })
     h += `<div style="padding:14px 26px"><button class="link" data-act="explorerAddr" data-v="${esc(a.evm)}">${esc(T('viewExplorer'))}</button></div>`
     return h
@@ -405,15 +425,14 @@
   }
   // balances per chain as text, plus numbers for the totals (null = not known yet)
   function chainBalances () {
+    // 3.0.4: integer units only. Shard0 EVM has 18 decimals, Shard1–Shard4 have 8; the total is added at 18.
     const vals = []
     const s0 = s0Total(visible('new').filter(a => a.evm))
-    vals.push(s0.known ? Number(formatEther(s0.wei)) : null)
-    for (const n of [1, 2, 3, 4]) { const t = oldTotal(classicOn(n)); vals.push(classicOn(n).length ? (t.known ? t.v : null) : 0) }
-    // v8: every balance with the same four decimals (cut, never rounded up)
-    const fix4 = (x) => { const n = Number(x); return isFinite(n) ? n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4, roundingMode: 'trunc' }) : String(x) }
-    const text = vals.map((v, i) => v == null ? '…' : (i === 0 && s0.known ? fix4(formatEther(s0.wei)) : fix4(v)))
+    vals.push(s0.known ? s0.wei : null)
+    for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length ? (t.known ? t.v * 10n ** 10n : null) : 0n) }
+    const text = vals.map(v => v == null ? '…' : AMT.fmtUnits(v, 18))
     const known = vals.filter(v => v != null)
-    const all = known.length ? fix4(known.reduce((x, y) => x + y, 0)) + (known.length < 5 ? '…' : '') : '…'
+    const all = known.length ? AMT.fmtUnits(known.reduce((x, y) => x + y, 0n), 18) + (known.length < 5 ? '…' : '') : '…'
     return { text, all }
   }
   function blocksPerShard () {
@@ -443,24 +462,27 @@
       eta: fmtSyncEta
     })
   }
+  function txAmount (r) {
+    if (r.raw != null && r.decimals != null) { try { return AMT.fmtUnits(BigInt(r.raw), r.decimals) } catch (e) {} }
+    return fmtNum(r.amount)
+  }
+  const TX_TITLE = { in: 'd_txIn', out: 'd_txOut', self: 'd_txSelf', reward: 'd_txReward' }
+  function txRow (r, chain, when) {
+    const dir = TX_TITLE[r.dir] ? r.dir : 'out'
+    const status = r.status === 'done' ? T('d_txDone') : (r.status === 'fail' || r.status === 'error') ? T('d_txFail') : T('d_txPending')
+    const who = dir === 'reward' ? '' : (dir === 'in' ? T('d_txFrom', { a: r.from }) : T('d_txTo', { a: r.to }))
+    const sign = dir === 'out' ? '\u2212' : dir === 'self' ? '' : '+'
+    return { t: Number(new Date(r.t)) || 0, dir: dir === 'reward' ? 'mine' : dir === 'self' ? 'self' : dir, key: String(r.hash || '').toLowerCase() + ':' + (r.asset || 'SCDO'), hash: /^0x[0-9a-fA-F]{64}$/.test(String(r.hash || '')) && chain === 'Shard0 EVM' ? r.hash : '', title: T(TX_TITLE[dir], { chain }), sub: [who, when(r.t), r.block ? '#' + r.block : '', status].filter(Boolean).join(' · '), amount: sign + txAmount(r) + ' ' + (r.asset || 'SCDO') }
+  }
   function recentTx () {
     const rows = []
+    const seen = new Set()
     const when = (t) => new Date(t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB')
-    const own = new Set(st.accounts.map(a => String(a.evm || '').toLowerCase()).filter(Boolean))
-    for (const a of visible('new').filter(x => x.evm)) {
-      for (const r of (st.activity[a.evm.toLowerCase()] || [])) {
-        if (r.dir === 'out' && own.has(String(r.to || '').toLowerCase()) && rows.some(x => x.hash === r.hash)) continue
-        const status = r.status === 'done' ? T('d_txDone') : (r.status === 'fail' || r.status === 'error') ? T('d_txFail') : T('d_txPending')
-        rows.push({ t: Number(new Date(r.t)) || 0, dir: r.dir === 'in' ? 'in' : 'out', hash: /^0x[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? r.hash : '', title: T(r.dir === 'in' ? 'd_txIn' : 'd_txOut', { chain: 'Shard0 EVM' }), sub: [T(r.dir === 'in' ? 'd_txFrom' : 'd_txTo', { a: r.dir === 'in' ? r.from : r.to }), when(r.t), r.block ? '#' + r.block : '', status].filter(Boolean).join(' · '), amount: (r.dir === 'in' ? '+' : '\u2212') + fmtNum(r.amount, 4) + ' ' + (r.asset || 'SCDO') })
-      }
-    }
-    const mine = new Set(st.accounts.map(a => String(a.pubkey || '').toLowerCase()))
-    for (const r of (st.oldRecords || []).filter(Boolean)) {
-      const out = mine.has(String(r.fa || '').toLowerCase())
-      const p = parseClassicAddress(out ? r.fa : r.ta)
-      const chain = p ? 'Shard' + p.shard : 'Shard1–Shard4'
-      const status = r.u == 1 ? T('d_txDone') : r.u == 0 ? T('d_txFail') : T('d_txPending') // eslint-disable-line eqeqeq
-      rows.push({ t: Number(r.t) || 0, dir: out ? 'out' : 'in', hash: '', title: T(out ? 'd_txOut' : 'd_txIn', { chain }), sub: [T(out ? 'd_txTo' : 'd_txFrom', { a: out ? r.ta : r.fa }), when(r.t), status].join(' · '), amount: (out ? '\u2212' : '+') + fmtNum(Number(r.m) / 1e8, 4) + ' SCDO' })
+    const push = (row) => { if (row.key.length > 6 && seen.has(row.key)) return; seen.add(row.key); rows.push(row) }
+    for (const a of visible('new').filter(x => x.evm)) for (const r of (st.activity[a.evm.toLowerCase()] || [])) push(txRow(r, 'Shard0 EVM', when))
+    for (const a of visible('old')) {
+      const p = parseClassicAddress(a.pubkey); if (!p) continue
+      for (const r of (st.oldAct[p.address.toLowerCase()] || [])) push(txRow(r, 'Shard' + p.shard, when))
     }
     return rows.sort((x, y) => y.t - x.t).slice(0, 5)
   }
@@ -498,7 +520,7 @@
   function accRow (a, chain) {
     const addr = chain === 'new' ? a.evm : ((parseClassicAddress(a.pubkey) || {}).address || a.pubkey)
     let bal
-    if (chain === 'new') { const b = st.s0[a.filename]; bal = !a.evm ? '' : (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') } else { const v = st.old[a.pubkey]; bal = v != null ? fmtNum(v) : '…' }
+    if (chain === 'new') { const b = st.s0[a.filename]; bal = !a.evm ? '' : (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') } else { const v = fmtOld(a.pubkey); bal = v != null ? v : '…' }
     const tools = addr ? `<span class="mono">${esc(addr)}</span><button type="button" class="ico" data-act="copy" data-v="${esc(addr)}" title="${esc(T('d_copyAddr'))}" aria-label="${esc(T('d_copyAddr'))}">${window.SCDODash.COPY_SVG}</button><button type="button" class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="${chain}" title="${esc(T('d_showQr'))}" aria-label="${esc(T('d_showQr'))}">${window.SCDODash.QR_SVG}</button>` : `<span class="muted">${esc(T('d_addrLocked'))}</span>`
     return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b>${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
   }
@@ -988,8 +1010,8 @@
     const name = String(accLabel(a) || '').trim()
     let amt
     if (headerChain() === 'old') {
-      const v = st.old[a.pubkey]
-      amt = (v != null ? fmtNum(v) : '…') + ' SCDO'
+      const v = fmtOld(a.pubkey)
+      amt = (v != null ? v : '…') + ' SCDO'
     } else if (!a.evm) amt = T('lockedShort')
     else {
       const b = st.s0[a.filename]
@@ -1494,8 +1516,8 @@
         : `<div class="${a.evm ? 'mono' : 'lockline'}" style="font-size:15px">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>`
       let bal = ''
       if (chain === 'old') {
-        const v = st.old[a.pubkey]
-        if (v != null) bal = esc(fmtNum(v, 3)) + ' SCDO'
+        const v = fmtOld(a.pubkey)
+        if (v != null) bal = esc(v) + ' SCDO'
       } else {
         const b = st.s0[a.filename]
         if (b && b.nativeWei != null) bal = esc(fmtWei(b.nativeWei, 3)) + ' SCDO'
@@ -1553,6 +1575,7 @@
       SD.html(root, `<div class="overlay cf-ov" id="cfOv"><div class="modal cf-md" id="txConfirm" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
         <div class="mh"><h2 id="cfTitle">${esc(o.title)}</h2></div>
         <div class="cf-rows">${rows}</div>
+        ${o.warn ? `<div class="warnbox cf-warn" id="cfWarn">⚠ ${esc(o.warn)}</div>` : ''}
         <p class="sub cf-note">${esc(T('cf_note'))}</p>
         <div class="foot"><button type="button" class="btn ghost" id="cfNo">${esc(T('cf_no'))}</button><button type="button" class="btn pri" id="cfYes">${esc(o.yes || T('cf_yes'))}</button></div>
       </div></div>`)
@@ -1567,8 +1590,8 @@
     })
   }
   function cfRows (route, payer, extra) {
-    const chain = route.kind === 'gateway' ? T('cf_chainGateway') : (route.shard === 0 ? T('cf_chainS0') : TC('cf_chainShard', { n: route.shard }))
-    return [[T('cf_amount'), route.amount + ' SCDO'], [T('cf_to'), route.to, true], [T('cf_chain'), chain], [T('cf_from'), payer.evm || payer.pubkey || payer.filename || '', true]].concat(extra || [])
+    const chain = route.kind === 'gateway' ? T('cf_chainGateway') : (route.shard === 0 ? T('cf_chainS0') : T('cf_chainShard', { n: route.shard }))
+    return [[T('cf_amount'), fmtNum(route.amount) + ' SCDO'], [T('cf_to'), route.to, true], [T('cf_chain'), chain], [T('cf_from'), signingAddress(payer, route) || payer.filename || '', true]].concat(extra || [])
   }
 
   function confirmStopAll () {
@@ -1791,13 +1814,13 @@
         try {
           if (snap.shard === 0 && payer && payer.evm) {
             const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
-            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei), 8) + ' SCDO'
+            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei)) + ' SCDO'
           } else if (snap.shard >= 1) {
             if (payer && payer.pubkey) {
               const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
               if (g) gas = Number(g)
             }
-            text = fmtNum(gas / 1e8, 8) + ' SCDO'
+            text = AMT.fmtUnits(BigInt(gas || 21000), 8) + ' SCDO'
           }
         } catch (e) {
           if (snap.shard >= 1) text = '0.00021 SCDO'
@@ -1873,7 +1896,7 @@
         const ack = $('payAck')
         if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
         if (!pw) { if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee)) }))) { if (err) err.textContent = T('cf_canceled'); return }
+        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (err) err.textContent = T('cf_canceled'); return }
         if (!st.payReview) return
         const token = st.payReview.token
         st.payReview = null
@@ -1917,7 +1940,7 @@
       }
       if (!pw) { if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
       if (err) err.textContent = ''
-      if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(rev.fee)) }))) {
+      if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(rev.fee, route.amount)), warn: selfWarn(payer, route.to) }))) {
         if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
         if (btn) btn.disabled = false
         if (err) err.textContent = T('cf_canceled')
@@ -1929,10 +1952,15 @@
       try { res = await api.invoke('s0:send', { token: rev.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
       finishShard0(res, route, payer, err, btn)
     }
-    function feeRow (fee) {
+    // 3.0.4: fee and 合計 (amount + fee), both in integer wei
+    function feeRow (fee, amount) {
       if (!fee || !fee.maxFeeWei) return []
-      try { return [[T('cf_fee'), fmtWei(fee.maxFeeWei, 8) + ' SCDO']] } catch (e) { return [] }
+      try {
+        const f = BigInt(fee.maxFeeWei); const w = AMT.toUnits(amount, 18)
+        return [[T('cf_fee'), fmtWei(f) + ' SCDO']].concat(w != null ? [[T('cf_totalMax'), fmtWei(w + f) + ' SCDO']] : [])
+      } catch (e) { return [] }
     }
+    const selfWarn = (payer, to) => (payer && to && String(payer.evm || '').toLowerCase() === String(to).toLowerCase()) ? T('cf_warnSelf') : ''
     function finishShard0 (res, route, payer, err, btn) {
       if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || '')); loadActivity(payer.evm); refreshS0(); return }
       if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash); loadActivity(payer.evm); return }
@@ -1943,23 +1971,37 @@
     async function confirmClassic (route, payer, pw, err, btn) {
       if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
       if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
-      if (String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()) {
+      const units = /^\d+(\.\d{1,8})?$/.test(route.amount) ? AMT.toUnits(route.amount, 8) : null
+      if (units == null || units <= 0n) { if (err) err.textContent = TC('errAmount'); return }
+      // 3.0.4: sending to this account's own address is allowed after the user ticks the box (same as Shard0 EVM)
+      const self = String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()
+      if (self) {
         const box = $('paySelf')
         if (box) { box.style.display = 'block'; box.textContent = TC('warnSelf') }
+        let ack = $('paySelfAck')
+        if (!ack) {
+          const extra = $('payExtra')
+          if (extra) SD.html(extra, `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px"><input type="checkbox" id="paySelfAck" style="width:22px;height:22px"> ${esc(TC('ackSelf'))}</label>`)
+          ack = $('paySelfAck')
+          if (ack) ack.onchange = () => { const b = $('btnRemitSign'); if (b) b.disabled = !ack.checked }
+          if (btn) btn.disabled = true
+          if (err) err.textContent = ''
+          return
+        }
+        if (!ack.checked) { if (err) err.textContent = TC('ackSelf'); return }
       }
-      if (!/^\d+(\.\d{1,8})?$/.test(route.amount) || !(Number(route.amount) > 0)) { if (err) err.textContent = TC('errAmount'); return }
       let gas = s.gas
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
-      const fee = (gas || 21000) / 1e8
-      const bal = st.old[payer.pubkey]
-      if (bal != null && Number(route.amount) + fee > bal) { if (err) err.textContent = TC('errTooMuch'); return }
+      const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
+      const bal = oldRaw(payer.pubkey)
+      if (bal != null && units + feeU > bal) { if (err) err.textContent = TC('errTooMuch'); return }
       if (!pw) { if (err) err.textContent = TC('errPw'); return }
-      if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, [[T('cf_fee'), fmtNum(fee, 8) + ' SCDO']]) }))) { if (err) err.textContent = T('cf_canceled'); return }
+      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (err) err.textContent = T('cf_canceled'); return }
       if ($('remitPw')) $('remitPw').value = ''
       if (btn) btn.disabled = true
       if (err) SD.spin(err, TC('sending'))
       let res
-      try { res = await api.invoke('old:send', { file: payer.filename, password: pw, to: route.to, amount: route.amount, price: 1, gas: gas || 21000 }) } catch (e) { res = { ok: false, error: e.message } }
+      try { res = await api.invoke('old:send', { file: payer.filename, password: pw, to: route.to, amount: route.amount, price: 1, gas: gas || 21000, selfOk: self }) } catch (e) { res = { ok: false, error: e.message } }
       if (!$('payRoute')) return
       if (!res || !res.ok) {
         const em = String((res && res.error) || 'error')
@@ -1968,7 +2010,7 @@
         return
       }
       showDone(TC('sentOld') + ' ' + (res.hash || ''))
-      refreshOld()
+      refreshOld(); loadOldActivity(true)
     }
   }
   function payShowLedger () {
@@ -2092,9 +2134,9 @@
   async function deleteModal (f) {
     const a = accByFile(f); if (!a) return
     const paths = await api.invoke('keyfile:paths')
-    const s0b = st.s0[a.filename]; const oldb = st.old[a.pubkey]
-    const nonZero = (s0b && s0b.nativeWei != null && s0b.nativeWei > 0n) || (s0b && (s0b.tokens || []).some(t => t.raw != null && t.raw > 0n)) || (oldb != null && oldb > 0)
-    const balLine = `${esc(T('s0Short'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('classicShort'))}${PU.c()}${oldb != null ? esc(fmtNum(oldb)) + ' SCDO' : '?'}`
+    const s0b = st.s0[a.filename]; const oldb = oldRaw(a.pubkey)
+    const nonZero = (s0b && s0b.nativeWei != null && s0b.nativeWei > 0n) || (s0b && (s0b.tokens || []).some(t => t.raw != null && t.raw > 0n)) || (oldb != null && oldb > 0n)
+    const balLine = `${esc(T('s0Short'))}${PU.c()}${s0b && s0b.nativeWei != null ? esc(fmtWei(s0b.nativeWei)) + ' SCDO' : '?'}${PU.bar()}${esc(T('classicShort'))}${PU.c()}${oldb != null ? esc(AMT.fmtUnits(oldb, 8)) + ' SCDO' : '?'}`
     modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delTitle'))}</h2></div>
       <div class="infobox"><div style="font-size:21px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
         <div class="lbl">${esc(T('newAddrLabel'))}</div><div class="mono">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div>
@@ -2122,11 +2164,11 @@
       try { freshOld = await Promise.race([api.invoke('old:balance', a2.pubkey, a2.shard), new Promise(resolve => setTimeout(() => resolve(null), 15000))]) } catch (e) {}
       if (fresh0) st.s0[a2.filename] = fresh0
       if (freshOld != null) st.old[a2.pubkey] = freshOld
-      const has = (fresh0 && (fresh0.nativeWei > 0n || fresh0.tokens.some(t => t.raw != null && t.raw > 0n))) || (freshOld != null && freshOld > 0)
+      const has = (fresh0 && (fresh0.nativeWei > 0n || fresh0.tokens.some(t => t.raw != null && t.raw > 0n))) || (freshOld != null && BigInt(freshOld) > 0n)
       const tokLine = fresh0 ? fresh0.tokens.filter(t => t.raw != null && t.raw > 0n).map(t => fmtNum(t.balance) + ' ' + t.symbol).join(PU.com()) : ''
       modal(`<div class="mh"><h2 style="color:#c62828">${esc(T('delConfirmTitle'))}</h2></div>
         <div style="font-size:21px" class="wrap">${esc(T('delConfirmText', { n: accLabel(a2) }))}</div>
-        <div class="infobox" style="font-size:19px">${esc(T('s0Short'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('classicShort'))}${PU.c()}${freshOld != null ? esc(fmtNum(freshOld)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
+        <div class="infobox" style="font-size:19px">${esc(T('s0Short'))}${PU.c()}${fresh0 ? esc(fmtWei(fresh0.nativeWei)) + ' SCDO' + (tokLine ? PU.com() + esc(tokLine) : '') : '? (' + esc(T('balUnknown')) + ')'}<br>${esc(T('classicShort'))}${PU.c()}${freshOld != null ? esc(AMT.fmtUnits(freshOld, 8)) + ' SCDO' : '? (' + esc(T('balUnknown')) + ')'}</div>
         ${has ? `<div class="warnbox" style="background:#fdecec;border-color:#e53935;color:#b71c1c;font-weight:700;font-size:20px">⚠ ${esc(T('delHasBal'))}</div>` : ''}
         <div class="infobox">${esc(T('delBackup'))}<div class="mono" style="font-size:16px">${esc(paths.today)}</div></div>
         <div class="err" id="dErr"></div>
@@ -2207,7 +2249,7 @@
         <div class="row" style="flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
           <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div></div>
-      <div class="setsec" id="setAbout"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-09</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div><div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div></div>`, { width: 820, noFocus: true })
+      <div class="setsec" id="setAbout"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-09</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div></div>`, { width: 820, noFocus: true })
     fillAboutHash()
   }
   // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
@@ -2469,6 +2511,7 @@
       case 'closeModal': closeModal(); break
       case 'openTx': if (/^0x[0-9a-fA-F]{64}$/.test(String(v || ''))) openExternal(shard0().explorerTx(v)); break
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
+      case 'openLink': if (CONTACT_URLS.includes(String(v || ''))) openExternal(v); break
       case 'backupPick': backupPickModal(); break
       case 'backupOne': { const r = await api.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }
       case 'openBackups': api.invoke('keyfile:openBackups'); break
@@ -2625,8 +2668,8 @@
     const a = headerAccount()
     if (!a) return []
     if (headerChain() === 'old') {
-      const v = st.old[a.pubkey]
-      return [{ label: accLabel(a), text: (v != null ? fmtNum(v) : '…') + ' SCDO' }]
+      const v = fmtOld(a.pubkey)
+      return [{ label: accLabel(a), text: (v != null ? v : '…') + ' SCDO' }]
     }
     if (!a.evm) return [{ label: accLabel(a), text: '尚未解鎖' }]
     const b = st.s0[a.filename]
@@ -2691,6 +2734,7 @@
           <div class="ios-in"><input class="pill" id="aiCatIn" maxlength="200" placeholder="${esc(T('catInput'))}" autocomplete="off" spellcheck="false"><button type="button" class="send" data-act="catAsk" title="${esc(T('catSend'))}" aria-label="${esc(T('catSend'))}"><img src="./assets/ui/up.svg" alt=""></button></div>
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
+          ${contactHtml('catContact')}
         </div>`)
     }
     const panel = $('aiCatPanel')

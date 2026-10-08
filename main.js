@@ -73,10 +73,13 @@ ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
-const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/]
+// 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
+const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
+const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
 function openExternalSafe (url) {
   let u
   try { u = new URL(String(url)) } catch (e) { return false }
+  if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
   if (!EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }

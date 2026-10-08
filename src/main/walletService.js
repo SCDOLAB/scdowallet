@@ -52,20 +52,72 @@ function s0txAll () { return readJson(S0TX_PATH, []) }
 function s0txAdd (r) { const l = s0txAll(); l.unshift(r); writeJson(S0TX_PATH, l.slice(0, 500)) }
 function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x.hash === hash); if (r) { Object.assign(r, patch); writeJson(S0TX_PATH, l) } }
 
-// 2.0.2 D-01: incoming transfers were never listed (only local outgoing records). Merge the explorer's etherscan-style txlist.
+// 2.0.2 D-01: incoming transfers were never listed (only local outgoing records). Merge the explorer's list.
+// 3.0.4: every chain (Shard0 EVM and Shard1–Shard4) reads https://api.scdoscan.io/api/address/{addr}/txs, which lists
+// incoming and outgoing transfers, block rewards and token transfers. Shard0 falls back to the etherscan-style txlist
+// when that endpoint fails. Amounts stay integer units (string) plus decimals; the window formats them.
 const EXPLORER_API = 'https://api.scdoscan.io/api'
+const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=25'
+const REWARD_FROM = /^0S0{40}$/i
+async function fetchJson (url, ms) {
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), ms || 10000)
+  try { const r = await fetch(url, { signal: ctl.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json() } finally { clearTimeout(tm) }
+}
+// one indexer row -> wallet row { t, from, to, raw, decimals, asset, hash, block, status, dir }
+function indexerRow (t, a, nativeDec) {
+  const from = String(t.from || ''); const to = String(t.to || '')
+  const tok = t.token && typeof t.token === 'object' ? t.token : null
+  const dec = tok ? (tok.decimals == null ? null : Number(tok.decimals)) : nativeDec
+  const isFrom = from.toLowerCase() === a; const isTo = to.toLowerCase() === a
+  return {
+    t: Number(t.time || 0) * 1000, from, to,
+    raw: /^\d+$/.test(String(t.value || '')) ? String(t.value) : null, decimals: dec, amount: t.valueFormatted == null ? '' : String(t.valueFormatted),
+    asset: tok ? String(tok.symbol || '?') : 'SCDO', hash: String(t.hash || ''), block: Number(t.block || 0),
+    status: t.status === 'success' ? 'done' : t.status === 'failed' ? 'fail' : 'pending',
+    dir: REWARD_FROM.test(from) ? 'reward' : (isFrom ? (isTo ? 'self' : 'out') : 'in')
+  }
+}
+async function addrTxs (addr, nativeDec) {
+  const j = await fetchJson(ADDR_TXS(addr))
+  if (!j || !Array.isArray(j.txs)) throw new Error('BAD_INDEXER_REPLY')
+  const a = String(addr).toLowerCase()
+  return j.txs.map(t => indexerRow(t, a, nativeDec))
+}
 async function s0activity (addr) {
   const a = String(addr || '').toLowerCase(); if (!ADDR_RE.test(a)) return []
-  const local = s0txAll().filter(r => r.from && r.from.toLowerCase() === a).map(r => { const o = Object.assign({ dir: 'out' }, r); delete o.raw; return o })
+  const local = s0txAll().filter(r => r.from && r.from.toLowerCase() === a).map(r => { const o = Object.assign({ dir: r.to && r.to.toLowerCase() === a ? 'self' : 'out' }, r); delete o.raw; return o })
   let remote = []
-  try {
-    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 10000)
-    const j = await (await fetch(EXPLORER_API + '?module=account&action=txlist&address=' + a + '&page=1&offset=50&sort=desc', { signal: ctl.signal })).json(); clearTimeout(tm)
-    if (j && Array.isArray(j.result)) remote = j.result.map(t => ({ t: Number(t.timeStamp) * 1000, from: t.from, to: t.to, amount: ethers.formatEther(BigInt(t.value || '0')), asset: 'SCDO', hash: t.hash, block: Number(t.blockNumber), status: t.isError === '1' || t.txreceipt_status === '0' ? 'fail' : 'done', dir: (t.from || '').toLowerCase() === a ? ((t.to || '').toLowerCase() === a ? 'self' : 'out') : 'in' }))
-  } catch (e) {}
-  const seen = new Map(); for (const r of remote) seen.set(r.hash.toLowerCase(), r)
-  for (const r of local) { const k = String(r.hash).toLowerCase(); if (!seen.has(k)) seen.set(k, r); else if (r.asset !== 'SCDO') seen.get(k).asset = r.asset, seen.get(k).amount = r.amount }
+  try { remote = await addrTxs(a, 18) } catch (e) {
+    try {
+      const j = await fetchJson(EXPLORER_API + '?module=account&action=txlist&address=' + a + '&page=1&offset=50&sort=desc')
+      if (j && Array.isArray(j.result)) remote = j.result.map(t => ({ t: Number(t.timeStamp) * 1000, from: t.from, to: t.to, raw: String(BigInt(t.value || '0')), decimals: 18, amount: ethers.formatEther(BigInt(t.value || '0')), asset: 'SCDO', hash: t.hash, block: Number(t.blockNumber), status: t.isError === '1' || t.txreceipt_status === '0' ? 'fail' : 'done', dir: (t.from || '').toLowerCase() === a ? ((t.to || '').toLowerCase() === a ? 'self' : 'out') : 'in' }))
+    } catch (e2) {}
+  }
+  const seen = new Map(); for (const r of remote) { const k = r.hash.toLowerCase() + (r.asset === 'SCDO' ? '' : ':' + r.asset); if (!seen.has(k)) seen.set(k, r) }
+  for (const r of local) {
+    const k = String(r.hash).toLowerCase(); const kt = k + ':' + r.asset
+    if (seen.has(k) || seen.has(kt)) continue
+    seen.set(r.asset === 'SCDO' ? k : kt, r)
+  }
   return [...seen.values()].sort((x, y) => (y.t || 0) - (x.t || 0)).slice(0, 30)
+}
+// Shard1–Shard4: indexer rows plus this computer's own send records that the indexer doesn't list yet
+async function oldActivity (addr) {
+  const a = String(addr || '').trim()
+  if (!CLASSIC_RE.test(a)) return { ok: false, rows: [] }
+  const al = a.toLowerCase()
+  let remote = []; let ok = true
+  try { remote = await addrTxs(a, 8) } catch (e) { ok = false }
+  let local = []
+  try { const cl = c(); cl.getRecords(); local = (cl.txRecords || []).filter(r => r && (String(r.fa).toLowerCase() === al || String(r.ta).toLowerCase() === al)) } catch (e) {}
+  const seen = new Set(remote.map(r => r.hash.toLowerCase()))
+  for (const r of local) {
+    const h = String(r.s || '').toLowerCase()
+    if (h && seen.has(h)) continue
+    const out = String(r.fa).toLowerCase() === al; const self = out && String(r.ta).toLowerCase() === al
+    remote.push({ t: Number(r.t) || 0, from: r.fa, to: r.ta, raw: /^\d+$/.test(String(r.m)) ? String(r.m) : null, decimals: 8, asset: 'SCDO', hash: String(r.s || ''), block: 0, status: r.u == 1 ? 'done' : r.u == 0 ? 'fail' : 'pending', dir: self ? 'self' : (out ? 'out' : 'in'), local: true }) // eslint-disable-line eqeqeq
+  }
+  return { ok, rows: remote.sort((x, y) => (y.t || 0) - (x.t || 0)).slice(0, 30) }
 }
 
 // ---------- address checks (P0 #1) ----------
@@ -302,6 +354,9 @@ async function waitReceiptPoll (hash) {
 }
 
 // ---------- classic shards ----------
+function rawUnits (v) {
+  try { if (typeof v === 'bigint') return v.toString(); if (typeof v === 'number') return Number.isFinite(v) ? BigInt(Math.trunc(v)).toString() : null; const t = String(v).trim(); return /^\d+$/.test(t) ? BigInt(t).toString() : null } catch (e) { return null }
+}
 function oldBalance (pubkey, shard) {
   return new Promise(resolve => {
     let done = false
@@ -309,7 +364,7 @@ function oldBalance (pubkey, shard) {
     try {
       c().getBalance({ pubkey, shard }, (info, err) => {
         if (done) return; done = true; clearTimeout(t)
-        resolve(!err && info && info.Balance != null ? Number(info.Balance) / 1e8 : null)
+        resolve(!err && info && info.Balance != null ? rawUnits(info.Balance) : null) // 3.0.4: integer units as a string, no float
       })
     } catch (e) { if (!done) { done = true; clearTimeout(t); resolve(null) } }
   })
@@ -332,11 +387,16 @@ async function oldSend (p) {
   const amount = String(p.amount || '')
   if (!/^\d+(\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new Error('BAD_AMOUNT')
   if (typeof p.password !== 'string' || !p.password) throw new Error('NO_PASSWORD')
-  if (to === a.pubkey) throw new Error('SELF') // 2.0.2 D-04
+  // 2.0.2 D-04 refused sends to the account's own address (a UI safeguard: the bug list flagged "self-send allowed").
+  // 3.0.4: the chain processes it like any transfer (go-scdo has no from == to rule; the EVM path subtracts then adds
+  // the amount), so the coins stay and only the fee is spent. Allowed on all five chains once the user ticks the box.
+  if (to.toLowerCase() === String(a.pubkey).toLowerCase() && p.selfOk !== true) throw new Error('SELF')
   const rpc = cl.client[a.shard]
-  { const bal = await oldBalance(a.pubkey, a.shard); const gas = parseInt(p.gas || 21000) * parseInt(p.price || 1) / 1e8; if (bal != null && Number(amount) + gas > bal) throw new Error('INSUFFICIENT') } // 2.0.2 D-04: pre-check, was a raw node JSON error
-  const nonce = Number(await rpc.send('getAccountNonce', a.pubkey, '', -1)) + 1
   const BigNumber = require('bignumber.js')
+  const units = BigInt(new BigNumber(amount).times(1e8).integerValue(BigNumber.ROUND_DOWN).toFixed(0))
+  if (units <= 0n) throw new Error('BAD_AMOUNT')
+  { const bal = await oldBalance(a.pubkey, a.shard); const gas = BigInt(parseInt(p.gas || 21000)) * BigInt(parseInt(p.price || 1)); if (bal != null && units + gas > BigInt(bal)) throw new Error('INSUFFICIENT') } // 2.0.2 D-04: pre-check, was a raw node JSON error
+  const nonce = Number(await rpc.send('getAccountNonce', a.pubkey, '', -1)) + 1
   const rawTx = { Type: 0, From: a.pubkey, To: to, Amount: parseInt(new BigNumber(amount).times(1e8).integerValue(BigNumber.ROUND_DOWN).toFixed(0)), AccountNonce: nonce, GasPrice: parseInt(p.price || 1), GasLimit: parseInt(p.gas || 21000), Timestamp: 0, Payload: '' }
   let priv
   try { priv = await cl.decKeyFile(a.filename, p.password) } catch (e) { throw new Error('WRONG_PASSWORD') }
@@ -454,6 +514,7 @@ function register (ipcMain, getWin) {
   h('s0:cancelReview', (e, token) => { reviews.delete(String(token || '')); return true })
   h('s0:send', (e, p) => send(p).catch(err => ({ ok: false, error: err.message })))
   h('old:balance', (e, pubkey, shard) => (CLASSIC_RE.test(String(pubkey || '')) ? oldBalance(pubkey, shard) : null))
+  h('old:activity', (e, addr) => oldActivity(addr))
   h('old:records', () => { try { const cl = c(); cl.getRecords(); return (cl.txRecords || []).filter(Boolean).slice(0, 20) } catch (e) { return [] } })
   h('old:estimateGas', (e, from, to) => oldEstimateGas(from, to))
   h('old:send', (e, p) => oldSend(p).catch(err => ({ ok: false, error: err.message })))
@@ -461,4 +522,4 @@ function register (ipcMain, getWin) {
 
 // 2.0.6: language for main-process dialogs / tray / window titles
 function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'EN' } }
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, _test: { reviews } }
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
