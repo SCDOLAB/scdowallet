@@ -190,7 +190,9 @@ input.inp.mono { font-size: 18px; }
 .statusbar.good { background: #e8f7ee; color: #146c2e; } .statusbar.warn { background: #fff6e5; color: #7a4500; } .statusbar.bad { background: #fff1f0; color: #a3160c; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 18px; }
 .stat { background: #E8F5E9; border-radius: 14px; padding: 12px 16px; }
-.stat .v { font-size: 30px; font-weight: 800; color: #43A047; word-break: break-all; }
+.stat .v { font-size: 24px; font-weight: 800; color: #43A047; word-break: normal; overflow-wrap: anywhere; white-space: normal; line-height: 1.35; }
+.explain { cursor: help; }
+.explain:focus { outline: 2px solid #43A047; outline-offset: 2px; }
 .stat .v small { font-size: 17px; }
 .nogpu { margin-top: 16px; background: #fff8ec; border: 2px solid #ffd79a; border-radius: 14px; padding: 20px 22px; font-size: 24px; line-height: 1.6; color: #6b3a00; }
 details.adv { margin-top: 26px; border-top: 1px solid #e6e9f5; padding-top: 14px; }

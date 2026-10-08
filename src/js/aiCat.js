@@ -292,8 +292,8 @@ function reply (text, ctx) {
   if (/備份|帳戶檔案|助記詞|種子/.test(q)) return planBackup()
   if (/餘額|有多少|多少錢|多少\s*SCDO|資產/.test(q)) return sayBalance(ctx)
   if (/修復|同步卡住|沒有同伴|沒有節點|連不上|記憶體/.test(q)) return planHeal(ctx)
-  if (wantsMine(q) || /也挖\s*Shard\s*0|包含\s*Shard\s*0/i.test(q)) {
-    return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0/i.test(q)) }))
+  if (wantsMine(q) || /也挖\s*(?:Shard\s*0|主鏈)|包含\s*(?:Shard\s*0|主鏈)/i.test(q)) {
+    return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|主鏈|main chain/i.test(q)) }))
   }
   return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
 }

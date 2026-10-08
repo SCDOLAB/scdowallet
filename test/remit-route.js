@@ -18,7 +18,7 @@ assert.strictEqual(chain0.kind, 'chain')
 assert.strictEqual(chain0.shard, 0)
 assert.strictEqual(chain0.to, ADDR)
 assert.strictEqual(chain0.amount, '1.5')
-assert.strictEqual(chain0.line, '鏈上轉帳 · Shard0 · 手續費約 …')
+assert.strictEqual(chain0.line, '鏈上轉帳 · 主鏈 · 手續費約 …')
 
 const chain1 = route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' })
 assert.strictEqual(chain1.kind, 'chain')

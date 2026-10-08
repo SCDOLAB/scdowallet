@@ -49,7 +49,41 @@
     return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(3, mx), maximumFractionDigits: mx, roundingMode: 'trunc' }) // 2.0.2 D-05: never round amounts up
   }
   function fmtWei (wei, dMax) { return fmtNum(formatEther(wei), dMax) }
-  function fmtHash (h) { if (h == null) return '–'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s']; let i = 0; while (h >= 1000 && i < 3) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
+  function groupedTries (h) {
+    if (h == null || h === '') return ''
+    const n = Number(h)
+    if (!Number.isFinite(n) || n < 0) return ''
+    return Math.round(n).toLocaleString('en-US')
+  }
+  function speedText (h, on) {
+    if (!on) return T('mineSpeedOff')
+    const n = groupedTries(h)
+    if (!n) return T('mineSpeedUnknown')
+    return T('mineSpeedLine', { n: n })
+  }
+  function peerText (n) {
+    if (n == null || n === '') return T('minePeersUnknown')
+    return T('minePeersLine', { n: n })
+  }
+  function blockText (n) { return T('mineBlocksLine', { n: n || 0 }) }
+  function shareText (a, r) { return T('mineSharesLine', { a: a || 0, r: r || 0 }) }
+  function scdoLine (key, n) { return (n == null || n === '') ? T('mineAmountUnknown') : T(key, { n: n }) }
+  function rateText (on, young, rate) {
+    if (!on || young || rate == null || !Number.isFinite(Number(rate))) return T('mineRateOff')
+    return T('mineRateLine', { n: String(Number(Number(rate).toFixed(2))) })
+  }
+  function heightWord (v) {
+    const n = Number(v)
+    if (!(n > 0)) return T('mineHeightUnknown')
+    return T('mineHeightNum', { n: Math.round(n).toLocaleString('en-US') })
+  }
+  function tipPack (name, value, explain, detail) {
+    return { name: name || '', value: value || '', explain: explain || '', detail: detail || '' }
+  }
+  function statHtml (id, label, value, tip) {
+    const t = tip || {}
+    return `<div class="stat explain" tabindex="0" data-tip-name="${esc(t.name || label)}" data-tip-value="${esc(t.value || value)}" data-tip-explain="${esc(t.explain || '')}" data-tip-detail="${esc(t.detail || '')}"><div class="lbl">${esc(label)}</div><div class="v" id="${id}">${esc(value)}</div></div>`
+  }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
   function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
   function avatar (name) {
@@ -415,7 +449,7 @@
   function minerText (m) {
     if (!m) return T('st_IDLE')
     const code = m.code || 'IDLE'
-    const p = { l: m.localBlock == null ? '?' : m.localBlock, n: m.networkBlock == null ? '?' : m.networkBlock, w: m.wallet || '', m: m.message || '', shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
+    const p = { l: heightWord(m.localBlock), n: heightWord(m.networkBlock), w: m.wallet || '', m: m.message || '', shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
     let s = T('st_' + code, p)
     if (s === 'st_' + code) s = m.message || code
     if (code === 'DOWNLOADING' && m.download && m.download.total) s += ' ' + Math.round(100 * m.download.got / m.download.total) + '%'
@@ -424,15 +458,18 @@
   function fmtSyncEta (sec) {
     const cn = lang() === 'CN'
     const n = Number(sec)
-    if (sec == null || !Number.isFinite(n) || n < 0) return cn ? '計算中' : 'calculating'
-    if (n < 5) return cn ? '即將完成' : 'almost done'
+    if (sec == null || !Number.isFinite(n) || n < 0) return cn ? '還在算' : 'still working it out'
+    if (n < 5) return cn ? '還在算' : 'still working it out'
     const s = Math.round(n)
-    if (s < 60) return s + (cn ? ' 秒' : 's')
+    const plural = (k, word) => k + ' ' + word + (k === 1 ? '' : 's')
+    if (s < 60) return cn ? (s + ' 秒') : plural(s, 'second')
     const mins = Math.round(s / 60)
-    if (mins < 60) return mins + (cn ? ' 分鐘' : ' min')
+    if (mins < 60) return cn ? (mins + ' 分鐘') : plural(mins, 'minute')
     const h = Math.floor(mins / 60)
     const rm = mins % 60
-    return h + (cn ? ' 小時' : 'h') + (rm ? (cn ? ' ' + rm + ' 分鐘' : ' ' + rm + ' min') : '')
+    const hours = cn ? (h + ' 小時') : plural(h, 'hour')
+    if (!rm || h >= 10) return hours
+    return hours + ' ' + (cn ? (rm + ' 分鐘') : plural(rm, 'minute'))
   }
   function minerClass (m) {
     if (!m) return ''
@@ -529,7 +566,7 @@
     const opts = classicOptions(shard)
     const saved = localStorage.getItem('minerClassic') || ''
     const cur = (running && m.chain === 'classic' && m.wallet) || saved
-    const sel = addrSelect('mClassic', opts, cur, running, shard + 'S0' + shard + '…', T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
+    const sel = addrSelect('mClassic', opts, cur, running, T('classicAddrPh', { n: shard, p: shard + 'S0' + shard }), T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
     const pool = (caps.pools && caps.pools[shard]) || {}
     const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
     if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
@@ -544,25 +581,32 @@
     }
     if (backend === 'cpu') {
       const threads = threadCount(); const max = cpuCount()
-      h += `<div class="field"><div class="lbl">${esc(T('cpuThreads'))}${PU.c()}<b id="mThreadsVal">${threads}</b> / ${max}</div>
+      h += `<div class="field"><div class="lbl explain" tabindex="0" data-tip-name="${esc(T('cpuThreads'))}" data-tip-value="${esc(threads + ' / ' + max)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(T('cpuThreads'))}${PU.c()}<b id="mThreadsVal">${threads}</b> / ${max}</div>
         <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
         <div class="lbl">${esc(T('cpuThreadsHint'))}</div>`
     } else if (backend === 'gpu') {
       const g = gpuParams()
       h += `<div class="row" style="gap:12px;flex-wrap:wrap;margin-top:10px">
-        <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}" ${running ? 'disabled' : ''}></label>
-        <label class="lbl">${esc(T('gpuBlocks'))}<br><input class="inp half" id="mThreadBlocks" inputmode="numeric" value="${g.threadblocks}" ${running ? 'disabled' : ''}></label>
-        <label class="lbl">${esc(T('gpuBlockThreads'))}<br><input class="inp half" id="mBlockThreads" inputmode="numeric" value="${g.blockthreads}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuThreads'))}" data-tip-value="${esc(String(g.threads))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuBlocks'))}" data-tip-value="${esc(String(g.threadblocks))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuBlocks'))}<br><input class="inp half" id="mThreadBlocks" inputmode="numeric" value="${g.threadblocks}" ${running ? 'disabled' : ''}></label>
+        <label class="lbl explain" tabindex="0" data-tip-name="${esc(T('gpuBlockThreads'))}" data-tip-value="${esc(String(g.blockthreads))}" data-tip-explain="${esc(T('mineTipGpu'))}" data-tip-detail="">${esc(T('gpuBlockThreads'))}<br><input class="inp half" id="mBlockThreads" inputmode="numeric" value="${g.blockthreads}" ${running ? 'disabled' : ''}></label>
       </div>`
     }
     const active = running && m.chain === 'classic'
     const young = m.startedAt && (Date.now() - m.startedAt < 600000)
+    const hr = speedText(m.hashrate, active)
+    const shares = shareText(m.sharesAccepted, m.sharesRejected)
+    const found = blockText(m.blocksFound)
+    const pending = scdoLine('minePendingLine', m.poolStats && m.poolStats.pending)
+    const paid = scdoLine('minePaidLine', m.poolStats && m.poolStats.paid)
+    const rate = rateText(active && m.blocksFound > 0, young, m.blockRatePerHour)
     h += `<div class="stats">
-        <div class="stat"><div class="lbl">${esc(T('hashrate'))}</div><div class="v" id="mHr">${active && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
-        <div class="stat"><div class="lbl">${esc(T('acceptedShares'))}</div><div class="v" id="mAcc">${esc((m.sharesAccepted || 0) + ' / ' + (m.sharesRejected || 0))}</div></div>
-        <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>
-        ${backend === 'cpu' ? `<div class="stat"><div class="lbl">${esc(T('poolPending'))}</div><div class="v" id="mPending">${m.poolStats && m.poolStats.pending != null ? esc(m.poolStats.pending) : '–'}</div></div>
-        <div class="stat"><div class="lbl">${esc(T('poolPaid'))}</div><div class="v" id="mPaid">${m.poolStats && m.poolStats.paid != null ? esc(m.poolStats.paid) : '–'}</div></div>` : `<div class="stat"><div class="lbl">${esc(T('blockRate'))}</div><div class="v" id="mRate">${active && m.blocksFound > 0 && !young && m.blockRatePerHour != null ? esc(Number(m.blockRatePerHour).toFixed(2)) : '–'}</div></div>`}
+        ${statHtml('mHr', T('hashrate'), hr, tipPack(T('hashrate'), hr, T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
+        ${statHtml('mAcc', T('acceptedShares'), shares, tipPack(T('acceptedShares'), shares, T('mineTipShares')))}
+        ${statHtml('mFound', T('blocksFound'), found, tipPack(T('blocksFound'), found, T('mineTipBlocks')))}
+        ${backend === 'cpu'
+          ? statHtml('mPending', T('poolPending'), pending, tipPack(T('poolPending'), pending, T('mineTipPending'))) + statHtml('mPaid', T('poolPaid'), paid, tipPack(T('poolPaid'), paid, T('mineTipPaid')))
+          : statHtml('mRate', T('blockRate'), rate, tipPack(T('blockRate'), rate, T('mineTipRate')))}
       </div>
       <div class="row" style="margin-top:22px"><button class="btn ${active ? 'dan' : 'pri'} big" data-act="${active ? 'minerStop' : 'mineStart'}" id="btnMine">${esc(active ? T('stopMining') : T('startMining'))}</button></div>
       <div class="lbl" style="margin-top:10px">${esc(backend === 'cpu' ? T('classicFirst') : T('blockRateHint'))}</div>`
@@ -612,7 +656,8 @@
     const nodeMode = m.mode === 'node' && running
     const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
     const statusBar = ''
-    const blocks = `<div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
+    const peerLine = peerText(m.peers)
+    const blocks = statHtml('mPeers', T('peers'), peerLine, tipPack(T('peers'), peerLine, T('mineTipPeer')))
     if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
@@ -623,8 +668,8 @@
         <div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('rewardAddr'))}</div>${sel}</div>
         ${statusBar}
         ${m.mode === 'pool' && running && m.poolUrl ? `<div class="infobox" id="poolNow">${esc(T('poolNow', { u: m.poolUrl }))}</div>` : ''}
-        <div class="stats"><div class="stat"><div class="lbl">${esc(T('hashrate'))} ${mineMode ? '' : esc(T('hashrateHint'))}</div><div class="v" id="mHr">${mineMode && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
-        <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>${blocks}</div>
+        <div class="stats">${statHtml('mHr', T('hashrate') + (mineMode ? '' : ' ' + T('hashrateHint')), speedText(m.hashrate, mineMode), tipPack(T('hashrate'), speedText(m.hashrate, mineMode), T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
+        ${statHtml('mFound', T('blocksFound'), blockText(m.blocksFound), tipPack(T('blocksFound'), blockText(m.blocksFound), T('mineTipBlocks')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
           ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
@@ -638,7 +683,7 @@
       // external node answering: one green line only (no separate status bar that could contradict it)
       if (extOk) h += `<div class="infobox" style="font-size:20px" id="extOk">${esc(T('externalNode', { u: '127.0.0.1:' + ((m.ports && m.ports.http) || 18545) }))}</div>`
       h += ext ? `<div class="lbl" style="margin-top:8px">${esc(T('extPayout'))}</div>` : payoutField(m, running)
-      h += `${extOk ? '' : statusBar}<div class="stats"><div class="stat"><div class="lbl">${esc(T('nodeState'))}</div><div class="v" style="font-size:24px" id="mNodeState">${esc(nodeStateText(m))}</div></div>${blocks}</div>
+      h += `${extOk ? '' : statusBar}<div class="stats">${statHtml('mNodeState', T('nodeState'), nodeStateText(m), tipPack(T('nodeState'), nodeStateText(m), T('mineTipNode')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap">
         ${ext ? `<button class="btn ghost" data-act="minerStop" id="btnNode">${esc(T('stopWatch'))}</button>` : running ? `<button class="btn dan big" data-act="minerStop" id="btnNode">${esc(T('stopNode'))}</button>` : `<button class="btn pri big" data-act="nodeStart" id="btnNode">${esc(T('runNode'))}</button>`}</div>
         <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
@@ -834,7 +879,7 @@
     const x = window.SCDOMinePill.formatMinePill(miners, T)
     const s0 = miners.shard0 || {}
     if (s0.running && s0.mode !== 'node' && s0.phase !== 'error') {
-      const hr = s0.code === 'MINING' && s0.hashrate > 0 ? ' · ' + fmtHash(s0.hashrate) : ''
+      const hr = s0.code === 'MINING' && s0.hashrate > 0 ? ' · ' + speedText(s0.hashrate, true) : ''
       x.t += hr + ' · ' + T('poolLbl') + ' ' + poolLabel(s0)
     }
     return x
@@ -903,7 +948,7 @@
       balanceName: headerBalanceName(),
       T,
       etaText: fmtSyncEta,
-      hashText: fmtHash
+      hashText: (h) => speedText(h, true)
     })
   }
   function chipClass (c) {
@@ -1127,8 +1172,21 @@
     el.style.left = Math.round(left) + 'px'
     el.style.top = Math.round(top) + 'px'
   }
+  function tipFromAnchor (anchor) {
+    if (!anchor) return null
+    if (anchor._isleTip && anchor._isleTip.explain) return anchor._isleTip
+    if (!anchor.getAttribute) return null
+    const explain = anchor.getAttribute('data-tip-explain')
+    if (!explain) return null
+    return {
+      name: anchor.getAttribute('data-tip-name') || '',
+      value: anchor.getAttribute('data-tip-value') || '',
+      explain: explain,
+      detail: anchor.getAttribute('data-tip-detail') || ''
+    }
+  }
   function openIslePop (anchor, pin) {
-    const tip = anchor && anchor._isleTip
+    const tip = tipFromAnchor(anchor)
     if (!tip || !tip.explain) return
     clearTimeout(islePopTimer)
     clearTimeout(islePopHideTimer)
@@ -1174,6 +1232,31 @@
       openIslePop(el, true)
     })
   }
+  document.addEventListener('mouseover', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const from = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (from === el) return
+    queueIslePop(el)
+  })
+  document.addEventListener('mouseout', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const to = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (to === el) return
+    queueIslePopHide()
+  })
+  document.addEventListener('focusin', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (el) openIslePop(el, false)
+  })
+  document.addEventListener('focusout', (ev) => {
+    const el = ev.target.closest && ev.target.closest('.explain')
+    if (!el) return
+    const to = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.explain')
+    if (to === el) return
+    queueIslePopHide()
+  })
   function ensureIsleHelp (compact) {
     let btn = compact.querySelector('#isleHelp')
     if (!btn) {
@@ -1237,25 +1320,30 @@
       const label = minerText(m)
       if (e.textContent !== label) e.textContent = label
     }
-    const set = (id, v) => {
+    const set = (id, v, detail) => {
       const x = $(id)
       if (!x) return
       const s = v == null ? '' : String(v)
       if (x.textContent === s) return
       x.textContent = s
+      const box = x.closest && x.closest('.explain')
+      if (!box) return
+      box.setAttribute('data-tip-value', s)
+      if (detail != null) box.setAttribute('data-tip-detail', detail)
+      if (islePopAnchor === box && $('islePop') && !$('islePop').hidden) fillIslePop(tipFromAnchor(box))
     }
     const netH = m.networkBlock == null || !(Number(m.networkBlock) > 0) ? (st.net.s0Block == null ? '…' : st.net.s0Block) : m.networkBlock
-    set('mBlocks', (m.localBlock == null ? '–' : m.localBlock) + ' / ' + netH)
-    set('mPeers', m.peers == null ? '–' : m.peers)
-    if (m.running && (m.mode === 'mine' || m.mode === 'pool' || m.chain === 'classic')) set('mHr', m.hashrate != null ? fmtHash(m.hashrate) : '–')
-    set('mFound', m.blocksFound || 0)
+    set('mBlocks', heightWord(m.localBlock) + ' · ' + heightWord(netH))
+    set('mPeers', peerText(m.peers))
+    if (m.running && (m.mode === 'mine' || m.mode === 'pool' || m.chain === 'classic')) set('mHr', speedText(m.hashrate, true), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') }))
+    set('mFound', blockText(m.blocksFound))
     if (m.chain === 'classic') {
-      set('mAcc', (m.sharesAccepted || 0) + ' / ' + (m.sharesRejected || 0))
+      set('mAcc', shareText(m.sharesAccepted, m.sharesRejected))
       const ps = m.poolStats || {}
-      set('mPending', ps.pending == null ? '–' : String(ps.pending))
-      set('mPaid', ps.paid == null ? '–' : String(ps.paid))
+      set('mPending', scdoLine('minePendingLine', ps.pending))
+      set('mPaid', scdoLine('minePaidLine', ps.paid))
       const young = m.startedAt && (Date.now() - m.startedAt < 600000)
-      set('mRate', m.blocksFound > 0 && !young && m.blockRatePerHour != null ? Number(m.blockRatePerHour).toFixed(2) : '–')
+      set('mRate', rateText(m.blocksFound > 0, young, m.blockRatePerHour))
     }
     const ns = $('mNodeState')
     if (ns) set('mNodeState', nodeStateText(m))
@@ -1513,8 +1601,14 @@
       route = route || currentRoute()
       const line = $('payRoute')
       if (line) {
-        if (route.many) line.textContent = TC('payMany', { n: route.many.join('、') })
-        else line.textContent = route.line || TC('payRouteWait')
+        const text = route.many ? TC('payMany', { n: route.many.join('、') }) : (route.line || TC('payRouteWait'))
+        if (line.textContent !== text) line.textContent = text
+        line.classList.add('explain')
+        line.tabIndex = 0
+        line.setAttribute('data-tip-name', TC('payRouteName'))
+        line.setAttribute('data-tip-value', text)
+        line.setAttribute('data-tip-explain', TC('payRouteExplain'))
+        line.setAttribute('data-tip-detail', route.kind === 'chain' ? TC('payRouteDetailChain') : TC('payRouteDetailGate'))
       }
       const payer = paintPayer(route)
       const note = $('payNote')
@@ -2135,7 +2229,9 @@
 
   // ---------------- events (one delegated handler) ----------------
   document.addEventListener('click', async (ev) => {
-    const inPop = ev.target.closest && (ev.target.closest('.isle-chip') || ev.target.closest('#islePop') || ev.target.closest('#isleHelp') || ev.target.closest('#isleLegend'))
+    const explained = ev.target.closest && ev.target.closest('.explain')
+    const inPop = ev.target.closest && (ev.target.closest('.isle-chip') || explained || ev.target.closest('#islePop') || ev.target.closest('#isleHelp') || ev.target.closest('#isleLegend'))
+    if (explained) openIslePop(explained, true)
     if (!inPop) closeIslePop(true)
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
@@ -2350,7 +2446,7 @@
           <div class="ai-log" id="aiCatLog"></div>
           <div class="ai-chips">
             <button type="button" class="btn sec small" data-act="catChip" data-v="開始挖礦">開始挖礦</button>
-            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 Shard0">也挖 Shard0</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖主鏈">也挖主鏈</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="自我修復">自我修復</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="餘額">餘額</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="備份帳戶">備份帳戶</button>

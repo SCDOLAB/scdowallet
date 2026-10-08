@@ -5,7 +5,7 @@
   const BG = { ready: '#e8f7ee', warn: '#fff6e0', notReady: '#fff1f0' }
   const LABEL = { ready: 'READY', warn: 'CHECK', notReady: 'NOT READY' }
   function render (pre, loading) {
-    const card = h('div', { class: 'card m1-card', id: 'gpuPreflight' }, h('div', { class: 'm1-h' , text: M.L('GPU pre-flight check') }))
+    const card = h('div', { class: 'card m1-card', id: 'gpuPreflight' }, h('div', { class: 'm1-h' , text: M.L('Graphics card check') }))
     if (loading || !pre) { card.appendChild(h('div', { class: 'statusbar' }, h('span', { class: 'spin' }), M.L(' Detecting GPU hardware and drivers…'))); return card }
     if (!pre.supported) { card.appendChild(M.macNotSupportedCard()); return card }
     if (!pre.gpus.length) card.appendChild(h('div', { class: 'nogpu', text: M.L('No graphics card was detected.') }))
@@ -15,12 +15,12 @@
         h('div', { class: 'm1-row' }, h('b', { text: g.deviceName || M.L('Unknown GPU') }), h('span', { class: 'tag', style: 'background:' + BG[st] + ';color:' + COL[st], text: M.L(LABEL[st]) })),
         h('div', { class: 'm1-kv' },
           h('span', { text: M.L('Vendor: ') + g.vendor }),
-          h('span', { text: M.L('VRAM: ') + (g.vramGB ? g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approx.)') : '') : M.L('unknown')) }),
+          h('span', { class: 'explain', tabindex: '0', 'data-tip-name': M.L('Graphics memory '), 'data-tip-value': (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')), 'data-tip-explain': M.L('This is the memory on the graphics card. Mining needs at least 4 GB. A bigger number can handle mining more comfortably.'), text: (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')) }),
           h('span', { text: M.L('Driver: ') + (g.driverVersion || M.L('not detected')) }),
           h('span', { text: M.L('CUDA: ') + (g.cuda ? M.L('yes') : M.L('no')) })),
         h('ul', { class: 'm1-reasons' }, (g.reasons || []).map(r => h('li', { text: M.reason(r) })))))
     }
-    card.appendChild(h('div', { class: 'lbl', text: M.L('Checked ') + new Date(pre.checkedAt || Date.now()).toLocaleString(M.locale()) + M.L('. Minimum: NVIDIA GPU with CUDA driver and 4 GB VRAM.') }))
+    card.appendChild(h('div', { class: 'lbl', text: M.L('Checked ') + new Date(pre.checkedAt || Date.now()).toLocaleString(M.locale()) + M.L('. Minimum: an NVIDIA graphics card, a CUDA driver, and 4 GB of graphics memory.') }))
     return card
   }
   // Mac: static notice, GPU mining is not offered (spec: Mac static hint card)

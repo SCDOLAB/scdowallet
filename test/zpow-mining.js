@@ -298,9 +298,8 @@ assert.ok(i18n.includes('正在檢查同步…'))
 assert.ok(i18n.includes('st_CLASSIC_STARTING:'))
 assert.ok(i18n.includes('st_CLASSIC_CHECKING:'))
 assert.ok(i18n.includes('Checking sync…'))
-assert.ok(i18n.includes('Classic 節點正在同步：本地 {l} / 全網 {n}，預計 {eta}'))
-assert.ok(i18n.includes('正在同步區塊：本地 {l} / 全網 {n}，預計 {eta}'))
-assert.ok(i18n.includes('local {l} / network {n}, ETA {eta}'))
+assert.ok(i18n.includes('正在下載帳本。這台電腦 {l}，網路上最新 {n}，大約還要 {eta}。'))
+assert.ok(i18n.includes('Downloading the ledger. This computer {l}, newest on the network {n}, about {eta} left.'))
 assert.ok(!i18n.includes('CPU-only'))
 assert.ok(!i18n.includes('CPU only'))
 assert.ok(ui.includes('data-v="${id}"'))
@@ -417,7 +416,34 @@ assert.ok(payOn.includes('s.feeFor = null'))
 assert.ok(!payOn.includes('paint(currentRoute())'))
 assert.ok(ui.includes('data-netdot'))
 assert.ok(ui.includes("data-act=\"pickShard\""))
-assert.ok(i18n.includes("pillShard0: 'Shard0'") || i18n.includes('pillShard0: "Shard0"'))
+assert.ok(i18n.includes('pillShard0: "主鏈"') || i18n.includes("pillShard0: '主鏈'"))
+assert.ok(i18n.includes('挖礦速度 每秒 {n} 次'))
+assert.ok(i18n.includes('Mining speed {n} tries per second'))
+assert.ok(i18n.includes('已連線 {n} 個節點'))
+assert.ok(i18n.includes('Connected to {n} nodes'))
+assert.ok(!ui.includes("['H/s', 'kH/s', 'MH/s', 'GH/s']"))
+assert.ok(ui.includes('function speedText'))
+assert.ok(ui.includes('data-tip-explain'))
+assert.ok(ui.includes("closest('.explain')"))
+assert.ok(ui.includes('也挖主鏈'))
+const boot = fs.readFileSync(path.join(__dirname, '../src/js/boot.js'), 'utf8')
+assert.ok(boot.includes('挖礦速度 每秒 {n} 次'))
+assert.ok(!boot.includes('MH/s'))
+const netStats = fs.readFileSync(path.join(__dirname, '../src/js/mining/miningNetworkStats.js'), 'utf8')
+assert.ok(!netStats.includes("'H/s'"))
+assert.ok(netStats.includes('tries per second'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/gpuPreflightCard.js'), 'utf8').includes('Graphics memory '))
+{
+  const vm = require('vm')
+  const ctx = { window: { SafeDom: { h () { return {} } }, SCDOMining: { lang: 'CN', TW: { 'Mining speed ': '挖礦速度 每秒 ', ' tries per second': ' 次', 'Mining speed is still being worked out': '挖礦速度 還在計算' }, L (en) { const M = ctx.window.SCDOMining; return M.lang === 'CN' && M.TW[en] ? M.TW[en] : en } } } }
+  vm.createContext(ctx)
+  vm.runInContext(netStats, ctx)
+  const fmt = ctx.window.SCDOMining.MiningNetworkStats.fmtHash
+  assert.strictEqual(fmt(12.30e6), '挖礦速度 每秒 12,300,000 次')
+  ctx.window.SCDOMining.lang = 'EN'
+  assert.strictEqual(fmt(85), 'Mining speed 85 tries per second')
+  assert.strictEqual(fmt(0), 'Mining speed is still being worked out')
+}
 assert.ok(i18n.includes('Classic 帳戶分頁在最前面'))
 assert.ok(i18n.includes('狀態島'))
 assert.ok(i18n.includes('isleGoMine: "前往挖礦"') || i18n.includes("isleGoMine: '前往挖礦'"))
@@ -678,13 +704,13 @@ assert.deepStrictEqual(parseGpuTemp('Tesla T4, 40\nQuadro, RTX, 55\n'), [{ name:
 assert.deepStrictEqual(parseGpuTemp(''), [])
 assert.deepStrictEqual(parseGpuTemp('no comma here\n'), [])
 const pillT = (k, p) => {
-  const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: 'Shard0', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
+  const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: '主鏈', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
   let s = m[k] || k
   if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
   return s
 }
 assert.deepStrictEqual(formatMinePill({}, pillT), { cls: '', t: '⛏ 未在挖礦' })
-assert.deepStrictEqual(formatMinePill({ shard0: { running: true, code: 'MINING', mode: 'pool' } }, pillT), { cls: 'ok', t: '⛏ 挖礦中 · Shard0' })
+assert.deepStrictEqual(formatMinePill({ shard0: { running: true, code: 'MINING', mode: 'pool' } }, pillT), { cls: 'ok', t: '⛏ 挖礦中 · 主鏈' })
 assert.deepStrictEqual(formatMinePill({
   classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic' },
   classicGpu: { running: true, shard: 1, code: 'CLASSIC_GPU', chain: 'classic' }

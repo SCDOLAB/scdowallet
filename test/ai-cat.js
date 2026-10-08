@@ -54,6 +54,8 @@ assert.strictEqual(gpuPeers.actions[0].jobs.filter(j => j.backend === 'cpu')[0].
 
 const with0 = cat.planMine(Object.assign({}, base, { includeShard0: true }))
 assert.ok(with0.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
+const alsoMain = cat.reply('也挖主鏈', base)
+assert.ok(alsoMain.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
 
 const hot = cat.planMine(Object.assign({}, base, { tempC: 86 }))
 assert.deepStrictEqual(hot.actions.map(a => a.type), ['stopGpu'])

@@ -22,8 +22,19 @@ function amountNumber (s) {
   return m ? m[0] : ''
 }
 
+function useEnglish () {
+  return typeof window !== 'undefined' && window.SCDOMining && window.SCDOMining.lang === 'EN'
+}
+function chainWord (shard) {
+  const n = Number(shard)
+  if (n === 0) return useEnglish() ? 'Main chain' : '主鏈'
+  return 'Shard' + n
+}
 function chainLine (shard, fee) {
-  return '鏈上轉帳 · Shard' + shard + ' · 手續費約 ' + (fee || '…')
+  const name = chainWord(shard)
+  const cost = fee || '…'
+  if (useEnglish()) return 'On-chain transfer · ' + name + ' · fee about ' + cost
+  return '鏈上轉帳 · ' + name + ' · 手續費約 ' + cost
 }
 
 function gateLine (eta) {
