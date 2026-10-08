@@ -475,9 +475,11 @@
   function minerText (m) {
     if (!m) return T('st_IDLE')
     const code = m.code || 'IDLE'
-    const p = { l: heightWord(m.localBlock), n: heightWord(m.networkBlock), w: m.wallet || '', m: m.message || '', shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
+    // zh-Hant never pastes the English miner sentence into 「出錯：{m}」.
+    if (lang() === 'CN' && code === 'ERROR') return window.SCDOStartError.full('CN', code, m.message)
+    const p = { l: heightWord(m.localBlock), n: heightWord(m.networkBlock), w: m.wallet || '', m: lang() === 'CN' ? '' : (m.message || ''), shard: m.shard || '', eta: fmtSyncEta(m.syncEtaSec) }
     let s = T('st_' + code, p)
-    if (s === 'st_' + code) s = m.message || code
+    if (s === 'st_' + code) s = lang() === 'CN' ? window.SCDOStartError.full('CN', code, m.message) : (m.message || code)
     if (code === 'DOWNLOADING' && m.download && m.download.total) s += ' ' + Math.round(100 * m.download.got / m.download.total) + '%'
     return s
   }
@@ -2201,7 +2203,14 @@
     }
     if (!(await okWithOtherRigel())) return
     const r = await api.invoke('miner:start', wallet, { mode: 'mine' })
-    if (!r.ok) { if (r.code === 'NO_NVIDIA') await ensureGpu(true); toast(r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code), 7000); return }
+    if (!r.ok) {
+      if (r.code === 'NO_NVIDIA') await ensureGpu(true)
+      const text = lang() === 'CN'
+        ? (r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : window.SCDOStartError.full('CN', r.code, r.error))
+        : (r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code))
+      toast(text, 7000)
+      return
+    }
     // 1.1.5: the on/off state is saved by the main process (miner-intent.json), not in localStorage
   }
   // 1.1.5: another Rigel (e.g. the SCDO-Mining task of the standalone miner package) already uses the GPU -> ask first

@@ -391,6 +391,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
+    try { getMiner().log('wallet', 'start failed: ' + (err && err.message || err)) } catch (e) {}
     if (err.code === 'NO_NVIDIA') writeIntent({ autoResume: false })
     return { ok: false, error: err.message, code: err.code }
   }
@@ -492,7 +493,7 @@ function createTray () {
       },
       onQuit: () => requestQuit({ confirm: true, reason: 'tray' })
     })
-    tray.update(miner ? miner.status() : null)
+    refreshTray()
   } catch (e) { console.error('tray failed', e) }
 }
 

@@ -3,6 +3,7 @@
 'use strict'
 const path = require('path')
 const { Tray, Menu, nativeImage } = require('electron')
+const { tooltipError, minersRunning } = require('../js/minerStartError')
 
 function fmtHash (h, lang) {
   const raw = Number(h)
@@ -30,7 +31,7 @@ function tooltipText (version, st, lang) {
   const head = 'SCDO Wallet ' + version
   let line
   if (!st || (!st.running && st.phase !== 'error')) line = head + '\n' + L.notMining
-  else if (st.phase === 'error') line = head + '\n' + L.minerError + ': ' + String(st.code || st.message || 'error')
+  else if (st.phase === 'error') line = head + '\n' + tooltipError(lang, st.code, st.message)
   else if (st.mode === 'node') line = head + '\n' + L.nodeOnly
   else if (st.code === 'MINING') line = head + '\n' + L.mining + fmtHash(st.hashrate, lang)
   else line = head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate, lang) : '')
@@ -63,14 +64,14 @@ class TrayStatus {
   rebuild () {
     if (!this.tray || this.tray.isDestroyed()) return
     const st = this.last
-    const active = this.o.isMinerActive()
     const L = this.L()
+    const mining = minersRunning(st)
     const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : L.notMining)
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },
       { type: 'separator' },
-      { label: L.stop, id: 'stop', enabled: active, click: () => this.o.onStop() },
+      { label: L.stop, id: 'stop', enabled: mining, click: () => this.o.onStop() },
       { label: L.keep, type: 'checkbox', checked: !!this.o.getKeepMining(), click: (mi) => this.o.onKeepMining(!!mi.checked) },
       { type: 'separator' },
       { label: L.quit, click: () => this.o.onQuit() }
@@ -87,7 +88,7 @@ class TrayStatus {
       this.lastBadge = b
       w.setOverlayIcon(this.badges[b], b === 'green' ? 'Mining' : b === 'red' ? 'Miner error' : 'Not mining')
     }
-    const sig = [st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')
+    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')
     if (sig !== this.sig) { this.sig = sig; this.rebuild() }
   }
 
