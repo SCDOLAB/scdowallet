@@ -34,7 +34,7 @@ import (
 	"github.com/scdoproject/go-scdo/zpool/zp"
 )
 
-var version = "0.1.2"
+var version = "0.1.3"
 
 const (
 	defaultBatch = 8192
@@ -243,11 +243,8 @@ func gpuLoop(dev *gpu.Device, batch int) {
 			if zp.DetMeets(cpuDet, w3.blockTarget) {
 				s.block = true
 				logf("BLOCK candidate height=%d nonce=%d", w3.job.Height, nonces[i])
-				// Height H is done as soon as we know it. Drop every other
-				// share for H now; do not wait for the pool's next job.
-				closeHeight(w3.job.Height)
 				enqueueShare(s)
-				break
+				continue
 			}
 			enqueueShare(s)
 		}

@@ -147,6 +147,43 @@ func TestCloseHeightDropsSharesButKeepsBlock(t *testing.T) {
 	}
 }
 
+func TestBlockCandidateWithoutPoolConfirmResumesOnSameHeightJob(t *testing.T) {
+	resetMinerState()
+	defer resetMinerState()
+	setJob(jobAt("j1", 10, "100"))
+	block := share{jobID: "j1", height: 10, nonce: "42", det: 1000, block: true}
+	if !enqueueShare(block) {
+		t.Fatal("block candidate not queued")
+	}
+	if atomic.LoadUint64(&closedHeight) != 0 {
+		t.Fatal("block candidate must not close the height before pool block:true")
+	}
+	// Pool ack without block:true (plain accept).
+	noteSubmitResult()
+	if !heightOpen(10) {
+		t.Fatal("height closed before pool confirmed block")
+	}
+	// New job at the same height: miner must resume on the new job id.
+	setJob(jobAt("j2", 10, "100"))
+	if !heightOpen(10) {
+		t.Fatal("same-height job did not reopen height")
+	}
+	s := share{jobID: "j2", height: 10, nonce: "99", det: 1000}
+	if !shareCurrent(s) {
+		t.Fatal("new same-height job not current after block candidate ack")
+	}
+	if !enqueueShare(s) {
+		t.Fatal("miner did not resume shares on new same-height job")
+	}
+	// Pool block:true is still what closes the height.
+	if closeHeight(10) == 0 {
+		t.Fatal("closeHeight after block:true did nothing")
+	}
+	if heightOpen(10) {
+		t.Fatal("height still open after pool block:true")
+	}
+}
+
 func TestClearWorkDropsQueueAndRearmsWarmup(t *testing.T) {
 	resetMinerState()
 	defer resetMinerState()

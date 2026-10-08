@@ -63,7 +63,7 @@ On a good run the log shows `logged in to 82.223.19.88:3341`, then lines of the 
 {"type":"status","hashrate":0,"accepted":0,"rejected":0,"connected":true,"blocks":0,"uptime_sec":15}
 ```
 
-`accepted` should increase and `rejected` should stay at or very near 0. The human log also shows `dropped`: shares this process threw away because the height changed, the connection dropped, the pool raised the share target, or this miner already found a block at that height. Those are not pool rejects. A block candidate closes its height immediately, so later shares for that height are not submitted while the pool is still on the old job. One non-block share is queued behind the one on the wire. The banner line is `zminer-gpu 0.1.2`. A rejection still means the pool disagreed: stop, and re-run `-check 32`. The process exits on Ctrl+C, SIGTERM, stdin EOF, or a line `stop`.
+`accepted` should increase and `rejected` should stay at or very near 0. The human log also shows `dropped`: shares this process threw away because the height changed, the connection dropped, the pool raised the share target, or the pool confirmed block:true for that height. Those are not pool rejects. A height closes only after the pool replies block:true; a block candidate without that reply does not stop work, and a new job at the same height resumes immediately. One non-block share is queued behind the one on the wire. The banner line is `zminer-gpu 0.1.3`. A rejection still means the pool disagreed: stop, and re-run `-check 32`. The process exits on Ctrl+C, SIGTERM, stdin EOF, or a line `stop`.
 
 Shards 2–4 (`:3342`–`:3344`) are the same miner and are not live yet. HTTP getWork, if you use it, is `-http http://82.223.19.88:8341`.
 

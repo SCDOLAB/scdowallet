@@ -19,8 +19,9 @@ const maxQueued = 1
 
 // share is one CPU-confirmed hit. It is sent only if that job is still the
 // pool's current job, the height is still open, and the determinant still
-// meets the current share target. A block share is sent even after its
-// height has been closed locally, and every other share for that height is not.
+// meets the current share target. A block share is sent even after the pool
+// has confirmed block:true for that height, and every other share for that
+// height is not.
 type share struct {
 	jobID  string
 	height uint64
@@ -53,7 +54,7 @@ func (w *work) supersede() {
 }
 
 // heightOpen reports whether shares for h may still be submitted.
-// A block share is the exception: it is what closed the height.
+// A block share is the exception once the pool has confirmed block:true.
 func heightOpen(h uint64) bool {
 	c := atomic.LoadUint64(&closedHeight)
 	return c == 0 || h > c
