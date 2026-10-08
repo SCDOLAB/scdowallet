@@ -24,6 +24,9 @@
       'data-tip-name': tip.name, 'data-tip-value': value, 'data-tip-explain': tip.explain, 'data-tip-detail': tip.detail || ''
     }, h('div', { class: 'lbl', text: label }), h('div', { class: 'v', id, text: value }))
   }
+  // source words come from the renderer so they follow the UI language (TW table in types.js)
+  const SOURCES = { scdoscanMainPublic: 'scdoscan.io main chain public node' }
+  function sourceText (s) { return M.L(SOURCES[s.sourceKey] || s.source || '') }
   function render (s, fetching) {
     const card = h('div', { class: 'card m1-card', id: 'netStats' }, h('div', { class: 'm1-row' }, h('div', { class: 'm1-h', text: M.L('Main chain network') }),
       h('button', { class: 'btn ghost small', id: 'netStatsRefresh', 'data-act': 'netStatsRefresh', text: fetching ? M.L('Refreshing…') : M.L('Refresh') })))
@@ -45,7 +48,7 @@
       explain(M.L('How far the ledger has been written'), heightLine, 'nsHeight', { name: M.L('How far the ledger has been written'), explain: M.L('This is how far this chain\'s ledger has been written.') }),
       explain(M.L('Your mining speed'), yours, 'nsLocal', { name: M.L('Your mining speed'), explain: M.L('This is your computer\'s mining speed. It is zero until mining starts.') }),
       explain(M.L('Your share of mining'), share, 'nsShare', { name: M.L('Your share of mining'), explain: M.L('This is your computer\'s share of all the tries on the network.') })))
-    card.appendChild(h('div', { class: 'lbl', text: M.L('As of ') + new Date(s.asOf).toLocaleString(M.locale()) + M.L(' · source: ') + s.source + M.L(' · mining speed is tries per second, estimated from difficulty and the average time between blocks') }))
+    card.appendChild(h('div', { class: 'lbl', text: M.L('As of ') + new Date(s.asOf).toLocaleString(M.locale()) + M.L(' · source: ') + sourceText(s) + M.L(' · mining speed is tries per second, estimated from difficulty and the average time between blocks') }))
     card.appendChild(h('div', { class: 'm1-disc', text: M.L('Figures are estimates derived from current network data and change constantly; they are not a forecast. Mining uses your hardware and electricity and can add heat, noise and wear.') }))
     return card
   }

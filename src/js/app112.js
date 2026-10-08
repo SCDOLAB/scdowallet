@@ -1319,7 +1319,7 @@
       const b = document.createElement('b')
       b.textContent = it.name || ''
       p.appendChild(b)
-      p.appendChild(document.createTextNode((it.name ? '。' : '') + (it.text || '')))
+      p.appendChild(document.createTextNode((it.name ? (lang() === 'CN' ? '。' : ': ') : '') + (it.text || '')))
       box.appendChild(p)
     })
     const close = document.createElement('button')

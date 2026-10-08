@@ -150,6 +150,34 @@ assert.strictEqual(CN.remitDown, '現在連不上匯款服務，請稍後再試�
 assert.strictEqual(EN.remitDown, "The remittance service can't be reached right now. Please try again later. If it keeps failing, contact support.")
 const pageRemit = ui.slice(ui.indexOf('function pageRemit'), ui.indexOf('function remitErrText'))
 assert.ok(pageRemit.length > 0 && !pageRemit.includes('SCDO_'))
+// English release notes: no Chinese except the deliberate names (AI小貓, the 華語 button label,
+// the 繁體中文 option name, the Documents\ScdoWallet\備份 folder)
+const DELIBERATE = ['AI小貓', '華語', '繁體中文', '備份']
+for (const note of EN.relNotes) {
+  for (const item of note.items) {
+    let rest = item
+    for (const w of DELIBERATE) rest = rest.split(w).join('')
+    assert.ok(!CJK.test(rest), 'EN relNotes ' + note.v + ' has Chinese: ' + item)
+  }
+}
+assert.ok(EN.relNotes.find(n => n.v === '2.0.12').items[0].startsWith('New Remittance entry (now called Send) on Home, the tab bar and the menu;'))
+assert.ok(EN.relNotes.find(n => n.v === '2.0.5').items[0].startsWith('New language button (Chinese / English) next to the settings button'))
+assert.ok(CN.relNotes.find(n => n.v === '2.0.12').items[0].includes('匯款'), 'CN release notes stay as they are')
+// "?" legend: Chinese full stop only in Chinese
+assert.ok(ui.includes("(it.name ? (lang() === 'CN' ? '。' : ': ') : '')"))
+assert.ok(!ui.includes("(it.name ? '。' : '')"))
+// network stats source follows the UI language
+const mBox = { window: {} }
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8'), mBox)
+const M = mBox.window.SCDOMining
+const statsSrc = fs.readFileSync(path.join(__dirname, '../src/js/mining/miningNetworkStats.js'), 'utf8')
+assert.ok(statsSrc.includes("scdoscanMainPublic: 'scdoscan.io main chain public node'") && statsSrc.includes('sourceText(s)'))
+M.lang = 'EN'
+assert.strictEqual(M.L('scdoscan.io main chain public node'), 'scdoscan.io main chain public node')
+assert.strictEqual(M.L(' · source: '), ' · source: ')
+M.lang = 'CN'
+assert.strictEqual(M.L('scdoscan.io main chain public node'), 'scdoscan.io 主鏈公開節點')
+assert.strictEqual(M.L(' · source: '), ' · 資料來源：')
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
 const menuCn = menuSrc.slice(menuSrc.indexOf('  CN: {'))
