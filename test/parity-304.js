@@ -70,7 +70,7 @@ assert.ok(/warn: selfWarn\(payer, route\.to\)/.test(app) && /warn: self \? T\('c
 assert.ok(/SELF: 'warnSelf'/.test(app), 'Shard0 EVM keeps its warning + tick box')
 
 // ---- 4. history: api.scdoscan.io/api/address/{addr}/txs for all five chains ----
-eq(W.ADDR_TXS('1S01abc'), 'https://api.scdoscan.io/api/address/1S01abc/txs?page=1&limit=25')
+eq(W.ADDR_TXS('1S01abc'), 'https://api.scdoscan.io/api/address/1S01abc/txs?page=1&limit=50')
 const me = '1s0139fba7fdc1487da84099a4a7a1192ffbeae3b1'
 const row = (t) => W.indexerRow(t, me, 8)
 const base = { hash: '0x' + '1'.repeat(64), value: '3965091779', valueFormatted: '39.65091779', token: null, block: 9277498, time: 1791452878, status: 'success' }
@@ -82,10 +82,15 @@ eq(rw.dir, 'reward'); eq(rw.raw, '300000000'); eq(rw.decimals, 8); eq(rw.t, 1791
 eq(A.fmtUnits(rw.raw, rw.decimals), '3')
 const tok = W.indexerRow(Object.assign({}, base, { from: '0xaa', to: '0xbb', token: { symbol: 'tUSDT', decimals: 6 }, value: '1500000' }), '0xbb', 18)
 eq(tok.asset, 'tUSDT'); eq(tok.decimals, 6); eq(A.fmtUnits(tok.raw, tok.decimals), '1.5')
+assert.ok(/if \(remoteOk && r\.status === 'done' && newerThanPage\(r, remote\)\) r\.status = 'pending'/.test(ws) && /r\.u == 0 \? 'fail' : \(\(ok && newerThanPage/.test(ws), 'local sends stay pending until the indexer lists them')
 assert.ok(/h\('old:activity', \(e, addr\) => oldActivity\(addr\)\)/.test(ws))
 assert.ok(/remote = await addrTxs\(a, 18\)/.test(ws), 'Shard0 EVM reads the address endpoint first')
 assert.ok(read('preload.js').includes("'old:activity'"))
 assert.ok(/api\.invoke\('old:activity', addr\)/.test(app) && /st\.oldAct\[p\.address\.toLowerCase\(\)\]/.test(app), 'Home lists Shard1–4 history from the indexer')
+eq(I.CN.d_txLag, '最新的交易可能會晚幾分鐘才出現')
+assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.d_txLag))
+assert.ok(read('src/js/dashboard.js').includes("id=\"txLag\">${esc(T('d_txLag'))}"), 'note under the Home history list')
+assert.ok(/visible\('new'\)\.filter\(x => x\.evm\)\.map\(x => loadActivity\(x\.evm\)\)/.test(app), 'every visible Shard0 EVM account gets its history')
 eq(I.CN.d_txReward, '收到挖礦獎勵 · {chain}'); eq(I.CN.d_txSelf, '轉給自己 · {chain}')
 
 // ---- 5. links: official channel, group, support email ----

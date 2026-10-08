@@ -199,7 +199,9 @@
         try { st.s0[a.filename] = balFromIpc(await api.invoke('s0:balances', a.evm)) } catch (e) { st.s0[a.filename] = Object.assign({}, st.s0[a.filename], { err: e.message }) }
       }))
       try { await api.invoke('s0:refreshPending') } catch (e) {}
-      const sa = selected(); if (sa && sa.evm) await loadActivity(sa.evm)
+      // 3.0.4: Home lists every visible Shard0 EVM account's history (indexer, at most once a minute); the selected one every time
+      const sa = selected()
+      if (Date.now() - (st.s0ActAt || 0) > 60000) { st.s0ActAt = Date.now(); await Promise.all(visible('new').filter(x => x.evm).map(x => loadActivity(x.evm))) } else if (sa && sa.evm) await loadActivity(sa.evm)
     } finally { refreshingS0 = false; renderLive() }
   }
   function balFromIpc (b) {
@@ -391,6 +393,7 @@
         <div class="lbl">${esc(new Date(r.t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB'))}${r.block ? ' · #' + esc(r.block) : ''}</div></div>
         <div style="text-align:right"><div style="font-size:21px;font-weight:700">${inward ? '+' : r.dir === 'self' ? '' : '\u2212'}${esc(txAmount(r))} ${esc(r.asset)}</div>${stt}</div></div>`
     })
+    h += `<div class="lbl tx-lag" style="padding:10px 26px 0">${esc(T('d_txLag'))}</div>`
     h += `<div style="padding:14px 26px"><button class="link" data-act="explorerAddr" data-v="${esc(a.evm)}">${esc(T('viewExplorer'))}</button></div>`
     return h
   }

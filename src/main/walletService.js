@@ -57,7 +57,8 @@ function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x
 // incoming and outgoing transfers, block rewards and token transfers. Shard0 falls back to the etherscan-style txlist
 // when that endpoint fails. Amounts stay integer units (string) plus decimals; the window formats them.
 const EXPLORER_API = 'https://api.scdoscan.io/api'
-const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=25'
+const PAGE_ROWS = 50 // the indexer allows up to 100 per page and page * limit <= 10,000
+const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
 const REWARD_FROM = /^0S0{40}$/i
 async function fetchJson (url, ms) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), ms || 10000)
@@ -83,11 +84,19 @@ async function addrTxs (addr, nativeDec) {
   const a = String(addr).toLowerCase()
   return j.txs.map(t => indexerRow(t, a, nativeDec))
 }
+// a local row older than the last row of a full indexer page is simply beyond that page, not missing from the indexer
+function newerThanPage (r, remote) {
+  if (remote.length < PAGE_ROWS) return true
+  const oldest = Math.min(...remote.map(x => x.t || 0))
+  return (r.t || 0) >= oldest
+}
 async function s0activity (addr) {
   const a = String(addr || '').toLowerCase(); if (!ADDR_RE.test(a)) return []
   const local = s0txAll().filter(r => r.from && r.from.toLowerCase() === a).map(r => { const o = Object.assign({ dir: r.to && r.to.toLowerCase() === a ? 'self' : 'out' }, r); delete o.raw; return o })
   let remote = []
+  let remoteOk = true
   try { remote = await addrTxs(a, 18) } catch (e) {
+    remoteOk = false
     try {
       const j = await fetchJson(EXPLORER_API + '?module=account&action=txlist&address=' + a + '&page=1&offset=50&sort=desc')
       if (j && Array.isArray(j.result)) remote = j.result.map(t => ({ t: Number(t.timeStamp) * 1000, from: t.from, to: t.to, raw: String(BigInt(t.value || '0')), decimals: 18, amount: ethers.formatEther(BigInt(t.value || '0')), asset: 'SCDO', hash: t.hash, block: Number(t.blockNumber), status: t.isError === '1' || t.txreceipt_status === '0' ? 'fail' : 'done', dir: (t.from || '').toLowerCase() === a ? ((t.to || '').toLowerCase() === a ? 'self' : 'out') : 'in' }))
@@ -97,6 +106,8 @@ async function s0activity (addr) {
   for (const r of local) {
     const k = String(r.hash).toLowerCase(); const kt = k + ':' + r.asset
     if (seen.has(k) || seen.has(kt)) continue
+    // 3.0.4: not in the indexer yet -> stays 'pending' until the indexer lists it (failed / not-sent rows keep their state)
+    if (remoteOk && r.status === 'done' && newerThanPage(r, remote)) r.status = 'pending'
     seen.set(r.asset === 'SCDO' ? k : kt, r)
   }
   return [...seen.values()].sort((x, y) => (y.t || 0) - (x.t || 0)).slice(0, 30)
@@ -115,7 +126,8 @@ async function oldActivity (addr) {
     const h = String(r.s || '').toLowerCase()
     if (h && seen.has(h)) continue
     const out = String(r.fa).toLowerCase() === al; const self = out && String(r.ta).toLowerCase() === al
-    remote.push({ t: Number(r.t) || 0, from: r.fa, to: r.ta, raw: /^\d+$/.test(String(r.m)) ? String(r.m) : null, decimals: 8, asset: 'SCDO', hash: String(r.s || ''), block: 0, status: r.u == 1 ? 'done' : r.u == 0 ? 'fail' : 'pending', dir: self ? 'self' : (out ? 'out' : 'in'), local: true }) // eslint-disable-line eqeqeq
+    remote.push({ t: Number(r.t) || 0, from: r.fa, to: r.ta, raw: /^\d+$/.test(String(r.m)) ? String(r.m) : null, decimals: 8, asset: 'SCDO', hash: String(r.s || ''), block: 0, status: r.u == 0 ? 'fail' : ((ok && newerThanPage({ t: Number(r.t) || 0 }, remote)) || r.u != 1 ? 'pending' : 'done'), dir: self ? 'self' : (out ? 'out' : 'in'), local: true }) // eslint-disable-line eqeqeq
+    // 3.0.4: a send from this computer that the indexer doesn't list yet stays 'pending' (等待確認) until it does
   }
   return { ok, rows: remote.sort((x, y) => (y.t || 0) - (x.t || 0)).slice(0, 30) }
 }

@@ -130,6 +130,7 @@ function homeHtml (models, txRows, T, esc) {
     ${tempKeyHtml(T, esc)}
     <div class="chains" id="chainCards">${models.map(m => cardHtml(m, T, esc)).join('')}</div>
     <div class="sec-h">${esc(T('d_recent'))}</div><div id="recentTxHost">${txHtml(txRows, T, esc)}</div>
+    <div class="lbl tx-lag" id="txLag">${esc(T('d_txLag'))}</div>
   </div>`
 }
 
