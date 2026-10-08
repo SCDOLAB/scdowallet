@@ -14,12 +14,12 @@ import (
 // which the CUDA runtime does not use. The C return code is the status.
 
 type native struct {
-	dll    *syscall.LazyDLL
-	count  *syscall.LazyProc
-	set    *syscall.LazyProc
-	name   *syscall.LazyProc
-	last   *syscall.LazyProc
-	factor *syscall.LazyProc
+	dll      *syscall.LazyDLL
+	count    *syscall.LazyProc
+	set      *syscall.LazyProc
+	name     *syscall.LazyProc
+	last     *syscall.LazyProc
+	factorFn *syscall.LazyProc
 }
 
 func loadNative(path string) (*native, error) {
@@ -41,7 +41,7 @@ func loadNative(path string) (*native, error) {
 	if n.last, err = findProc(d, "zpow_last_error"); err != nil {
 		return nil, err
 	}
-	if n.factor, err = findProc(d, "zpow_factor_batch"); err != nil {
+	if n.factorFn, err = findProc(d, "zpow_factor_batch"); err != nil {
 		return nil, err
 	}
 	return n, nil
@@ -98,7 +98,7 @@ func (n *native) factor(hashes []byte, emery int, diags []float64, signs []int32
 	if count == 0 || len(diags) < count*Dim || len(signs) < count {
 		return fmt.Errorf("gpu: short factor buffers")
 	}
-	r, _, _ := n.factor.Call(
+	r, _, _ := n.factorFn.Call(
 		uintptr(unsafe.Pointer(&hashes[0])),
 		uintptr(count),
 		uintptr(emery),

@@ -57,12 +57,12 @@ import (
 )
 
 type native struct {
-	handle unsafe.Pointer
-	count  unsafe.Pointer
-	set    unsafe.Pointer
-	name   unsafe.Pointer
-	last   unsafe.Pointer
-	factor unsafe.Pointer
+	handle   unsafe.Pointer
+	count    unsafe.Pointer
+	set      unsafe.Pointer
+	name     unsafe.Pointer
+	last     unsafe.Pointer
+	factorFn unsafe.Pointer
 }
 
 func loadNative(path string) (*native, error) {
@@ -95,7 +95,7 @@ func loadNative(path string) (*native, error) {
 		n.close()
 		return nil, err
 	}
-	n.factor, err = lookup(unsafe.Pointer(h), "zpow_factor_batch")
+	n.factorFn, err = lookup(unsafe.Pointer(h), "zpow_factor_batch")
 	if err != nil {
 		n.close()
 		return nil, err
@@ -156,7 +156,7 @@ func (n *native) factor(hashes []byte, emery int, diags []float64, signs []int32
 		return fmt.Errorf("gpu: short factor buffers")
 	}
 	rc := int(C.call_factor(
-		n.factor,
+		n.factorFn,
 		(*C.uchar)(unsafe.Pointer(&hashes[0])),
 		C.int(count),
 		C.int(emery),
