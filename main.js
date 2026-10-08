@@ -246,8 +246,9 @@ function zpowOptions () {
 }
 function classicNote () {
   const parts = []
-  if (zpowCpu && zpowCpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool')
-  if (zpowGpu && zpowGpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card')
+  const shardOf = (z) => { const n = Number(z && z.state && z.state.shard); return n >= 1 && n <= 4 ? ' Shard' + n : '' }
+  if (zpowCpu && zpowCpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu))
+  if (zpowGpu && zpowGpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card') + shardOf(zpowGpu))
   return parts.join(' · ')
 }
 function refreshTray () {
@@ -376,6 +377,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
       refreshTray()
       return { ok: true }
     } catch (err) {
+      try { getMiner().log('wallet', 'classic ' + backend + ' start failed: ' + (err && err.code ? err.code + ' ' : '') + (err && err.message || err)) } catch (e) {}
       return { ok: false, error: err.message, code: err.code }
     }
   }

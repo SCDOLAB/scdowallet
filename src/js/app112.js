@@ -2180,8 +2180,8 @@
     })
     if (!r.ok) {
       const key = 'st_' + (r.code || '')
-      const text = T(key)
-      toast(text !== key ? text : (r.error || r.code), 8000)
+      const stText = r.code && r.code !== 'ERROR' && T(key) !== key ? T(key) : ''
+      toast(window.SCDOStartError.classicStartText(lang(), r.code, r.error, stText), 8000)
       return
     }
     if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '1')
@@ -2200,9 +2200,7 @@
     const r = await api.invoke('miner:start', wallet, { mode: 'mine' })
     if (!r.ok) {
       if (r.code === 'NO_NVIDIA') await ensureGpu(true)
-      const text = lang() === 'CN'
-        ? (r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : window.SCDOStartError.full('CN', r.code, r.error))
-        : (r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : (r.error || r.code))
+      const text = r.code === 'NO_NVIDIA' ? T('st_NO_NVIDIA') : window.SCDOStartError.full(lang(), r.code, r.error)
       toast(text, 7000)
       return
     }
@@ -2221,7 +2219,7 @@
     if (!/^0x[0-9a-fA-F]{40}$/.test(payout || '')) payout = ''
     if (payout) localStorage.setItem('nodePayout', payout)
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
-    if (!r.ok) { toast(r.error || r.code, 7000); return }
+    if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
   async function stopAll () {
     const ok = await confirmStopAll()
@@ -2698,7 +2696,7 @@
       if (!rc.gpuOk || !rc.reward) return
       if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
       const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
-      if (r && !r.ok) toast(r.error || r.code, 7000)
+      if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
     })
     if (st.tab === 'mine') render()
   }

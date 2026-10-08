@@ -30,6 +30,8 @@ function tooltipText (version, st, lang) {
   const L = TL[lang] || TL.EN
   const head = 'SCDO Wallet ' + version
   let line
+  const classic = st && st.classicNote
+  if (classic && !st.running && st.phase !== 'error') return (head + '\n' + L.mining + classic).slice(0, 127)
   if (!st || (!st.running && st.phase !== 'error')) line = head + '\n' + L.notMining
   else if (st.phase === 'error') line = head + '\n' + tooltipError(lang, st.code, st.message)
   else if (st.mode === 'node') line = head + '\n' + L.nodeOnly
@@ -66,7 +68,7 @@ class TrayStatus {
     const st = this.last
     const L = this.L()
     const mining = minersRunning(st)
-    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : L.notMining)
+    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },
