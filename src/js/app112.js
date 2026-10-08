@@ -279,15 +279,42 @@
   }
   function renderHeader () {
     const a = headerAccount()
-    const chip = `<button type="button" class="acct-chip" data-act="accChip" id="acctSwitch" title="${esc(a ? accLabel(a) : T('noAccount'))}">${avatar(a ? accLabel(a) : '?')}</button>`
     const nextLang = lang() === 'CN' ? 'EN' : 'CN'
-    SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
+    const hdr = $('hdr')
+    const island = $('statusIsland')
+    const compact = $('islandCompact')
+    // Mining status arrives about once a second and calls render(). Rebuilding #hdr
+    // would replace every chip, disconnect the open bubble, and close it.
+    if (!hdr || !island || !compact || !$('acctSwitch')) {
+      const chip = `<button type="button" class="acct-chip" data-act="accChip" id="acctSwitch" title="${esc(a ? accLabel(a) : T('noAccount'))}">${avatar(a ? accLabel(a) : '?')}</button>`
+      SD.html(hdr, `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
       <div class="island" id="statusIsland">
         <div class="island-compact" id="islandCompact"></div>
       </div>
       ${chip}
       <button type="button" class="lang-one" data-act="hdrLang" data-v="${nextLang}" id="langToggle" title="${esc(T('setLang'))}">${nextLang === 'EN' ? 'EN' : '華'}</button>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
+    } else {
+      const sw = $('acctSwitch')
+      const title = a ? accLabel(a) : T('noAccount')
+      if (sw.title !== title || !sw.querySelector('.avatar')) {
+        sw.title = title
+        SD.html(sw, avatar(a ? accLabel(a) : '?'))
+      }
+      const langBtn = $('langToggle')
+      if (langBtn) {
+        const label = nextLang === 'EN' ? 'EN' : '華'
+        if (langBtn.textContent !== label) langBtn.textContent = label
+        if (langBtn.getAttribute('data-v') !== nextLang) langBtn.setAttribute('data-v', nextLang)
+        const tip = T('setLang')
+        if (langBtn.title !== tip) langBtn.title = tip
+      }
+      const gear = $('gear')
+      if (gear) {
+        const tip = T('settings')
+        if (gear.title !== tip) gear.title = tip
+      }
+    }
     renderIsland()
     const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]
     SD.html($('tabs'), tabs.map(([k, l]) => {

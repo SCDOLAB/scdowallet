@@ -63,7 +63,7 @@ async function gpuPreflight (minerGpu) {
     const reasons = []; let status = 'ready'
     if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in miner (Rigel) supports NVIDIA GPUs only.') } else {
       if (!g.driverVersion) { status = 'notReady'; reasons.push('NVIDIA driver not detected. Install the NVIDIA graphics driver.') }
-      if (!g.cuda) { status = 'notReady'; reasons.push('CUDA runtime (nvcuda.dll / nvidia-smi) not found. Install or repair the NVIDIA driver.') }
+      if (!g.cuda) { status = 'notReady'; reasons.push('The driver needed for graphics-card mining was not found. Install or repair the latest NVIDIA graphics driver.') }
       if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('VRAM could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough VRAM: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
     }
     if (!reasons.length) reasons.push('All pre-flight checks passed.')
@@ -96,7 +96,7 @@ async function networkStats (localHashrate) {
     const blockTime = n > 0 && dt > 0 ? dt / n : null
     const diff = BigInt(tip.difficulty)
     const hashrate = blockTime ? Number(diff) / blockTime : null
-    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, source: 'scdoscan.io RPC (SCDO Shard0)', asOf: new Date().toISOString() }
+    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, source: 'scdoscan.io 主鏈公開節點', asOf: new Date().toISOString() }
   }
   const lh = Number(localHashrate) > 0 ? Number(localHashrate) : 0
   const share = statsCache.networkHashrate && lh ? (lh / statsCache.networkHashrate) * 100 : 0

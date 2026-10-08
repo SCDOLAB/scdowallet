@@ -332,6 +332,11 @@ assert.ok(!ui.includes("['remit', 'tabRemit']"))
 assert.ok(!ui.includes("['home', 'tabHome']"))
 assert.ok(!ui.includes('id="minePill"'))
 assert.ok(ui.includes('id="statusIsland"'))
+const hdrFn = ui.slice(ui.indexOf('function renderHeader'), ui.indexOf('function tabNetDot'))
+assert.ok(hdrFn.includes("const island = $('statusIsland')"))
+assert.ok(hdrFn.includes("const compact = $('islandCompact')"))
+assert.ok(hdrFn.includes("!$('acctSwitch')"))
+assert.ok(hdrFn.indexOf('SD.html(hdr') > hdrFn.indexOf('const island'))
 assert.ok(ui.includes('id="islandCompact"'))
 assert.ok(!ui.includes('data-act="island"'))
 assert.ok(!ui.includes('id="islandPanel"'))
@@ -506,6 +511,12 @@ assert.ok(preflightCard.includes('This graphics card can be used for mining'))
 assert.ok(preflightCard.includes('This graphics card cannot be used for mining'))
 assert.ok(!preflightCard.includes("M.L('CUDA: ')"))
 assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8').includes('"This graphics card can be used for mining": "這張顯卡可以用來挖礦"'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8').includes('。需要 NVIDIA 顯示卡，並安裝最新的 NVIDIA 顯示卡驅動程式，以及 4 GB 顯示記憶體。'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8').includes('" · source: ": " · 資料來源："'))
+assert.ok(preflightCard.includes('Needs an NVIDIA graphics card, the latest NVIDIA graphics driver, and 4 GB of graphics memory.'))
+const miningSvc = fs.readFileSync(path.join(__dirname, '../src/main/miningService.js'), 'utf8')
+assert.ok(miningSvc.includes("source: 'scdoscan.io 主鏈公開節點'"))
+assert.ok(!miningSvc.includes('scdoscan.io RPC'))
 const launchSrc = fs.readFileSync(path.join(__dirname, '../src/miner/zpow/launch.js'), 'utf8')
 assert.ok(launchSrc.includes('PRIORITY_BELOW_NORMAL'))
 assert.ok(launchSrc.includes('os.setPriority'))
@@ -568,6 +579,23 @@ assert.ok(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8').includes("
 const vm = require('vm')
 const i18nBox = { window: {} }
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8'), i18nBox)
+function walkI18n (v, fn) {
+  if (typeof v === 'string') fn(v)
+  else if (Array.isArray(v)) v.forEach(x => walkI18n(x, fn))
+  else if (v && typeof v === 'object') Object.values(v).forEach(x => walkI18n(x, fn))
+}
+for (const langName of ['CN', 'EN']) {
+  walkI18n(i18nBox.window.I18N112[langName], s => {
+    assert.ok(!s.includes('SCDO Shard0 (EVM)'), langName + ': ' + s.slice(0, 90))
+    assert.ok(!s.toLowerCase().includes('cuda'), langName + ': ' + s.slice(0, 90))
+    assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
+  })
+}
+assert.strictEqual(i18nBox.window.I18N112.CN.rewardAddr, '出塊獎勵地址（主鏈收款地址（0x 開頭））')
+assert.strictEqual(i18nBox.window.I18N112.CN.payoutAddr, '節點服務費地址（主鏈收款地址（0x 開頭））')
+assert.strictEqual(i18nBox.window.I18N112.CN.locked, '輸入密碼才能看主鏈收款地址')
+assert.strictEqual(i18nBox.window.I18N112.CN.s0Balance, '主鏈餘額')
+assert.ok(i18nBox.window.I18N112.CN.newNote.startsWith('這裡只顯示主鏈的收款地址（0x 開頭）'))
 const isleT = (k, p) => {
   let s = i18nBox.window.I18N112.CN[k]
   if (s == null) s = k
