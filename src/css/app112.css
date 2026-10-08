@@ -527,3 +527,7 @@ body.on-home #statusIsland { display: none; }
 .tkey .isle-chip { text-shadow: none !important; background: none !important; border: 0 !important; box-shadow: none !important; color: #3a3a3c !important; padding: 0 10px 0 0; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .tkey .isle-chip::before { content: ""; width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 .tkey .isle-chip.temp-ok::before { background: #34c759; } .tkey .isle-chip.temp-warm::before { background: #ff9500; } .tkey .isle-chip.temp-hot::before { background: #ff3b30; }
+/* real-build fix: the decorative bubbles sat outside the panel and made a horizontal scrollbar; keep them inside the rim */
+.cat-pop.bubble { overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - 32px); }
+.cat-pop.bubble .b1 { left: 10px; top: 78px; } .cat-pop.bubble .b2 { left: 8px; top: 112px; }
+.cat-pop.bubble .b3 { right: 12px; left: auto; top: 54px; } .cat-pop.bubble .b4 { right: 10px; left: auto; bottom: 70px; }

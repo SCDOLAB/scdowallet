@@ -145,5 +145,6 @@ console.log('parity-304: ok')
   assert.ok(app.includes('id="catType" data-act="catType">${esc(T(\'catInput\'))}') && /case 'catType':/.test(app))
   assert.ok(/\.cat-type \{[^}]*background: linear-gradient\(180deg, #1d7a34, #17652b\); color: #fff/.test(css), 'white on #1d7a34..#17652b (5.4:1 or more)')
   assert.ok(app.includes('id="catLater"') && app.includes('id="catHide"') && app.includes("contactHtml('catContact')"))
+  assert.ok(css.includes('.cat-pop.bubble { overflow-x: hidden; overflow-y: auto;'), 'no horizontal scrollbar in the cat bubble')
   assert.ok(require('../src/js/aiCat.js').reply('查餘額', { accounts: [] }).say.includes('餘額'), '查餘額 answers the balance')
 }
