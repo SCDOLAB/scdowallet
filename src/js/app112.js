@@ -117,22 +117,23 @@
     if (ui.accNo[f]) return T('accountN', { n: ui.accNo[f] })
     return stripTs(f) || f
   }
-  // 3.0.2: one Accounts tab ('acc') with two sections: Classic (Shard1–Shard4) first, then Shard0 EVM.
+  // 3.0.2: no tab bar and no quick-button row. Pages: 'home' (entry cards), 'acc' (Classic (Shard1–Shard4) first,
+  // then Shard0 EVM) and 'mine'. Switching is only the Home cards and the View menu; every page has 「← 回首頁」.
   // ui.net is the chain of the account picked in the header switcher: 'new' = Shard0 EVM (chain ID 5680), 'old' = Classic shards.
   // Old tab names 'old' / 'new' (saved state, deep links) open the Accounts tab at that section.
   // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['acc', 'mine']
-  const savedTab = ui.tab || localStorage.getItem('tab112') || 'acc'
+  const TABS = ['home', 'acc', 'mine']
+  const savedTab = ui.tab || localStorage.getItem('tab112') || 'home'
   if (ui.net !== 'old' && ui.net !== 'new') ui.net = savedTab === 'new' ? 'new' : 'old'
-  // The wallet opens on the Accounts tab at the Classic section; only an explicit Mining tab is kept.
-  const tab0 = savedTab === 'mine' ? 'mine' : 'acc'
+  // The wallet always opens on Home, with the Classic accounts shown first.
+  const tab0 = 'home'
   ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
   const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
   if (ui.tab !== tab0) { ui.tab = tab0; saveUi() }
   const st = {
     tab: tab0,
-    scrollTo: tab0 === 'acc' ? 'secOld' : null,
+    scrollTo: null,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
     sel: localStorage.getItem('selAcc112') || '',
     accounts: [],
@@ -221,8 +222,9 @@
   function setTab (v) {
     if (v === 'remit') { openRemitFor((headerAccount() || {}).filename || st.sel); return }
     if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
-      st.tab = TABS.includes(v) ? v : 'acc'
+      st.tab = TABS.includes(v) ? v : 'home'
       if (st.tab === 'acc') st.scrollTo = 'secOld'
+      if (st.tab === 'home' || st.tab === 'mine') st.scrollTo = 'top'
     }
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
@@ -287,7 +289,7 @@
     // would replace every chip, disconnect the open bubble, and close it.
     if (!hdr || !island || !compact || !$('acctSwitch')) {
       const chip = `<button type="button" class="acct-chip" data-act="accChip" id="acctSwitch" title="${esc(a ? accLabel(a) : T('noAccount'))}">${avatar(a ? accLabel(a) : '?')}</button>`
-      SD.html(hdr, `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
+      SD.html(hdr, `<div class="brand"><button type="button" class="brand-home" data-act="goHome" id="brandHome" title="${esc(T('goHomeTip'))}" aria-label="${esc(T('goHomeTip'))}"><img src="./assets/icon-128.png" alt="SCDO"></button></div>
       <div class="island" id="statusIsland">
         <div class="island-compact" id="islandCompact"></div>
       </div>
@@ -316,10 +318,6 @@
       }
     }
     renderIsland()
-    const tabs = [['acc', 'tabAcc'], ['mine', 'tabMine']]
-    SD.html($('tabs'), tabs.map(([k, l]) => {
-      return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${esc(T(l))}</button>`
-    }).join(''))
   }
   function tabNetDot (chain) {
     const ok = chain === 'old' ? st.net.oldOk : st.net.s0Ok
@@ -403,6 +401,28 @@
   }
 
   // 3.0.2: one Accounts tab. Classic (SCDO's own core asset) first, then Shard0 EVM. Each section keeps its own actions.
+  // Home: entry cards only. Classic first and largest. Mining status is text; the buttons are the functions.
+  function pageHome () {
+    const oldVis = visible('old'); const newVis = visible('new')
+    const ot = oldTotal(oldVis); const s0t = s0Total(newVis.filter(a => a.evm))
+    const pill = currentMinePill()
+    return `<div class="page home-page" id="homePage">
+      <div class="card home-card home-acc" id="homeAcc"><div class="home-h">${esc(T('homeAccTitle'))}</div>
+        <div class="muted" style="font-size:17px">${esc(T('homeAccNote'))}</div>
+        <div class="home-sec home-classic"><div class="lbl">${tabNetDot('old')} ${esc(T('oldTitle'))} · ${esc(T('nAccounts', { n: oldVis.length }))}</div><div class="home-big" id="homeOldTot">${ot.known ? esc(fmtNum(ot.v)) : '…'} SCDO</div></div>
+        <div class="home-sec"><div class="lbl">${tabNetDot('new')} ${esc(T('newTitle'))} · ${esc(T('nAccounts', { n: newVis.length }))}</div><div class="home-mid" id="homeS0Tot">${s0t.known ? esc(fmtWei(s0t.wei)) : '…'} SCDO</div></div>
+        <div class="actions"><button type="button" class="btn pri" data-act="tab" data-v="acc" id="homeGoAcc">${esc(T('homeOpenAcc'))}</button></div></div>
+      <div class="card home-card" id="homeMine"><div class="home-h">${esc(T('homeMineTitle'))}</div>
+        <div class="home-status" id="homeMineStatus">${esc(pill.t)}</div>
+        <div class="actions" id="homeMineBtns"></div></div>
+      <div class="card home-card" id="homeRemit"><div class="home-h">${esc(T('homeRemitTitle'))}</div>
+        <div class="muted" style="font-size:17px">${esc(T('homeRemitNote'))}</div>
+        <div class="actions"><button type="button" class="btn pri" data-act="openPay" id="btnRemit">${esc(T('homeOpenRemit'))}</button></div></div>
+    </div>`
+  }
+  function backHome () {
+    return `<div class="back-home-row"><button type="button" class="link back-home" data-act="goHome" id="backHome">${esc(T('goHome'))}</button></div>`
+  }
   function pageAcc () {
     return `<section class="acc-sec" id="secOld">${pageOld()}</section><section class="acc-sec" id="secNew">${pageNew(true)}</section>`
   }
@@ -874,13 +894,15 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { acc: pageAcc, mine: pageMine }
-    SD.html(main, (pages[st.tab] || pageAcc)())
+    const pages = { home: pageHome, acc: pageAcc, mine: pageMine }
+    SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
     if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
-    const to = st.tab === 'acc' && st.scrollTo ? $(st.scrollTo) : null
-    st.scrollTo = null
-    if (to) main.scrollTop = st.tab === 'acc' && to.id === 'secOld' ? 0 : Math.max(0, to.offsetTop - main.offsetTop - 8)
-    else main.scrollTop = st.tab === 'mine' && y === 0 ? 0 : y
+    if (st.tab === 'home') renderActBar()
+    const want = st.scrollTo; st.scrollTo = null
+    const to = st.tab === 'acc' && want && want !== 'top' ? $(want) : null
+    if (want === 'top' || (to && to.id === 'secOld')) main.scrollTop = 0
+    else if (to) main.scrollTop = Math.max(0, to.offsetTop - main.offsetTop - 8)
+    else main.scrollTop = y
     document.title = 'SCDO Wallet ' + APPVER
   }
   function mountMining () {
@@ -892,6 +914,10 @@
     renderHeaderNetOnly()
     renderIsland()
     if ($('md')) return
+    if (st.tab === 'home') {
+      const ot = oldTotal(visible('old')); const e1 = $('homeOldTot'); if (e1 && ot.known) e1.textContent = fmtNum(ot.v) + ' SCDO'
+      const s0t = s0Total(visible('new').filter(a => a.evm)); const e2 = $('homeS0Tot'); if (e2 && s0t.known) e2.textContent = fmtWei(s0t.wei) + ' SCDO'
+    }
     if (st.tab === 'acc') {
       document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) SD.valueUnit(el, fmtWei(b.nativeWei), 'SCDO') })
       document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) SD.valueUnit(el, fmtNum(v), 'SCDO') })
@@ -1118,13 +1144,17 @@
     if (gpu && gpu.running) return true
     return !!(s0 && s0.running && s0.mode !== 'node')
   }
+  // 3.0.2: the old quick-button row is gone. These are the Home mining card's function buttons only:
+  // 開始挖礦 while idle, 打開挖礦頁, and 全部停止 (asks first) while a miner runs. The status is text above them.
   function renderActBar () {
-    const bar = $('actBar')
+    const bar = $('homeMineBtns')
     if (!bar) return
     const on = miningBusy()
     const locked = on || st.actStarting
+    const stEl = $('homeMineStatus'); if (stEl) { const t = currentMinePill().t; if (stEl.textContent !== t) stEl.textContent = t }
     const stop = on ? `<button type="button" class="btn danl act-stop" data-act="stopAll" id="actStop">${esc(T('isleStopAll'))}</button>` : ''
-    SD.html(bar, `<div class="act-main"><button type="button" class="btn pri" data-act="isleStart" id="actStart" ${locked ? 'disabled' : ''}>${esc(locked ? T('actMining') : T('isleStart'))}</button><button type="button" class="btn sec" data-act="tab" data-v="mine" id="actGoMine">${esc(T('actGoMine'))}</button><button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button></div>${stop}`)
+    const start = locked ? '' : `<button type="button" class="btn pri" data-act="isleStart" id="actStart">${esc(T('isleStart'))}</button>`
+    SD.html(bar, `${start}<button type="button" class="btn sec" data-act="tab" data-v="mine" id="homeGoMine">${esc(T('homeOpenMine'))}</button>${stop}`)
   }
   function renderIsland () {
     const compact = $('islandCompact')
@@ -2290,7 +2320,8 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old' || v === 'acc') refreshOld(); if (v === 'new' || v === 'acc') refreshS0(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old' || v === 'acc' || v === 'home') refreshOld(); if (v === 'new' || v === 'acc' || v === 'home') refreshS0(); break
+      case 'goHome': if ($('md')) SD.clear($('modalRoot')); setTab('home'); render(); refreshOld(); refreshS0(); break
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
@@ -2412,7 +2443,7 @@
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
   function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
-  api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') openRemittance() })
+  api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') openRemittance(); else if (a === 'home' || a === 'acc' || a === 'mine') { if ($('md')) SD.clear($('modalRoot')); setTab(a); render(); if (a === 'mine') { ensureGpu(); ensureCaps() } else { refreshOld(); refreshS0() } } })
 
   // ---------------- 1.1.6 auto-update events ----------------
   api.on('update:available', (p) => {

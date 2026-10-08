@@ -19,6 +19,9 @@ const LABELS = {
     selectAll: 'Select All',
     refresh: 'Refresh',
     view: 'View',
+    home: 'Home',
+    accounts: 'Accounts',
+    mining: 'Mining',
     settings: 'Settings / Network Info',
     remit: 'Send',
     help: 'Help',
@@ -40,6 +43,9 @@ const LABELS = {
     selectAll: '全選',
     refresh: '重新整理',
     view: '檢視',
+    home: '首頁',
+    accounts: '帳戶',
+    mining: '挖礦',
     settings: '設定 / 網路資訊',
     remit: '匯款',
     help: '說明',
@@ -84,6 +90,12 @@ function buildTemplate (mainWindow, lang) {
     {
       label: L.view,
       submenu: [
+        // 3.0.2: page switching lives here and on the Home cards (no tab bar)
+        { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') },
+        { label: L.accounts, accelerator: 'CmdOrCtrl+2', click: act('acc') },
+        { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mine') },
+        { label: L.remit, accelerator: 'CmdOrCtrl+4', click: () => openRemittance() },
+        { type: 'separator' },
         { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
       ]
     },

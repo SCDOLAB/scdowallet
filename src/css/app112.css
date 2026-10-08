@@ -297,3 +297,17 @@ input.threads { width: 100%; margin-top: 8px; accent-color: #43A047; }
 /* 3.0.2: one Accounts tab, Classic section first, then Shard0 EVM */
 section.acc-sec + section.acc-sec { margin-top: 30px; border-top: 3px solid #dfe3f5; padding-top: 6px; }
 .list-head .h1 .dot { margin-right: 10px; vertical-align: middle; }
+/* 3.0.2: Home entry cards (no tab bar, no quick-button row) */
+.brand-home { background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; }
+.home-page { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+.home-card { padding: 20px 24px; }
+.home-card .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.home-h { font-size: 26px; font-weight: 800; color: #2f3350; margin-bottom: 6px; }
+.home-acc { grid-column: 1 / -1; }
+.home-sec { margin-top: 12px; }
+.home-sec .lbl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.home-big { font-size: 34px; font-weight: 800; color: #3d4160; }
+.home-mid { font-size: 24px; font-weight: 700; color: #3d4160; }
+.home-status { font-size: 19px; color: #3d4160; margin-top: 4px; overflow-wrap: anywhere; }
+.back-home-row { padding: 4px 4px 0; }
+.back-home { font-size: 18px; }

@@ -88,7 +88,7 @@ assert.ok(ui.includes('function payModal (f, prefill)') || ui.includes('function
 assert.ok(ui.includes('id="payRoute"'))
 assert.ok(ui.includes('id="btnRemit"'))
 assert.ok(ui.includes('id="btnRemitSign"'))
-assert.ok(ui.includes("const TABS = ['acc', 'mine']"))
+assert.ok(ui.includes("const TABS = ['home', 'acc', 'mine']"))
 assert.ok(!ui.includes("['remit', 'tabRemit']"))
 assert.ok(!ui.includes('id="btnSend"'))
 assert.ok(!ui.includes('data-act="sendOld"'))
