@@ -31,6 +31,21 @@ Published hashes:
 
 The `zminer` GitHub Actions workflow uploads artifact `zminer-windows-amd64` (`zminer.exe` and `SHA256SUMS`). `npm run dist:win` runs `scripts/stage-zminer.js` before electron-builder, and `beforePack` runs it again. That step builds this script, or downloads `ZMINER_URL` / that artifact, and copies the exe into `miner-bin/win32` only after the hash matches. A different file left in that git-ignored directory is not packed. Override a running wallet with `SCDO_ZMINER_EXE` and, if the sums file is not beside it, `SCDO_ZMINER_SHA256`.
 
+## GPU — zminer-gpu (pool)
+
+`zminer-gpu` mines the same Shard1 pool as CPU `zminer`, and runs the 30×30 determinant on an NVIDIA GPU. It does not replace `zminer`, and it does not link `libgoGpuDet.a` (that archive does not run on current Windows GPUs). Build and the Shard1 `:3341` acceptance steps are in [GPU.md](GPU.md).
+
+```bash
+bash scripts/build-zminer-gpu.sh
+```
+
+Without `nvcc` that script still tests the CPU determinant port and compiles the loader. The CUDA library itself is built on a machine with the CUDA toolkit (12.8 or newer for an RTX 5060 Ti).
+
+```text
+zminer-gpu.exe -check 32
+zminer-gpu.exe -pool 82.223.19.88:3341 -user 1S01<your Classic shard1 address> -worker rtx5060ti -batch 8192
+```
+
 Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 
 | Shard | Stratum | HTTP stats |
@@ -54,4 +69,4 @@ Place the files in `miner-bin/win32/classic/` or set `SCDO_CLASSIC_NODE` (and `S
 
 ## Another GPU binary
 
-Set `SCDO_ZPOW_GPU_BIN` to an exe and `SCDO_ZPOW_GPU_ARGS` to a JSON array of arguments. Placeholders: `{pool}`, `{user}`, `{threads}`, `{worker}`, `{shard}`. Optional `SCDO_ZPOW_GPU_SHA256`. The mining page shows **Custom GPU miner** when that exe exists. `{pool}` for shard 1 is `82.223.19.88:3341`.
+Set `SCDO_ZPOW_GPU_BIN` to an exe and `SCDO_ZPOW_GPU_ARGS` to a JSON array of arguments. Placeholders: `{pool}`, `{user}`, `{threads}`, `{worker}`, `{shard}`. Optional `SCDO_ZPOW_GPU_SHA256`. The mining page shows **Custom GPU miner** when that exe exists. `{pool}` for shard 1 is `82.223.19.88:3341`. For `zminer-gpu.exe`, set `SCDO_ZPOW_GPU_ARGS` to `["-pool","{pool}","-user","{user}","-worker","{worker}","-batch","8192"]` (see [GPU.md](GPU.md)).

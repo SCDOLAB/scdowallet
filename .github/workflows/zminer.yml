@@ -5,6 +5,7 @@ on:
     paths:
       - 'miner-zpow/**'
       - 'scripts/build-zminer.sh'
+      - 'scripts/build-zminer-gpu.sh'
       - 'scripts/stage-zminer.js'
       - 'scripts/before-pack-win.js'
       - '.github/workflows/zminer.yml'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'miner-zpow/**'
       - 'scripts/build-zminer.sh'
+      - 'scripts/build-zminer-gpu.sh'
       - 'scripts/stage-zminer.js'
       - 'scripts/before-pack-win.js'
       - '.github/workflows/zminer.yml'
@@ -36,3 +38,9 @@ jobs:
           name: zminer-windows-amd64
           path: miner-zpow/artifact/*
           if-no-files-found: error
+  gpu-loader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test zminer-gpu sources (CUDA library skipped without nvcc)
+        run: bash scripts/build-zminer-gpu.sh
