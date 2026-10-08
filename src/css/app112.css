@@ -578,3 +578,19 @@ body.on-home #statusIsland { display: none; }
 .cat-pop.bubble .contact { margin: 4px 0 2px; gap: 2px; }
 .cat-pop.bubble .contact .ct-h { display: none; }
 .cat-pop.bubble .contact .ct-row, .cat-pop.bubble .contact .ct-row .link { font-size: 12px; color: #17652b; }
+
+/* Doubao round3: centered avatar + title + greeting */
+.cat-pop.bubble { position: relative; }
+.cat-pop.bubble > .ios-x { position: absolute; top: 14px; right: 14px; z-index: 3; width: 30px; height: 30px; border-radius: 50%; border: 0; padding: 0; background: rgba(120,120,128,.16); display: flex; align-items: center; justify-content: center; }
+.cat-pop.bubble > .ios-x img { width: 11px; height: 11px; }
+.cat-pop.bubble .ios-hd.center { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; margin: 4px 8px 14px; }
+.cat-pop.bubble .ios-hd.center .av {
+  width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex: none;
+  background: radial-gradient(circle at 35% 30%, #ffe0b2, #ffb74d 70%, #fb8c00);
+  box-shadow: 0 0 0 3px rgba(255,183,77,.85), 0 0 0 5px rgba(255,255,255,.9), 0 8px 18px rgba(0,0,0,.16);
+}
+.cat-pop.bubble .ios-hd.center .av img { width: 72px; height: 72px; object-fit: cover; display: block; }
+.cat-pop.bubble .ios-hd.center .t1 { font-size: 22px; font-weight: 800; color: #1c1c1e; margin-top: 2px; }
+.cat-pop.bubble .ios-hd.center .t2 { font-size: 15px; font-weight: 400; color: #3c3c43; }
+.cat-pop.bubble .b1 { left: 18px; top: 18px; } .cat-pop.bubble .b2 { left: 36px; top: 8px; width: 10px; height: 10px; }
+.cat-pop.bubble .b3 { right: 42px; top: 12px; } .cat-pop.bubble .b4 { right: 18px; top: 28px; width: 14px; height: 14px; }

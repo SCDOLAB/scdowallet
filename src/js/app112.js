@@ -2741,7 +2741,8 @@
       SD.html(root, `<button type="button" class="cat-launch cat-capsule" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}"><span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span><span class="cap-t">${esc(T('catTitle'))}</span></button>
         <div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="AI小貓" hidden>
           <i class="bub b1" aria-hidden="true"></i><i class="bub b2" aria-hidden="true"></i><i class="bub b3" aria-hidden="true"></i><i class="bub b4" aria-hidden="true"></i>
-          <div class="ios-hd"><span class="av"><img src="./assets/ai-cat.png" alt=""></span><div class="tt"><div class="t1">${esc(T('catTitle'))}</div><div class="t2">${esc(T('catAskQ'))}</div></div><button type="button" class="ios-x" data-act="catClose" title="${esc(T('catClose'))}" aria-label="${esc(T('catClose'))}"><img src="./assets/ui/x.svg" alt=""></button></div>
+          <button type="button" class="ios-x" data-act="catClose" title="${esc(T('catClose'))}" aria-label="${esc(T('catClose'))}"><img src="./assets/ui/x.svg" alt=""></button>
+          <div class="ios-hd center"><span class="av"><img src="./assets/ai-cat.png" alt=""></span><div class="t1">${esc(T('catTitle'))}</div><div class="t2">${esc(T('catAskQ'))}</div></div>
           <div class="ios-log" id="aiCatLog" aria-live="polite"></div>
           ${rows}
           <button type="button" class="cat-type" id="catType" data-act="catType">${esc(T('catInput'))}</button>
