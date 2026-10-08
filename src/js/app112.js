@@ -602,7 +602,7 @@
     h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
-      h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="${esc(T('poolHttpDetail', { n: pool.statsPort }))}">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
+      h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
       if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
     }
     if (backend === 'cpu') {
