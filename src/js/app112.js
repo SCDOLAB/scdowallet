@@ -144,7 +144,7 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null,
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false,
     payReview: null
   }
   const shard0 = () => ({
@@ -283,8 +283,7 @@
     const nextLang = lang() === 'CN' ? 'EN' : 'CN'
     SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
       <div class="island" id="statusIsland">
-        <div class="island-compact" id="islandCompact" data-act="island" tabindex="0"></div>
-        <div class="island-panel" id="islandPanel"></div>
+        <div class="island-compact" id="islandCompact"></div>
       </div>
       ${chip}
       <button type="button" class="lang-one" data-act="hdrLang" data-v="${nextLang}" id="langToggle" title="${esc(T('setLang'))}">${nextLang === 'EN' ? 'EN' : '華'}</button>
@@ -962,11 +961,7 @@
     return cls
   }
   function chipEl (c) {
-    const el = document.createElement(c.kind === 'start' ? 'button' : 'span')
-    if (c.kind === 'start') {
-      el.type = 'button'
-      el.setAttribute('data-act', 'isleStart')
-    }
+    const el = document.createElement('span')
     el.className = chipClass(c)
     if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
     if (c.kind === 'sync') {
@@ -1063,10 +1058,25 @@
     }
     return line
   }
+  function miningBusy () {
+    const cpu = st.miners && st.miners.classicCpu
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    if (cpu && cpu.running) return true
+    if (gpu && gpu.running) return true
+    return !!(s0 && s0.running && s0.mode !== 'node')
+  }
+  function renderActBar () {
+    const bar = $('actBar')
+    if (!bar) return
+    const on = miningBusy()
+    const locked = on || st.actStarting
+    const stop = on ? `<button type="button" class="btn danl act-stop" data-act="stopAll" id="actStop">${esc(T('isleStopAll'))}</button>` : ''
+    SD.html(bar, `<div class="act-main"><button type="button" class="btn pri" data-act="isleStart" id="actStart" ${locked ? 'disabled' : ''}>${esc(locked ? T('actMining') : T('isleStart'))}</button><button type="button" class="btn sec" data-act="tab" data-v="mine" id="actGoMine">${esc(T('actGoMine'))}</button><button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button></div>${stop}`)
+  }
   function renderIsland () {
     const compact = $('islandCompact')
-    const panel = $('islandPanel')
-    if (!compact || !panel || !window.SCDOIsland) return
+    if (!compact || !window.SCDOIsland) return
     if (islePopAnchor && !islePopAnchor.isConnected) closeIslePop(true)
     const model = islandModel()
     compact.removeAttribute('title')
@@ -1076,41 +1086,7 @@
     paintChipRow(bot, model.money)
     ensureIsleHelp(compact)
     renderIsleLegend(model.legend || [])
-    let rows = panel.querySelector('.isle-rows')
-    if (!rows || rows.getAttribute('data-plain') !== '1' || rows.childElementCount !== model.shards.length || !panel.querySelector('.isle-actions')) {
-      panel.textContent = ''
-      rows = document.createElement('div')
-      rows.className = 'isle-rows'
-      rows.setAttribute('data-plain', '1')
-      model.shards.forEach(s => {
-        const row = document.createElement('div')
-        row.className = 'isle-row'
-        const name = document.createElement('b')
-        name.textContent = s.title || ('Shard' + s.n)
-        const slot = document.createElement('span')
-        slot.className = 'isle-slot'
-        row.appendChild(name)
-        row.appendChild(slot)
-        rows.appendChild(row)
-      })
-      const meta = document.createElement('div')
-      meta.className = 'isle-meta-row'
-      const actions = document.createElement('div')
-      actions.className = 'isle-actions'
-      panel.appendChild(rows)
-      panel.appendChild(meta)
-      panel.appendChild(actions)
-      SD.html(actions, `<button type="button" class="btn pri" data-act="tab" data-v="mine" id="islandMine">${esc(T('isleGoMine'))}</button>
-        <button type="button" class="btn dan" data-act="stopAll" id="islandStop">${esc(T('isleStopAll'))}</button>
-        <button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button>`)
-    }
-    model.shards.forEach((s, i) => {
-      const row = rows.children[i]
-      const name = row.querySelector('b')
-      if (name) name.textContent = s.title || ('Shard' + s.n)
-      paintChipRow(row.children[1], s.rowChips || [])
-    })
-    paintChipRow(panel.querySelector('.isle-meta-row'), model.money)
+    renderActBar()
   }
   let islePopTimer = 0
   let islePopHideTimer = 0
@@ -1185,11 +1161,18 @@
       detail: anchor.getAttribute('data-tip-detail') || ''
     }
   }
+  function dismissIsleLegend () {
+    if (!isleLegendOn) return
+    isleLegendOn = false
+    const box = $('isleLegend')
+    if (box) box.remove()
+  }
   function openIslePop (anchor, pin) {
     const tip = tipFromAnchor(anchor)
     if (!tip || !tip.explain) return
     clearTimeout(islePopTimer)
     clearTimeout(islePopHideTimer)
+    dismissIsleLegend()
     if (islePopAnchor && islePopAnchor !== anchor) islePopAnchor.removeAttribute('aria-describedby')
     fillIslePop(tip)
     anchor.setAttribute('aria-describedby', 'islePop')
@@ -1227,7 +1210,6 @@
     el.addEventListener('focus', () => openIslePop(el, false))
     el.addEventListener('blur', () => queueIslePopHide())
     el.addEventListener('click', (ev) => {
-      if (el.getAttribute('data-act') === 'isleStart') return
       ev.stopPropagation()
       openIslePop(el, true)
     })
@@ -1441,6 +1423,18 @@
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
     st.payReview = null
     SD.clear($('modalRoot')); render()
+  }
+  function confirmStopAll () {
+    return new Promise(resolve => {
+      modal(`<div class="mh" id="stopAllDlg"><h2>${esc(T('stopAllTitle'))}</h2></div>
+        <div class="foot"><button type="button" class="btn ghost" id="cbNo">${esc(T('cancel'))}</button><button type="button" class="btn danl" id="cbYes">${esc(T('stopAllYes'))}</button></div>`, { width: 560, noFocus: true })
+      const no = $('cbNo')
+      const yes = $('cbYes')
+      const done = (v) => { SD.clear($('modalRoot')); resolve(v) }
+      no.onclick = () => done(false)
+      yes.onclick = () => done(true)
+      no.focus()
+    })
   }
   function confirmBox (title, text, yes, no, danger) {
     return new Promise(resolve => {
@@ -2181,8 +2175,7 @@
     if (!r.ok) { toast(r.error || r.code, 7000); return }
   }
   async function stopAll () {
-    let ok = false
-    try { ok = await api.invoke('miner:confirmStop') } catch (e) { ok = false }
+    const ok = await confirmStopAll()
     if (!ok) return
     localStorage.setItem('minerRunClassicCpu', '')
     localStorage.setItem('minerRunClassicGpu', '')
@@ -2206,9 +2199,6 @@
       return
     }
     const ext = st.miners && st.miners.shard0 && st.miners.shard0.phase === 'external'
-    // 2.0.6: "Stop mining" asks first (main-process dialog, Cancel is the default); node-only stop does not.
-    // Classic start/stop never asks: Shard0 GPU, Classic GPU and CPU run together with no confirmation.
-    if (!ext && src !== 'node') { let ok = false; try { ok = await api.invoke('miner:confirmStop') } catch (e) {} if (!ok) return }
     if (!ext) toast(T('stopping'), 60000)
     await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
     if (!ext) toast(T('stopped'))
@@ -2230,19 +2220,28 @@
   // ---------------- events (one delegated handler) ----------------
   document.addEventListener('click', async (ev) => {
     const explained = ev.target.closest && ev.target.closest('.explain')
-    const inPop = ev.target.closest && (ev.target.closest('.isle-chip') || explained || ev.target.closest('#islePop') || ev.target.closest('#isleHelp') || ev.target.closest('#isleLegend'))
-    if (explained) openIslePop(explained, true)
+    const inChip = ev.target.closest && ev.target.closest('.isle-chip')
+    const inHelp = ev.target.closest && ev.target.closest('#isleHelp')
+    const inLegend = ev.target.closest && ev.target.closest('#isleLegend')
+    const inPop = ev.target.closest && (inChip || explained || ev.target.closest('#islePop') || inHelp || inLegend)
+    if (explained && !inChip) openIslePop(explained, true)
     if (!inPop) closeIslePop(true)
+    if (isleLegendOn && !inLegend && !inHelp) dismissIsleLegend()
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
-      case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
-      case 'isleHelp': isleLegendOn = true; renderIsland(); break
+      case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
-      case 'isleStart': askCat('開始挖礦'); break
+      case 'isleStart': {
+        if (miningBusy() || st.actStarting) break
+        st.actStarting = true
+        renderActBar()
+        askCat('開始挖礦').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
+        break
+      }
       case 'catOpen': st.catOpen = !st.catOpen; if (st.catOpen && !st.catLog.length && window.SCDOCat) st.catLog.push(window.SCDOCat.reply('', catCtx()).say); renderCat(); break
       case 'catClose': st.catOpen = false; renderCat(); break
       case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }
@@ -2338,8 +2337,16 @@
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { if (islePopPinned || ($('islePop') && !$('islePop').hidden)) { closeIslePop(true); return } if (isleLegendOn) { isleLegendOn = false; renderIsland(); return } if (window.__closeAssetList && window.__closeAssetList()) return; const isle = $('statusIsland'); if (isle && isle.classList.contains('open')) { isle.classList.remove('open'); return } if ($('dd')) closeDd(); else if ($('md')) closeModal() }
-    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.id === 'islandCompact') { ev.preventDefault(); const isle = $('statusIsland'); if (isle) isle.classList.toggle('open') }
+    if (ev.key === 'Escape') {
+      if ($('stopAllDlg')) { const n = $('cbNo'); if (n) n.click(); return }
+      const popOpen = islePopPinned || ($('islePop') && !$('islePop').hidden)
+      const legendOpen = isleLegendOn
+      if (popOpen) closeIslePop(true)
+      if (legendOpen) dismissIsleLegend()
+      if (popOpen || legendOpen) return
+      if (window.__closeAssetList && window.__closeAssetList()) return
+      if ($('dd')) closeDd(); else if ($('md')) closeModal()
+    }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'aiCatIn') { ev.preventDefault(); askCat(ev.target.value); ev.target.value = '' }
   })
 

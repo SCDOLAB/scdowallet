@@ -32,11 +32,11 @@ header.top > .island { flex: 1 1 auto; min-width: 0; }
 .acct-chip:hover { background: rgba(255,255,255,.15); }
 .acct-chip .avatar { width: 34px; height: 34px; font-size: 16px; }
 .island { position: relative; min-width: 0; }
-.island-compact { width: 100%; background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: pointer; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+.island-compact { width: 100%; background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: default; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
 .island-compact:hover { border-color: #43A047; }
 .island-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; overflow: visible; font-size: 14px; font-weight: 800; line-height: 1.35; white-space: normal; }
 .island-money { font-size: 13px; }
-.isle-chip { position: relative; display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 8px; border-radius: 999px; color: #fff; font-weight: 800; letter-spacing: 0; line-height: 1.35; text-shadow: 0 1px 0 rgba(255,255,255,.45), 0 1px 0 rgba(0,0,0,.35), 0 2px 0 rgba(0,0,0,.28), 0 3px 1px rgba(0,0,0,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 0 rgba(0,0,0,.22), 0 2px 0 rgba(0,0,0,.14); overflow: hidden; white-space: normal; }
+.isle-chip { position: relative; display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 8px; border-radius: 999px; color: #fff; font-weight: 800; letter-spacing: 0; line-height: 1.35; text-shadow: 0 1px 0 rgba(255,255,255,.45), 0 1px 0 rgba(0,0,0,.35), 0 2px 0 rgba(0,0,0,.28), 0 3px 1px rgba(0,0,0,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 0 rgba(0,0,0,.22), 0 2px 0 rgba(0,0,0,.14); overflow: hidden; white-space: normal; cursor: help; }
 .isle-val { position: relative; z-index: 1; min-width: 0; white-space: normal; }
 .island-line .isle-chip { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .isle-av { width: 16px; height: 16px; border-radius: 50%; background: #2E7D32; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; flex: none; position: relative; z-index: 1; text-shadow: none; }
@@ -76,16 +76,9 @@ html.isle-paused .isle-tick { animation-play-state: paused; }
 .isle-legend h2 { margin: 0 0 10px; color: #1B5E20; font-size: 22px; }
 .isle-legend p { margin: 0 0 10px; font-size: 16px; line-height: 1.45; }
 .isle-legend b { color: #2E7D32; }
-.island-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff; color: #1b1d33; border-radius: 18px; border: 2px solid #43A047; box-shadow: 0 12px 40px rgba(15,18,50,.28); z-index: 30; padding: 12px 14px; max-height: 70vh; overflow: auto; }
-.island-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
-.island:hover .island-panel, .island.open .island-panel { display: block; }
-.isle-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #E8F5E9; font-size: 15px; }
-.isle-meta-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0 2px; }
-.isle-slot { display: flex; min-width: 0; }
-.isle-row b { min-width: 72px; color: #2E7D32; flex: none; }
-.isle-row span { min-width: 0; }
-.isle-meta { font-size: 15px; font-weight: 700; padding: 4px 0; }
-.isle-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.act-bar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #dfe3f5; flex: none; }
+.act-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.act-stop { margin-left: auto; }
 .home-fold { margin-top: 8px; padding-top: 8px; border-top: 1px solid #E8F5E9; }
 .netsel { display: flex; align-items: center; gap: 8px; border: 2px solid rgba(255,255,255,.6); border-radius: 22px; padding: 6px 14px; font-size: 17px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .dot { width: 11px; height: 11px; border-radius: 50%; background: #9aa0b8; display: inline-block; flex: none; }

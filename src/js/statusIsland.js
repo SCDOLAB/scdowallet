@@ -282,11 +282,7 @@ function buildIsland (opts) {
   const chips = []
   views.forEach(s => { s.rowChips.forEach(c => chips.push(c)) })
   if (!anyMining) {
-    if (chips.length) {
-      chips.push({ kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
-    } else {
-      chips.push({ kind: 'start', text: tr('isleStart'), tip: tipOf(tr('isleStart'), tr('isleStart'), tr('isleTipStartExplain'), '') })
-    }
+    chips.push({ kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
   }
   const gpuTemps = (opts.temps || []).map(t => ({ name: gpuLabel(t && t.name), tempC: num(t && t.tempC) })).filter(t => t.tempC != null)
   const tempC = gpuTemps.length ? Math.max.apply(null, gpuTemps.map(t => t.tempC)) : null
