@@ -859,9 +859,12 @@
     }
     return (name ? name + ' ' : '') + amt
   }
-  function headerBalanceMark () {
+  function headerBalanceName () {
     const a = headerAccount()
-    const name = a ? String(accLabel(a)).trim() : ''
+    return a ? String(accLabel(a) || '').trim() : ''
+  }
+  function headerBalanceMark () {
+    const name = headerBalanceName()
     return name ? name[0].toUpperCase() : ''
   }
   function earnEvents () {
@@ -897,6 +900,7 @@
       now: Date.now(),
       balanceText: headerBalanceText(),
       balanceMark: headerBalanceMark(),
+      balanceName: headerBalanceName(),
       T,
       etaText: fmtSyncEta,
       hashText: fmtHash
@@ -936,7 +940,7 @@
     if (c.mark) {
       const av = document.createElement('span')
       av.className = 'isle-av'
-      av.textContent = c.mark
+      paintAvatar(av, c)
       el.appendChild(av)
     }
     const val = document.createElement('span')
@@ -944,6 +948,13 @@
     val.textContent = c.text
     el.appendChild(val)
     return el
+  }
+  function paintAvatar (av, c) {
+    if (av.textContent !== c.mark) av.textContent = c.mark
+    const name = c.name || ''
+    if (av.title !== name) av.title = name
+    if (av.getAttribute('aria-label') !== name) av.setAttribute('aria-label', name)
+    if (av.getAttribute('role') !== 'img') av.setAttribute('role', 'img')
   }
   function applyChipFace (el, c) {
     el.className = chipClass(c)
@@ -953,7 +964,7 @@
   }
   function paintChipRow (host, chips) {
     const list = chips || []
-    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || ''].join('\t')).join('\n')
+    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || '', c.name || ''].join('\t')).join('\n')
     const prev = (host.getAttribute('data-sig') || '').split('\n').filter(Boolean)
     const same = prev.length === list.length && host.childElementCount === list.length && list.every((c, i) => prev[i].startsWith(c.kind + '\t'))
     if (same && host.getAttribute('data-sig') === sig) {
@@ -979,7 +990,7 @@
             av.className = 'isle-av'
             el.insertBefore(av, val || null)
           }
-          if (av.textContent !== c.mark) av.textContent = c.mark
+          paintAvatar(av, c)
         } else if (av) av.remove()
         if (val && oldText !== c.text) {
           val.textContent = c.text
@@ -1057,7 +1068,7 @@
       : { kind: 'temp', text: T('isleTemp', { n: model.tempC }), band: model.tempBand })
     metaChips.push({ kind: 'earn', text: T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }) })
     metaChips.push({ kind: 'earn', text: T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }) })
-    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || ''), mark: model.balanceMark || '' })
+    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || ''), mark: model.balanceMark || '', name: model.balanceName || '' })
     paintChipRow(panel.querySelector('.isle-meta-row'), metaChips)
   }
   function renderHeaderNetOnly () {
@@ -2314,6 +2325,22 @@
     st.catHealAt = Date.now()
     await applyCatPlan(heal, { toast: true })
   }
+
+  // Chip shimmer, pulse, and the spinning pick keep painting while the window
+  // is in the background. Pause them on hide and on blur; resume on focus.
+  function bindIsleMotion () {
+    const root = document.documentElement
+    if (!root || !root.classList || typeof window.addEventListener !== 'function') return
+    let focused = typeof document.hasFocus !== 'function' || document.hasFocus()
+    const apply = () => {
+      root.classList.toggle('isle-paused', document.hidden === true || !focused)
+    }
+    document.addEventListener('visibilitychange', apply)
+    window.addEventListener('blur', () => { focused = false; apply() })
+    window.addEventListener('focus', () => { focused = true; apply() })
+    apply()
+  }
+  bindIsleMotion()
 
   // ---------------- boot ----------------
   let APPVER = '2.0.9'

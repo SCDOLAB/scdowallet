@@ -64,6 +64,10 @@ header.top > .island { flex: 1 1 auto; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .isle-chip.shimmer::before, .isle-chip.live::after, .isle-spin, .isle-tick { animation: none; }
 }
+html.isle-paused .isle-chip.shimmer::before,
+html.isle-paused .isle-chip.live::after,
+html.isle-paused .isle-spin,
+html.isle-paused .isle-tick { animation-play-state: paused; }
 @media (max-width: 1023px) { .island-money { display: none; } }
 .island-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff; color: #1b1d33; border-radius: 18px; border: 2px solid #43A047; box-shadow: 0 12px 40px rgba(15,18,50,.28); z-index: 30; padding: 12px 14px; max-height: 70vh; overflow: auto; }
 .island-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
