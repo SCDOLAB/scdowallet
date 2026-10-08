@@ -1,4 +1,4 @@
-// Plain words for Shard0 (EVM) miner failures. The English sentence stays in the log.
+// Plain words for Shard0 EVM miner failures. The English sentence stays in the log.
 // zh-Hant screens use these sentences. English screens keep an English sentence.
 'use strict'
 ;(function () {
@@ -28,8 +28,8 @@
       EN: 'The pool address is not valid. Enter the full pool address and try again.'
     },
     BAD_PAYOUT: {
-      CN: '節點服務費地址不對。請改成 0x 開頭的 EVM 收款地址後再試。',
-      EN: 'The node service-fee address is not valid. Use an EVM address that starts with 0x.'
+      CN: '節點服務費地址不對。請改成 0x 開頭的 Shard0 EVM 收款地址後再試。',
+      EN: 'The node service-fee address is not valid. Use a Shard0 EVM address that starts with 0x.'
     },
     CRASHING: {
       CN: '挖礦程式反覆自己關掉，已經停止。請再試一次；如果一直失敗，可以在「挖礦」頁的「日誌」按「匯出挖礦日誌」，把檔案傳給客服。',

@@ -18,7 +18,7 @@ assert.strictEqual(chain0.kind, 'chain')
 assert.strictEqual(chain0.shard, 0)
 assert.strictEqual(chain0.to, ADDR)
 assert.strictEqual(chain0.amount, '1.5')
-assert.strictEqual(chain0.line, '鏈上轉帳 · EVM · 手續費約 …')
+assert.strictEqual(chain0.line, '鏈上轉帳 · Shard0 EVM · 手續費約 …')
 
 const chain1 = route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' })
 assert.strictEqual(chain1.kind, 'chain')
@@ -88,7 +88,7 @@ assert.ok(ui.includes('function payModal (f, prefill)') || ui.includes('function
 assert.ok(ui.includes('id="payRoute"'))
 assert.ok(ui.includes('id="btnRemit"'))
 assert.ok(ui.includes('id="btnRemitSign"'))
-assert.ok(ui.includes("const TABS = ['old', 'new', 'mine']"))
+assert.ok(ui.includes("const TABS = ['acc', 'mine']"))
 assert.ok(!ui.includes("['remit', 'tabRemit']"))
 assert.ok(!ui.includes('id="btnSend"'))
 assert.ok(!ui.includes('data-act="sendOld"'))
@@ -106,7 +106,7 @@ assert.ok(fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8').include
 // English mode: route lines, fiat words, and the EN text of the merged Send form carry no Chinese.
 const CJK = /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/
 global.window = { SCDOMining: { lang: 'EN' } }
-assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, 'On-chain transfer · EVM · fee about …')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, 'On-chain transfer · Shard0 EVM · fee about …')
 assert.strictEqual(route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' }).line, 'On-chain transfer · Shard1 · fee about 0.00021 SCDO')
 const enGate = route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts })
 assert.strictEqual(enGate.kind, 'gateway')
@@ -118,7 +118,7 @@ assert.strictEqual(route.routePay({ to: '媽媽', amount: '8 美金', accounts: 
 assert.strictEqual(route.routePay({ to: ADDR, amount: '3', accounts: accounts }).kind, 'chain')
 global.window.SCDOMining.lang = 'CN'
 assert.strictEqual(route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts }).line, '匯款 · 到帳約 …')
-assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, '鏈上轉帳 · EVM · 手續費約 …')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, '鏈上轉帳 · Shard0 EVM · 手續費約 …')
 delete global.window
 
 const vm = require('vm')
@@ -171,12 +171,12 @@ const mBox = { window: {} }
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8'), mBox)
 const M = mBox.window.SCDOMining
 const statsSrc = fs.readFileSync(path.join(__dirname, '../src/js/mining/miningNetworkStats.js'), 'utf8')
-assert.ok(statsSrc.includes("scdoscanMainPublic: 'scdoscan.io EVM public node'") && statsSrc.includes('sourceText(s)'))
+assert.ok(statsSrc.includes("scdoscanMainPublic: 'scdoscan.io Shard0 EVM public node'") && statsSrc.includes('sourceText(s)'))
 M.lang = 'EN'
-assert.strictEqual(M.L('scdoscan.io EVM public node'), 'scdoscan.io EVM public node')
+assert.strictEqual(M.L('scdoscan.io Shard0 EVM public node'), 'scdoscan.io Shard0 EVM public node')
 assert.strictEqual(M.L(' · source: '), ' · source: ')
 M.lang = 'CN'
-assert.strictEqual(M.L('scdoscan.io EVM public node'), 'scdoscan.io EVM 公開節點')
+assert.strictEqual(M.L('scdoscan.io Shard0 EVM public node'), 'scdoscan.io Shard0 EVM 公開節點')
 assert.strictEqual(M.L(' · source: '), ' · 資料來源：')
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
@@ -188,6 +188,6 @@ const payFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function pay
 assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
 
 console.log('remit-route: ok')
-// 3.0.1: the newest notes are first and the English ones have no Chinese
-assert.strictEqual(EN.relNotes[0].v, '3.0.1')
-assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.1 notes contain Chinese')
+// 3.0.2: the newest notes are first and the English ones have no Chinese
+assert.strictEqual(EN.relNotes[0].v, '3.0.2')
+assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.2 notes contain Chinese')

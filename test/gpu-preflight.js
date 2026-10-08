@@ -159,7 +159,7 @@ test('video-controller JSON lists every adapter, including a single object', () 
 test('locked Traditional Chinese mining copy is unchanged', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
   assert.ok(src.includes("noGpu: '這台電腦沒有偵測到 NVIDIA 顯示卡，暫時無法用顯示卡挖礦。執行節點只佔用很少記憶體，也可獲得額外獎勵。'"))
-  assert.ok(src.includes("externalNode: '✅ 已偵測到這台電腦正在執行 EVM 的節點（{u}），錢包會直接使用它，不另外啟動。'"))
+  assert.ok(src.includes("externalNode: '✅ 已偵測到這台電腦正在執行 Shard0 EVM 的節點（{u}），錢包會直接使用它，不另外啟動。'"))
   assert.ok(src.includes("extPayout: '此節點不是由錢包啟動，如需設定節點收益地址，請在該節點的設定中修改。'"))
 })
 

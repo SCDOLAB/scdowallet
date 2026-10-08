@@ -327,7 +327,17 @@ assert.ok(ui.includes('function remitAccount'))
 assert.ok(!ui.includes('id="netSel"'))
 assert.ok(!ui.includes('data-act="netMenu"'))
 assert.ok(!ui.includes('data-act="pickNet"'))
-assert.ok(ui.includes("[['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]"))
+// 3.0.2: one Accounts tab (Classic section first, then Shard0 EVM) plus Mining
+assert.ok(ui.includes("[['acc', 'tabAcc'], ['mine', 'tabMine']]"))
+assert.ok(!ui.includes("['old', 'tabOld']") && !ui.includes("['new', 'tabNew']"))
+const accFn = ui.slice(ui.indexOf('function pageAcc'), ui.indexOf('function pageNew'))
+assert.ok(accFn.indexOf('id="secOld"') > 0 && accFn.indexOf('id="secOld"') < accFn.indexOf('id="secNew"'))
+assert.ok(ui.includes("st.scrollTo = v === 'old' ? 'secOld' : 'secNew'"))
+assert.ok(ui.includes("const tab0 = savedTab === 'mine' ? 'mine' : 'acc'"))
+assert.ok(ui.includes("scrollTo: tab0 === 'acc' ? 'secOld' : null"))
+const swFn = ui.slice(ui.indexOf('function accSwitchList'), ui.indexOf('function accChipMenu'))
+assert.ok(swFn.includes("for (const chain of ['old', 'new'])") && swFn.includes('data-chain="${chain}"'))
+assert.ok(ui.includes("case 'pickAcc': { const ch = el.getAttribute('data-chain')"))
 assert.ok(!ui.includes("['remit', 'tabRemit']"))
 assert.ok(!ui.includes("['home', 'tabHome']"))
 assert.ok(!ui.includes('id="minePill"'))
@@ -351,9 +361,8 @@ assert.ok(!ui.includes('id="btnSend"'))
 assert.ok(!ui.includes('data-act="sendOld"'))
 assert.ok(ui.includes('function cardHomeFold'))
 assert.ok(ui.includes('welcomeTitle'))
-assert.ok(ui.includes("savedTab === 'home'"))
 assert.ok(ui.includes('function headerChain'))
-assert.ok(ui.includes("if (st.tab === 'old') return 'old'"))
+assert.ok(ui.includes("return ui.net === 'old' ? 'old' : 'new'"))
 assert.ok(ui.includes("shardFilter(visible('old'))"))
 assert.ok(ui.includes("headerChain() === 'old'"))
 assert.ok(ui.includes('data-chain="old"'))
@@ -490,7 +499,7 @@ assert.ok(payOn.includes('s.feeFor = null'))
 assert.ok(!payOn.includes('paint(currentRoute())'))
 assert.ok(ui.includes('data-netdot'))
 assert.ok(ui.includes("data-act=\"pickShard\""))
-assert.ok(i18n.includes('pillShard0: "EVM"') || i18n.includes("pillShard0: 'EVM'"))
+assert.ok(i18n.includes('pillShard0: "Shard0 EVM"') || i18n.includes("pillShard0: 'Shard0 EVM'"))
 assert.ok(i18n.includes('挖礦速度 每秒 {n} 次'))
 assert.ok(i18n.includes('Mining speed {n} tries per second'))
 assert.ok(i18n.includes('已連線 {n} 個節點'))
@@ -499,7 +508,7 @@ assert.ok(!ui.includes("['H/s', 'kH/s', 'MH/s', 'GH/s']"))
 assert.ok(ui.includes('function speedText'))
 assert.ok(ui.includes('data-tip-explain'))
 assert.ok(ui.includes("closest('.explain')"))
-assert.ok(ui.includes('也挖 EVM'))
+assert.ok(ui.includes('也挖 Shard0 EVM'))
 const boot = fs.readFileSync(path.join(__dirname, '../src/js/boot.js'), 'utf8')
 assert.ok(boot.includes('挖礦速度 每秒 {n} 次'))
 assert.ok(!boot.includes('MH/s'))
@@ -518,7 +527,7 @@ assert.ok(preflightCard.includes('Needs an NVIDIA graphics card, the latest NVID
 const miningSvc = fs.readFileSync(path.join(__dirname, '../src/main/miningService.js'), 'utf8')
 assert.ok(miningSvc.includes("sourceKey: 'scdoscanMainPublic'"))
 assert.ok(!/[\u3400-\u9fff]/.test(miningSvc.slice(miningSvc.indexOf('statsCache = {'), miningSvc.indexOf('asOf:', miningSvc.indexOf('statsCache = {')))), 'network stats source must not be fixed Chinese')
-assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8').includes('"scdoscan.io EVM public node": "scdoscan.io EVM 公開節點"'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8').includes('"scdoscan.io Shard0 EVM public node": "scdoscan.io Shard0 EVM 公開節點"'))
 assert.ok(!miningSvc.includes('scdoscan.io RPC'))
 const launchSrc = fs.readFileSync(path.join(__dirname, '../src/miner/zpow/launch.js'), 'utf8')
 assert.ok(launchSrc.includes('PRIORITY_BELOW_NORMAL'))
@@ -555,12 +564,12 @@ assert.ok(i18n.includes('isleEtaName: "{chain} 大約還要多久同步完"'))
 assert.ok(i18n.includes('isleTotalName: "一共賺了多少"'))
 assert.ok(i18n.includes('isleLegEtaName: "大約還要"'))
 assert.ok(i18n.includes('isleLegTotalName: "一共賺了"'))
-assert.ok(i18n.includes("tabNew: 'EVM 帳戶'"))
-assert.ok(i18n.includes("newTitle: 'EVM 帳戶'"))
-assert.ok(i18n.includes("newAddrLabel: 'EVM 收款地址'"))
+assert.ok(i18n.includes("tabNew: 'Shard0 EVM 帳戶'"))
+assert.ok(i18n.includes("newTitle: 'Shard0 EVM 帳戶'"))
+assert.ok(i18n.includes("newAddrLabel: 'Shard0 EVM 收款地址'"))
 assert.ok(i18n.includes('用了 {n} 個處理器核心（這台電腦共有 {max} 個）'))
 assert.ok(i18n.includes('Using {n} processor cores (this computer has {max})'))
-assert.ok(i18n.includes("tabNew: 'EVM accounts'"))
+assert.ok(i18n.includes("tabNew: 'Shard0 EVM accounts'"))
 assert.ok(i18n.includes('actMining: "Mining"'))
 assert.ok(i18n.includes('Stop all mining?'))
 assert.ok(i18n.includes('isleGoMine: "Open Mining"') || i18n.includes("isleGoMine: 'Open Mining'"))
@@ -590,10 +599,12 @@ function walkI18n (v, fn) {
 }
 for (const langName of ['CN', 'EN']) {
   walkI18n(i18nBox.window.I18N112[langName], s => {
-    // 3.0.1: all five chains are equal; no 主鏈 / main chain wording. Shard0 is shown as EVM or Shard0 (EVM).
+    // 3.0.2: all five chains are equal; no 主鏈 / main chain wording. The 0x chain is always labelled "Shard0 EVM",
+    // never a bare EVM label (EVM 帳戶 / EVM 顯卡) and never a bare Shard0.
     assert.ok(!s.includes('主鏈'), langName + ' 主鏈: ' + s.slice(0, 90))
     assert.ok(!/main[- ]chain/i.test(s), langName + ' main chain: ' + s.slice(0, 90))
-    assert.ok(!/Shard0(?! \(EVM\))/.test(s), langName + ' bare Shard0: ' + s.slice(0, 90))
+    assert.ok(!/Shard0(?! EVM)/.test(s), langName + ' bare Shard0: ' + s.slice(0, 90))
+    assert.ok(!/(?<!Shard0 )EVM/.test(s), langName + ' bare EVM label: ' + s.slice(0, 90))
     assert.ok(!s.toLowerCase().includes('cuda'), langName + ': ' + s.slice(0, 90))
     assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
     assert.ok(!/GPU/i.test(s), langName + ' GPU: ' + s.slice(0, 90))
@@ -605,7 +616,7 @@ const miningBox = { window: {} }
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8'), miningBox)
 for (const [k, v] of Object.entries(miningBox.window.SCDOMining.TW)) {
   for (const s of [k, v]) {
-    assert.ok(!/Shard0(?! \(EVM\))/.test(s), 'mining bare Shard0: ' + s.slice(0, 90))
+    assert.ok(!/Shard0(?! EVM)/.test(s) && !/(?<!Shard0 )EVM/.test(s), 'mining Shard0 EVM label: ' + s.slice(0, 90))
     assert.ok(!s.includes('主鏈') && !/main[- ]chain/i.test(s), 'mining 主鏈: ' + s.slice(0, 90))
     assert.ok(!/GPU/i.test(s), 'mining GPU: ' + s.slice(0, 90))
     assert.ok(!/CPU/.test(s), 'mining CPU: ' + s.slice(0, 90))
@@ -615,8 +626,14 @@ for (const [k, v] of Object.entries(miningBox.window.SCDOMining.TW)) {
   }
 }
 assert.strictEqual(miningBox.window.SCDOMining.TW['Graphics card detection failed'], '顯示卡檢測失敗')
-assert.strictEqual(i18nBox.window.I18N112.CN.assetTest, 'EVM 代幣')
-assert.strictEqual(i18nBox.window.I18N112.EN.assetTest, 'EVM token')
+// 3.0.2: the 0x chain labels read Shard0 EVM, like the Shard1 to Shard4 pills
+for (const [k, cn, en] of [['tabAcc', '帳戶', 'Accounts'], ['oldTitle', 'Classic 帳戶（Shard1–Shard4）', 'Classic accounts (Shard1–Shard4)'], ['newTitle', 'Shard0 EVM 帳戶', 'Shard0 EVM accounts'], ['tabNew', 'Shard0 EVM 帳戶', 'Shard0 EVM accounts'], ['mineShard0', 'Shard0 EVM 顯卡', 'Shard0 EVM graphics card'], ['pillShard0', 'Shard0 EVM', 'Shard0 EVM'], ['isleMainChain', 'Shard0 EVM', 'Shard0 EVM'], ['s0Short', 'Shard0 EVM', 'Shard0 EVM'], ['netNewShort', 'Shard0 EVM', 'Shard0 EVM'], ['rpcNew', 'Shard0 EVM 節點', 'Shard0 EVM node'], ['s0Balance', 'Shard0 EVM 餘額', 'Shard0 EVM balance']]) {
+  assert.strictEqual(i18nBox.window.I18N112.CN[k], cn, 'CN ' + k)
+  assert.strictEqual(i18nBox.window.I18N112.EN[k], en, 'EN ' + k)
+}
+assert.strictEqual(miningBox.window.SCDOMining.TW['Shard0 EVM network'], 'Shard0 EVM 的網路情況')
+assert.strictEqual(i18nBox.window.I18N112.CN.assetTest, 'Shard0 EVM 代幣')
+assert.strictEqual(i18nBox.window.I18N112.EN.assetTest, 'Shard0 EVM token')
 const noteSrc = fs.readFileSync(path.join(__dirname, '../src/main/miningNotifier.js'), 'utf8')
 assert.ok(noteSrc.includes('挖礦速度一直是 0'))
 assert.ok(noteSrc.includes('挖礦速度已經 2 分鐘都是 0'))
@@ -635,11 +652,11 @@ assert.ok(!mainSrc.includes('Classic CPU 礦池') && !mainSrc.includes("'Classic
 assert.strictEqual(miningBox.window.SCDOMining.TW['Graphics memory could not be measured exactly (nvidia-smi unavailable).'], '無法精確測量顯示記憶體（nvidia-smi 無法使用）。')
 miningBox.window.SCDOMining.lang = 'CN'
 assert.strictEqual(miningBox.window.SCDOMining.reason('Not enough graphics memory: at least 4 GB is required, found 2 GB.'), '顯示記憶體不足：至少需要 4 GB，目前只有 2 GB。')
-assert.strictEqual(i18nBox.window.I18N112.CN.rewardAddr, '出塊獎勵地址（EVM 收款地址，0x 開頭）')
-assert.strictEqual(i18nBox.window.I18N112.CN.payoutAddr, '節點服務費地址（EVM 收款地址，0x 開頭）')
-assert.strictEqual(i18nBox.window.I18N112.CN.locked, '輸入密碼才能看 EVM 收款地址')
-assert.strictEqual(i18nBox.window.I18N112.CN.s0Balance, 'EVM 餘額')
-assert.ok(i18nBox.window.I18N112.CN.newNote.startsWith('這裡只顯示 EVM 的收款地址（0x 開頭）'))
+assert.strictEqual(i18nBox.window.I18N112.CN.rewardAddr, '出塊獎勵地址（Shard0 EVM 收款地址，0x 開頭）')
+assert.strictEqual(i18nBox.window.I18N112.CN.payoutAddr, '節點服務費地址（Shard0 EVM 收款地址，0x 開頭）')
+assert.strictEqual(i18nBox.window.I18N112.CN.locked, '輸入密碼才能看 Shard0 EVM 收款地址')
+assert.strictEqual(i18nBox.window.I18N112.CN.s0Balance, 'Shard0 EVM 餘額')
+assert.ok(i18nBox.window.I18N112.CN.newNote.startsWith('這裡只顯示 Shard0 EVM 的收款地址（0x 開頭）'))
 const isleT = (k, p) => {
   let s = i18nBox.window.I18N112.CN[k]
   if (s == null) s = k
@@ -680,20 +697,20 @@ assert.ok(island.shards[1].mineText.includes('Shard2 處理器挖礦速度 每�
 assert.strictEqual(island.shards[2].syncKind, 'off')
 assert.ok(island.shards[2].mineText.includes('未挖'))
 assert.strictEqual(island.shards[4].syncKind, 'synced')
-assert.ok(island.shards[4].syncText.includes('EVM 同步進度 100%'))
-assert.ok(island.shards[4].mineText.includes('EVM 顯卡挖礦速度 每秒 2,000,000 次'))
+assert.ok(island.shards[4].syncText.includes('Shard0 EVM 同步進度 100%'))
+assert.ok(island.shards[4].mineText.includes('Shard0 EVM 顯卡挖礦速度 每秒 2,000,000 次'))
 assert.strictEqual(island.tempC, 70)
 assert.ok(island.compactTop.includes('Shard1 同步進度 50%'))
 assert.ok(island.compactTop.includes('大約還要 1 小時'))
 assert.ok(island.compactTop.includes('Shard2 處理器挖礦速度 每秒 1,500 次'))
-assert.ok(island.compactTop.includes('EVM 顯卡挖礦速度 每秒 2,000,000 次'))
+assert.ok(island.compactTop.includes('Shard0 EVM 顯卡挖礦速度 每秒 2,000,000 次'))
 assert.ok(island.compactTop.includes('等待同步完成後開始挖礦'))
 assert.ok(!island.compactTop.includes('同步中 (GPU 待命)'))
 assert.ok(!/\bS[0-4]\b/.test(island.compactTop))
 assert.ok(!island.compactTop.includes('1h'))
 assert.ok(!island.compactTop.includes('MH'))
 assert.ok(island.compactTop.indexOf('Shard1') < island.compactTop.indexOf('Shard2'))
-assert.ok(island.compactTop.indexOf('Shard2') < island.compactTop.indexOf('EVM'))
+assert.ok(island.compactTop.indexOf('Shard2') < island.compactTop.indexOf('Shard0 EVM'))
 assert.strictEqual(island.tempBand, 'ok')
 assert.ok(island.compactBottom.includes('第1張顯卡溫度 61°C（正常）'))
 assert.ok(island.compactBottom.includes('第2張顯卡溫度 70°C（正常）'))
@@ -804,7 +821,7 @@ const linked = buildIsland({
   shard0: { running: true, chain: 'shard0', mode: 'node', localBlock: 10, networkBlock: 10, peers: 8 },
   T: isleT
 })
-assert.ok(linked.compactTop.includes('EVM 已連線 8 個節點'))
+assert.ok(linked.compactTop.includes('Shard0 EVM 已連線 8 個節點'))
 assert.ok(linked.chips.some(c => c.text.includes('已連線 8 個節點') && c.tip && c.tip.explain))
 const triple = buildIsland({
   classicGpu: { running: true, shard: 1, code: 'CLASSIC_GPU', chain: 'classic', mode: 'gpu', hashrate: 17.4e6, localBlock: 3022193, networkBlock: 9276140, syncEtaSec: 335 * 3600 },
@@ -816,7 +833,7 @@ assert.ok(triple.compactTop.includes('Shard1 同步進度'))
 assert.ok(triple.compactTop.includes('大約還要 335 小時'))
 assert.ok(triple.compactTop.includes('Shard1 顯卡挖礦速度 每秒 17,400,000 次'))
 assert.ok(triple.compactTop.includes('Shard1 處理器挖礦速度 每秒 5,100 次'))
-assert.ok(triple.compactTop.includes('EVM 顯卡挖礦速度 每秒 31,000,000 次'))
+assert.ok(triple.compactTop.includes('Shard0 EVM 顯卡挖礦速度 每秒 31,000,000 次'))
 assert.ok(!triple.compactTop.includes('GPU 待命'))
 assert.ok(!/\bS[0-4]\b/.test(triple.compactTop))
 assert.ok(!/MH|kH|\d+h/.test(triple.compactTop))
@@ -836,7 +853,7 @@ function chipRowPx (line) {
   return w
 }
 assert.ok(triple.compactTop.length > 40)
-assert.strictEqual(nodeOnly.shards[4].mineText, 'EVM 只在記帳，還沒有開始挖礦')
+assert.strictEqual(nodeOnly.shards[4].mineText, 'Shard0 EVM 只在記帳，還沒有開始挖礦')
 assert.strictEqual(nodeOnly.shards[4].syncKind, 'synced')
 assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 108 }).kind, 'synced')
 assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 109 }).kind, 'syncing')
@@ -847,10 +864,10 @@ const flash = buildIsland({
   shard0: { running: true, chain: 'shard0', mode: 'mine', code: 'MINING', localBlock: 80500, networkBlock: 0 },
   T: isleT
 })
-assert.ok(flash.compactTop.includes('EVM 同步進度 還在查'))
+assert.ok(flash.compactTop.includes('Shard0 EVM 同步進度 還在查'))
 assert.ok(!flash.compactTop.includes('/0'))
 assert.ok(!flash.compactTop.includes('80.5k'))
-assert.ok(flash.shards[4].syncText.includes('EVM 同步進度 還在查'))
+assert.ok(flash.shards[4].syncText.includes('Shard0 EVM 同步進度 還在查'))
 assert.ok(flash.shards[4].rowChips[0].tip.detail.includes('80,500'))
 assert.ok(!flash.shards[4].syncText.includes('/0'))
 const zeroH = syncOf({ running: true, localBlock: 0, networkBlock: 0 })
@@ -861,7 +878,7 @@ const blank = buildIsland({
   shard0: { running: true, chain: 'shard0', mode: 'mine', code: 'MINING', localBlock: 0, networkBlock: 0 },
   T: isleT
 })
-assert.ok(blank.compactTop.includes('EVM 同步進度 還在查'))
+assert.ok(blank.compactTop.includes('Shard0 EVM 同步進度 還在查'))
 assert.ok(!blank.compactTop.includes('0/'))
 assert.ok(blank.shards[4].syncText.includes('還在查'))
 assert.ok(!blank.shards[4].syncText.includes('0/'))
@@ -894,13 +911,13 @@ assert.deepStrictEqual(parseGpuTemp('Tesla T4, 40\nQuadro, RTX, 55\n'), [{ name:
 assert.deepStrictEqual(parseGpuTemp(''), [])
 assert.deepStrictEqual(parseGpuTemp('no comma here\n'), [])
 const pillT = (k, p) => {
-  const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: 'EVM', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
+  const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: 'Shard0 EVM', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
   let s = m[k] || k
   if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
   return s
 }
 assert.deepStrictEqual(formatMinePill({}, pillT), { cls: '', t: '⛏ 未在挖礦' })
-assert.deepStrictEqual(formatMinePill({ shard0: { running: true, code: 'MINING', mode: 'pool' } }, pillT), { cls: 'ok', t: '⛏ 挖礦中 · EVM' })
+assert.deepStrictEqual(formatMinePill({ shard0: { running: true, code: 'MINING', mode: 'pool' } }, pillT), { cls: 'ok', t: '⛏ 挖礦中 · Shard0 EVM' })
 assert.deepStrictEqual(formatMinePill({
   classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic' },
   classicGpu: { running: true, shard: 1, code: 'CLASSIC_GPU', chain: 'classic' }
@@ -1022,7 +1039,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.0.1')
+  assert.strictEqual(pkg.version, '3.0.2')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')

@@ -294,3 +294,6 @@ input.threads { width: 100%; margin-top: 8px; accent-color: #43A047; }
 .ai-chips .btn { height: 36px; font-size: 15px; padding: 0 10px; }
 .ai-ask { display: flex; gap: 8px; margin-top: 8px; }
 .ai-ask .inp { flex: 1; height: 42px; }
+/* 3.0.2: one Accounts tab, Classic section first, then Shard0 EVM */
+section.acc-sec + section.acc-sec { margin-top: 30px; border-top: 3px solid #dfe3f5; padding-top: 6px; }
+.list-head .h1 .dot { margin-right: 10px; vertical-align: middle; }

@@ -117,22 +117,22 @@
     if (ui.accNo[f]) return T('accountN', { n: ui.accNo[f] })
     return stripTs(f) || f
   }
-  // Network follows the account tab: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards.
+  // 3.0.2: one Accounts tab ('acc') with two sections: Classic (Shard1–Shard4) first, then Shard0 EVM.
+  // ui.net is the chain of the account picked in the header switcher: 'new' = Shard0 EVM (chain ID 5680), 'old' = Classic shards.
+  // Old tab names 'old' / 'new' (saved state, deep links) open the Accounts tab at that section.
   // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['old', 'new', 'mine']
-  let savedTab = ui.tab || localStorage.getItem('tab112') || 'old'
-  if (savedTab === 'home') savedTab = 'new'
-  if (savedTab === 'remit') savedTab = ui.net === 'old' ? 'old' : 'new'
-  let tab0 = TABS.includes(savedTab) ? savedTab : 'old'
-  if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
+  const TABS = ['acc', 'mine']
+  const savedTab = ui.tab || localStorage.getItem('tab112') || 'acc'
+  if (ui.net !== 'old' && ui.net !== 'new') ui.net = savedTab === 'new' ? 'new' : 'old'
+  // The wallet opens on the Accounts tab at the Classic section; only an explicit Mining tab is kept.
+  const tab0 = savedTab === 'mine' ? 'mine' : 'acc'
   ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
   const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
-  if (ui.net === 'old' && tab0 === 'new') tab0 = 'old'
-  if (ui.net === 'new' && tab0 === 'old') tab0 = 'new'
-  if (ui.tab === 'remit' || ui.tab === 'home') { ui.tab = tab0; saveUi() }
+  if (ui.tab !== tab0) { ui.tab = tab0; saveUi() }
   const st = {
     tab: tab0,
+    scrollTo: tab0 === 'acc' ? 'secOld' : null,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
     sel: localStorage.getItem('selAcc112') || '',
     accounts: [],
@@ -216,18 +216,18 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // Account tabs select the network. Classic -> 'old', Shard0 accounts -> 'new'. Mining keeps the last one.
+  // 'old' / 'new' (old tab names, deep links) open the Accounts tab at that section and pick that chain.
   // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
     if (v === 'remit') { openRemitFor((headerAccount() || {}).filename || st.sel); return }
-    st.tab = TABS.includes(v) ? v : 'old'
-    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'new') ui.net = 'new'
+    if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
+      st.tab = TABS.includes(v) ? v : 'acc'
+      if (st.tab === 'acc') st.scrollTo = 'secOld'
+    }
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
-  // The account switcher follows the tab that owns the network. Mining and 匯款 follow the last account tab.
+  // The header switcher lists both kinds; the chain of the picked account decides balances, send and receive.
   function headerChain () {
-    if (st.tab === 'old') return 'old'
-    if (st.tab === 'new') return 'new'
     return ui.net === 'old' ? 'old' : 'new'
   }
   function headerAccounts () {
@@ -316,10 +316,9 @@
       }
     }
     renderIsland()
-    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]
+    const tabs = [['acc', 'tabAcc'], ['mine', 'tabMine']]
     SD.html($('tabs'), tabs.map(([k, l]) => {
-      const dot = k === 'old' || k === 'new' ? tabNetDot(k) : ''
-      return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${dot}${esc(T(l))}</button>`
+      return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${esc(T(l))}</button>`
     }).join(''))
   }
   function tabNetDot (chain) {
@@ -403,13 +402,17 @@
     return h
   }
 
-  function pageNew () {
+  // 3.0.2: one Accounts tab. Classic (SCDO's own core asset) first, then Shard0 EVM. Each section keeps its own actions.
+  function pageAcc () {
+    return `<section class="acc-sec" id="secOld">${pageOld()}</section><section class="acc-sec" id="secNew">${pageNew(true)}</section>`
+  }
+  function pageNew (inAccTab) {
     const list = listed('new')
     const hiddenN = ui.hidden.new.length
-    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(T('newTitle'))}</div><div class="muted" style="font-size:17px;margin-top:4px">${esc(T('newNote'))}</div></div>
+    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${tabNetDot('new')}${esc(T('newTitle'))}</div><div class="muted" style="font-size:17px;margin-top:4px">${esc(T('newNote'))}</div></div>
       <button class="toggle" data-act="toggleHidden" id="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
       <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
-    if (!st.accounts.length) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
+    if (!st.accounts.length && !inAccTab) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
       <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div>`
     list.forEach((a, i) => {
       const hid = isHidden('new', a.filename)
@@ -437,7 +440,7 @@
     const list = shardFilter(listed('old'))
     const hiddenN = ui.hidden.old.length
     const chips = `<div class="shardchips" id="shardChips">${[0, 1, 2, 3, 4].map(n => `<button class="${ui.shard === n ? 'on' : ''}" data-act="pickShard" data-v="${n}" id="chip-${n}">${esc(n ? T('shardN', { n }) : T('shardAll'))}</button>`).join('')}</div>`
-    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(ui.shard ? T('oldTitleN', { n: ui.shard }) : T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(ui.shard ? T('oldSubN', { n: ui.shard }) : T('oldSub'))}</span></div>
+    let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${tabNetDot('old')}${esc(ui.shard ? T('oldTitleN', { n: ui.shard }) : T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(ui.shard ? T('oldSubN', { n: ui.shard }) : T('oldSub'))}</span></div>
       <div class="muted" style="font-size:17px;margin-top:4px">${esc(T('oldNote'))}</div></div>
       <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
       <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>${chips}`
@@ -871,10 +874,13 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { new: pageNew, old: pageOld, mine: pageMine }
-    SD.html(main, (pages[st.tab] || pageNew)())
+    const pages = { acc: pageAcc, mine: pageMine }
+    SD.html(main, (pages[st.tab] || pageAcc)())
     if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
-    main.scrollTop = y
+    const to = st.tab === 'acc' && st.scrollTo ? $(st.scrollTo) : null
+    st.scrollTo = null
+    if (to) main.scrollTop = st.tab === 'acc' && to.id === 'secOld' ? 0 : Math.max(0, to.offsetTop - main.offsetTop - 8)
+    else main.scrollTop = st.tab === 'mine' && y === 0 ? 0 : y
     document.title = 'SCDO Wallet ' + APPVER
   }
   function mountMining () {
@@ -886,9 +892,8 @@
     renderHeaderNetOnly()
     renderIsland()
     if ($('md')) return
-    if (st.tab === 'new') {
+    if (st.tab === 'acc') {
       document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) SD.valueUnit(el, fmtWei(b.nativeWei), 'SCDO') })
-    } else if (st.tab === 'old') {
       document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) SD.valueUnit(el, fmtNum(v), 'SCDO') })
       const ot = oldTotal(shardFilter(visible('old'))); const e = $('oldTot'); if (e && ot.known) e.textContent = fmtNum(ot.v) + ' SCDO'
     }
@@ -1414,11 +1419,16 @@
     // .overlay (z-index 50 > .dd 40), so it covered the menu and every click on a menu item only closed the menu.
     SD.html($('ddRoot'), `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${Number(r.bottom + 8)}px;${alignRight ? 'right:' + Number(Math.max(10, window.innerWidth - r.right)) + 'px' : 'left:' + Number(r.left) + 'px'};min-width:${Number(Math.max(r.width, 320))}px;max-width:760px">${html}</div>`)
   }
+  // 3.0.2: both kinds, grouped like the Accounts tab: Classic (Shard1–Shard4) first, then Shard0 EVM.
   function accSwitchList () {
-    const chain = headerChain()
-    const vis = headerAccounts()
     const cur = headerAccount()
+    const curChain = headerChain()
     let h = `<div class="lbl" style="padding:6px 14px">${esc(T('switchAccount'))}</div>`
+    let any = false
+    for (const chain of ['old', 'new']) {
+    const vis = chain === 'old' ? shardFilter(visible('old')) : visible('new')
+    h += `<div class="lbl" style="padding:8px 14px 2px;font-weight:700;color:#3d4160">${esc(T(chain === 'old' ? 'oldTitle' : 'newTitle'))}</div>`
+    if (vis.length) any = true
     vis.forEach(a => {
       const addr = chain === 'old'
         ? `<div class="mono" style="font-size:15px">${esc(a.pubkey || '')}</div>`
@@ -1431,12 +1441,13 @@
         const b = st.s0[a.filename]
         if (b && b.nativeWei != null) bal = esc(fmtWei(b.nativeWei, 3)) + ' SCDO'
       }
-      h += `<div class="it ${cur && a.filename === cur.filename ? 'on' : ''}" data-act="pickAcc" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
+      h += `<div class="it ${cur && chain === curChain && a.filename === cur.filename ? 'on' : ''}" data-act="pickAcc" data-chain="${chain}" data-f="${esc(a.filename)}">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:19px" class="wrap">${esc(accLabel(a))}</div>
         ${addr}</div>
         <div style="font-weight:700;white-space:nowrap">${bal}</div></div>`
     })
-    if (!vis.length) h += `<div class="it muted">${esc(T('noAccount'))}</div>`
-    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="${chain === 'old' ? 'old' : 'new'}">⚙ ${esc(T('manageAccounts'))}</div>`
+    }
+    if (!any) h += `<div class="it muted">${esc(T('noAccount'))}</div>`
+    h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="${curChain === 'old' ? 'old' : 'new'}">⚙ ${esc(T('manageAccounts'))}</div>`
     return h
   }
   function accChipMenu (anchor) {
@@ -2279,7 +2290,7 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old' || v === 'acc') refreshOld(); if (v === 'new' || v === 'acc') refreshS0(); break
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
@@ -2300,7 +2311,7 @@
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu':
       case 'accChip': if ($('dd')) closeDd(); else accChipMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine') setTab('new'); render(); break
+      case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
       case 'setLang': setLangUi(v); break
@@ -2502,7 +2513,7 @@
           <div class="ai-log" id="aiCatLog"></div>
           <div class="ai-chips">
             <button type="button" class="btn sec small" data-act="catChip" data-v="開始挖礦">開始挖礦</button>
-            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 EVM">也挖 EVM</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 Shard0 EVM">也挖 Shard0 EVM</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="自我修復">自我修復</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="餘額">餘額</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="備份帳戶">備份帳戶</button>
