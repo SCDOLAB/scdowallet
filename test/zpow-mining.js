@@ -591,8 +591,28 @@ for (const langName of ['CN', 'EN']) {
     assert.ok(!s.includes('SCDO Shard0 (EVM)'), langName + ': ' + s.slice(0, 90))
     assert.ok(!s.toLowerCase().includes('cuda'), langName + ': ' + s.slice(0, 90))
     assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
+    assert.ok(!s.includes('Shard0'), langName + ' Shard0: ' + s.slice(0, 90))
+    assert.ok(!/GPU/i.test(s), langName + ' GPU: ' + s.slice(0, 90))
+    assert.ok(!/CPU/.test(s), langName + ' CPU: ' + s.slice(0, 90))
+    assert.ok(!s.includes('算力'), langName + ' 算力: ' + s.slice(0, 90))
   })
 }
+const miningBox = { window: {} }
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8'), miningBox)
+for (const [k, v] of Object.entries(miningBox.window.SCDOMining.TW)) {
+  for (const s of [k, v]) {
+    assert.ok(!s.includes('Shard0'), 'mining Shard0: ' + s.slice(0, 90))
+    assert.ok(!/GPU/i.test(s), 'mining GPU: ' + s.slice(0, 90))
+    assert.ok(!/CPU/.test(s), 'mining CPU: ' + s.slice(0, 90))
+    assert.ok(!s.includes('算力'), 'mining 算力: ' + s.slice(0, 90))
+    assert.ok(!s.toLowerCase().includes('cuda'), 'mining cuda: ' + s.slice(0, 90))
+    assert.ok(!s.includes('RPC'), 'mining RPC: ' + s.slice(0, 90))
+    assert.ok(!s.includes('EVM'), 'mining EVM: ' + s.slice(0, 90))
+  }
+}
+assert.strictEqual(miningBox.window.SCDOMining.TW['Graphics card detection failed'], '顯示卡檢測失敗')
+assert.strictEqual(i18nBox.window.I18N112.CN.assetTest, '主鏈代幣')
+assert.strictEqual(i18nBox.window.I18N112.EN.assetTest, 'Main chain token')
 assert.strictEqual(i18nBox.window.I18N112.CN.rewardAddr, '出塊獎勵地址（主鏈收款地址，0x 開頭）')
 assert.strictEqual(i18nBox.window.I18N112.CN.payoutAddr, '節點服務費地址（主鏈收款地址，0x 開頭）')
 assert.strictEqual(i18nBox.window.I18N112.CN.locked, '輸入密碼才能看主鏈收款地址')

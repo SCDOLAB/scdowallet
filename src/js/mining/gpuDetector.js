@@ -7,7 +7,7 @@
     if (pending) return pending
     pending = window.scdo.invoke('mining:gpuPreflight')
       .then(r => { cache = r; return r })
-      .catch(err => ({ platform: window.scdo.platform, supported: true, gpus: [{ vendor: 'Unknown', deviceName: 'GPU detection failed', vramGB: 0, driverVersion: '', cuda: false, status: 'notReady', reasons: ['Hardware query error: ' + (err && err.message)] }] }))
+      .catch(err => ({ platform: window.scdo.platform, supported: true, gpus: [{ vendor: 'Unknown', deviceName: M.L('Graphics card detection failed'), vramGB: 0, driverVersion: '', cuda: false, status: 'notReady', reasons: ['Hardware query error: ' + (err && err.message)] }] }))
       .finally(() => { pending = null })
     return pending
   }

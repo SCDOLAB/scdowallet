@@ -23,7 +23,7 @@
     return h('div', { class: 'card m1-card', id: 'miningSettings' },
       h('div', { class: 'm1-h', text: M.L('Mining mode') }),
       h('div', { class: 'm1-row', style: 'gap:28px' }, radio('solo', M.L('Solo (built-in SCDO node)')), radio('pool', M.L('Pool (enter a pool address)'))),
-      h('div', { class: 'lbl', text: mode === 'solo' ? M.L('Solo: you only see a result when this PC finds a whole block. With one GPU that can take a very long time, or not happen at all.') : M.L('Pool: the GPU miner connects directly to the pool address below.') }),
+      h('div', { class: 'lbl', text: mode === 'solo' ? M.L('Solo: you only see a result when this PC finds a whole block. With one graphics card that can take a very long time, or not happen at all.') : M.L('Pool: the graphics-card miner connects directly to the pool address below.') }),
       poolRow, err,
       h('div', { class: 'm1-row', style: 'margin-top:10px' }, apply, running ? h('span', { class: 'lbl', text: M.L('Stop mining to change the mode.') }) : null),
       h('label', { class: 'm1-check', style: 'margin-top:14px' }, keep, M.L(' Keep mining: restart the miner automatically if it exits, and resume mining when the wallet starts (off by default)')))
