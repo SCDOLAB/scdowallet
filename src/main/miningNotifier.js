@@ -26,23 +26,23 @@ const TEXT = {
     firstShare: { title: '挖礦已開始產生結果', body: '本次挖礦已收到第一個有效份額。' },
     block: { title: '挖到區塊', body: '這台電腦挖到了區塊 #{h}。' },
     payout: { title: '礦池出款已到帳', body: '收到 {a} SCDO。點這則通知可在 scdoscan.io 查看交易。' },
-    hashZero: { title: '算力一直是 0', body: '挖礦已開啟，但算力已經 2 分鐘都是 0。請查看「挖礦」頁的狀態和日誌。' },
+    hashZero: { title: '挖礦速度一直是 0', body: '挖礦已開啟，但挖礦速度已經 2 分鐘都是 0。請查看「挖礦」頁的狀態和日誌。' },
     stopUpdate: { title: '挖礦已暫停', body: '為了安裝更新，錢包暫停了挖礦。更新完成後會自動恢復。' },
     stopError: { title: '挖礦已停止', body: '挖礦程式意外停止，不是由你停止的。請查看「挖礦」頁的狀態和日誌。' },
     stopOther: { title: '挖礦已停止', body: '挖礦不是由你停止的。請查看「挖礦」頁。' },
     nodeBehind: { title: '本機節點落後', body: '本機節點落後網路 {n} 個區塊（本機 #{l}，網路 #{t}），正在追趕。' },
-    labels: { firstShare: '第一個有效份額或挖到區塊', payout: '礦池出款到帳', hashZero: '算力 2 分鐘都是 0', stopNonUser: '挖礦被非本人操作停止（例如更新）', nodeBehind: '本機節點落後超過 8 個區塊' }
+    labels: { firstShare: '第一個有效份額或挖到區塊', payout: '礦池出款到帳', hashZero: '挖礦速度 2 分鐘都是 0', stopNonUser: '挖礦被非本人操作停止（例如更新）', nodeBehind: '本機節點落後超過 8 個區塊' }
   },
   EN: {
     firstShare: { title: 'Mining is producing results', body: 'The first accepted share of this mining session came in.' },
     block: { title: 'Block found', body: 'This PC found block #{h}.' },
     payout: { title: 'Pool payout received', body: 'You received {a} SCDO. Click to see the transaction on scdoscan.io.' },
-    hashZero: { title: 'Hashrate is stuck at 0', body: 'Mining is on, but the hashrate has been 0 for 2 minutes. Check the status and log on the Mining tab.' },
+    hashZero: { title: 'Mining speed is stuck at 0', body: 'Mining is on, but the mining speed has been 0 for 2 minutes. Check the status and log on the Mining tab.' },
     stopUpdate: { title: 'Mining paused', body: 'The wallet paused mining to install an update. It resumes when the update is done.' },
     stopError: { title: 'Mining stopped', body: 'The miner stopped unexpectedly; you did not stop it. Check the status and log on the Mining tab.' },
     stopOther: { title: 'Mining stopped', body: 'Mining was not stopped by you. See the Mining tab.' },
     nodeBehind: { title: 'Local node is behind', body: 'The local node is {n} blocks behind the network (local #{l}, network #{t}) and is catching up.' },
-    labels: { firstShare: 'First accepted share or block found', payout: 'Pool payout received', hashZero: 'Hashrate at 0 for 2 minutes', stopNonUser: 'Mining stopped by something other than you (e.g. an update)', nodeBehind: 'Local node more than 8 blocks behind' }
+    labels: { firstShare: 'First accepted share or block found', payout: 'Pool payout received', hashZero: 'Mining speed at 0 for 2 minutes', stopNonUser: 'Mining stopped by something other than you (e.g. an update)', nodeBehind: 'Local node more than 8 blocks behind' }
   }
 }
 const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] != null ? String(p[k]) : m))

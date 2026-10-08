@@ -64,7 +64,7 @@ async function gpuPreflight (minerGpu) {
     if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in miner (Rigel) supports NVIDIA graphics cards only.') } else {
       if (!g.driverVersion) { status = 'notReady'; reasons.push('NVIDIA driver not detected. Install the NVIDIA graphics driver.') }
       if (!g.cuda) { status = 'notReady'; reasons.push('The driver needed for graphics-card mining was not found. Install or repair the latest NVIDIA graphics driver.') }
-      if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('VRAM could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough VRAM: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
+      if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('Graphics memory could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough graphics memory: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
     }
     if (!reasons.length) reasons.push('All pre-flight checks passed.')
     g.status = status; g.reasons = reasons

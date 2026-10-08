@@ -4,7 +4,13 @@
 const path = require('path')
 const { Tray, Menu, nativeImage } = require('electron')
 
-function fmtHash (h) { if (!(h > 0)) return '0 H/s'; const u = ['H/s', 'kH/s', 'MH/s', 'GH/s', 'TH/s']; let i = 0; while (h >= 1000 && i < 4) { h /= 1000; i++ } return h.toFixed(2) + ' ' + u[i] }
+function fmtHash (h, lang) {
+  const raw = Number(h)
+  const n = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
+  const num = n.toLocaleString('en-US')
+  if (lang === 'CN') return '挖礦速度 每秒 ' + num + ' 次'
+  return 'Mining speed ' + num + ' tries per second'
+}
 
 // state of the badge for a miner status object
 function badgeState (st) {
@@ -26,8 +32,8 @@ function tooltipText (version, st, lang) {
   if (!st || (!st.running && st.phase !== 'error')) line = head + '\n' + L.notMining
   else if (st.phase === 'error') line = head + '\n' + L.minerError + ': ' + String(st.code || st.message || 'error')
   else if (st.mode === 'node') line = head + '\n' + L.nodeOnly
-  else if (st.code === 'MINING') line = head + '\n' + L.mining + fmtHash(st.hashrate)
-  else line = head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate) : '')
+  else if (st.code === 'MINING') line = head + '\n' + L.mining + fmtHash(st.hashrate, lang)
+  else line = head + '\n' + L.starting + ' ' + (st.hashrate > 0 ? fmtHash(st.hashrate, lang) : '')
   if (st && st.classicNote) line += '\n' + st.classicNote
   return line.slice(0, 127)
 }
@@ -59,7 +65,7 @@ class TrayStatus {
     const st = this.last
     const active = this.o.isMinerActive()
     const L = this.L()
-    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : L.notMining)
+    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : L.notMining)
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },

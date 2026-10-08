@@ -246,8 +246,8 @@ function zpowOptions () {
 }
 function classicNote () {
   const parts = []
-  if (zpowCpu && zpowCpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic CPU 礦池' : 'Classic CPU')
-  if (zpowGpu && zpowGpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic GPU')
+  if (zpowCpu && zpowCpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool')
+  if (zpowGpu && zpowGpu.wantRunning) parts.push(uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card')
   return parts.join(' · ')
 }
 function refreshTray () {
