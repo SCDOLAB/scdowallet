@@ -1,6 +1,6 @@
 // AI小貓: on-device rules. No network, no model, no seed, no signing, no spending.
 'use strict'
-
+;(function () {
 const HEAT_C = 85
 const STALL_MS = 3 * 60 * 1000
 const PEER_WAIT_MS = 60 * 1000
@@ -34,6 +34,32 @@ function classicByShard (accounts) {
     if (by[n] && a.address) by[n].push(a)
   }
   return by
+}
+
+function liveShardSet (ctx) {
+  const live = new Set()
+  const pools = ctx && ctx.pools
+  if (pools && typeof pools === 'object') {
+    for (const n of [1, 2, 3, 4]) {
+      const p = pools[n] || pools[String(n)]
+      if (p && p.live) live.add(n)
+    }
+  } else live.add(1)
+  const gpu = ctx && ctx.classicGpu
+  if (gpu && gpu.running) {
+    const shard = Number(gpu.shard)
+    const peers = num(gpu.peers)
+    const local = num(gpu.localBlock)
+    const network = num(gpu.networkBlock)
+    if (shard >= 1 && shard <= 4 && ((peers != null && peers > 0) || local != null || network != null)) live.add(shard)
+  }
+  if (Array.isArray(ctx && ctx.liveShards)) {
+    for (const n of ctx.liveShards) {
+      const x = Number(n)
+      if (x >= 1 && x <= 4) live.add(x)
+    }
+  }
+  return live
 }
 
 function startFail (code) {
@@ -72,7 +98,9 @@ function planMine (ctx) {
   const bits = []
   if (shards.length) {
     const gpuShard = prefer || shards[0]
-    const cpuShard = shards.filter(n => n !== gpuShard)[0] || gpuShard
+    const live = liveShardSet(ctx)
+    const otherLive = shards.filter(n => n !== gpuShard && live.has(n))
+    const cpuShard = otherLive.length ? otherLive[0] : gpuShard
     if (gpuOk) {
       jobs.push({ chain: 'classic', backend: 'gpu', shard: gpuShard, address: by[gpuShard][0].address })
       bits.push('顯示卡挖 Shard' + gpuShard)
@@ -289,3 +317,4 @@ const api = {
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOCat = Object.freeze(api)
+})()

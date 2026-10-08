@@ -130,6 +130,20 @@ const syncing = mergeSyncView({
 assert.strictEqual(syncing.localBlock, 1100)
 assert.strictEqual(syncing.networkBlock, 5000)
 assert.strictEqual(syncing.etaSec, 1950)
+assert.strictEqual(mergeSyncView({
+  local: 3022193,
+  publicTip: 9276140,
+  downloaded: 3990,
+  amount: 4000,
+  durationSec: 50,
+  samples: []
+}).etaSec, null)
+assert.strictEqual(mergeSyncView({
+  local: 3022193,
+  publicTip: 9276140,
+  samples: [{ t: 0, h: 3022190 }, { t: 60000, h: 3022192 }, { t: 120000, h: 3022193 }],
+  now: 120000
+}).etaSec, null)
 const sampled = mergeSyncView({
   local: 1000,
   publicTip: 2000,
@@ -334,7 +348,26 @@ assert.ok(ui.includes("if (st.tab === 'old') return 'old'"))
 assert.ok(ui.includes("shardFilter(visible('old'))"))
 assert.ok(ui.includes("headerChain() === 'old'"))
 assert.ok(ui.includes('data-chain="old"'))
-assert.ok(ui.includes('SCDOMinePill.format'))
+assert.ok(ui.includes('SCDOMinePill.formatMinePill'))
+assert.ok(!ui.includes('SCDOMinePill.format('))
+assert.ok(ui.includes('data-act="accChip" id="acctSwitch"'))
+assert.ok(ui.includes('id="langToggle"'))
+assert.ok(ui.includes("id = 'islandMoney'"))
+assert.ok(ui.includes('class="brand"'))
+assert.ok(!ui.includes('class="bv"'))
+assert.ok(!ui.includes('id="langZh"'))
+assert.ok(!ui.includes('id="langEn"'))
+assert.ok(ui.includes("localStorage.setItem('minerRunClassicCpu', '')"))
+assert.ok(ui.includes("localStorage.setItem('minerRunClassicGpu', '')"))
+assert.ok(ui.includes('miner:intentClear'))
+assert.ok(ui.includes('id="payPayer"'))
+assert.ok(ui.includes('paySignAddr'))
+assert.ok(ui.includes('id="paySelf"'))
+assert.ok(!ui.includes('function pickPayer'))
+const css = fs.readFileSync(path.join(__dirname, '../src/css/app112.css'), 'utf8')
+assert.ok(css.includes('header.top > .island { flex: 1 1 auto'))
+assert.ok(css.includes('@media (max-width: 1023px)'))
+assert.ok(css.includes('.island-money { display: none'))
 assert.ok(ui.includes('data-netdot'))
 assert.ok(ui.includes("data-act=\"pickShard\""))
 assert.ok(i18n.includes("pillShard0: 'Shard0'") || i18n.includes('pillShard0: "Shard0"'))
@@ -352,8 +385,9 @@ const isleT = (k, p) => {
   const m = {
     isleOff: '未啟動', isleChecking: '檢查中', isleSynced: '已同步', islePool: '礦池', isleNoMine: '未挖',
     isleGpu: 'GPU', isleCpu: 'CPU', isleNode: '只跑節點', isleTemp: '顯示卡 {n}°C', isleNoTemp: '無溫度',
-    isleToday: '今日 {b} 區塊 · {s} SCDO', isleTotal: '累計 {b} 區塊 · {s} SCDO', isleBalance: '餘額',
-    pillStarting: '挖礦程式啟動中…'
+    isleToday: '今日 {b} 區塊 · {s} SCDO', isleTodayShort: '今日 {s} SCDO', isleTotal: '累計 {b} 區塊 · {s} SCDO', isleBalance: '餘額',
+    isleBoot: '啟動中', isleCalc: '計算中', isleSyncWait: '同步中 (GPU 待命)',
+    pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…'
   }
   let s = m[k] || k
   if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
@@ -376,9 +410,11 @@ assert.deepStrictEqual(island.shards.map(s => s.n), [1, 2, 3, 4, 0])
 assert.strictEqual(island.shards[0].syncKind, 'syncing')
 assert.ok(island.shards[0].syncText.includes('100/200'))
 assert.ok(island.shards[0].syncText.includes('1 小時'))
-assert.ok(island.shards[0].mineText.includes('GPU'))
-assert.ok(island.shards[0].mineText.includes('挖礦程式啟動中'))
+assert.ok(island.shards[0].mineText.includes('同步中'))
+assert.ok(island.shards[0].mineText.includes('GPU 待命'))
+assert.ok(!island.shards[0].mineText.includes('挖礦程式啟動中'))
 assert.ok(!island.shards[0].mineText.includes('挖礦中'))
+assert.ok(!island.shards[0].mineText.includes('即將完成'))
 assert.strictEqual(island.shards[1].syncKind, 'pool')
 assert.ok(island.shards[1].mineText.includes('CPU 1500'))
 assert.strictEqual(island.shards[2].syncKind, 'off')
@@ -388,10 +424,18 @@ assert.ok(island.shards[4].syncText.includes('已同步 50/50'))
 assert.ok(island.shards[4].mineText.includes('GPU 2000000'))
 assert.strictEqual(island.tempC, 70)
 assert.ok(island.compactTop.startsWith('S1 '))
-assert.ok(island.compactTop.indexOf('S4 ') < island.compactTop.indexOf('S0 '))
-assert.ok(island.compactBottom.includes('顯示卡 70°C'))
-assert.ok(island.compactBottom.includes('今日 1 區塊 · 2 SCDO'))
+assert.ok(island.compactTop.includes('100/200'))
+assert.ok(island.compactTop.includes('1h'))
+assert.ok(island.compactTop.includes('同步中 (GPU 待命)'))
+assert.ok(island.compactTop.includes('CPU 挖礦中 1500'))
+assert.ok(!island.compactTop.includes('S3 '))
+assert.ok(!island.compactTop.includes('S4 '))
+assert.ok(island.compactTop.indexOf('S1 ') < island.compactTop.indexOf('S2 '))
+assert.ok(island.compactTop.indexOf('S2 ') < island.compactTop.indexOf('S0 '))
+assert.ok(island.compactBottom.includes('70°C'))
+assert.ok(island.compactBottom.includes('今日 2 SCDO'))
 assert.ok(island.compactBottom.includes('餘額 1.5 SCDO'))
+assert.ok(!island.compactBottom.includes('顯示卡'))
 assert.strictEqual(island.earn.todayScdo, 2)
 const both = buildIsland({
   classicGpu: { running: true, shard: 3, code: 'CLASSIC_GPU', mode: 'gpu', localBlock: 10, networkBlock: 12, hashrate: 100 },
@@ -407,6 +451,40 @@ const nodeOnly = buildIsland({
   shard0: { running: true, mode: 'node', chain: 'shard0', localBlock: 8, networkBlock: 8 },
   T: isleT
 })
+const wide = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic', mode: 'gpu', localBlock: 3022193, networkBlock: 9276140, syncEtaSec: 107 * 3600 + 6 * 60 },
+  classicCpu: { running: true, shard: 1, code: 'CLASSIC_MINING', chain: 'classic', mode: 'cpu', hashrate: 16320000 },
+  temps: [{ tempC: 56 }],
+  earnLog: { items: Array.from({ length: 11 }, (_, i) => ({ t: noon, shard: 1, height: i })) },
+  now: noon,
+  balanceText: '0.000 SCDO',
+  T: isleT,
+  hashText: (h) => (h / 1e6).toFixed(2) + ' MH/s'
+})
+assert.ok(wide.compactTop.includes('S1 3,022,193/9,276,140 · 107h'))
+assert.ok(wide.compactTop.includes('同步中 (GPU 待命)'))
+assert.ok(wide.compactTop.includes('CPU 挖礦中 16.32 MH/s'))
+assert.ok(!wide.compactTop.includes('挖礦程式啟動中'))
+assert.ok(!wide.compactTop.includes('即將完成'))
+assert.ok(wide.compactBottom.includes('56°C'))
+assert.ok(wide.compactBottom.includes('今日 22 SCDO'))
+assert.ok(wide.compactBottom.includes('餘額 0.000 SCDO'))
+const calculating = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic', mode: 'gpu', localBlock: 3022193, networkBlock: 9276140, syncEtaSec: 2 },
+  T: isleT,
+  etaText: (sec) => sec < 5 ? '即將完成' : '184 小時'
+})
+assert.ok(calculating.shards[0].syncText.includes('計算中'))
+assert.ok(!calculating.shards[0].syncText.includes('即將完成'))
+assert.ok(calculating.compactTop.includes('計算中'))
+assert.ok(!calculating.compactTop.includes('即將完成'))
+const noEta = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic', mode: 'gpu', localBlock: 3022193, networkBlock: 9276140 },
+  T: isleT,
+  etaText: () => '即將完成'
+})
+assert.ok(noEta.shards[0].syncText.includes('計算中'))
+assert.ok(!noEta.shards[0].syncText.includes('即將完成'))
 assert.strictEqual(nodeOnly.shards[4].mineText, '只跑節點')
 assert.strictEqual(nodeOnly.shards[4].syncKind, 'synced')
 assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 108 }).kind, 'synced')

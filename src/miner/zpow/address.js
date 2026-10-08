@@ -2,7 +2,7 @@
 // Numeric and address fields are NFKC-normalised and forced to half-width
 // before they are checked, so a full-width paste still validates.
 'use strict'
-
+;(function () {
 const PREFIX = { 1: '1S01', 2: '2S02', 3: '3S03', 4: '4S04' }
 
 function normalizeMiningInput (value) {
@@ -76,3 +76,4 @@ const api = {
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOZpow = Object.freeze(api)
+})()

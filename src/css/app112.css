@@ -14,15 +14,11 @@ input, select { font-family: inherit; }
 
 /* ---------- header ---------- */
 /* 2.0.9: keep one row at ~1024/900px — no wrap; address ellipsizes instead of break-all */
-header.top { background: #43A047; color: #fff; display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: nowrap; min-height: 86px; overflow: visible; position: relative; z-index: 20; }
+header.top { background: #43A047; color: #fff; display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex-wrap: nowrap; min-height: 0; overflow: visible; position: relative; z-index: 20; }
 header.top > * { flex: none; }
-header.top > .acct-switch { flex: 0 1 240px; min-width: 0; max-width: 320px; overflow: hidden; }
-header.top > .island { flex: 1 1 420px; min-width: 160px; }
-header.top > .langtg { flex: none; }
-.brand { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; }
-.brand img { width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.6); flex: none; }
-.brand .bt { font-size: 25px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
-.brand .bv { font-size: 13px; opacity: .8; white-space: nowrap; }
+header.top > .island { flex: 1 1 auto; min-width: 0; }
+.brand { display: flex; align-items: center; flex: none; }
+.brand img { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.6); flex: none; }
 .acct-switch { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.35); border-radius: 16px; padding: 6px 10px 6px 8px; cursor: pointer; max-width: 640px; min-width: 0; overflow: hidden; }
 .acct-switch:hover { background: rgba(255,255,255,.2); }
 .acct-switch > div:not(.avatar) { min-width: 0; overflow: hidden; flex: 1 1 auto; }
@@ -32,11 +28,15 @@ header.top > .langtg { flex: none; }
 .acct-switch .ico:hover { background: rgba(255,255,255,.32); }
 .avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 18px; flex: none; border: 2px solid rgba(255,255,255,.7); }
 .spacer { flex: 1; }
+.acct-chip { background: transparent; border: 0; padding: 0; width: 40px; height: 40px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; }
+.acct-chip:hover { background: rgba(255,255,255,.15); }
+.acct-chip .avatar { width: 34px; height: 34px; font-size: 16px; }
 .island { position: relative; min-width: 0; }
-.island-compact { background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: pointer; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+.island-compact { width: 100%; background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: pointer; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
 .island-compact:hover { border-color: #43A047; }
-.island-line { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+.island-line { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: clip; line-height: 1.35; }
 .island-money { font-size: 13px; font-weight: 700; color: #2E7D32; }
+@media (max-width: 1023px) { .island-money { display: none; } }
 .island-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff; color: #1b1d33; border-radius: 18px; border: 2px solid #43A047; box-shadow: 0 12px 40px rgba(15,18,50,.28); z-index: 30; padding: 12px 14px; max-height: 70vh; overflow: auto; }
 .island-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
 .island:hover .island-panel, .island.open .island-panel { display: block; }
@@ -52,7 +52,9 @@ header.top > .langtg { flex: none; }
 .lang { display: flex; border: 2px solid #fff; border-radius: 22px; overflow: hidden; }
 .lang button { background: transparent; color: #fff; border: 0; padding: 6px 16px; font-size: 18px; font-weight: 600; }
 .lang button.on { background: #fff; color: #43A047; }
-.gear { background: transparent; border: 2px solid rgba(255,255,255,.6); color: #fff; width: 44px; height: 44px; border-radius: 50%; font-size: 22px; }
+.gear { background: transparent; border: 2px solid rgba(255,255,255,.6); color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; flex: none; }
+.lang-one { background: transparent; border: 2px solid rgba(255,255,255,.6); color: #fff; border-radius: 16px; height: 36px; min-width: 40px; padding: 0 8px; font-size: 15px; font-weight: 700; flex: none; }
+.lang-one:hover { background: rgba(255,255,255,.15); }
 .gear:hover, .netsel:hover { background: rgba(255,255,255,.15); }
 /* 2.0.5: 中文 / English toggle next to the gear (same look as the scdoscan.io language bar: two pills, active one green) */
 .langtg { display: flex; gap: 6px; flex: none; }
@@ -68,10 +70,10 @@ header.top > .langtg { flex: none; }
 .relnotes details summary { cursor: pointer; color: #43A047; font-weight: 600; margin: 4px 0 10px; }
 
 /* ---------- tabs ---------- */
-nav.tabs { background: #fff; display: flex; padding: 0 20px; border-bottom: 1px solid #dfe3f5; flex: none; flex-wrap: wrap; }
-nav.tabs button { background: none; border: 0; border-bottom: 5px solid transparent; padding: 16px 24px 12px; font-size: 21px; color: #4a4e6a; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+nav.tabs { background: #fff; display: flex; padding: 0 12px; border-bottom: 1px solid #dfe3f5; flex: none; flex-wrap: wrap; }
+nav.tabs button { background: none; border: 0; border-bottom: 4px solid transparent; padding: 8px 16px 6px; font-size: 18px; color: #4a4e6a; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
 nav.tabs button.on { color: #43A047; border-bottom-color: #43A047; font-weight: 700; }
-main { flex: 1; overflow-y: auto; padding: 24px 36px 40px; }
+main { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }
 .page { max-width: 1100px; margin: 0 auto; }
 
 /* ---------- cards / buttons ---------- */
@@ -142,7 +144,7 @@ input.inp.mono { font-size: 18px; }
 .total-line { display: flex; justify-content: flex-end; align-items: baseline; gap: 14px; margin-top: 18px; }
 
 /* ---------- mining ---------- */
-.mine-card { padding: 28px 32px; }
+.mine-card { padding: 16px 18px; }
 .statusbar { font-size: 22px; font-weight: 700; padding: 16px 20px; border-radius: 14px; background: #E8F5E9; color: #1b1d33; margin-top: 14px; word-break: break-word; }
 .statusbar.good { background: #e8f7ee; color: #146c2e; } .statusbar.warn { background: #fff6e5; color: #7a4500; } .statusbar.bad { background: #fff1f0; color: #a3160c; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 18px; }

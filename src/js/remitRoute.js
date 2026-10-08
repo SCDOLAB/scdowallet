@@ -2,6 +2,7 @@
 // A saved remit payee, any other name, or a fiat amount is the remit gateway.
 // This file never sends, signs, or logs in.
 'use strict'
+;(function () {
 function norm (s) {
   return String(s == null ? '' : s).normalize('NFKC').replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim()
 }
@@ -68,3 +69,4 @@ function routePay (opt) {
 const api = { routePay: routePay, isFiatAmount: isFiatAmount }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDORemitRoute = Object.freeze(api)
+})()

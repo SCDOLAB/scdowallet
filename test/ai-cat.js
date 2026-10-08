@@ -35,7 +35,22 @@ const classicJobs = bothShards.actions[0].jobs.filter(j => j.chain === 'classic'
 assert.strictEqual(classicJobs[0].backend, 'gpu')
 assert.strictEqual(classicJobs[0].shard, 1)
 assert.strictEqual(classicJobs[1].backend, 'cpu')
-assert.strictEqual(classicJobs[1].shard, 2)
+assert.strictEqual(classicJobs[1].shard, 1)
+assert.ok(bothShards.say.includes('處理器挖 Shard1'))
+
+const livePool = cat.planMine(Object.assign({}, base, {
+  accounts: accounts.concat([{ label: '乙', file: 'b.json', shard: 2, address: '2S02' + 'ab'.repeat(19), evm: '' }]),
+  pools: { 1: { live: true }, 2: { live: true } }
+}))
+assert.strictEqual(livePool.actions[0].jobs.filter(j => j.backend === 'cpu')[0].shard, 2)
+
+const gpuPeers = cat.planMine(Object.assign({}, base, {
+  preferShard: 2,
+  accounts: accounts.concat([{ label: '乙', file: 'b.json', shard: 2, address: '2S02' + 'ab'.repeat(19), evm: '' }]),
+  pools: { 1: { live: false }, 2: { live: false } },
+  classicGpu: { running: true, shard: 1, peers: 8, localBlock: 10, networkBlock: 20 }
+}))
+assert.strictEqual(gpuPeers.actions[0].jobs.filter(j => j.backend === 'cpu')[0].shard, 1)
 
 const with0 = cat.planMine(Object.assign({}, base, { includeShard0: true }))
 assert.ok(with0.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))

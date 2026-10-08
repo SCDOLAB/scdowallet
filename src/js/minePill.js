@@ -1,7 +1,7 @@
 // Top-bar mining pill. Names the shards that are mining, and does not call a
 // shard "mining" while it is only starting or still syncing.
 'use strict'
-
+;(function () {
 function shardLabel (n, T) {
   const num = Number(n)
   if (num === 0) return T('pillShard0')
@@ -72,3 +72,4 @@ function formatMinePill (miners, T) {
 const api = { formatMinePill, shardLabel }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMinePill = Object.freeze(api)
+})()

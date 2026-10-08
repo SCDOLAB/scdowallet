@@ -244,31 +244,16 @@
     payModal(a ? a.filename : '')
   }
   function renderHeader () {
-    const chain = headerChain()
     const a = headerAccount()
-    let sw
-    if (a && chain === 'old') {
-      sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
-        ${avatar(accLabel(a))}
-        <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
-        <div class="aa mono">${esc(a.pubkey || '')}</div></div>
-        ${a.pubkey ? `<button class="ico" data-act="copy" data-v="${esc(a.pubkey)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="old" title="${esc(T('qr'))}">▦</button>` : ''}
-      </div>`
-    } else if (a) {
-      sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch" title="${esc(T('switchAccount'))}">
-        ${avatar(accLabel(a))}
-        <div style="min-width:0"><div class="an">${esc(accLabel(a))} ▾</div>
-        <div class="aa ${a.evm ? 'mono' : ''}">${a.evm ? esc(a.evm) : '🔒 ' + esc(T('locked'))}</div></div>
-        ${a.evm ? `<button class="ico" data-act="copy" data-v="${esc(a.evm)}" title="${esc(T('copy'))}">⧉</button><button class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" title="${esc(T('qr'))}">▦</button>` : ''}
-      </div>`
-    } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
-    SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
-      ${sw}
+    const chip = `<button type="button" class="acct-chip" data-act="accChip" id="acctSwitch" title="${esc(a ? accLabel(a) : T('noAccount'))}">${avatar(a ? accLabel(a) : '?')}</button>`
+    const nextLang = lang() === 'CN' ? 'EN' : 'CN'
+    SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt="SCDO"></div>
       <div class="island" id="statusIsland">
         <div class="island-compact" id="islandCompact" data-act="island" role="button" tabindex="0"></div>
         <div class="island-panel" id="islandPanel"></div>
       </div>
-      <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
+      ${chip}
+      <button type="button" class="lang-one" data-act="hdrLang" data-v="${nextLang}" id="langToggle" title="${esc(T('setLang'))}">${nextLang === 'EN' ? 'EN' : '華'}</button>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
     renderIsland()
     const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]
@@ -572,8 +557,7 @@
     }
     const active = running && m.chain === 'classic'
     const young = m.startedAt && (Date.now() - m.startedAt < 600000)
-    h += `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>
-      <div class="stats">
+    h += `<div class="stats">
         <div class="stat"><div class="lbl">${esc(T('hashrate'))}</div><div class="v" id="mHr">${active && m.hashrate != null ? esc(fmtHash(m.hashrate)) : '–'}</div></div>
         <div class="stat"><div class="lbl">${esc(T('acceptedShares'))}</div><div class="v" id="mAcc">${esc((m.sharesAccepted || 0) + ' / ' + (m.sharesRejected || 0))}</div></div>
         <div class="stat"><div class="lbl">${esc(T('blocksFound'))}</div><div class="v" id="mFound">${esc(m.blocksFound || 0)}</div></div>
@@ -627,9 +611,8 @@
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
     const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
-    const statusBar = `<div class="statusbar ${minerClass(m)}" id="minerStatus">${esc(minerText(m))}</div>`
-    const blocks = `<div class="stat"><div class="lbl">${esc(T('localNet'))}</div><div class="v" id="mBlocks">${m.localBlock == null ? '–' : esc(m.localBlock)} / ${m.networkBlock == null ? (st.net.s0Block == null ? '–' : esc(st.net.s0Block)) : esc(m.networkBlock)}</div></div>
-      <div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
+    const statusBar = ''
+    const blocks = `<div class="stat"><div class="lbl">${esc(T('peers'))}</div><div class="v" id="mPeers">${m.peers == null ? '–' : esc(m.peers)}</div></div>`
     if (g.nvidia) {
       const opts = rewardOptions()
       const saved = localStorage.getItem('minerReward') || ''
@@ -848,7 +831,7 @@
       classicCpu: st.miners && st.miners.classicCpu,
       classicGpu: st.miners && st.miners.classicGpu
     }
-    const x = window.SCDOMinePill.format(miners, T)
+    const x = window.SCDOMinePill.formatMinePill(miners, T)
     const s0 = miners.shard0 || {}
     if (s0.running && s0.mode !== 'node' && s0.phase !== 'error') {
       const hr = s0.code === 'MINING' && s0.hashrate > 0 ? ' · ' + fmtHash(s0.hashrate) : ''
@@ -912,9 +895,11 @@
     compact.textContent = ''
     const top = document.createElement('div')
     top.className = 'island-line'
+    top.id = 'islandLine'
     top.textContent = model.compactTop
     const bot = document.createElement('div')
     bot.className = 'island-line island-money'
+    bot.id = 'islandMoney'
     bot.textContent = model.compactBottom
     compact.appendChild(top)
     compact.appendChild(bot)
@@ -971,7 +956,7 @@
     // .overlay (z-index 50 > .dd 40), so it covered the menu and every click on a menu item only closed the menu.
     SD.html($('ddRoot'), `<div class="ddov" data-act="ddClose"></div><div class="dd" id="dd" style="top:${Number(r.bottom + 8)}px;${alignRight ? 'right:' + Number(Math.max(10, window.innerWidth - r.right)) + 'px' : 'left:' + Number(r.left) + 'px'};min-width:${Number(Math.max(r.width, 320))}px;max-width:760px">${html}</div>`)
   }
-  function accMenu (anchor) {
+  function accSwitchList () {
     const chain = headerChain()
     const vis = headerAccounts()
     const cur = headerAccount()
@@ -994,7 +979,27 @@
     })
     if (!vis.length) h += `<div class="it muted">${esc(T('noAccount'))}</div>`
     h += `<div class="sep"></div><div class="it" data-act="create">＋ ${esc(T('createTitle'))}</div><div class="it" data-act="import">⤓ ${esc(T('importAccount'))}</div><div class="it" data-act="tab" data-v="${chain === 'old' ? 'old' : 'new'}">⚙ ${esc(T('manageAccounts'))}</div>`
-    openDd(anchor, h)
+    return h
+  }
+  function accChipMenu (anchor) {
+    const a = headerAccount()
+    const chain = headerChain()
+    let head = ''
+    if (!a) head = `<div class="lbl" style="padding:8px 14px">${esc(T('noAccount'))}</div>`
+    else if (chain === 'old') {
+      const addr = a.pubkey || ''
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="mono" style="padding:0 14px 8px;font-size:15px;word-break:break-all">${addr ? esc(addr) : esc(T('noAccount'))}</div>
+        ${addr ? `<div class="row" style="padding:0 14px 8px;gap:8px"><button type="button" class="btn sec small" data-act="copy" data-v="${esc(addr)}">⧉ ${esc(T('copy'))}</button><button type="button" class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">▦ ${esc(T('qr'))}</button></div>` : ''}`
+    } else if (a.evm) {
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="mono" style="padding:0 14px 8px;font-size:15px;word-break:break-all">${esc(a.evm)}</div>
+        <div class="row" style="padding:0 14px 8px;gap:8px"><button type="button" class="btn sec small" data-act="copy" data-v="${esc(a.evm)}">⧉ ${esc(T('copy'))}</button><button type="button" class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new">▦ ${esc(T('qr'))}</button></div>`
+    } else {
+      head = `<div style="padding:8px 14px 4px;font-weight:700" class="wrap">${esc(accLabel(a))}</div>
+        <div class="lockline" style="padding:0 14px 8px">🔒 ${esc(T('locked'))}</div>`
+    }
+    openDd(anchor, head + accSwitchList(), true)
   }
 
   // ---------------- modals ----------------
@@ -1048,17 +1053,23 @@
   const SEND_ERR = { INSUFFICIENT: 'errTooMuch', NO_FEE_BALANCE: 'errNoFeeBal', WRONG_PASSWORD: 'wrongPw', REVIEW_EXPIRED: 'errReviewExpired', WRONG_CHAIN: 'errWrongChain', BAD_AMOUNT: 'errAmount', ADDRESS_CHANGED: 'errAddr', NO_PASSWORD: 'errPw', NONCE_BUSY: 'errNonceBusy', NETWORK: 'errNetwork', BROADCAST_TIMEOUT: 'errBcastTimeout', NONCE_READ: 'errNetwork', REPLACED: 'errReplaced' }
   // ----- one 匯款 form: the wallet picks chain or gateway; the user presses 確認匯款 -----
   // Nothing here runs s0:send, old:send, or remit:login until that button.
-  function pickPayer (route, openedFile) {
-    const opened = accByFile(openedFile) || null
-    if (!route || route.kind !== 'chain') return opened || headerAccount()
-    if (route.shard === 0) {
-      if (opened && opened.evm) return opened
-      return visible('new').find(a => a.evm) || opened
-    }
-    if (opened && String(opened.shard) === String(route.shard)) return opened
-    const same = visible('old').filter(a => String(a.shard) === String(route.shard))
-    const dest = String(route.to || '').toLowerCase()
-    return same.find(a => String(a.pubkey || '').toLowerCase() !== dest) || same[0] || opened
+  function signingAddress (payer, route) {
+    if (!payer) return ''
+    if (!route || route.kind === 'gateway' || route.kind === 'incomplete' || route.shard === 0) return payer.evm || ''
+    return payer.pubkey || ''
+  }
+  function payerValid (payer, route) {
+    if (!payer) return false
+    if (!route || route.kind === 'incomplete') return true
+    if (route.kind === 'gateway') return !!(payer.evm && /^0x[0-9a-fA-F]{40}$/.test(payer.evm))
+    if (route.kind !== 'chain') return false
+    if (route.shard === 0) return !!(payer.evm && /^0x[0-9a-fA-F]{40}$/.test(payer.evm))
+    return String(payer.shard) === String(route.shard) && /^[1-4]S[0-9a-fA-F]{40}$/.test(payer.pubkey || '')
+  }
+  function payersForRoute (route) {
+    const all = st.accounts || []
+    if (!route || route.kind === 'incomplete') return all.slice()
+    return all.filter(a => payerValid(a, route))
   }
   function allPayees () {
     const out = []
@@ -1101,6 +1112,7 @@
       to: prefill && prefill.to ? String(prefill.to) : '',
       amount: prefill && prefill.amount ? String(prefill.amount) : '',
       feeText: '',
+      feeFor: null,
       gas: null,
       payerFile: opened.filename
     }
@@ -1112,6 +1124,47 @@
     })
     let feeTimer = 0
     let feeGen = 0
+    function chosenPayer (route) {
+      const payer = accByFile(s.payerFile)
+      return payer && payerValid(payer, route) ? payer : null
+    }
+    function paintPayer (route) {
+      const box = $('payFrom')
+      if (!box) return chosenPayer(route)
+      const choices = payersForRoute(route)
+      const key = (route.kind || '') + ':' + (route.shard == null ? '' : route.shard) + ':' + choices.map(a => a.filename).join('|')
+      let sel = $('payPayer')
+      if (!sel || sel.getAttribute('data-key') !== key) {
+        const opts = ['<option value="">' + esc(TC('payPick')) + '</option>'].concat(choices.map(a => {
+          const addr = signingAddress(a, route)
+          return '<option value="' + esc(a.filename) + '">' + esc(accLabel(a) + (addr ? ' · ' + addr : '')) + '</option>'
+        }))
+        SD.html(box, '<select class="inp" id="payPayer" data-key="' + esc(key) + '">' + opts.join('') + '</select><div id="paySign" class="mono" style="font-size:15px;margin-top:6px"></div>')
+        sel = $('payPayer')
+        if (sel) sel.onchange = () => {
+          s.payerFile = sel.value || ''
+          if (st.payReview && st.payReview.file !== s.payerFile) dropReview()
+          paint(currentRoute())
+        }
+      }
+      const payer = chosenPayer(route)
+      if (sel) sel.value = payer ? payer.filename : ''
+      const sign = $('paySign')
+      const addr = payer ? signingAddress(payer, route) : ''
+      if (sign) {
+        if (payer && addr) sign.textContent = TC('paySignAddr') + addr
+        else if (payer && route.kind === 'chain' && route.shard === 0) sign.textContent = TC('payUnlock')
+        else if (!payer) sign.textContent = choices.length ? TC('payPick') : TC('payNoPayer')
+        else sign.textContent = ''
+      }
+      const self = $('paySelf')
+      const hit = !!(addr && route.to && addr.toLowerCase() === String(route.to).toLowerCase() && (route.kind === 'chain'))
+      if (self) {
+        self.style.display = hit ? 'block' : 'none'
+        self.textContent = hit ? TC('warnSelf') : ''
+      }
+      return payer
+    }
     function paint (route) {
       route = route || currentRoute()
       const line = $('payRoute')
@@ -1119,15 +1172,10 @@
         if (route.many) line.textContent = TC('payMany', { n: route.many.join('、') })
         else line.textContent = route.line || TC('payRouteWait')
       }
-      const payer = pickPayer(route, s.payerFile)
-      const from = $('payFrom')
-      if (from) {
-        if (!payer) from.textContent = TC('noAccount')
-        else from.textContent = accLabel(payer) + (payer.pubkey ? ' · ' + payer.pubkey : (payer.evm ? ' · ' + payer.evm : ''))
-      }
+      const payer = paintPayer(route)
       const note = $('payNote')
       if (note) note.textContent = route.kind === 'gateway' ? TC('payGateNote') : route.kind === 'chain' ? TC('payChainNote') : ''
-      return route
+      return route && payer ? route : route
     }
     function dropReview () {
       if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
@@ -1139,32 +1187,56 @@
       const to = $('payTo'); const amt = $('payAmt')
       s.to = nhw(to ? to.value : s.to)
       s.amount = nhw(amt ? amt.value : s.amount)
-      const route = currentRoute()
-      if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount)) dropReview()
+      let route = window.SCDORemitRoute.routePay({
+        to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText, etaText: ''
+      })
+      if (route.kind === 'chain' && route.shard >= 1) {
+        if (!s.feeText || s.feeFor !== route.shard) {
+          s.feeText = '0.00021 SCDO'
+          s.gas = 21000
+          s.feeFor = route.shard
+        }
+      } else if (route.kind !== 'chain') {
+        s.feeText = ''
+        s.feeFor = null
+      } else if (s.feeFor !== 0) {
+        s.feeText = ''
+        s.feeFor = 0
+      }
+      route = currentRoute()
+      if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount || st.payReview.file !== s.payerFile)) dropReview()
       paint(route)
       clearTimeout(feeTimer)
-      if (route.kind !== 'chain') { s.feeText = ''; return }
+      if (route.kind !== 'chain') return
       const gen = ++feeGen
       const snap = route
       feeTimer = setTimeout(async () => {
-        const payer = pickPayer(snap, s.payerFile)
-        let text = ''
+        const payer = chosenPayer(snap)
+        let text = snap.shard >= 1 ? '0.00021 SCDO' : ''
+        let gas = snap.shard >= 1 ? 21000 : null
         try {
           if (snap.shard === 0 && payer && payer.evm) {
             const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
             if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei), 8) + ' SCDO'
-          } else if (snap.shard >= 1 && payer && payer.pubkey) {
-            const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
-            if (g) { s.gas = Number(g); text = fmtNum(Number(g) / 1e8, 8) + ' SCDO' }
+          } else if (snap.shard >= 1) {
+            if (payer && payer.pubkey) {
+              const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
+              if (g) gas = Number(g)
+            }
+            text = fmtNum(gas / 1e8, 8) + ' SCDO'
           }
-        } catch (e) { text = '' }
+        } catch (e) {
+          if (snap.shard >= 1) text = '0.00021 SCDO'
+        }
         if (gen !== feeGen || !$('payRoute')) return
-        s.feeText = text
+        if (text) s.feeText = text
+        if (gas) s.gas = gas
         paint()
       }, 350)
     }
     modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
       <div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap" style="font-size:18px;font-weight:700"></div>
+      <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
       <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
         <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
         <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
@@ -1206,7 +1278,7 @@
         if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join('、') }) : TC('payNeed')
         return
       }
-      const payer = pickPayer(route, s.payerFile)
+      const payer = chosenPayer(route)
       if (!payer) { if (err) err.textContent = TC('payNoPayer'); return }
       const pw = $('remitPw') ? $('remitPw').value : ''
       if (route.kind === 'gateway') {
@@ -1283,7 +1355,10 @@
     async function confirmClassic (route, payer, pw, err, btn) {
       if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
       if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
-      if (String(payer.pubkey || '').toLowerCase() === route.to.toLowerCase()) { if (err) err.textContent = TC('errSelf'); return }
+      if (String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()) {
+        const box = $('paySelf')
+        if (box) { box.style.display = 'block'; box.textContent = TC('warnSelf') }
+      }
       if (!/^\d+(\.\d{1,8})?$/.test(route.amount) || !(Number(route.amount) > 0)) { if (err) err.textContent = TC('errAmount'); return }
       let gas = s.gas
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
@@ -1671,9 +1746,14 @@
     let ok = false
     try { ok = await api.invoke('miner:confirmStop') } catch (e) { ok = false }
     if (!ok) return
+    localStorage.setItem('minerRunClassicCpu', '')
+    localStorage.setItem('minerRunClassicGpu', '')
+    const mode = localStorage.getItem('minerMode')
+    if (mode === 'classic-cpu' || mode === 'classic-gpu') localStorage.removeItem('minerMode')
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    try { await api.invoke('miner:intentClear') } catch (e) {}
     toast(T('stopped'))
   }
   async function minerStop (src) {
@@ -1715,7 +1795,7 @@
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
-    if (act !== 'accMenu') closeDd()
+    if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
       case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
@@ -1728,7 +1808,8 @@
       case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
-      case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
+      case 'accMenu':
+      case 'accChip': if ($('dd')) closeDd(); else accChipMenu(el); break
       case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine') setTab('new'); render(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
@@ -1902,6 +1983,7 @@
       preferShard: classic ? classic.shard : 0,
       shard0Address: shard0Address,
       selectedFile: sel ? sel.filename : '',
+      pools: caps && caps.pools ? caps.pools : null,
       classicGpu: gpu ? { running: !!gpu.running, mode: gpu.mode, shard: gpu.shard, wallet: gpu.wallet, localBlock: gpu.localBlock, networkBlock: gpu.networkBlock, heightAgeMs: slot && slot.at ? Date.now() - slot.at : 0, code: gpu.code } : null,
       shard0: { running: !!s0.running, code: s0.code, peers: s0.peers, mode: s0.mode, wallet: s0.wallet, peerAgeMs: st.catH.peersAt ? Date.now() - st.catH.peersAt : 0 },
       mem: st.mem,

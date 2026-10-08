@@ -100,12 +100,18 @@ function mergeSyncView (opts) {
   const network = maxHeight(opts.peerTarget, opts.publicTip)
   const haveSamples = !!(opts.samples && opts.samples.length >= 2)
   let etaSec = etaFromSamples(opts.samples, local, network, opts.now)
+  const gap = local != null && network != null ? network - local : null
   if (etaSec == null && !haveSamples && durationSec > 0 && downloaded > 0 && amount != null && amount > downloaded) {
-    etaSec = (amount - downloaded) * durationSec / downloaded
+    const chunkLeft = amount - downloaded
+    // A nearly finished peer chunk is not the chain gap. Stay on 計算中 until the height window has an ETA.
+    const coversGap = gap == null || chunkLeft >= gap * 0.5 || amount >= gap * 0.5
+    if (coversGap) etaSec = chunkLeft * durationSec / downloaded
   } else if (etaSec == null && local != null && network != null && local >= network) {
     etaSec = 0
   }
   if (etaSec != null && etaSec > ETA_MAX_SEC) etaSec = null
+  // 即將完成 is only for a node that is actually close. A few seconds against millions of blocks is not an ETA.
+  if (etaSec != null && etaSec > 0 && gap != null && gap > BEHIND_BLOCKS && etaSec < 5) etaSec = null
   return { localBlock: local, networkBlock: network, etaSec }
 }
 
