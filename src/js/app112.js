@@ -70,6 +70,7 @@
   // else the file name without its ".<timestamp>" suffix. Files without a usable name (empty, or the old "new …"
   // default) get a stable number: 帳戶 N / Account N.
   ui.names = (ui.names && typeof ui.names === 'object' && !Array.isArray(ui.names)) ? ui.names : {}
+  ui.payees = Array.isArray(ui.payees) ? ui.payees.filter(p => p && typeof p.name === 'string' && p.name.trim()).map(p => ({ name: String(p.name).trim(), kind: 'remit' })).slice(-100) : []
   ui.accNo = (ui.accNo && typeof ui.accNo === 'object' && !Array.isArray(ui.accNo)) ? ui.accNo : {}
   ui.rewardExtra = Array.isArray(ui.rewardExtra) ? ui.rewardExtra.filter(x => /^0x[0-9a-fA-F]{40}$/.test(x)) : []
   ui.classicExtra = Array.isArray(ui.classicExtra) ? ui.classicExtra.map(a => (window.SCDOZpow ? window.SCDOZpow.parseClassicAddress(a) : null)).filter(Boolean).map(a => a.address) : []
@@ -85,15 +86,17 @@
   // Network follows the account tab: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards.
   // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['old', 'new', 'mine', 'remit']
+  const TABS = ['old', 'new', 'mine']
   let savedTab = ui.tab || localStorage.getItem('tab112') || 'old'
   if (savedTab === 'home') savedTab = 'new'
+  if (savedTab === 'remit') savedTab = ui.net === 'old' ? 'old' : 'new'
   let tab0 = TABS.includes(savedTab) ? savedTab : 'old'
   if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
   ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
   const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
   if (ui.net === 'old' && tab0 === 'new') tab0 = 'old'
   if (ui.net === 'new' && tab0 === 'old') tab0 = 'new'
+  if (ui.tab === 'remit' || ui.tab === 'home') { ui.tab = tab0; saveUi() }
   const st = {
     tab: tab0,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
@@ -107,7 +110,8 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null,
+    payReview: null
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -178,8 +182,10 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // Account tabs select the network. Classic -> 'old', Shard0 accounts -> 'new'. Mining and 匯款 keep the last one.
+  // Account tabs select the network. Classic -> 'old', Shard0 accounts -> 'new'. Mining keeps the last one.
+  // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
+    if (v === 'remit') { openRemitFor((headerAccount() || {}).filename || st.sel); return }
     st.tab = TABS.includes(v) ? v : 'old'
     if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'new') ui.net = 'new'
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
@@ -230,12 +236,12 @@
   }
   function openRemitFor (filename) {
     const a = accByFile(filename)
-    if (!a) return
-    st.sel = a.filename
-    localStorage.setItem('selAcc112', a.filename)
+    if (a) {
+      st.sel = a.filename
+      localStorage.setItem('selAcc112', a.filename)
+    }
     if ($('md')) SD.clear($('modalRoot'))
-    setTab('remit')
-    render()
+    payModal(a ? a.filename : '')
   }
   function renderHeader () {
     const chain = headerChain()
@@ -265,7 +271,7 @@
       <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
     renderIsland()
-    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
+    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine']]
     SD.html($('tabs'), tabs.map(([k, l]) => {
       const dot = k === 'old' || k === 'new' ? tabNetDot(k) : ''
       return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${dot}${esc(T(l))}</button>`
@@ -366,8 +372,7 @@
       let mid; let right
       if (a.evm) {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:2px;flex-wrap:wrap"><span class="mono addr">${esc(a.evm)}</span>
-          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" ${a.filename === st.sel ? 'id="btnReceive"' : ''}>${esc(T('receive'))}</button>
-          <button class="btn sec small" data-act="send" data-f="${esc(a.filename)}" ${a.filename === st.sel ? 'id="btnSend"' : ''}>${esc(T('send'))}</button></div>`
+          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" ${a.filename === st.sel ? 'id="btnReceive"' : ''}>${esc(T('receive'))}</button></div>`
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" data-bal="${esc(a.filename)}">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei)) : '…'} <span>SCDO</span></div></div>`
       } else {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><span class="lockline">🔒 ${esc(T('locked'))}</span>
@@ -402,7 +407,6 @@
         <button class="btn ghost small" data-act="copy" data-v="${esc(a.pubkey)}">${esc(T('copy'))}</button></div></div>
         <div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" style="color:#3d4160" data-oldbal="${esc(a.pubkey)}">${v != null ? esc(fmtNum(v)) : '…'} <span>SCDO</span></div></div>
         <div class="ops"><button class="btn sec small" data-act="receive" data-f="${esc(a.filename)}" data-chain="old">${esc(T('receive'))}</button>
-        <button class="btn sec small" data-act="sendOld" data-f="${esc(a.filename)}">${esc(T('send'))}</button>
         ${cardFeatureOps(a, 'old')}
         <button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button>
         <button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="old" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
@@ -660,9 +664,10 @@
     return h + '</div><div id="miningBatch1"></div></div>'
   }
 
-  // ---------------- 2.0.12 remittance (匯款): unlock + personal_sign, no KYC form ----------------
-  // Keyfile decryption, the personal_sign and the bearer token all stay in the main process (remitService).
-  // The page only gets the signed-in address and that address's own ledger.
+  // ---------------- 2.0.12 remittance gateway: unlock + personal_sign, no KYC form ----------------
+  // The 匯款 tab is gone. payModal is the only entry. This block stays next to remitLogin:
+  // keyfile decryption, personal_sign and the bearer token all stay in the main process.
+  // The screen only receives the signed-in address and that address's own ledger.
   const sameAddr = (x, y) => !!x && !!y && String(x).toLowerCase() === String(y).toLowerCase()
   function remitReset () { st.remit = { phase: 'idle', error: '', address: '', ledger: null, base: st.remit.base || '' } }
   function remitAccount () {
@@ -760,8 +765,10 @@
     const inp = $('remitPw')
     const pw = inp ? inp.value : ''
     if (!pw) { toast(T('errPw')); return }
+    const inPay = !!$('payRoute')
     st.remit.phase = 'challenge'; st.remit.error = ''; st.remit.address = ''; st.remit.ledger = null
-    render()
+    if (inPay) { const el = $('payStatus'); if (el) el.textContent = T('remitChallenge') }
+    else render()
     let r = null
     try { r = await api.invoke('remit:login', a.filename, pw) } catch (e) { r = { ok: false, error: String((e && e.message) || e) } }
     await reloadAccounts()
@@ -769,12 +776,16 @@
     if (r && r.ok && (!own || sameAddr(own, r.address))) {
       st.remit = { phase: 'in', error: '', address: r.address, ledger: r.ledger, base: st.remit.base }
       toast(T('remitIn'))
+      if (inPay && $('payRoute')) payShowLedger()
+      else render()
     } else {
       if (r && r.ok) { api.invoke('remit:logout').catch(() => {}); r = { ok: false, foreign: true } }
       st.remit.phase = 'error'; st.remit.address = ''; st.remit.ledger = null
       st.remit.error = remitErrText(r)
+      if (inPay && $('payErr')) $('payErr').textContent = st.remit.error
+      else render()
     }
-    render(); refreshS0()
+    refreshS0()
   }
   async function remitRefresh () {
     if (!remitOwnsSession()) return
@@ -789,7 +800,13 @@
     }
     render()
   }
-  api.on('remit:step', (p) => { if (['challenge', 'sign', 'session', 'ledger'].includes(p) && st.remit.phase !== 'in' && st.remit.phase !== 'error' && st.remit.phase !== 'idle') { st.remit.phase = p; if (st.tab === 'remit') render() } })
+  api.on('remit:step', (p) => {
+    if (!['challenge', 'sign', 'session', 'ledger'].includes(p) || st.remit.phase === 'in' || st.remit.phase === 'error' || st.remit.phase === 'idle') return
+    st.remit.phase = p
+    const el = $('payStatus')
+    if (!el) return
+    el.textContent = p === 'challenge' ? T('remitChallenge') : p === 'sign' ? T('remitSigning') : p === 'session' ? T('remitSession') : T('remitLedgerLoad')
+  })
 
   // ---------------- render ----------------
   function render () {
@@ -797,7 +814,7 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
+    const pages = { new: pageNew, old: pageOld, mine: pageMine }
     SD.html(main, (pages[st.tab] || pageNew)())
     if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
     main.scrollTop = y
@@ -911,7 +928,7 @@
       <div class="isle-actions">
         <button type="button" class="btn pri" data-act="tab" data-v="mine" id="islandMine">${esc(T('isleGoMine'))}</button>
         <button type="button" class="btn dan" data-act="stopAll" id="islandStop">${esc(T('isleStopAll'))}</button>
-        <button type="button" class="btn sec" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button>
+        <button type="button" class="btn sec" data-act="openPay" id="btnRemit">${esc(T('tabRemit'))}</button>
       </div>`)
   }
   function renderHeaderNetOnly () {
@@ -986,7 +1003,11 @@
     SD.html($('modalRoot'), `<div class="overlay" id="ov"><div class="modal" id="md" style="${opts.width ? 'width:' + Number(opts.width) + 'px' : ''}">${html}</div></div>`)
     const first = $('md').querySelector('input:not([type=checkbox]):not([disabled])'); if (first && !opts.noFocus) setTimeout(() => first.focus(), 30)
   }
-  function closeModal () { SD.clear($('modalRoot')); render() }
+  function closeModal () {
+    if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+    st.payReview = null
+    SD.clear($('modalRoot')); render()
+  }
   function confirmBox (title, text, yes, no, danger) {
     return new Promise(resolve => {
       modal(`<div class="mh"><h2>${esc(title)}</h2></div><div style="font-size:20px;white-space:pre-line">${esc(text)}</div>
@@ -1025,201 +1046,275 @@
   const ADDR_ERR = { FORMAT: 'errAddr', CHECKSUM: 'errChecksum', CLASSIC_ADDR: 'errOldAddrToNew', ZERO_ADDR: 'errZeroAddr' }
   const ADDR_WARN = { SELF: 'warnSelf', CONTRACT: 'warnContract', TOKEN_CONTRACT: 'warnTokenContract', NO_CHECKSUM: 'warnNoChecksum', CONTRACT_UNKNOWN: 'warnContractUnknown' }
   const SEND_ERR = { INSUFFICIENT: 'errTooMuch', NO_FEE_BALANCE: 'errNoFeeBal', WRONG_PASSWORD: 'wrongPw', REVIEW_EXPIRED: 'errReviewExpired', WRONG_CHAIN: 'errWrongChain', BAD_AMOUNT: 'errAmount', ADDRESS_CHANGED: 'errAddr', NO_PASSWORD: 'errPw', NONCE_BUSY: 'errNonceBusy', NETWORK: 'errNetwork', BROADCAST_TIMEOUT: 'errBcastTimeout', NONCE_READ: 'errNetwork', REPLACED: 'errReplaced' }
-  function sendModal (f, prefill) {
-    const a = accByFile(f); if (!a || !a.evm) return
-    const s = { asset: 'SCDO', to: prefill && prefill.to ? String(prefill.to) : '', amount: prefill && prefill.amount ? String(prefill.amount) : '', fee: null, check: null, review: null }
-    api.invoke('s0:balances', a.evm).then(r => { st.s0[a.filename] = balFromIpc(r) }).catch(() => {}) // 2.0.2 D-07: fresh balance for 'Available' when the modal opens
-    const dec = () => { if (s.asset === 'SCDO') return 18; const t = (S0CFG.tokens || []).find(x => x.symbol === s.asset); return t ? t.decimals : 18 }
-    const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : dec(), t } }
-    const balText = () => { const b = bal(); if (s.asset === 'SCDO') return b.wei != null ? fmtWei(b.wei) + ' SCDO' : '…'; return b.t && b.t.balance != null ? fmtNum(b.t.balance, b.dec) + ' ' + s.asset : '…' }
-    const head = (i) => `<div class="mh"><h2>${esc(T('sendTitle'))}</h2>${stepsHtml(i)}</div>`
-    const fromLine = `<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.evm)}</div></div>`
-    const netLine = `<div class="lbl" id="sNet">${esc(T('network'))}${PU.c()}<b>SCDO Shard0 (EVM)</b> · ${esc(T('chainIdN', { n: S0CFG.chainId }))}</div>`
-    const cancelReview = () => { if (s.review && s.review.token) api.invoke('s0:cancelReview', s.review.token); s.review = null }
-    function step1 () {
-      modal(`${head(0)}${fromLine}${netLine}
-        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
-        <div class="err" id="sErr"></div><div class="warnbox" id="sWarn" style="display:none"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal" id="sCancel">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      wireAssetPicker(a, () => s.asset, (v) => { s.to = nhw($('sTo').value); s.asset = v; s.amount = ''; s.fee = null; step1() })
-      const go = async () => {
-        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
-        $('sErr').textContent = ''; SD.spin($('sErr'), T('checkingAddr')); $('sNext').disabled = true
-        let chk
-        try { chk = await api.invoke('s0:checkAddress', a.evm, to, s.asset) } catch (e) { chk = { ok: false, errors: ['FORMAT'] } }
-        if (!$('sNext')) return
-        $('sNext').disabled = false; $('sErr').textContent = ''
-        if (!chk.ok) { $('sErr').textContent = T(ADDR_ERR[chk.errors[0]] || 'errAddr'); return }
-        s.to = chk.address; s.check = chk; step2()
-      }
-      $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
+  // ----- one 匯款 form: the wallet picks chain or gateway; the user presses 確認匯款 -----
+  // Nothing here runs s0:send, old:send, or remit:login until that button.
+  function pickPayer (route, openedFile) {
+    const opened = accByFile(openedFile) || null
+    if (!route || route.kind !== 'chain') return opened || headerAccount()
+    if (route.shard === 0) {
+      if (opened && opened.evm) return opened
+      return visible('new').find(a => a.evm) || opened
     }
-    async function estimate () {
-      try { const f = await api.invoke('s0:estimate', a.evm, s.to, s.amount && Number(s.amount) > 0 ? s.amount : '0', s.asset); s.fee = f ? { estFeeWei: BigInt(f.estFeeWei), maxFeeWei: BigInt(f.maxFeeWei) } : null } catch (e) { s.fee = null }
-      return s.fee
-    }
-    function feeText (fee) { fee = fee || s.fee; return fee ? T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) }) + PU.l() + T('feeMax', { v: fmtWei(fee.maxFeeWei, 8) }) + PU.r() : '…' }
-    function step2 () {
-      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono" style="font-size:19px">${esc(s.to)}</div></div>${netLine}
-        <div class="field"><div class="lbl">${esc(T('asset'))}</div>${assetPickerHtml(a, s.asset)}</div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}${esc(s.asset)}${PU.r()}</div><div class="lbl">${esc(T('available', { v: balText() }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
-        <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeText())}</div></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('reviewBtn'))}</button></div>`)
-      estimate().then(() => { const e = $('sFee'); if (e) e.textContent = feeText() })
-      wireAssetPicker(a, () => s.asset, (v) => { s.asset = v; s.amount = ''; s.fee = null; step2() })
-      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
-      $('sMax').onclick = async () => {
-        const b = bal()
-        if (s.asset === 'SCDO') {
-          if (b.wei == null) return
-          const fee = (await estimate()) || { maxFeeWei: 0n }
-          let v = b.wei - fee.maxFeeWei; if (v < 0n) v = 0n
-          $('sAmt').value = formatEther(v)
-        } else if (b.raw != null) $('sAmt').value = formatUnits(b.raw, b.dec)
-        const e = $('sFee'); if (e) e.textContent = feeText()
-      }
-      const go = async () => {
-        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
-        try { if (parseUnits(v, dec()) <= 0n) throw new Error('x') } catch (e) { $('sErr').textContent = T('errAmount'); return }
-        s.amount = v
-        $('sNext').disabled = true; SD.spin($('sErr'), T('preparingReview'))
-        let r
-        try { r = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }) } catch (e) { r = { ok: false, error: e.message } }
-        if (!$('sNext')) { if (r && r.token) api.invoke('s0:cancelReview', r.token); return }
-        $('sNext').disabled = false; $('sErr').textContent = ''
-        if (r.check && !r.check.ok) { $('sErr').textContent = T(ADDR_ERR[r.check.errors[0]] || 'errAddr'); return }
-        if (!r.ok) { $('sErr').textContent = r.errors && r.errors.length ? T(SEND_ERR[r.errors[0]] || 'errAmount') : (SEND_ERR[r.error] ? T(SEND_ERR[r.error]) : T('errReview', { e: r.error || '?' })); return }
-        s.review = r; step3()
-      }
-      $('sNext').onclick = go; $('sAmt').onkeydown = (e) => { if (e.key === 'Enter') go() }
-    }
-    // the confirm screen
-    function step3 () {
-      const r = s.review
-      const fee = { estFeeWei: BigInt(r.fee.estFeeWei), maxFeeWei: BigInt(r.fee.maxFeeWei) }
-      const warns = (r.check.warnings || []).filter(w => ADDR_WARN[w])
-      const total = r.totalEstWei ? fmtNum(formatEther(r.totalEstWei), 8) + ' SCDO' + PU.l() + T('feeMax', { v: fmtNum(formatEther(r.totalMaxWei), 8) }) + PU.r() : fmtNum(r.amount, 18) + ' ' + r.asset + ' + ' + T('feeAbout', { v: fmtWei(fee.estFeeWei, 8) })
-      modal(`<div class="mh"><h2>${esc(T('confirmTitle'))}</h2>${stepsHtml(2)}</div><div class="review" id="sReview">
-        <div class="r"><div class="k">${esc(T('network'))}</div><div class="v" id="cfNet">SCDO Shard0 (EVM) · ${esc(T('chainIdN', { n: r.network.chainId }))}</div></div>
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(r.from)}</div></div></div>
-        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v"><div class="mono" style="font-size:19px" id="cfTo">${esc(r.to)}</div><div class="lbl" style="color:#146c2e">✔ ${esc(T(r.check.warnings.includes('NO_CHECKSUM') ? 'addrOkNoChecksum' : 'addrOkChecksum'))}</div></div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047" id="cfAmt">${esc(fmtNum(r.amount, 18))} ${esc(r.asset)}</div></div>
-        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400" id="cfFee">${esc(feeText(fee))}</div></div>
-        <div class="r"><div class="k">${esc(T('total'))}</div><div class="v" id="cfTotal">${esc(total)}</div></div></div>
-        ${warns.map(w => `<div class="warnbox" data-warn="${esc(w)}">⚠ ${esc(T(ADDR_WARN[w]))}</div>`).join('')}
-        ${warns.length ? `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px;cursor:pointer"><input type="checkbox" id="sAck" style="width:22px;height:22px"> ${esc(T('ackWarnings'))}</label>` : ''}
-        <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
-        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw" autocomplete="off"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sCancel">${esc(T('cancel'))}</button><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo" ${warns.length ? 'disabled' : ''}>${esc(T('confirmSend'))}</button></div>`)
-      const ack = $('sAck'); if (ack) ack.onchange = () => { $('sGo').disabled = !ack.checked }
-      $('sCancel').onclick = () => { cancelReview(); closeModal(); toast(T('sendCanceled')) }
-      $('sBack').onclick = () => { cancelReview(); step2() }
-      const go = async () => {
-        if (ack && !ack.checked) { $('sErr').textContent = T('ackWarnings'); return }
-        const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; $('sBack').disabled = true; $('sCancel').disabled = true; SD.spin($('sErr'), T('sending'))
-        $('sPw').value = ''
-        let res
-        try { res = await api.invoke('s0:send', { token: r.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
-        if (res && res.ok) { s.review = null; loadActivity(a.evm); step4(res.hash); return }
-        if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { s.review = null; loadActivity(a.evm); step4(res.hash, T('errBcastTimeout')); return } // rerun N-3: outcome unknown -> Pending, keep checking
-        if (res && res.error === 'WRONG_PASSWORD') {
-          // the token is single-use: build a fresh review so the user can retry with the right password
-          try { const r2 = await api.invoke('s0:review', { file: a.filename, to: s.to, amount: s.amount, asset: s.asset }); if (r2 && r2.ok) { s.review = r2; step3(); $('sErr').textContent = T('wrongPw'); return } } catch (e) {}
-        }
-        if ($('sErr')) { $('sErr').textContent = T('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? T(SEND_ERR[res.error]) : String((res && res.error) || 'error')); $('sBack').disabled = false; $('sCancel').disabled = false }
-        loadActivity(a.evm) // rerun N-3: the failed attempt is listed in Activity as Failed
-      }
-      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter' && !$('sGo').disabled) go() }
-    }
-    function step4 (hash, note) {
-      modal(`${head(3)}<div class="statusbar warn" id="sStat" style="font-size:24px"><span class="spin"></span> ${esc(T('waiting'))}</div>${note ? `<div class="err" style="margin-top:8px">${esc(note)}</div>` : ''}
-        <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
-        <div style="margin-top:10px"><button class="link" data-act="openTx" data-v="${esc(hash)}">${esc(T('openExplorer'))} →</button></div>
-        <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
-      const notYet = () => { const e = $('sStat'); if (e) { e.className = 'statusbar warn'; e.textContent = T('notConfirmedYet') } loadActivity(a.evm) }
-      api.invoke('s0:waitReceipt', hash).then(rc => {
-        if (rc && rc.timeout) { notYet(); return }
-        const e = $('sStat'); if (e) { e.className = 'statusbar ' + (rc.ok ? 'good' : 'bad'); e.textContent = rc.ok ? '✅ ' + T('confirmed', { n: rc.block }) : '❌ ' + T('failed') }
-        loadActivity(a.evm); refreshS0()
-      }).catch(notYet)
-    }
-    step1()
+    if (opened && String(opened.shard) === String(route.shard)) return opened
+    const same = visible('old').filter(a => String(a.shard) === String(route.shard))
+    const dest = String(route.to || '').toLowerCase()
+    return same.find(a => String(a.pubkey || '').toLowerCase() !== dest) || same[0] || opened
   }
-
-  // ----- send on a Classic shard (same shard only), same stepped pattern -----
-  function sendOldModal (f, prefill) {
-    const a = accByFile(f); if (!a) return
-    const s = { to: prefill && prefill.to ? String(prefill.to) : '', amount: prefill && prefill.amount ? String(prefill.amount) : '', gas: null, price: 1 }
-    const head = (i) => `<div class="mh"><h2>${esc(T('sendOldTitle', { n: a.shard }))}</h2>${stepsHtml(i)}</div>`
-    const balV = () => st.old[a.pubkey]
-    const feeScdo = () => s.gas == null ? null : s.gas * s.price / 1e8
-    const feeLine = () => feeScdo() == null ? '…' : T('feeAbout', { v: fmtNum(feeScdo(), 8) })
-    function step1 () {
-      modal(`${head(0)}<div class="infobox"><div class="lbl">${esc(T('from'))}</div><b class="wrap">${esc(accLabel(a))}</b><div class="mono">${esc(a.pubkey)}</div></div>
-        <div class="field"><div class="lbl">${esc(T('to'))}</div><input class="inp mono" id="sTo" placeholder="${esc(T('toPhOld', { n: a.shard }))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      const go = () => {
-        const to = nhw($('sTo').value); if ($('sTo')) $('sTo').value = to
-        if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { $('sErr').textContent = T('errAddrOld'); return }
-        if (String(to[0]) !== String(a.shard) && !CFG.allowCrossShard) { $('sErr').textContent = T('errCross', { n: a.shard }); return }
-        if (to.toLowerCase() === a.pubkey.toLowerCase()) { $('sErr').textContent = T('errSelf'); return }
-        s.to = to
-        api.invoke('old:estimateGas', a.pubkey, to).then(g => { if (g) s.gas = Number(g); const e = $('sFee'); if (e) e.textContent = feeLine() }).catch(() => {})
-        step2()
-      }
-      $('sNext').onclick = go; $('sTo').onkeydown = (e) => { if (e.key === 'Enter') go() }
+  function allPayees () {
+    const out = []
+    const push = (name) => {
+      const n = nhw(name)
+      if (!n || /^0x[0-9a-fA-F]{40}$/.test(n) || /^[1-4]S[0-9a-fA-F]{40}$/.test(n)) return
+      if (!out.some(p => p.name === n)) out.push({ name: n, kind: 'remit' })
     }
-    function step2 () {
-      const b = balV()
-      modal(`${head(1)}<div class="infobox"><div class="lbl">${esc(T('to'))}</div><div class="mono">${esc(s.to)}</div></div>
-        <div class="field"><div class="row"><div class="lbl" style="flex:1">${esc(T('amount'))}${PU.l()}SCDO${PU.r()}</div><div class="lbl">${esc(T('available', { v: b == null ? '…' : fmtNum(b) + ' SCDO' }))}</div></div>
-        <div class="row"><input class="inp" id="sAmt" inputmode="decimal" placeholder="0.0" value="${esc(s.amount)}" style="font-size:28px;height:62px" autocomplete="off" spellcheck="false" lang="en"><button class="btn sec" id="sMax" style="height:62px">${esc(T('max'))}</button></div></div>
-        <div class="field"><div class="lbl">${esc(T('fee'))}</div><div id="sFee" style="font-size:19px">${esc(feeLine())}</div></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sNext">${esc(T('next'))}</button></div>`)
-      $('sBack').onclick = () => { s.amount = nhw($('sAmt').value); step1() }
-      $('sMax').onclick = () => { const bb = balV(); if (bb == null) return; const v = Math.max(0, bb - (feeScdo() || 0.00021)); $('sAmt').value = String(Math.floor(v * 1e8) / 1e8) }
-      const go = () => {
-        const v = nhw($('sAmt').value).replace(/,/g, ''); if ($('sAmt')) $('sAmt').value = v
-        if (!/^\d+(\.\d{1,8})?$/.test(v) || Number(v) <= 0) { $('sErr').textContent = T('errAmount'); return }
-        const bb = balV(); if (bb != null && Number(v) + (feeScdo() || 0) > bb) { $('sErr').textContent = T('errTooMuch'); return }
-        s.amount = v; step3()
-      }
-      $('sNext').onclick = go; $('sAmt').onkeydown = (e) => { if (e.key === 'Enter') go() }
+    for (const p of (Array.isArray(ui.payees) ? ui.payees : [])) push(p && p.name)
+    const ledger = st.remit && st.remit.ledger
+    const entries = !ledger || typeof ledger !== 'object' ? [] : (Array.isArray(ledger) ? ledger : (ledger.entries || ledger.items || ledger.transfers || ledger.records || []))
+    for (const e of entries) { if (!e || typeof e !== 'object') continue; push(e.payee); push(e.beneficiary) }
+    return out
+  }
+  function rememberPayee (name) {
+    const n = nhw(name)
+    if (!n || /^0x[0-9a-fA-F]{40}$/.test(n) || /^[1-4]S[0-9a-fA-F]{40}$/.test(n)) return
+    if ((st.accounts || []).some(a => accLabel(a) === n)) return
+    ui.payees = Array.isArray(ui.payees) ? ui.payees : []
+    if (ui.payees.some(p => p && p.name === n)) return
+    ui.payees.push({ name: n, kind: 'remit' })
+    if (ui.payees.length > 100) ui.payees = ui.payees.slice(-100)
+    saveUi()
+  }
+  function payModal (f, prefill) {
+    const TC = (k, p) => {
+      let s = (window.I18N112.CN || {})[k]
+      if (s == null) s = k
+      if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
+      return s
     }
-    function step3 () {
-      modal(`${head(2)}<div class="review">
-        <div class="r"><div class="k">${esc(T('from'))}</div><div class="v"><div class="wrap">${esc(accLabel(a))}</div><div class="mono" style="font-weight:400;font-size:17px">${esc(a.pubkey)}</div></div></div>
-        <div class="r"><div class="k">${esc(T('to'))}</div><div class="v mono" style="font-size:19px">${esc(s.to)}</div></div>
-        <div class="r"><div class="k">${esc(T('amount'))}</div><div class="v" style="font-size:28px;color:#43A047">${esc(fmtNum(s.amount, 8))} SCDO</div></div>
-        <div class="r"><div class="k">${esc(T('fee'))}</div><div class="v" style="font-weight:400">${esc(feeLine())}</div></div></div>
-        <div class="infobox">⚠ ${esc(T('reviewNote'))}</div>
-        <div class="field"><div class="lbl">${esc(T('password'))}</div><input class="inp" type="password" id="sPw"></div>
-        <div class="err" id="sErr"></div>
-        <div class="foot"><button class="btn ghost" id="sBack">${esc(T('back'))}</button><button class="btn pri" id="sGo">${esc(T('confirmSend'))}</button></div>`)
-      $('sBack').onclick = step2
-      const go = () => {
-        const pw = $('sPw').value; if (!pw) { $('sErr').textContent = T('errPw'); return }
-        $('sGo').disabled = true; SD.spin($('sErr'), T('sending'))
-        $('sPw').value = ''
-        api.invoke('old:send', { file: a.filename, password: pw, to: s.to, amount: s.amount, price: s.price, gas: s.gas || 21000 }).then(res => {
-          if (!res || !res.ok) { const em = String((res && res.error) || 'error'); if ($('sErr')) { $('sErr').textContent = em === 'WRONG_PASSWORD' ? T('wrongPw') : em; $('sGo').disabled = false } return }
-          const hash = res.hash
-          modal(`${head(3)}<div class="statusbar good" style="font-size:22px">✅ ${esc(T('sentOld'))}</div>
-            <div class="field"><div class="lbl">${esc(T('txHash'))}</div><div class="mono" style="font-size:17px">${esc(hash)}</div></div>
-            <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { noFocus: true })
-          refreshOld()
-        })
-      }
-      $('sGo').onclick = go; $('sPw').onkeydown = (e) => { if (e.key === 'Enter') go() }
+    const opened = accByFile(f) || headerAccount()
+    if (!opened) {
+      modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+        <div class="muted" style="font-size:20px">${esc(TC('remitNeedAccount'))}</div>
+        <div class="foot"><button class="btn pri" data-act="create">${esc(TC('createAccount'))}</button><button class="btn sec" data-act="import">${esc(TC('importAccount'))}</button></div>`, { width: 640 })
+      return
     }
-    step1()
+    const s = {
+      to: prefill && prefill.to ? String(prefill.to) : '',
+      amount: prefill && prefill.amount ? String(prefill.amount) : '',
+      feeText: '',
+      gas: null,
+      payerFile: opened.filename
+    }
+    if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+    st.payReview = null
+    const accountsForRoute = () => (st.accounts || []).map(a => ({ label: accLabel(a), filename: a.filename, address: a.pubkey || '', evm: a.evm || '', shard: a.shard }))
+    const currentRoute = () => window.SCDORemitRoute.routePay({
+      to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText || '…', etaText: ''
+    })
+    let feeTimer = 0
+    let feeGen = 0
+    function paint (route) {
+      route = route || currentRoute()
+      const line = $('payRoute')
+      if (line) {
+        if (route.many) line.textContent = TC('payMany', { n: route.many.join('、') })
+        else line.textContent = route.line || TC('payRouteWait')
+      }
+      const payer = pickPayer(route, s.payerFile)
+      const from = $('payFrom')
+      if (from) {
+        if (!payer) from.textContent = TC('noAccount')
+        else from.textContent = accLabel(payer) + (payer.pubkey ? ' · ' + payer.pubkey : (payer.evm ? ' · ' + payer.evm : ''))
+      }
+      const note = $('payNote')
+      if (note) note.textContent = route.kind === 'gateway' ? TC('payGateNote') : route.kind === 'chain' ? TC('payChainNote') : ''
+      return route
+    }
+    function dropReview () {
+      if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+      st.payReview = null
+      const extra = $('payExtra')
+      if (extra && !extra.querySelector('#remitLedger')) extra.textContent = ''
+    }
+    function sync () {
+      const to = $('payTo'); const amt = $('payAmt')
+      s.to = nhw(to ? to.value : s.to)
+      s.amount = nhw(amt ? amt.value : s.amount)
+      const route = currentRoute()
+      if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount)) dropReview()
+      paint(route)
+      clearTimeout(feeTimer)
+      if (route.kind !== 'chain') { s.feeText = ''; return }
+      const gen = ++feeGen
+      const snap = route
+      feeTimer = setTimeout(async () => {
+        const payer = pickPayer(snap, s.payerFile)
+        let text = ''
+        try {
+          if (snap.shard === 0 && payer && payer.evm) {
+            const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
+            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei), 8) + ' SCDO'
+          } else if (snap.shard >= 1 && payer && payer.pubkey) {
+            const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
+            if (g) { s.gas = Number(g); text = fmtNum(Number(g) / 1e8, 8) + ' SCDO' }
+          }
+        } catch (e) { text = '' }
+        if (gen !== feeGen || !$('payRoute')) return
+        s.feeText = text
+        paint()
+      }, 350)
+    }
+    modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      <div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap" style="font-size:18px;font-weight:700"></div>
+      <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
+        <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
+      <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
+        <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"></div>
+      <div class="infobox" id="payRoute"></div>
+      <div class="lbl" id="payNote" style="margin-top:8px"></div>
+      <div id="payExtra"></div>
+      <div id="payStatus" style="margin-top:8px"></div>
+      <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
+      <div class="err" id="payErr"></div>
+      <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(TC('cancel'))}</button><button class="btn pri" type="button" id="btnRemitSign">${esc(TC('payGo'))}</button></div>`, { width: 680 })
+    const chips = $('payeeChips')
+    const names = allPayees().map(p => p.name).slice(0, 8)
+    if (chips && names.length) {
+      SD.html(chips, names.map(n => `<button type="button" class="btn ghost small" data-payee="${esc(n)}">${esc(n)}</button>`).join(''))
+      chips.querySelectorAll('[data-payee]').forEach(b => {
+        b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const i = $('payTo'); if (i) i.value = b.getAttribute('data-payee') || ''; sync() }
+      })
+    }
+    const toEl = $('payTo'); const amtEl = $('payAmt'); const pwEl = $('remitPw'); const go = $('btnRemitSign')
+    if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
+    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
+    if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
+    if (go) go.onclick = () => { confirmPay() }
+    sync()
+    function showDone (text) {
+      const extra = $('payExtra')
+      if (extra) SD.html(extra, `<div class="statusbar good" style="font-size:20px">${esc(text)}</div>`)
+      const b = $('btnRemitSign'); if (b) b.disabled = true
+    }
+    async function confirmPay () {
+      const btn = $('btnRemitSign'); const err = $('payErr')
+      if (err) err.textContent = ''
+      s.to = nhw($('payTo') ? $('payTo').value : s.to)
+      s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      const route = paint()
+      if (route.kind !== 'chain' && route.kind !== 'gateway') {
+        if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join('、') }) : TC('payNeed')
+        return
+      }
+      const payer = pickPayer(route, s.payerFile)
+      if (!payer) { if (err) err.textContent = TC('payNoPayer'); return }
+      const pw = $('remitPw') ? $('remitPw').value : ''
+      if (route.kind === 'gateway') {
+        rememberPayee(route.to)
+        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { payShowLedger(); return }
+        if (!pw) { if (err) err.textContent = TC('errPw'); return }
+        await remitLogin(payer.filename)
+        if ($('remitPw')) $('remitPw').value = ''
+        return
+      }
+      if (route.shard === 0) { await confirmShard0(route, payer, pw, err, btn); return }
+      await confirmClassic(route, payer, pw, err, btn)
+    }
+    async function confirmShard0 (route, payer, pw, err, btn) {
+      if (!payer.evm) { if (err) err.textContent = TC('payUnlock'); return }
+      if (st.payReview && st.payReview.to === route.to && st.payReview.amount === route.amount && st.payReview.file === payer.filename) {
+        const ack = $('payAck')
+        if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
+        if (!pw) { if (err) err.textContent = TC('errPw'); return }
+        const token = st.payReview.token
+        st.payReview = null
+        if ($('remitPw')) $('remitPw').value = ''
+        if (btn) btn.disabled = true
+        if (err) SD.spin(err, TC('sending'))
+        let res
+        try { res = await api.invoke('s0:send', { token: token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
+        finishShard0(res, route, payer, err, btn)
+        return
+      }
+      if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
+      st.payReview = null
+      if (btn) btn.disabled = true
+      if (err) SD.spin(err, TC('checkingAddr'))
+      let chk
+      try { chk = await api.invoke('s0:checkAddress', payer.evm, route.to, 'SCDO') } catch (e) { chk = { ok: false, errors: ['FORMAT'] } }
+      if (!$('btnRemitSign')) return
+      if (!chk.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[chk.errors[0]] || 'errAddr'); return }
+      if (chk.address) { s.to = chk.address; const inp = $('payTo'); if (inp) inp.value = chk.address; route.to = chk.address }
+      if (err) SD.spin(err, TC('preparingReview'))
+      let rev
+      try { rev = await api.invoke('s0:review', { file: payer.filename, to: chk.address, amount: route.amount, asset: 'SCDO' }) } catch (e) { rev = { ok: false, error: e.message } }
+      if (!$('btnRemitSign')) { if (rev && rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
+      if (rev.check && !rev.check.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[rev.check.errors[0]] || 'errAddr'); if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
+      if (!rev.ok) {
+        if (btn) btn.disabled = false
+        if (err) err.textContent = rev.errors && rev.errors.length ? TC(SEND_ERR[rev.errors[0]] || 'errAmount') : (SEND_ERR[rev.error] ? TC(SEND_ERR[rev.error]) : TC('errReview', { e: rev.error || '?' }))
+        return
+      }
+      const warns = ((rev.check && rev.check.warnings) || []).filter(w => ADDR_WARN[w])
+      if (warns.length) {
+        st.payReview = { token: rev.token, to: chk.address, amount: route.amount, file: payer.filename, warns: warns }
+        const extra = $('payExtra')
+        if (extra) SD.html(extra, warns.map(w => `<div class="warnbox">⚠ ${esc(TC(ADDR_WARN[w]))}</div>`).join('') + `<label class="chk" style="display:flex;gap:10px;align-items:center;font-size:19px;margin-top:10px"><input type="checkbox" id="payAck" style="width:22px;height:22px"> ${esc(TC('ackWarnings'))}</label>`)
+        const ack = $('payAck')
+        if (ack) ack.onchange = () => { const b = $('btnRemitSign'); if (b) b.disabled = !ack.checked }
+        if (btn) btn.disabled = true
+        if (err) err.textContent = ''
+        return
+      }
+      if (!pw) { if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+      if ($('remitPw')) $('remitPw').value = ''
+      if (err) SD.spin(err, TC('sending'))
+      let res
+      try { res = await api.invoke('s0:send', { token: rev.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
+      finishShard0(res, route, payer, err, btn)
+    }
+    function finishShard0 (res, route, payer, err, btn) {
+      if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || '')); loadActivity(payer.evm); refreshS0(); return }
+      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash); loadActivity(payer.evm); return }
+      if (err) err.textContent = TC('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? TC(SEND_ERR[res.error]) : String((res && res.error) || 'error'))
+      if (btn) btn.disabled = false
+      loadActivity(payer.evm)
+    }
+    async function confirmClassic (route, payer, pw, err, btn) {
+      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
+      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
+      if (String(payer.pubkey || '').toLowerCase() === route.to.toLowerCase()) { if (err) err.textContent = TC('errSelf'); return }
+      if (!/^\d+(\.\d{1,8})?$/.test(route.amount) || !(Number(route.amount) > 0)) { if (err) err.textContent = TC('errAmount'); return }
+      let gas = s.gas
+      try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
+      const fee = (gas || 21000) / 1e8
+      const bal = st.old[payer.pubkey]
+      if (bal != null && Number(route.amount) + fee > bal) { if (err) err.textContent = TC('errTooMuch'); return }
+      if (!pw) { if (err) err.textContent = TC('errPw'); return }
+      if ($('remitPw')) $('remitPw').value = ''
+      if (btn) btn.disabled = true
+      if (err) SD.spin(err, TC('sending'))
+      let res
+      try { res = await api.invoke('old:send', { file: payer.filename, password: pw, to: route.to, amount: route.amount, price: 1, gas: gas || 21000 }) } catch (e) { res = { ok: false, error: e.message } }
+      if (!$('payRoute')) return
+      if (!res || !res.ok) {
+        const em = String((res && res.error) || 'error')
+        if (err) err.textContent = em === 'WRONG_PASSWORD' ? TC('wrongPw') : em
+        if (btn) btn.disabled = false
+        return
+      }
+      showDone(TC('sentOld') + ' ' + (res.hash || ''))
+      refreshOld()
+    }
+  }
+  function payShowLedger () {
+    const box = $('payExtra')
+    if (!box) return false
+    SD.html(box, `<div class="ok" id="remitStatus" style="font-size:20px;font-weight:700">${esc((window.I18N112.CN && window.I18N112.CN.remitIn) || '')}</div>
+      <div class="mono" id="remitAddr">${esc(st.remit.address || '')}</div>
+      <div id="remitLedger">${remitLedgerHtml(st.remit.ledger)}</div>`)
+    const stEl = $('payStatus'); if (stEl) stEl.textContent = ''
+    return true
   }
 
   // ----- create / import -----
@@ -1634,15 +1729,14 @@
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine' && st.tab !== 'remit') setTab('new'); render(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine') setTab('new'); render(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
-      case 'send': sendModal(f); break
-      case 'sendOld': sendOldModal(f); break
+      case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'create': createModal(); break
       case 'import': if ($('md')) SD.clear($('modalRoot')); importKeyfiles(); break
       case 'unlock': unlock(f, el.getAttribute('data-in')); break
@@ -1708,9 +1802,9 @@
       localStorage.setItem('mineThreads112', String(t.value))
       return
     }
-    const half = t.id === 'mClassic-in' || t.id === 'mReward-in' || t.id === 'nPayout-in' || t.id === 'sTo' || t.id === 'sAmt' || t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads' || t.id === 'cPriv'
+    const half = t.id === 'mClassic-in' || t.id === 'mReward-in' || t.id === 'nPayout-in' || t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads' || t.id === 'cPriv'
     if (!half) return
-    const next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    const next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
     if (next !== t.value) {
       const pos = t.selectionStart
       t.value = next
@@ -1725,7 +1819,7 @@
   })
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
-  function openRemittance () { if ($('md')) SD.clear($('modalRoot')); setTab('remit'); render() }
+  function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
   api.on('menu:action', (a) => { if (a === 'create') createModal(); else if (a === 'import') importKeyfiles(); else if (a === 'settings') settingsModal(); else if (a === 'remit') openRemittance() })
 
   // ---------------- 1.1.6 auto-update events ----------------
@@ -1811,7 +1905,8 @@
       classicGpu: gpu ? { running: !!gpu.running, mode: gpu.mode, shard: gpu.shard, wallet: gpu.wallet, localBlock: gpu.localBlock, networkBlock: gpu.networkBlock, heightAgeMs: slot && slot.at ? Date.now() - slot.at : 0, code: gpu.code } : null,
       shard0: { running: !!s0.running, code: s0.code, peers: s0.peers, mode: s0.mode, wallet: s0.wallet, peerAgeMs: st.catH.peersAt ? Date.now() - st.catH.peersAt : 0 },
       mem: st.mem,
-      balances: catBalances()
+      balances: catBalances(),
+      payees: allPayees()
     }, extra || {})
   }
   function renderCat () {
@@ -1895,8 +1990,7 @@
     }
     if (action.type === 'prefill') {
       if (!action.file) return { fail: '請先選擇帳戶。' }
-      if (action.chain === 'classic') sendOldModal(action.file, { to: action.to || '', amount: action.amount || '' })
-      else sendModal(action.file, { to: action.to || '', amount: action.amount || '' })
+      payModal(action.file, { to: action.to || '', amount: action.amount || '' })
       return { ok: true }
     }
     if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }

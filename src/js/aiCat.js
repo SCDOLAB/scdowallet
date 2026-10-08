@@ -192,13 +192,15 @@ function refuseSecret () {
 function parseTransfer (text) {
   const q = clean(text)
   let amount = ''
+  let unit = ''
   let who = ''
-  const a = q.match(/(?:匯款|匯|轉帳|轉|傳送)\s*([0-9]+(?:\.[0-9]{1,8})?)\s*(?:個|枚)?\s*(?:SCDO)?\s*(?:給|到|至)\s*(.+)$/i)
-  const b = q.match(/(?:給|到|至)\s*(.+?)\s*(?:匯款|匯|轉帳|轉|傳送)\s*([0-9]+(?:\.[0-9]{1,8})?)\s*(?:個|枚)?\s*(?:SCDO)?$/i)
-  if (a) { amount = a[1]; who = a[2] } else if (b) { who = b[1]; amount = b[2] } else return null
+  const unitRe = '(美金|美元|台幣|臺幣|港幣|人民幣|USDT|USD|TWD|HKD|CNY|NTD|AUD|元)?'
+  const a = q.match(new RegExp('(?:匯款|匯|轉帳|轉|傳送)\\s*([0-9]+(?:\\.[0-9]{1,8})?)\\s*' + unitRe + '\\s*(?:個|枚)?\\s*(?:SCDO)?\\s*(?:給|到|至)\\s*(.+)$', 'i'))
+  const b = q.match(new RegExp('(?:給|到|至)\\s*(.+?)\\s*(?:匯款|匯|轉帳|轉|傳送)\\s*([0-9]+(?:\\.[0-9]{1,8})?)\\s*' + unitRe + '\\s*(?:個|枚)?\\s*(?:SCDO)?$', 'i'))
+  if (a) { amount = a[1]; unit = a[2] || ''; who = a[3] } else if (b) { who = b[1]; amount = b[2]; unit = b[3] || '' } else return null
   who = String(who || '').trim()
   if (!who || !(Number(amount) > 0)) return null
-  return { amount: amount, who: who }
+  return { amount: amount + unit, who: who }
 }
 
 function resolvePayee (who, ctx) {
@@ -214,7 +216,12 @@ function resolvePayee (who, ctx) {
   }
   const exact = accounts.filter(a => a.label === q)
   const hits = exact.length ? exact : accounts.filter(a => a.label && q && a.label.indexOf(q) >= 0)
-  if (!hits.length) return null
+  if (!hits.length) {
+    const payees = Array.isArray(ctx && ctx.payees) ? ctx.payees : []
+    const named = payees.filter(p => p && clean(p.name || '') === q)
+    if (named.length) return { to: named[0].name, label: named[0].name, remit: true }
+    return { to: q, label: q, remit: true }
+  }
   if (hits.length > 1) return { many: hits.map(a => a.label) }
   const a = hits[0]
   if (a.address && Number(a.shard) >= 1) return { chain: 'classic', to: a.address, file: a.file, shard: Number(a.shard), label: a.label }
@@ -229,11 +236,14 @@ function planTransfer (text, ctx) {
   if (pay && pay.many) {
     return { say: '找到不只一個「' + pay.many.join('、') + '」。請說出完整名稱或地址。小貓不會送出。', actions: [] }
   }
-  if (!pay) return { say: '找不到「' + parsed.who + '」。請說出帳戶名稱或地址。小貓不會送出。', actions: [] }
-  if (!pay.file) return { say: '已讀到金額和地址，但還沒有對應的付款帳戶。請先選擇帳戶。小貓不會送出。', actions: [] }
+  const file = (ctx && ctx.selectedFile) || (pay && pay.file) || ''
+  if (!file) return { say: '請先選擇帳戶。小貓不會送出。', actions: [] }
+  const to = pay && pay.to ? pay.to : parsed.who
+  const label = pay && pay.label ? pay.label : parsed.who
+  const chain = pay && pay.chain ? pay.chain : 'remit'
   return {
-    say: '已把「匯 ' + parsed.amount + ' SCDO 給 ' + pay.label + '」填進表單。請你自己核對，再按確認。小貓不會簽名，也不會把錢送出。',
-    actions: [{ type: 'prefill', chain: pay.chain, file: pay.file, to: pay.to, amount: parsed.amount }]
+    say: '已把「匯 ' + parsed.amount + ' 給 ' + label + '」填進匯款表單。請你自己核對路線，再按確認。小貓不會簽名，也不會把錢送出。',
+    actions: [{ type: 'prefill', chain: chain, file: file, to: to, amount: parsed.amount }]
   }
 }
 
