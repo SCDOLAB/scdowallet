@@ -13,6 +13,7 @@ function isFiatAmount (s) {
   if (/USDT|USD|TWD|HKD|CNY|NTD|AUD/i.test(t)) return true
   if (/NT\$|HK\$|US\$|\$/.test(t)) return true
   if (/美金|美元|台幣|臺幣|港幣|人民幣|元/.test(t)) return true
+  if (/dollars?\b/i.test(t)) return true
   return false
 }
 
@@ -38,6 +39,7 @@ function chainLine (shard, fee) {
 }
 
 function gateLine (eta) {
+  if (useEnglish()) return 'Remittance · arrives in about ' + (eta || '…')
   return '匯款 · 到帳約 ' + (eta || '…')
 }
 

@@ -1565,12 +1565,7 @@
     saveUi()
   }
   function payModal (f, prefill) {
-    const TC = (k, p) => {
-      let s = (window.I18N112.CN || {})[k]
-      if (s == null) s = k
-      if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
-      return s
-    }
+    const TC = (k, p) => T(k, p)
     const opened = accByFile(f) || headerAccount()
     if (!opened) {
       modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
@@ -1642,7 +1637,7 @@
       route = route || currentRoute()
       const line = $('payRoute')
       if (line) {
-        const text = route.many ? TC('payMany', { n: route.many.join('、') }) : (route.line || TC('payRouteWait'))
+        const text = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : (route.line || TC('payRouteWait'))
         if (line.textContent !== text) line.textContent = text
         line.classList.add('explain')
         line.tabIndex = 0
@@ -1754,7 +1749,7 @@
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
       const route = paint()
       if (route.kind !== 'chain' && route.kind !== 'gateway') {
-        if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join('、') }) : TC('payNeed')
+        if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
         return
       }
       const payer = chosenPayer(route)
@@ -1864,7 +1859,7 @@
   function payShowLedger () {
     const box = $('payExtra')
     if (!box) return false
-    SD.html(box, `<div class="ok" id="remitStatus" style="font-size:20px;font-weight:700">${esc((window.I18N112.CN && window.I18N112.CN.remitIn) || '')}</div>
+    SD.html(box, `<div class="ok" id="remitStatus" style="font-size:20px;font-weight:700">${esc(T('remitIn'))}</div>
       <div class="mono" id="remitAddr">${esc(st.remit.address || '')}</div>
       <div id="remitLedger">${remitLedgerHtml(st.remit.ledger)}</div>`)
     const stEl = $('payStatus'); if (stEl) stEl.textContent = ''

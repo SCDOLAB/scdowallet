@@ -103,4 +103,49 @@ assert.ok(!run.includes('s0:send'))
 assert.ok(!run.includes('old:send'))
 assert.ok(fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8').includes('remitRoute.js'))
 
+// English mode: route lines, fiat words, and the EN text of the merged Send form carry no Chinese.
+const CJK = /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]/
+global.window = { SCDOMining: { lang: 'EN' } }
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, 'On-chain transfer · Main chain · fee about …')
+assert.strictEqual(route.routePay({ to: CLASSIC, amount: '2', accounts: accounts, feeText: '0.00021 SCDO' }).line, 'On-chain transfer · Shard1 · fee about 0.00021 SCDO')
+const enGate = route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts })
+assert.strictEqual(enGate.kind, 'gateway')
+assert.strictEqual(enGate.line, 'Remittance · arrives in about …')
+assert.strictEqual(route.routePay({ to: 'Mum', amount: '100 dollars', accounts: accounts }).kind, 'gateway')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1 dollar', accounts: accounts }).kind, 'gateway')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '20 AUD', accounts: accounts }).kind, 'gateway')
+assert.strictEqual(route.routePay({ to: '媽媽', amount: '8 美金', accounts: accounts }).kind, 'gateway')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '3', accounts: accounts }).kind, 'chain')
+global.window.SCDOMining.lang = 'CN'
+assert.strictEqual(route.routePay({ to: ADDR, amount: '100 USD', accounts: accounts }).line, '匯款 · 到帳約 …')
+assert.strictEqual(route.routePay({ to: ADDR, amount: '1.5', accounts: accounts }).line, '鏈上轉帳 · 主鏈 · 手續費約 …')
+delete global.window
+
+const vm = require('vm')
+const i18nBox = { window: {} }
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8'), i18nBox)
+const EN = i18nBox.window.I18N112.EN
+const CN = i18nBox.window.I18N112.CN
+const enPayKeys = Object.keys(EN).filter(k => /^(pay|remit)/.test(k) || k === 'tabRemit')
+assert.ok(enPayKeys.length >= 40, 'EN pay/remit keys: ' + enPayKeys.length)
+for (const k of enPayKeys) {
+  assert.strictEqual(typeof EN[k], 'string', k)
+  assert.ok(!CJK.test(EN[k]), 'EN ' + k + ' has Chinese: ' + EN[k])
+}
+for (const k of ['tabRemit', 'remitTitle', 'payTitle']) assert.strictEqual(EN[k], 'Send', k)
+assert.strictEqual(EN.payGo, 'Confirm and send')
+assert.ok(!/kyc|no signup/i.test(EN.remitZeroEn))
+const notes300 = EN.relNotes.find(n => n.v === '3.0.0').items.join(' ')
+assert.ok(!notes300.includes('匯款'), 'EN 3.0.0 notes still say 匯款')
+for (const k of ['tabRemit', 'remitTitle', 'payTitle']) assert.strictEqual(CN[k], '匯款', 'CN ' + k)
+assert.strictEqual(CN.payGo, '確認匯款')
+const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
+const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
+const menuCn = menuSrc.slice(menuSrc.indexOf('  CN: {'))
+assert.ok(menuEn.includes("remit: 'Send'"))
+assert.ok(!CJK.test(menuEn.replace(/\/\/.*$/gm, '')), 'menu EN has Chinese')
+assert.ok(menuCn.includes("remit: '匯款'"))
+const payFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
+assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
+
 console.log('remit-route: ok')

@@ -20,7 +20,7 @@ const LABELS = {
     refresh: 'Refresh',
     view: 'View',
     settings: 'Settings / Network Info',
-    remit: '匯款 Remittance',
+    remit: 'Send',
     help: 'Help',
     learnMore: 'Learn More'
   },
