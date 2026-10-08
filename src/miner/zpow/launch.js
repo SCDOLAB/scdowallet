@@ -4,6 +4,7 @@
 // so it can flush its database before a force-kill.
 'use strict'
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { spawn, execFile } = require('child_process')
 
@@ -74,6 +75,14 @@ function externalProfile (env) {
 const ZMINER_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-threads', '{threads}']
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
+function relaxMinerPriority (proc) {
+  if (!proc || proc.pid == null) return
+  try {
+    const level = process.platform === 'win32' ? os.constants.priority.PRIORITY_BELOW_NORMAL : 5
+    os.setPriority(proc.pid, level)
+  } catch (e) {}
+}
+
 function spawnMiner (spec) {
   const cwd = spec.cwd || path.dirname(spec.binary)
   const proc = spawn(spec.binary, spec.args, {
@@ -82,6 +91,7 @@ function spawnMiner (spec) {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: spec.env || process.env
   })
+  relaxMinerPriority(proc)
   return proc
 }
 

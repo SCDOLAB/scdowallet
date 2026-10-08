@@ -17,7 +17,7 @@
           h('span', { text: M.L('Vendor: ') + g.vendor }),
           h('span', { class: 'explain', tabindex: '0', 'data-tip-name': M.L('Graphics memory '), 'data-tip-value': (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')), 'data-tip-explain': M.L('This is the memory on the graphics card. Mining needs at least 4 GB. A bigger number can handle mining more comfortably.'), text: (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')) }),
           h('span', { text: M.L('Driver: ') + (g.driverVersion || M.L('not detected')) }),
-          h('span', { text: M.L('CUDA: ') + (g.cuda ? M.L('yes') : M.L('no')) })),
+          h('span', { text: g.cuda ? M.L('This graphics card can be used for mining') : M.L('This graphics card cannot be used for mining') })),
         h('ul', { class: 'm1-reasons' }, (g.reasons || []).map(r => h('li', { text: M.reason(r) })))))
     }
     card.appendChild(h('div', { class: 'lbl', text: M.L('Checked ') + new Date(pre.checkedAt || Date.now()).toLocaleString(M.locale()) + M.L('. Minimum: an NVIDIA graphics card, a CUDA driver, and 4 GB of graphics memory.') }))

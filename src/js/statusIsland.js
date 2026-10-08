@@ -151,10 +151,11 @@ function syncSentence (sync, chain, tr) {
   return tr('isleSyncPct', { chain: chain, pct: pct })
 }
 
-function speedChip (chain, dev, hash, tr) {
+function speedChip (chain, dev, hash, tr, key) {
   const speed = attemptWords(hash, tr)
   const text = tr('isleSpeed', { chain: chain, dev: dev, speed: speed.text })
   return {
+    key: key,
     kind: 'rate',
     text: text,
     live: true,
@@ -195,9 +196,11 @@ function peersOf (m) {
 function legendItems (tr) {
   return [
     { name: tr('isleLegSyncName'), text: tr('isleLegSync') },
+    { name: tr('isleLegEtaName'), text: tr('isleLegEta') },
     { name: tr('isleLegSpeedName'), text: tr('isleLegSpeed') },
     { name: tr('isleLegTempName'), text: tr('isleLegTemp') },
     { name: tr('isleLegEarnName'), text: tr('isleLegEarn') },
+    { name: tr('isleLegTotalName'), text: tr('isleLegTotal') },
     { name: tr('isleLegPeerName'), text: tr('isleLegPeer') },
     { name: tr('isleLegBalName'), text: tr('isleLegBal') },
     { name: tr('isleLegWaitName'), text: tr('isleLegWait') }
@@ -219,6 +222,7 @@ function buildIsland (opts) {
       const sentence = sync.kind === 'off' ? tr('isleSyncUnknown', { chain: chain }) : syncSentence(sync, chain, tr)
       const pct = syncPct(sync)
       row.push({
+        key: 's' + n + '-sync',
         kind: 'sync',
         text: sentence,
         progress: syncProgress(sync),
@@ -230,15 +234,17 @@ function buildIsland (opts) {
       const when = (!far && sync.etaSec != null) ? (durationWords(sync.etaSec, tr) || tr('isleEtaCalc')) : tr('isleEtaCalc')
       const text = tr('isleEtaLeft', { chain: chain, when: when })
       row.push({
+        key: 's' + n + '-eta',
         kind: 'eta',
         text: text,
         progress: syncProgress(sync),
-        tip: tipOf(chain + ' ' + tr('isleEtaCalc'), when, tr('isleTipEtaExplain'), heightDetail(sync, tr))
+        tip: tipOf(tr('isleEtaName', { chain: chain }), when, tr('isleTipEtaExplain'), heightDetail(sync, tr))
       })
     }
     if (gpuWaiting) {
       const text = tr('isleWaitMine', { chain: chain })
       row.push({
+        key: 's' + n + '-wait',
         kind: 'idle',
         text: text,
         tip: tipOf(chain, tr('isleGpuIdle'), tr('isleTipWaitExplain'), heightDetail(sync, tr))
@@ -246,19 +252,20 @@ function buildIsland (opts) {
     }
     if (src.node && src.node.running && src.node.mode === 'node') {
       const text = tr('isleNodeOnly', { chain: chain })
-      row.push({ kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipNodeExplain'), '') })
+      row.push({ key: 's' + n + '-node', kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipNodeExplain'), '') })
     }
-    if (gpu && miningNow(gpu)) row.push(speedChip(chain, tr('isleDevGpu'), gpu.hashrate, tr))
-    if (src.cpu && miningNow(src.cpu)) row.push(speedChip(chain, tr('isleDevCpu'), src.cpu.hashrate, tr))
+    if (gpu && miningNow(gpu)) row.push(speedChip(chain, tr('isleDevGpu'), gpu.hashrate, tr, 's' + n + '-gpu'))
+    if (src.cpu && miningNow(src.cpu)) row.push(speedChip(chain, tr('isleDevCpu'), src.cpu.hashrate, tr, 's' + n + '-cpu'))
     if (sync.kind === 'pool' && !(src.cpu && miningNow(src.cpu))) {
       const text = tr('islePoolMine', { chain: chain })
-      row.push({ kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipPoolExplain'), '') })
+      row.push({ key: 's' + n + '-pool', kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipPoolExplain'), '') })
     }
     const peerSource = gpu || src.cpu || (src.node && src.node.running ? src.node : null) || src.syncFrom
     const peers = peersOf(peerSource)
     if (peers != null) {
       const text = tr('islePeers', { chain: chain, n: peers })
       row.push({
+        key: 's' + n + '-peers',
         kind: 'idle',
         text: text,
         tip: tipOf(tr('isleLegPeerName'), tr('islePeerCount', { n: peers }), tr('isleTipPeerExplain'), tr('isleTipPeerDetail', { n: peers }))
@@ -282,7 +289,7 @@ function buildIsland (opts) {
   const chips = []
   views.forEach(s => { s.rowChips.forEach(c => chips.push(c)) })
   if (!anyMining) {
-    chips.push({ kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
+    chips.push({ key: 'not-mining', kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
   }
   const gpuTemps = (opts.temps || []).map(t => ({ name: gpuLabel(t && t.name), tempC: num(t && t.tempC) })).filter(t => t.tempC != null)
   const tempC = gpuTemps.length ? Math.max.apply(null, gpuTemps.map(t => t.tempC)) : null
@@ -294,7 +301,7 @@ function buildIsland (opts) {
   const balanceName = opts.balanceName || ''
   const money = []
   if (!gpuTemps.length) {
-    money.push({ kind: 'idle', text: tr('isleNoTemp'), tip: tipOf(tr('isleLegTempName'), tr('isleNoTemp'), tr('isleTipNoTempExplain'), '') })
+    money.push({ key: 'temp-none', kind: 'idle', text: tr('isleNoTemp'), tip: tipOf(tr('isleLegTempName'), tr('isleNoTemp'), tr('isleTipNoTempExplain'), '') })
   } else {
     gpuTemps.forEach((g, i) => {
       const gBand = tempBand(g.tempC)
@@ -304,6 +311,7 @@ function buildIsland (opts) {
         : tr('isleTempOne', { n: g.tempC, state: state })
       const detail = g.name ? tr('isleTipTempDetail', { name: g.name }) : ''
       money.push({
+        key: 'temp-' + i,
         kind: 'temp',
         text: text,
         band: gBand,
@@ -312,17 +320,20 @@ function buildIsland (opts) {
     })
   }
   money.push({
+    key: 'earn-today',
     kind: 'earn',
     text: tr('isleEarnedToday', { s: earn.todayScdo }),
     tip: tipOf(tr('isleLegEarnName'), earn.todayScdo + ' SCDO', tr('isleTipEarnExplain'), tr('isleTipEarnDetail', { b: earn.todayBlocks, r: reward }))
   })
   money.push({
+    key: 'earn-total',
     kind: 'earn',
     text: tr('isleEarnedTotal', { s: earn.totalScdo }),
-    tip: tipOf(tr('isleEarnedTotal', { s: '' }).trim(), earn.totalScdo + ' SCDO', tr('isleTipTotalExplain'), tr('isleTipTotalDetail', { b: earn.totalBlocks, r: reward }))
+    tip: tipOf(tr('isleTotalName'), earn.totalScdo + ' SCDO', tr('isleTipTotalExplain'), tr('isleTipTotalDetail', { b: earn.totalBlocks, r: reward }))
   })
   if (balanceText) {
     money.push({
+      key: 'bal',
       kind: 'bal',
       text: tr('isleAcctBal', { text: balanceText }),
       mark: balanceMark,

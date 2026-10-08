@@ -14,6 +14,14 @@ const { spawn, execFile } = require('child_process')
 const { EventEmitter } = require('events')
 const { evaluateGpu, parseNvidiaSmi, parseVideoControllerOutput, miningGpuReady, rigelDeviceArgs } = require('./gpuSelect')
 
+function relaxMinerPriority (proc) {
+  if (!proc || proc.pid == null) return
+  try {
+    const level = process.platform === 'win32' ? os.constants.priority.PRIORITY_BELOW_NORMAL : 5
+    os.setPriority(proc.pid, level)
+  } catch (e) {}
+}
+
 const RIGEL = {
   version: '1.23.2',
   win32: { file: 'rigel-1.23.2-win.zip', sha256: '0a35d37504e2595f2cd9bb25ae69eae39625be6f0ebbdbaf7427d4c381a7fd79', dir: 'rigel-1.23.2-win', exe: 'rigel.exe' },
@@ -350,8 +358,11 @@ class MinerManager extends EventEmitter {
   }
 
   // ---------- processes ----------
+  // Miners sit below the wallet so a background window is not frozen behind them.
+  // Windows: BELOW_NORMAL. macOS and Linux: nice +5.
   spawnChild (name, cmd, args) {
     const p = spawn(cmd, args, { cwd: this.o.dataRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    if (name === 'rigel') relaxMinerPriority(p)
     this.procs[name] = p
     const lf = path.join(this.logDir, name + '.log')
     rotateIfBig(lf)

@@ -575,12 +575,13 @@
     h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
-      h += `<div class="lbl">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}（HTTP ${esc(pool.statsPort)}）</div>`
+      h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="${esc(T('poolHttpDetail', { n: pool.statsPort }))}">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
       if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
     }
     if (backend === 'cpu') {
       const threads = threadCount(); const max = cpuCount()
-      h += `<div class="field"><div class="lbl explain" tabindex="0" data-tip-name="${esc(T('cpuThreads'))}" data-tip-value="${esc(threads + ' / ' + max)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(T('cpuThreads'))}${PU.c()}<b id="mThreadsVal">${threads}</b> / ${max}</div>
+      const cores = T('cpuCoresLine', { n: threads, max: max })
+      h += `<div class="field"><div class="lbl explain" id="mThreadsLab" tabindex="0" data-tip-name="${esc(T('cpuCoresName'))}" data-tip-value="${esc(cores)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(cores)}</div>
         <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
         <div class="lbl">${esc(T('cpuThreadsHint'))}</div>`
     } else if (backend === 'gpu') {
@@ -883,15 +884,10 @@
     }
     return x
   }
-  function shortAcc (name) {
-    const chars = [...String(name || '').trim()]
-    if (chars.length <= 8) return chars.join('')
-    return chars.slice(0, 8).join('') + '…'
-  }
   function headerBalanceText () {
     const a = headerAccount()
     if (!a) return T('noAccount')
-    const name = shortAcc(accLabel(a))
+    const name = String(accLabel(a) || '').trim()
     let amt
     if (headerChain() === 'old') {
       const v = st.old[a.pubkey]
@@ -962,6 +958,7 @@
   }
   function chipEl (c) {
     const el = document.createElement('span')
+    el.setAttribute('data-key', c.key || c.kind)
     el.className = chipClass(c)
     if (c.kind === 'sync' || c.kind === 'eta') el.style.setProperty('--sync', String(c.progress || 0))
     if (c.kind === 'sync') {
@@ -1003,50 +1000,71 @@
     const bar = el.querySelector('.isle-bar')
     if (bar) bar.style.width = Math.round((c.progress || 0) * 100) + '%'
   }
+  function syncChip (el, c) {
+    applyChipFace(el, c)
+    let bar = el.querySelector('.isle-bar')
+    if (c.kind === 'sync') {
+      if (!bar) {
+        bar = document.createElement('i')
+        bar.className = 'isle-bar'
+        el.insertBefore(bar, el.firstChild)
+      }
+      bar.style.width = Math.round((c.progress || 0) * 100) + '%'
+    } else if (bar) bar.remove()
+    let spin = el.querySelector('.isle-spin')
+    if (c.live) {
+      if (!spin) {
+        spin = document.createElement('span')
+        spin.className = 'isle-spin'
+        spin.setAttribute('aria-hidden', 'true')
+        spin.textContent = '\u26CF'
+        const val = el.querySelector('.isle-val')
+        el.insertBefore(spin, val || null)
+      }
+    } else if (spin) spin.remove()
+    const val = el.querySelector('.isle-val')
+    let av = el.querySelector('.isle-av')
+    if (c.mark) {
+      if (!av) {
+        av = document.createElement('span')
+        av.className = 'isle-av'
+        el.insertBefore(av, val || null)
+      }
+      paintAvatar(av, c)
+    } else if (av) av.remove()
+    armChip(el, c)
+    if (val && val.textContent !== c.text) {
+      val.textContent = c.text
+      el.classList.remove('isle-tick')
+      void el.offsetWidth
+      el.classList.add('isle-tick')
+    }
+    const pop = $('islePop')
+    if (islePopAnchor === el && pop && !pop.hidden && c.tip) {
+      fillIslePop(c.tip)
+      placeIslePop(el)
+    }
+  }
   function paintChipRow (host, chips) {
     const list = chips || []
-    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || '', c.name || '', c.tip ? (c.tip.value + '\t' + c.tip.detail) : ''].join('\t')).join('\n')
-    const prev = (host.getAttribute('data-sig') || '').split('\n').filter(Boolean)
-    const same = prev.length === list.length && host.childElementCount === list.length && list.every((c, i) => prev[i].startsWith(c.kind + '\t'))
-    if (same && host.getAttribute('data-sig') === sig) {
-      list.forEach((c, i) => {
-        if (c.kind !== 'sync' && c.kind !== 'eta') return
-        const el = host.children[i]
-        el.style.setProperty('--sync', String(c.progress || 0))
-        const bar = el.querySelector('.isle-bar')
-        if (bar) bar.style.width = Math.round((c.progress || 0) * 100) + '%'
-      })
-      return
+    const have = {}
+    for (const el of host.children) {
+      const k = el.getAttribute('data-key')
+      if (k && !have[k]) have[k] = el
     }
-    if (same) {
-      list.forEach((c, i) => {
-        const el = host.children[i]
-        const val = el.querySelector('.isle-val')
-        const oldText = prev[i].split('\t')[1]
-        applyChipFace(el, c)
-        let av = el.querySelector('.isle-av')
-        if (c.mark) {
-          if (!av) {
-            av = document.createElement('span')
-            av.className = 'isle-av'
-            el.insertBefore(av, val || null)
-          }
-          paintAvatar(av, c)
-        } else if (av) av.remove()
-        armChip(el, c)
-        if (val && oldText !== c.text) {
-          val.textContent = c.text
-          el.classList.remove('isle-tick')
-          void el.offsetWidth
-          el.classList.add('isle-tick')
-        }
-      })
-      host.setAttribute('data-sig', sig)
-      return
+    const keep = {}
+    list.forEach(c => {
+      const key = c.key || c.kind
+      keep[key] = true
+      let el = have[key]
+      if (!el) el = chipEl(c)
+      else syncChip(el, c)
+      host.appendChild(el)
+    })
+    for (const el of [...host.children]) {
+      if (!keep[el.getAttribute('data-key')]) el.remove()
     }
-    host.textContent = ''
-    list.forEach(c => host.appendChild(chipEl(c)))
-    host.setAttribute('data-sig', sig)
+    if (islePopAnchor && !islePopAnchor.isConnected) closeIslePop(true)
   }
   function ensureLine (compact, id, className) {
     let line = compact.querySelector('#' + id)
@@ -2322,7 +2340,9 @@
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
     if (t.id === 'mThreads') {
-      const lab = $('mThreadsVal'); if (lab) lab.textContent = String(t.value)
+      const lab = $('mThreadsLab')
+      const cores = T('cpuCoresLine', { n: t.value, max: t.max })
+      if (lab) { lab.textContent = cores; lab.setAttribute('data-tip-value', cores) }
       localStorage.setItem('mineThreads112', String(t.value))
       return
     }
