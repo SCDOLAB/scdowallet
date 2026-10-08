@@ -9,7 +9,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 const INVOKE = Object.freeze([
   // app / shell
-  'app:info', 'app:titles', 'app:updatedSeen', 'shell:openExternal', 'menu:rebuild',
+  'app:info', 'app:mem', 'app:titles', 'app:updatedSeen', 'shell:openExternal', 'menu:rebuild',
   // wallet (main-process wallet service: keyfiles, balances, signing)
   'wallet:boot', 'wallet:accounts', 'wallet:saveUi', 'wallet:setLang',
   'acct:create', 'acct:unlock', 'acct:import',

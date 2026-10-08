@@ -106,7 +106,8 @@
     mineShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('mineShard112'))) ? Number(localStorage.getItem('mineShard112')) : 0,
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [],
-    remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' } // 2.0.12 匯款 (token stays in the main process)
+    remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -1024,9 +1025,9 @@
   const ADDR_ERR = { FORMAT: 'errAddr', CHECKSUM: 'errChecksum', CLASSIC_ADDR: 'errOldAddrToNew', ZERO_ADDR: 'errZeroAddr' }
   const ADDR_WARN = { SELF: 'warnSelf', CONTRACT: 'warnContract', TOKEN_CONTRACT: 'warnTokenContract', NO_CHECKSUM: 'warnNoChecksum', CONTRACT_UNKNOWN: 'warnContractUnknown' }
   const SEND_ERR = { INSUFFICIENT: 'errTooMuch', NO_FEE_BALANCE: 'errNoFeeBal', WRONG_PASSWORD: 'wrongPw', REVIEW_EXPIRED: 'errReviewExpired', WRONG_CHAIN: 'errWrongChain', BAD_AMOUNT: 'errAmount', ADDRESS_CHANGED: 'errAddr', NO_PASSWORD: 'errPw', NONCE_BUSY: 'errNonceBusy', NETWORK: 'errNetwork', BROADCAST_TIMEOUT: 'errBcastTimeout', NONCE_READ: 'errNetwork', REPLACED: 'errReplaced' }
-  function sendModal (f) {
+  function sendModal (f, prefill) {
     const a = accByFile(f); if (!a || !a.evm) return
-    const s = { asset: 'SCDO', to: '', amount: '', fee: null, check: null, review: null }
+    const s = { asset: 'SCDO', to: prefill && prefill.to ? String(prefill.to) : '', amount: prefill && prefill.amount ? String(prefill.amount) : '', fee: null, check: null, review: null }
     api.invoke('s0:balances', a.evm).then(r => { st.s0[a.filename] = balFromIpc(r) }).catch(() => {}) // 2.0.2 D-07: fresh balance for 'Available' when the modal opens
     const dec = () => { if (s.asset === 'SCDO') return 18; const t = (S0CFG.tokens || []).find(x => x.symbol === s.asset); return t ? t.decimals : 18 }
     const bal = () => { const b = st.s0[a.filename] || {}; if (s.asset === 'SCDO') return { wei: b.nativeWei, dec: 18 }; const t = (b.tokens || []).find(x => x.symbol === s.asset); return { raw: t && t.raw, dec: t ? t.decimals : dec(), t } }
@@ -1151,9 +1152,9 @@
   }
 
   // ----- send on a Classic shard (same shard only), same stepped pattern -----
-  function sendOldModal (f) {
+  function sendOldModal (f, prefill) {
     const a = accByFile(f); if (!a) return
-    const s = { to: '', amount: '', gas: null, price: 1 }
+    const s = { to: prefill && prefill.to ? String(prefill.to) : '', amount: prefill && prefill.amount ? String(prefill.amount) : '', gas: null, price: 1 }
     const head = (i) => `<div class="mh"><h2>${esc(T('sendOldTitle', { n: a.shard }))}</h2>${stepsHtml(i)}</div>`
     const balV = () => st.old[a.pubkey]
     const feeScdo = () => s.gas == null ? null : s.gas * s.price / 1e8
@@ -1423,6 +1424,8 @@
     modal(`<div class="mh"><h2>⚙ ${esc(T('settings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
       <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
+      <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
       <div class="setsec"><div class="sh">${esc(T('accounts'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ghost" data-act="toggleHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button>
         <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
@@ -1603,6 +1606,8 @@
     st.miner = viewMiner()
     noteEarn()
     renderIsland()
+    noteCatHeights()
+    catWatch()
     const cur0 = st.miners.shard0
     if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && api.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
@@ -1619,6 +1624,11 @@
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
       case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
+      case 'catOpen': st.catOpen = !st.catOpen; if (st.catOpen && !st.catLog.length && window.SCDOCat) st.catLog.push(window.SCDOCat.reply('', catCtx()).say); renderCat(); break
+      case 'catClose': st.catOpen = false; renderCat(); break
+      case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }
+      case 'catChip': askCat(v); break
+      case 'catEnabled': localStorage.setItem('aiCat112', catOn() ? '0' : '1'); renderCat(); settingsModal(); break
       case 'stopAll': stopAll(); break
       case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
@@ -1711,6 +1721,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; const isle = $('statusIsland'); if (isle && isle.classList.contains('open')) { isle.classList.remove('open'); return } if ($('dd')) closeDd(); else if ($('md')) closeModal() }
     if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.id === 'islandCompact') { ev.preventDefault(); const isle = $('statusIsland'); if (isle) isle.classList.toggle('open') }
+    if (ev.key === 'Enter' && ev.target && ev.target.id === 'aiCatIn') { ev.preventDefault(); askCat(ev.target.value); ev.target.value = '' }
   })
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
@@ -1738,6 +1749,207 @@
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
     renderIsland()
+    catWatch()
+  }
+
+  // AI小貓: local rules only. It may start or restart a miner, and it may open a form.
+  // It never calls s0:send, old:send, remit:login, or s0:review.
+  function catOn () { return localStorage.getItem('aiCat112') !== '0' }
+  function catTemp () {
+    const temps = ((st.gpuTemp && st.gpuTemp.gpus) || []).map(t => Number(t.tempC)).filter(n => Number.isFinite(n))
+    return temps.length ? Math.max.apply(null, temps) : null
+  }
+  function noteCatHeights () {
+    const gpu = st.miners && st.miners.classicGpu
+    if (gpu && gpu.running) {
+      const slot = st.catH.classic || { h: null, at: gpu.startedAt || Date.now() }
+      if (gpu.localBlock != null && gpu.localBlock !== slot.h) { slot.h = gpu.localBlock; slot.at = Date.now() }
+      st.catH.classic = slot
+    }
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    if (s0 && s0.running && (s0.peers === 0 || s0.code === 'NO_PEERS')) {
+      if (!st.catH.peersAt) st.catH.peersAt = s0.startedAt || Date.now()
+    } else st.catH.peersAt = 0
+  }
+  function catBalances () {
+    const a = headerAccount()
+    if (!a) return []
+    if (headerChain() === 'old') {
+      const v = st.old[a.pubkey]
+      return [{ label: accLabel(a), text: (v != null ? fmtNum(v) : '…') + ' SCDO' }]
+    }
+    if (!a.evm) return [{ label: accLabel(a), text: '尚未解鎖' }]
+    const b = st.s0[a.filename]
+    return [{ label: accLabel(a), text: (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO' }]
+  }
+  function catCtx (extra) {
+    const caps = st.caps || {}
+    const accounts = (st.accounts || []).map(a => {
+      const p = parseClassicAddress(a.pubkey)
+      return { label: accLabel(a), file: a.filename, shard: p ? p.shard : Number(a.shard), address: p ? p.address : '', evm: a.evm || '' }
+    })
+    const sel = headerAccount()
+    let shard0Address = ''
+    if (sel && window.SCDOZpow && window.SCDOZpow.ownRewardAddress) shard0Address = window.SCDOZpow.ownRewardAddress(sel) || ''
+    if (!shard0Address) {
+      const evm = (st.accounts || []).find(a => a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm))
+      if (evm) shard0Address = evm.evm
+    }
+    const classic = parseClassicAddress(sel && sel.pubkey)
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = (st.miners && st.miners.shard0) || st.miner || {}
+    const slot = st.catH.classic
+    return Object.assign({
+      now: Date.now(),
+      tempC: catTemp(),
+      gpu: { available: !!(caps.gpu && caps.gpu.available), nvidia: !!(st.gpu && st.gpu.nvidia) },
+      cpu: { available: !!(caps.cpu && caps.cpu.available) },
+      accounts: accounts,
+      preferShard: classic ? classic.shard : 0,
+      shard0Address: shard0Address,
+      selectedFile: sel ? sel.filename : '',
+      classicGpu: gpu ? { running: !!gpu.running, mode: gpu.mode, shard: gpu.shard, wallet: gpu.wallet, localBlock: gpu.localBlock, networkBlock: gpu.networkBlock, heightAgeMs: slot && slot.at ? Date.now() - slot.at : 0, code: gpu.code } : null,
+      shard0: { running: !!s0.running, code: s0.code, peers: s0.peers, mode: s0.mode, wallet: s0.wallet, peerAgeMs: st.catH.peersAt ? Date.now() - st.catH.peersAt : 0 },
+      mem: st.mem,
+      balances: catBalances()
+    }, extra || {})
+  }
+  function renderCat () {
+    const root = $('aiCatRoot')
+    if (!root) return
+    if (!catOn() || !window.SCDOCat) { SD.clear(root); return }
+    if (!$('aiCatBtn')) {
+      SD.html(root, `<button type="button" class="ai-cat-btn" id="aiCatBtn" data-act="catOpen" title="AI小貓" aria-label="AI小貓"><span class="ai-ear l"></span><span class="ai-ear r"></span><span class="ai-face"><span class="ai-eye"></span><span class="ai-eye"></span></span></button>
+        <div class="ai-panel" id="aiCatPanel" hidden>
+          <div class="ai-hd"><b>AI小貓</b><button type="button" class="btn ghost small" data-act="catClose" aria-label="關閉">✕</button></div>
+          <div class="ai-log" id="aiCatLog"></div>
+          <div class="ai-chips">
+            <button type="button" class="btn sec small" data-act="catChip" data-v="開始挖礦">開始挖礦</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 Shard0">也挖 Shard0</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="自我修復">自我修復</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="餘額">餘額</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="備份帳戶">備份帳戶</button>
+          </div>
+          <div class="ai-ask"><input class="inp" id="aiCatIn" maxlength="200" placeholder="例如：匯 100 給小明" autocomplete="off"><button type="button" class="btn pri" data-act="catAsk">問</button></div>
+        </div>`)
+    }
+    const panel = $('aiCatPanel')
+    if (panel) panel.hidden = !st.catOpen
+    const log = $('aiCatLog')
+    if (!log) return
+    log.textContent = ''
+    for (const line of st.catLog) {
+      const d = document.createElement('div')
+      d.className = 'ai-line'
+      d.textContent = line
+      log.appendChild(d)
+    }
+    log.scrollTop = log.scrollHeight
+  }
+  async function startCatJob (job) {
+    if (!job || !job.address) return { fail: window.SCDOCat.startFail('BAD_ADDRESS') }
+    if (job.chain === 'classic') {
+      const backend = job.backend === 'gpu' ? 'gpu' : 'cpu'
+      const gpu = gpuParams()
+      const threads = backend === 'cpu' ? threadCount() : gpu.threads
+      let r
+      try {
+        r = await api.invoke('miner:start', job.address, {
+          chain: 'classic', backend: backend, gpuMiner: 'classic-node', shard: job.shard,
+          threads: threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+        })
+      } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
+      if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+      localStorage.setItem(backend === 'cpu' ? 'minerRunClassicCpu' : 'minerRunClassicGpu', backend === 'cpu' ? '1' : 'gpu')
+      localStorage.setItem(backend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu', job.address)
+      return { ok: true }
+    }
+    if (!(await okWithOtherRigel())) return { fail: window.SCDOCat.startFail('CANCELED') }
+    let r
+    try { r = await api.invoke('miner:start', job.address, { mode: job.mode === 'node' ? 'node' : 'mine' }) } catch (e) { r = { ok: false } }
+    if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+    return { ok: true }
+  }
+  async function runCatAction (action) {
+    if (!action || action.type === 'send' || action.type === 'sign' || action.type === 'spend' || action.type === 'review' || action.type === 'login') return { ok: false }
+    if (action.type === 'stopGpu') {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      localStorage.setItem('minerRunClassicGpu', '')
+      const s0 = (st.miners && st.miners.shard0) || st.miner
+      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
+      return { ok: true }
+    }
+    if (action.type === 'startJobs' || action.type === 'restartJobs') {
+      const fails = []
+      for (const job of action.jobs || []) {
+        if (action.type === 'restartJobs') {
+          try {
+            if (job.chain === 'classic') await api.invoke('miner:stop', { chain: 'classic', backend: job.backend === 'gpu' ? 'gpu' : 'cpu' })
+            else await api.invoke('miner:stop', job.mode === 'node' ? 'node' : 'mine')
+          } catch (e) {}
+        }
+        const r = await startCatJob(job)
+        if (r && r.fail) fails.push(r.fail)
+      }
+      return fails.length ? { fail: fails.join('') } : { ok: true }
+    }
+    if (action.type === 'prefill') {
+      if (!action.file) return { fail: '請先選擇帳戶。' }
+      if (action.chain === 'classic') sendOldModal(action.file, { to: action.to || '', amount: action.amount || '' })
+      else sendModal(action.file, { to: action.to || '', amount: action.amount || '' })
+      return { ok: true }
+    }
+    if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }
+    return { ok: true }
+  }
+  async function applyCatPlan (plan, opt) {
+    if (!plan) return
+    const fails = []
+    for (const action of plan.actions || []) {
+      const r = await runCatAction(action)
+      if (r && r.fail) fails.push(r.fail)
+    }
+    const say = (plan.say || '') + (fails.length ? fails.join('') : '')
+    if (!say) return
+    st.catLog.push(say)
+    if (st.catLog.length > 30) st.catLog.shift()
+    renderCat()
+    if (opt && opt.toast) toast(say, 6000)
+  }
+  async function askCat (text) {
+    const raw = String(text || '')
+    if (/開始挖礦|一鍵挖礦|也挖|自我修復|修復/.test(raw)) {
+      try { await ensureCaps() } catch (e) {}
+      try { await ensureGpu() } catch (e) {}
+      try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) {}
+      try { st.mem = await api.invoke('app:mem') } catch (e) {}
+    }
+    if (!window.SCDOCat.looksLikeSecret(raw)) {
+      const shown = raw.normalize('NFKC').trim().slice(0, 200)
+      if (shown) st.catLog.push('你：' + shown)
+    }
+    await applyCatPlan(window.SCDOCat.reply(raw, catCtx()))
+  }
+  async function catWatch () {
+    if (!catOn() || !window.SCDOCat) return
+    noteCatHeights()
+    const heat = window.SCDOCat.heatGuard(catCtx())
+    if (heat && Date.now() - st.catHeatAt > 60000) {
+      st.catHeatAt = Date.now()
+      await applyCatPlan(heat, { toast: true })
+      return
+    }
+    if (catTemp() != null && catTemp() < 80) st.catHeatAt = 0
+    if (Date.now() - st.catWatchAt < 30000) return
+    st.catWatchAt = Date.now()
+    try { st.mem = await api.invoke('app:mem') } catch (e) {}
+    const heal = window.SCDOCat.planHeal(catCtx())
+    if (!heal.actions.length) { st.catHealKey = ''; return }
+    const key = JSON.stringify(heal.actions)
+    if (key === st.catHealKey && Date.now() - st.catHealAt < 10 * 60 * 1000) return
+    st.catHealKey = key
+    st.catHealAt = Date.now()
+    await applyCatPlan(heal, { toast: true })
   }
 
   // ---------------- boot ----------------
@@ -1762,7 +1974,7 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld(); refreshGpuTemp()
+    refreshS0(); refreshOld(); refreshGpuTemp(); renderCat()
     setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000)
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)

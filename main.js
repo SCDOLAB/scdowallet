@@ -68,6 +68,7 @@ function minerDataRoot () {
 
 const DISPLAY_VERSION = (() => { try { return require('./package.json').displayVersion || app.getVersion() } catch (e) { return app.getVersion() } })() // 1.1.5b/1.1.6: optional display label from package.json
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), displayVersion: DISPLAY_VERSION, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
+ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)

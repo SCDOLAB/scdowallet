@@ -237,3 +237,21 @@ input.threads { width: 100%; margin-top: 8px; accent-color: #43A047; }
 .minepill.bad { background: rgba(255,107,91,.3); border-color: #ff6b5b; }
 .modal .minepill { color: #1b1d33; background: #E8F5E9; border-color: #c9cdf5; max-width: none; white-space: normal; }
 .modal .minepill.ok { background: #e3f6ea; border-color: #34d27b; }
+
+/* AI小貓: corner icon. The panel opens upward and stays above the page, under modals. */
+#aiCatRoot { position: fixed; right: 16px; bottom: 16px; z-index: 36; }
+.ai-cat-btn { width: 58px; height: 58px; border-radius: 50%; background: #fff; border: 3px solid #43A047; box-shadow: 0 6px 18px rgba(46,125,50,.28); position: relative; padding: 0; }
+.ai-ear { position: absolute; top: 8px; width: 14px; height: 14px; background: #43A047; border-radius: 3px 3px 0 0; }
+.ai-ear.l { left: 12px; transform: rotate(-28deg); }
+.ai-ear.r { right: 12px; transform: rotate(28deg); }
+.ai-face { position: absolute; left: 13px; right: 13px; bottom: 8px; height: 28px; background: #E8F5E9; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.ai-eye { width: 5px; height: 5px; border-radius: 50%; background: #1b1d33; display: block; }
+.ai-panel { position: absolute; right: 0; bottom: 68px; width: 340px; max-width: calc(100vw - 32px); background: #fff; color: #1b1d33; border: 2px solid #43A047; border-radius: 18px; box-shadow: 0 12px 40px rgba(15,18,50,.28); padding: 12px; }
+.ai-panel[hidden] { display: none; }
+.ai-hd { display: flex; align-items: center; justify-content: space-between; color: #2E7D32; font-size: 18px; }
+.ai-log { max-height: 240px; overflow: auto; margin: 8px 0; font-size: 15px; }
+.ai-line { background: #E8F5E9; border-radius: 12px; padding: 8px 10px; margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+.ai-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-chips .btn { height: 36px; font-size: 15px; padding: 0 10px; }
+.ai-ask { display: flex; gap: 8px; margin-top: 8px; }
+.ai-ask .inp { flex: 1; height: 42px; }
