@@ -136,11 +136,11 @@ const realLoad = Module._load
 Module._load = function (req, ...rest) { return req === 'electron' ? {} : realLoad.call(this, req, ...rest) }
 const { tooltipText } = require('../src/main/trayStatus.js')
 Module._load = realLoad
-assert.strictEqual(tooltipText('3.0.0', { running: false, phase: 'idle', classicNote: 'Classic 處理器礦池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.0\n挖礦中：Classic 處理器礦池 Shard1')
-assert.strictEqual(tooltipText('3.0.0', { running: false, classicNote: 'Classic processor pool Shard2' }, 'EN'), 'SCDO Wallet 3.0.0\nMining: Classic processor pool Shard2')
-assert.strictEqual(tooltipText('3.0.0', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.0\n未在挖礦')
-assert.ok(tooltipText('3.0.0', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
-assert.ok(tooltipText('3.0.0', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('挖礦程式出錯：'))
+assert.strictEqual(tooltipText('3.0.1', { running: false, phase: 'idle', classicNote: 'Classic 處理器礦池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.1\n挖礦中：Classic 處理器礦池 Shard1')
+assert.strictEqual(tooltipText('3.0.1', { running: false, classicNote: 'Classic processor pool Shard2' }, 'EN'), 'SCDO Wallet 3.0.1\nMining: Classic processor pool Shard2')
+assert.strictEqual(tooltipText('3.0.1', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.1\n未在挖礦')
+assert.ok(tooltipText('3.0.1', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
+assert.ok(tooltipText('3.0.1', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('挖礦程式出錯：'))
 assert.ok(mainJs.includes("'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu)"))
 
 console.log('miner-start-error: ok')

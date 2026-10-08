@@ -162,7 +162,7 @@ Var pid
   !endif
 !macroend
 
-; 2.0.12 and 3.0.0 share ScdoWalletBeta.exe, so Windows keeps the old blue
+; 2.0.12 and 3.0.x share ScdoWalletBeta.exe, so Windows keeps the old blue
 ; icon in the shortcut and the taskbar cache. Recreate both shortcuts against
 ; icon index 0, then SHCNE_ASSOCCHANGED (flush) and SHCNE_UPDATEITEM.
 !macro customInstall

@@ -590,7 +590,7 @@ function walkI18n (v, fn) {
 }
 for (const langName of ['CN', 'EN']) {
   walkI18n(i18nBox.window.I18N112[langName], s => {
-    // 3.0.0: all five chains are equal; no 主鏈 / main chain wording. Shard0 is shown as EVM or Shard0 (EVM).
+    // 3.0.1: all five chains are equal; no 主鏈 / main chain wording. Shard0 is shown as EVM or Shard0 (EVM).
     assert.ok(!s.includes('主鏈'), langName + ' 主鏈: ' + s.slice(0, 90))
     assert.ok(!/main[- ]chain/i.test(s), langName + ' main chain: ' + s.slice(0, 90))
     assert.ok(!/Shard0(?! \(EVM\))/.test(s), langName + ' bare Shard0: ' + s.slice(0, 90))
@@ -1022,7 +1022,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.0.0')
+  assert.strictEqual(pkg.version, '3.0.1')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')

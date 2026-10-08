@@ -188,3 +188,6 @@ const payFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function pay
 assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
 
 console.log('remit-route: ok')
+// 3.0.1: the newest notes are first and the English ones have no Chinese
+assert.strictEqual(EN.relNotes[0].v, '3.0.1')
+assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.1 notes contain Chinese')
