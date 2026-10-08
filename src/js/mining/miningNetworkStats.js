@@ -25,10 +25,10 @@
     }, h('div', { class: 'lbl', text: label }), h('div', { class: 'v', id, text: value }))
   }
   // source words come from the renderer so they follow the UI language (TW table in types.js)
-  const SOURCES = { scdoscanMainPublic: 'scdoscan.io main chain public node' }
+  const SOURCES = { scdoscanMainPublic: 'scdoscan.io EVM public node' }
   function sourceText (s) { return M.L(SOURCES[s.sourceKey] || s.source || '') }
   function render (s, fetching) {
-    const card = h('div', { class: 'card m1-card', id: 'netStats' }, h('div', { class: 'm1-row' }, h('div', { class: 'm1-h', text: M.L('Main chain network') }),
+    const card = h('div', { class: 'card m1-card', id: 'netStats' }, h('div', { class: 'm1-row' }, h('div', { class: 'm1-h', text: M.L('Shard0 (EVM) network') }),
       h('button', { class: 'btn ghost small', id: 'netStatsRefresh', 'data-act': 'netStatsRefresh', text: fetching ? M.L('Refreshing…') : M.L('Refresh') })))
     if (!s) { card.appendChild(h('div', { class: 'statusbar' }, h('span', { class: 'spin' }), M.L(' Loading network data…'))); return card }
     if (!s.ok) { card.appendChild(h('div', { class: 'statusbar bad', text: M.L('Network data not available right now (') + (s.error || M.L('offline')) + M.L('). Retrying every 30 seconds.') })); return card }

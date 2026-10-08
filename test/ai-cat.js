@@ -54,7 +54,7 @@ assert.strictEqual(gpuPeers.actions[0].jobs.filter(j => j.backend === 'cpu')[0].
 
 const with0 = cat.planMine(Object.assign({}, base, { includeShard0: true }))
 assert.ok(with0.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
-const alsoMain = cat.reply('也挖主鏈', base)
+const alsoMain = cat.reply('也挖 EVM', base)
 assert.ok(alsoMain.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
 
 const hot = cat.planMine(Object.assign({}, base, { tempC: 86 }))
@@ -88,7 +88,7 @@ const peers = cat.planHeal({
   shard0: { running: true, code: 'NO_PEERS', peers: 0, mode: 'mine', wallet: ADDR, peerAgeMs: 60000 }
 })
 assert.strictEqual(peers.actions[0].jobs[0].chain, 'shard0')
-assert.ok(peers.say.includes('主鏈還沒有連上其他節點'))
+assert.ok(peers.say.includes('EVM 還沒有連上其他節點'))
 
 const mem = cat.planHeal({
   mem: { free: 200 * 1024 * 1024 },

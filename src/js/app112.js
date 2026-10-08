@@ -2502,7 +2502,7 @@
           <div class="ai-log" id="aiCatLog"></div>
           <div class="ai-chips">
             <button type="button" class="btn sec small" data-act="catChip" data-v="開始挖礦">開始挖礦</button>
-            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖主鏈">也挖主鏈</button>
+            <button type="button" class="btn sec small" data-act="catChip" data-v="也挖 EVM">也挖 EVM</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="自我修復">自我修復</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="餘額">餘額</button>
             <button type="button" class="btn sec small" data-act="catChip" data-v="備份帳戶">備份帳戶</button>

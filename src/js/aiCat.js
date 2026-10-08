@@ -71,7 +71,7 @@ function startFail (code) {
     ALREADY_RUNNING: '這個挖礦程式已經在跑。',
     BAD_ADDRESS: '這個地址不能用來挖這條鏈。',
     BAD_SHARD: '地址和這條鏈對不上。',
-    CANCELED: '你取消了主鏈的顯卡挖礦。'
+    CANCELED: '你取消了 EVM 的顯卡挖礦。'
   }
   return map[code] || '沒有啟動。'
 }
@@ -118,11 +118,11 @@ function planMine (ctx) {
     if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等現在這次挖完再換')
   }
   if (ctx.includeShard0) {
-    if (!ctx.shard0Address) bits.push('沒有主鏈地址，所以沒有一起挖主鏈')
-    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖主鏈')
+    if (!ctx.shard0Address) bits.push('沒有 EVM 地址，所以沒有一起挖 EVM')
+    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖 EVM')
     else {
       jobs.push({ chain: 'shard0', backend: 'gpu', address: ctx.shard0Address })
-      bits.push('另外用顯卡挖主鏈')
+      bits.push('另外用顯卡挖 EVM')
     }
   }
   if (!jobs.length) return { say: bits.join('。') + '。', actions: [] }
@@ -181,7 +181,7 @@ function planHeal (ctx) {
       bits.push('Shard' + p.shard + ' 的帳本下載停住了，準備重新啟動，再連上其他節點')
     } else if (p.kind === 'nopeers') {
       jobs.push({ chain: 'shard0', mode: p.mode, address: p.address })
-      bits.push('主鏈還沒有連上其他節點，準備重新連線')
+      bits.push('EVM 還沒有連上其他節點，準備重新連線')
     } else if (p.kind === 'mem') {
       const mb = Math.max(0, Math.round(p.free / (1024 * 1024)))
       bits.push('可用記憶體只剩下 ' + mb + ' MB')
@@ -192,7 +192,7 @@ function planHeal (ctx) {
         bits.push('準備重新啟動顯卡挖礦')
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
-        bits.push('準備重新啟動主鏈')
+        bits.push('準備重新啟動 EVM')
       } else if (!jobs.length) bits.push('先不要再啟動新的節點')
     }
   }
@@ -292,8 +292,8 @@ function reply (text, ctx) {
   if (/備份|帳戶檔案|助記詞|種子/.test(q)) return planBackup()
   if (/餘額|有多少|多少錢|多少\s*SCDO|資產/.test(q)) return sayBalance(ctx)
   if (/修復|同步卡住|沒有同伴|沒有節點|連不上|記憶體/.test(q)) return planHeal(ctx)
-  if (wantsMine(q) || /也挖\s*(?:Shard\s*0|主鏈)|包含\s*(?:Shard\s*0|主鏈)/i.test(q)) {
-    return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|主鏈|main chain/i.test(q)) }))
+  if (wantsMine(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
+    return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|EVM|主鏈|main chain/i.test(q)) }))
   }
   return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
 }

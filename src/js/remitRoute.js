@@ -28,7 +28,7 @@ function useEnglish () {
 }
 function chainWord (shard) {
   const n = Number(shard)
-  if (n === 0) return useEnglish() ? 'Main chain' : '主鏈'
+  if (n === 0) return 'EVM'
   return 'Shard' + n
 }
 function chainLine (shard, fee) {

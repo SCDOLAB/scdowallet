@@ -96,7 +96,7 @@ async function networkStats (localHashrate) {
     const blockTime = n > 0 && dt > 0 ? dt / n : null
     const diff = BigInt(tip.difficulty)
     const hashrate = blockTime ? Number(diff) / blockTime : null
-    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io main chain public node', asOf: new Date().toISOString() }
+    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io EVM public node', asOf: new Date().toISOString() }
   }
   const lh = Number(localHashrate) > 0 ? Number(localHashrate) : 0
   const share = statsCache.networkHashrate && lh ? (lh / statsCache.networkHashrate) * 100 : 0
