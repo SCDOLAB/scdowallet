@@ -128,4 +128,8 @@ for (const L of ['CN', 'EN']) for (const k of ['cf_title', 'cf_titleSign', 'cf_a
 // ---- private key: masked dialog only, never into the chat ---------------------
 const create = ui.slice(ui.indexOf('function createModal'), ui.indexOf('function createModal') + 4000)
 assert.ok(/type="password"[^>]*id="cPriv"|id="cPriv"[^>]*type="password"/.test(create), 'private key field is masked')
+// ---- footer: large balances (10,027,844.2529) wrap to a new line instead of overlapping ----
+const css = read('src/css/app112.css')
+assert.ok(css.includes('.foot-bar .sum { flex: 1; min-width: 0; display: flex; flex-wrap: wrap;'), 'footer totals wrap')
+assert.ok(css.includes('.foot-bar .sum > div { flex: 1 0 auto; min-width: max-content; }'), 'each footer total keeps its full number')
 console.log('wallet-v8: ok')

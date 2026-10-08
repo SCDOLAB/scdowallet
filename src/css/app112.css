@@ -364,10 +364,12 @@ main { padding-bottom: 24px; }
 .foot-bar { flex: none; min-height: 104px; background: #fff; border-top: 3px solid #43A047; display: flex; align-items: center; padding: 8px 330px 8px 18px; gap: 10px; }
 .foot-bar[hidden] { display: none; }
 .foot-bar .foot-h { margin: 0 6px 0 0; white-space: nowrap; }
-.foot-bar .sum { flex: 1; display: grid; grid-template-columns: 1.6fr repeat(5, minmax(0, 1fr)); align-items: end; gap: 8px; }
+.foot-bar .sum { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; column-gap: 20px; row-gap: 6px; }
+.foot-bar .sum > div { flex: 1 0 auto; min-width: max-content; }
+.foot-bar .sum > .all { flex-grow: 1.6; }
 .foot-bar .sum .lbl { font-size: 15px; }
-.foot-bar .sum b { font-size: 19px; color: #3d4160; overflow-wrap: anywhere; }
-.foot-bar .sum .all b { color: #2E7D32; font-size: 26px; }
+.foot-bar .sum b { font-size: 18px; color: #3d4160; }
+.foot-bar .sum .all b { color: #2E7D32; font-size: 24px; }
 
 /* AI小貓: launcher (the user's cat art) + iOS material label pill + iOS-style popup (v8 contrast-adjusted colours) */
 #aiCatRoot { position: static; }
