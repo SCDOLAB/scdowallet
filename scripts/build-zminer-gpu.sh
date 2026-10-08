@@ -260,6 +260,7 @@ check_sources
 G="$GOPATH_UNIX/src/github.com/scdoproject/go-scdo"
 cd "$G"
 CGO_ENABLED=0 go test -vet=off -count=1 github.com/scdoproject/go-scdo/zpool/gpu
+CGO_ENABLED=0 go test -vet=off -count=1 github.com/scdoproject/go-scdo/zpool/cmd/zminer-gpu
 
 mkdir -p "$OUT"
 if [[ "$is_windows" == 1 ]]; then

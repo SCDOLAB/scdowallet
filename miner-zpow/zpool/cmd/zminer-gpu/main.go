@@ -34,7 +34,7 @@ import (
 	"github.com/scdoproject/go-scdo/zpool/zp"
 )
 
-var version = "0.1.0"
+var version = "0.1.1"
 
 const (
 	defaultBatch = 8192
@@ -48,6 +48,8 @@ type work struct {
 	hdr         *zp.Header
 	shareTarget *big.Int
 	blockTarget *big.Int
+	stale       chan struct{}
+	staleOnce   sync.Once
 }
 
 var (
@@ -60,7 +62,6 @@ var (
 	connected uint32
 	stopping  uint32
 	exitCode  int32
-	submitCh  = make(chan [2]interface{}, 256) // job_id, nonce
 	stopCh    = make(chan struct{})
 	stopOnce  sync.Once
 
@@ -142,10 +143,26 @@ func setJob(j *zp.Job) {
 		return
 	}
 	h.Witness = nil
-	if old, _ := cur.Load().(*work); old != nil && old.job.JobID == j.JobID && old.job.ShareTarget == j.ShareTarget {
+	old, _ := cur.Load().(*work)
+	if old != nil && old.job.JobID == j.JobID && old.job.Height == j.Height && old.job.ShareTarget == j.ShareTarget {
 		return
 	}
-	cur.Store(&work{gen: atomic.AddUint64(&genSeq, 1), job: j, hdr: h, shareTarget: st, blockTarget: bt})
+	observeTarget(j.ShareTarget)
+	nw := &work{
+		gen:         atomic.AddUint64(&genSeq, 1),
+		job:         j,
+		hdr:         h,
+		shareTarget: st,
+		blockTarget: bt,
+		stale:       make(chan struct{}),
+	}
+	cur.Store(nw)
+	if old != nil {
+		old.supersede()
+	}
+	if n := flushSubmits(); n > 0 {
+		logf("discarded %d queued shares", n)
+	}
 	logf("new job %s height=%d share_diff=%d", j.JobID, j.Height, j.ShareDiff)
 }
 
@@ -162,7 +179,8 @@ func gpuLoop(dev *gpu.Device, batch int) {
 			continue
 		}
 		hdr := *w.hdr
-		gen := w.gen
+		jobID := w.job.JobID
+		height := w.job.Height
 		nonce := r.Uint64()
 		hashes := make([]common.Hash, batch)
 		nonces := make([]uint64, batch)
@@ -189,31 +207,39 @@ func gpuLoop(dev *gpu.Device, batch int) {
 		if stopped() {
 			return
 		}
-		w2, _ := cur.Load().(*work)
-		if w2 == nil || w2.gen != gen {
-			continue
-		}
 		for i, det := range dets {
-			if !zp.DetMeets(det, w.shareTarget) {
+			w2, _ := cur.Load().(*work)
+			if w2 == nil || w2.job.JobID != jobID || w2.job.Height != height {
+				break
+			}
+			if !zp.DetMeets(det, w2.shareTarget) {
+				continue
+			}
+			// One probe share until the pool changes the target. Skip the
+			// extra CPU confirms that a low starting difficulty would produce.
+			if atomic.LoadUint32(&vardiffReady) == 0 && atomic.LoadUint64(&probeGen) == w2.gen && !zp.DetMeets(det, w2.blockTarget) {
+				atomic.AddUint64(&dropped, 1)
 				continue
 			}
 			confirm := hdr
 			_, cpuDet := zp.Check(&confirm, nonces[i], nil)
+			w3, _ := cur.Load().(*work)
+			if w3 == nil || w3.job.JobID != jobID || w3.job.Height != height {
+				break
+			}
 			if math.Float64bits(cpuDet) != math.Float64bits(det) {
 				logf("GPU/CPU det bits differ nonce=%d cpu=%x gpu=%x", nonces[i], math.Float64bits(cpuDet), math.Float64bits(det))
 			}
-			if !zp.DetMeets(cpuDet, w.shareTarget) {
-				logf("GPU false positive nonce=%d; not submitting", nonces[i])
+			if !zp.DetMeets(cpuDet, w3.shareTarget) {
+				if zp.DetMeets(det, w3.shareTarget) {
+					logf("GPU false positive nonce=%d; not submitting", nonces[i])
+				}
 				continue
 			}
-			if zp.DetMeets(cpuDet, w.blockTarget) {
-				logf("BLOCK candidate height=%d nonce=%d", w.job.Height, nonces[i])
+			if zp.DetMeets(cpuDet, w3.blockTarget) {
+				logf("BLOCK candidate height=%d nonce=%d", w3.job.Height, nonces[i])
 			}
-			select {
-			case submitCh <- [2]interface{}{w.job.JobID, fmt.Sprint(nonces[i])}:
-			default:
-				logf("submit queue full, dropped nonce %d", nonces[i])
-			}
+			enqueueShare(share{jobID: w3.job.JobID, height: w3.job.Height, nonce: fmt.Sprint(nonces[i]), det: cpuDet})
 		}
 	}
 }
@@ -267,7 +293,7 @@ func runStratum(pool, user, worker string) {
 		atomic.StoreUint32(&connected, 0)
 		emitStatus()
 		logf("pool connection lost: %v; reconnecting in %s", err, backoff)
-		cur.Store((*work)(nil))
+		clearWork()
 		select {
 		case <-stopCh:
 			return
@@ -307,8 +333,10 @@ func stratumSession(pool, user, worker string) error {
 		return err
 	}
 	done := make(chan struct{})
-	defer close(done)
+	var submitWG sync.WaitGroup
+	submitWG.Add(1)
 	go func() {
+		defer submitWG.Done()
 		ka := time.NewTicker(60 * time.Second)
 		defer ka.Stop()
 		for {
@@ -318,15 +346,32 @@ func stratumSession(pool, user, worker string) error {
 			case <-stopCh:
 				c.Close()
 				return
+			case <-ka.C:
+				send("keepalived", []interface{}{})
 			case s := <-submitCh:
-				if send("submit", []interface{}{s[0], s[1]}) != nil {
+				if !prepareSend(s) {
+					continue
+				}
+				w, _ := cur.Load().(*work)
+				if w == nil || w.job.JobID != s.jobID || w.job.Height != s.height || !zp.DetMeets(s.det, w.shareTarget) {
+					atomic.AddUint64(&dropped, 1)
+					continue
+				}
+				drainAck()
+				if send("submit", []interface{}{s.jobID, s.nonce}) != nil {
 					c.Close()
 					return
 				}
-			case <-ka.C:
-				send("keepalived", []interface{}{})
+				// One share on the wire. A new job closes w.stale and is
+				// applied before the next submit is written.
+				waitSettle(w.stale)
 			}
 		}
+	}()
+	defer func() {
+		close(done)
+		clearWork()
+		submitWG.Wait()
 	}()
 	rd := bufio.NewReaderSize(c, 1<<16)
 	loggedIn := false
@@ -370,6 +415,7 @@ func stratumSession(pool, user, worker string) error {
 			}
 			continue
 		}
+		noteSubmitResult()
 		if msg.Error != nil {
 			atomic.AddUint64(&rejected, 1)
 			logf("share rejected: %s", msg.Error.Message)
@@ -397,7 +443,15 @@ func runHTTP(base, user, worker string) {
 	base = strings.TrimRight(base, "/")
 	go func() {
 		for s := range submitCh {
-			b, _ := json.Marshal(map[string]interface{}{"login": user, "worker": worker, "job_id": s[0], "nonce": s[1]})
+			if !prepareSend(s) {
+				continue
+			}
+			w, _ := cur.Load().(*work)
+			if w == nil || w.job.JobID != s.jobID || w.job.Height != s.height || !zp.DetMeets(s.det, w.shareTarget) {
+				atomic.AddUint64(&dropped, 1)
+				continue
+			}
+			b, _ := json.Marshal(map[string]interface{}{"login": user, "worker": worker, "job_id": s.jobID, "nonce": s.nonce})
 			resp, err := cl.Post(base+"/submit", "application/json", bytes.NewReader(b))
 			if err != nil {
 				logf("submit: %v", err)
@@ -570,7 +624,7 @@ func main() {
 		case <-sig:
 			requestStop()
 		case <-stopCh:
-			logf("exit: accepted=%d rejected=%d blocks=%d", atomic.LoadUint64(&accepted), atomic.LoadUint64(&rejected), atomic.LoadUint64(&blocks))
+			logf("exit: accepted=%d rejected=%d dropped=%d blocks=%d", atomic.LoadUint64(&accepted), atomic.LoadUint64(&rejected), atomic.LoadUint64(&dropped), atomic.LoadUint64(&blocks))
 			atomic.StoreUint32(&connected, 0)
 			emitStatus()
 			if c := atomic.LoadInt32(&exitCode); c != 0 {
@@ -582,9 +636,9 @@ func main() {
 			rate := float64(n-last) / 15
 			last = n
 			setRate(rate)
-			logf("hashrate %.0f H/s | batch %d | %s | accepted %d rejected %d blocks %d | up %s",
+			logf("hashrate %.0f H/s | batch %d | %s | accepted %d rejected %d dropped %d blocks %d | up %s",
 				rate, *batch, dev.Name(), atomic.LoadUint64(&accepted), atomic.LoadUint64(&rejected),
-				atomic.LoadUint64(&blocks), time.Since(start).Round(time.Second))
+				atomic.LoadUint64(&dropped), atomic.LoadUint64(&blocks), time.Since(start).Round(time.Second))
 			emitStatus()
 		}
 	}
