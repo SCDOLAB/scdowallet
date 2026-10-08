@@ -68,10 +68,14 @@ function chainModels (input) {
     // of the same card. Only badges that say something the fields don't are kept.
     if (src.node && src.node.running && src.node.mode === 'node') pills.push({ cls: 'off', text: T('d_pillNode') })
     if (err) pills.push({ cls: 'bad', text: T('d_pillError') })
+    // 3.0.4 (v9): one green status capsule per card, from the same sync state as the 同步進度 line
+    const cap = sync.kind === 'synced' ? { cls: 'on', text: T('d_capSynced') } : sync.kind === 'syncing' ? { cls: 'warn', text: T('d_capSyncing') } : (sync.kind === 'pending' || sync.kind === 'checking') ? { cls: 'off', text: T('d_capChecking') } : sync.kind === 'pool' ? { cls: 'on', text: T('d_capPool') } : { cls: 'off', text: T('d_capPublic') }
     const acc = (input.accounts && input.accounts[n]) || {}
     return {
       n,
       name,
+      cap,
+      tempC: gpu && tempC != null ? tempC : null,
       dot: (n === 0 ? net.s0Ok : net.oldOk) == null ? '' : ((n === 0 ? net.s0Ok : net.oldOk) ? 'ok' : 'bad'),
       account: acc,
       pills,
@@ -88,9 +92,13 @@ function chainModels (input) {
 }
 
 function kv (esc, field, label, value, extra) {
-  return `<div class="kv-item" data-field="${field}"><span class="lbl">${esc(label)}</span><b class="${extra && extra.cls ? esc(extra.cls) : ''}">${esc(value)}</b>${extra && extra.bar != null ? `<div class="bar${extra.part ? ' part' : ''}"><i style="width:${Number(extra.bar) || 0}%"></i></div>` : ''}</div>`
+  return `<div class="kv-item" data-field="${field}">${extra && extra.bar != null ? `<div class="bar${extra.part ? ' part' : ''}"><i style="width:${Number(extra.bar) || 0}%"></i></div>` : ''}<span class="lbl">${esc(label)}</span><b class="${extra && extra.cls ? esc(extra.cls) : ''}"${extra && extra.title ? ` title="${esc(extra.title)}"` : ''}>${extra && extra.html != null ? extra.html : esc(value)}</b></div>`
 }
+// a long balance may break only after a comma or the decimal point (never inside a group of digits)
+function balHtml (esc, v) { return esc(v).replace(/([,.])/g, '$1<wbr>') }
 
+// 3.0.4 (v9, iOS look): name + status capsule, the balance (largest, same size on all five), the sync bar,
+// then the other fields as plain grey lines, and the receiving address with copy / QR
 function cardHtml (m, T, esc) {
   const a = m.account || {}
   const tag = a.label ? (a.count > 1 ? T('d_acctMany', { name: a.label, n: a.count }) : a.label) : T('d_noAcct')
@@ -100,12 +108,26 @@ function cardHtml (m, T, esc) {
       <button type="button" class="ico" data-act="copy" data-v="${esc(a.address)}" title="${esc(T('d_copyAddr'))}" aria-label="${esc(T('d_copyAddr'))}">${COPY_SVG}</button>
       <button type="button" class="ico" data-act="receive" data-f="${esc(a.file || '')}" data-chain="${m.n === 0 ? 'new' : 'old'}" title="${esc(T('d_showQr'))}" aria-label="${esc(T('d_showQr'))}">${QR_SVG}</button>`
   } else addr = `<span class="muted">${esc(a.locked ? T('d_addrLocked') : T('d_addrNone'))}</span>`
+  const cap = m.cap ? `<span class="state cap ${esc(m.cap.cls)}">${esc(m.cap.text)}</span>` : ''
+  // the dot is always in the markup (same structure on all five cards); it only shows with a temperature colour
+  const temp = m.tempBand && m.tempC != null
+    ? { cls: 'temp temp-' + m.tempBand, title: m.temp, html: `<i class="tdot" aria-hidden="true"></i>${esc(m.tempC)}°C` }
+    : { cls: 'temp', html: `<i class="tdot" aria-hidden="true"></i>${esc(m.temp)}` }
   return `<div class="card dc chain" data-chain-card="${m.n}" id="chainCard${m.n}">
-    <div class="top"><span class="dot ${esc(m.dot)}"></span><span class="nm">${esc(m.name)}</span><span class="tag">${esc(tag)}</span>${m.pills.map(p => `<span class="state ${esc(p.cls)}">${esc(p.text)}</span>`).join('')}</div>
-    <div class="balrow" data-field="balance"><span class="lbl">${esc(T('d_balance'))}</span><span class="v" id="chainBal${m.n}">${esc(m.balance)}</span><span class="lbl">SCDO</span></div>
-    <div class="kv">${kv(esc, 'sync', T('d_sync'), m.sync.text, { bar: m.sync.bar, part: m.sync.part })}${kv(esc, 'speed', T('d_speed'), m.speed)}${kv(esc, 'blocks', T('d_blocksLbl'), m.blocks)}${kv(esc, 'gpu', T('d_gpu'), m.gpu)}${kv(esc, 'temp', T('d_tempLbl'), m.temp, { cls: m.tempBand ? 'temp-' + m.tempBand : '' })}${kv(esc, 'net', T('d_net'), m.net)}</div>
+    <div class="top"><span class="nm">${esc(m.name)}</span>${cap}${m.pills.map(p => `<span class="state ${esc(p.cls)}">${esc(p.text)}</span>`).join('')}</div>
+    <div class="tag">${esc(tag)}</div>
+    <div class="balrow" data-field="balance"><span class="lbl">${esc(T('d_balance'))}</span><span class="v" id="chainBal${m.n}">${balHtml(esc, m.balance)}</span> <span class="unit">SCDO</span></div>
+    <div class="kv">${kv(esc, 'sync', T('d_sync'), m.sync.text, { bar: m.sync.bar, part: m.sync.part })}${kv(esc, 'speed', T('d_speed'), m.speed)}${kv(esc, 'blocks', T('d_blocksLbl'), m.blocks)}${kv(esc, 'gpu', T('d_gpu'), m.gpu)}${kv(esc, 'temp', T('d_tempLbl'), m.temp, temp)}${kv(esc, 'net', T('d_net'), m.net)}</div>
     <div class="addr-row" data-field="address"><span class="lbl">${esc(T('d_addr'))}</span>${addr}</div></div>`
 }
+
+// 3.0.4 (v9): today's and total earnings in one big card at the top of Home (the header island hides on Home)
+function earnHtml (earn, T, esc) {
+  const e = earn || {}
+  const one = (id, label, v) => `<div class="earn-col"><div class="earn-lbl"><i class="earn-dot" aria-hidden="true"></i>${esc(label)}</div><div class="earn-num"><b id="${id}">${balHtml(esc, v == null ? '…' : v)}</b> <span class="unit">SCDO</span></div></div>`
+  return one('earnToday', T('d_earnToday'), e.today) + one('earnTotal', T('d_earnTotal'), e.total)
+}
+function earnCardHtml (earn, T, esc) { return `<div class="earn-card" id="earnCard">${earnHtml(earn, T, esc)}</div>` }
 
 function tempKeyHtml (T, esc) {
   return `<div class="tkey top-key" id="tempKey"><span class="lbl">${esc(T('d_tempKey'))}</span><span class="isle-chip temp-ok"><span class="isle-val">${esc(T('d_tempKeyOk'))}</span></span><span class="isle-chip temp-warm"><span class="isle-val">${esc(T('d_tempKeyWarm'))}</span></span><span class="isle-chip temp-hot"><span class="isle-val">${esc(T('d_tempKeyHot'))}</span></span></div>`
@@ -123,9 +145,9 @@ function footerHtml (totals, T, esc) {
   return `<div class="foot-line" id="footLine"><span class="foot-h">${esc(T('d_totalLine'))}</span><b id="footAll">${esc(totals.all)} SCDO</b></div>`
 }
 
-function homeHtml (models, txRows, T, esc) {
+function homeHtml (models, txRows, T, esc, earn) {
   return `<div class="page dash" id="homePage">
-    <div class="dash-h"><span class="h1">${esc(T('d_title'))}</span></div>
+    ${earnCardHtml(earn, T, esc)}
     <div class="sec-h">${esc(T('d_accHead'))}</div>
     ${tempKeyHtml(T, esc)}
     <div class="chains" id="chainCards">${models.map(m => cardHtml(m, T, esc)).join('')}</div>
@@ -134,7 +156,7 @@ function homeHtml (models, txRows, T, esc) {
   </div>`
 }
 
-const api = { FIELDS, chainModels, cardHtml, tempKeyHtml, txHtml, footerHtml, homeHtml, COPY_SVG, QR_SVG }
+const api = { FIELDS, chainModels, cardHtml, earnHtml, earnCardHtml, tempKeyHtml, txHtml, footerHtml, homeHtml, COPY_SVG, QR_SVG }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDODash = Object.freeze(api)
 })()

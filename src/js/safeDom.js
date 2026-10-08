@@ -4,7 +4,7 @@
 // Dynamic values inside templates are still escaped with SafeDom.esc(); simple text updates use textContent.
 'use strict'
 ;(function () {
-  const TAGS = new Set(['div', 'span', 'b', 'i', 'em', 'strong', 'small', 'br', 'hr', 'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'li',
+  const TAGS = new Set(['div', 'span', 'b', 'i', 'em', 'strong', 'small', 'br', 'wbr', 'hr', 'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'li',
     'button', 'input', 'select', 'option', 'label', 'details', 'summary', 'img', 'pre', 'code', 'nav', 'section', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'canvas'])
   const ATTRS = new Set(['class', 'id', 'style', 'title', 'type', 'placeholder', 'value', 'disabled', 'selected', 'checked', 'readonly',
     'maxlength', 'min', 'max', 'step', 'inputmode', 'autocomplete', 'src', 'alt', 'role', 'hidden', 'open', 'for', 'name', 'width', 'height', 'tabindex', 'colspan', 'rowspan', 'spellcheck', 'lang', 'autocapitalize'])

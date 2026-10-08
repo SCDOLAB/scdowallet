@@ -489,8 +489,14 @@
     }
     return rows.sort((x, y) => y.t - x.t).slice(0, 5)
   }
+  // 3.0.4 (v9): today's / total earnings for the big card at the top of Home
+  function earnTexts () {
+    let e = null
+    try { e = islandModel(true).earn } catch (x) { e = null }
+    return e ? { today: fmtNum(e.todayScdo), total: fmtNum(e.totalScdo) } : { today: null, total: null }
+  }
   function pageHome () {
-    return window.SCDODash.homeHtml(dashModels(), recentTx(), T, esc)
+    return window.SCDODash.homeHtml(dashModels(), recentTx(), T, esc, earnTexts())
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
@@ -508,6 +514,8 @@
     if (st.tab === 'home') {
       const host = $('chainCards')
       if (host) { const html = dashModels().map(m => window.SCDODash.cardHtml(m, T, esc)).join(''); if (refreshDash.cards !== html) { refreshDash.cards = html; SD.html(host, html) } }
+      const eh = $('earnCard')
+      if (eh) { const html = window.SCDODash.earnHtml(earnTexts(), T, esc); if (refreshDash.earn !== html) { refreshDash.earn = html; SD.html(eh, html) } }
       const tx = $('recentTxHost')
       if (tx) { const html = window.SCDODash.txHtml(recentTx(), T, esc); if (refreshDash.tx !== html) { refreshDash.tx = html; SD.html(tx, html) } }
     } else if (st.tab === 'acc') {
@@ -967,7 +975,8 @@
     const y = main.scrollTop
     const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet }
     SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
-    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = null
+    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = null
+    document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
     if (st.tab === 'mineSet') mountMining(); else window.SCDOMining.MiningPage.unmount()
     renderFooter()
     const want = st.scrollTo; st.scrollTo = null
@@ -2480,6 +2489,7 @@
       case 'catOpen': st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
       case 'catClose': case 'catLater': st.catOpen = false; renderCat(); break
       case 'catHide': localStorage.setItem('aiCat112', '0'); st.catOpen = false; renderCat(); toast(T('catHidden'), 7000); break
+      case 'catType': { const row = $('aiCatInRow'); const b = $('catType'); if (row) row.hidden = false; if (b) b.hidden = true; const inp = $('aiCatIn'); if (inp) inp.focus(); break }
       case 'catRow': { if (v === 'mine' && (miningBusy() || st.actStarting)) { st.catLog.push('你：' + catPhrase(v)); await applyCatPlan(window.SCDOCat.reply('停止挖礦', catCtx())); break } if (v === 'mine') st.actStarting = true; try { await askCat(catPhrase(v)) } finally { if (v === 'mine') st.actStarting = false } break }
       case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }
       case 'catChip': askCat(v); break
@@ -2716,9 +2726,9 @@
   // iOS-style popup: two inset-grouped lists (coloured icon tiles, chevrons), an iMessage-style input, 下次再說 /
   // 先隱藏小貓 and the safety note. Each row goes through askCat() → SCDOCat.reply() → runCatAction(), which only opens
   // the wallet's own dialogs; transfers, remittance and signing always end in a visible confirmation.
+  // 3.0.4 (v9, water-bubble glass): six distinct actions in one two-column inset-grouped list
   const CAT_ROWS = [
-    [['create', 'catRowCreate', '#34c759', 'plus', '建立新地址'], ['send', 'catRowSend', '#007aff', 'plane', '轉帳'], ['mine', 'catRowMine', '#ff9500', 'bolt', '開始／停止挖礦'], ['settings', 'catRowSettings', '#8e8e93', 'gear', '設定']],
-    [['import', 'catRowImport', '#5856d6', 'tray', '匯入錢包'], ['remit', 'catRowRemit', '#30b0c7', 'globe', '匯款'], ['reward', 'catRowReward', '#ffcc00', 'gift', '更改出塊獎勵地址'], ['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步']]
+    [['create', 'catRowCreate', '#34c759', 'plus', '建立新地址'], ['send', 'catRowSend', '#007aff', 'plane', '轉帳'], ['mine', 'catRowMine', '#ff9500', 'bolt', '開始／停止挖礦'], ['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步'], ['balance', 'catRowBalance', '#5856d6', 'wallet', '查餘額'], ['settings', 'catRowSettings', '#8e8e93', 'gear', '設定']]
   ]
   const catPhrase = (k) => { for (const g of CAT_ROWS) for (const r of g) if (r[0] === k) return r[4]; return '' }
   function renderCat () {
@@ -2728,13 +2738,14 @@
     if (!$('aiCatBtn') || root.getAttribute('data-lang') !== lang()) {
       root.setAttribute('data-lang', lang())
       const rows = CAT_ROWS.map(g => `<div class="ios-group">${g.map(([k, label, color, icon]) => `<button type="button" class="ios-row" data-act="catRow" data-v="${k}" id="catRow-${k}"><span class="ios-tile" style="background:${color}"><img src="./assets/ui/${icon}.svg" alt=""></span><span class="ios-lbl">${esc(T(label))}</span><img class="ios-chev" src="./assets/ui/chev.svg" alt=""></button>`).join('')}</div>`).join('')
-      SD.html(root, `<div class="cat-hint" id="aiCatHint" data-act="catOpen">${esc(T('catLauncher'))}</div>
-        <button type="button" class="cat-launch" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}"><img src="./assets/ai-cat-cutout.png" alt="AI小貓"></button>
-        <div class="cat-pop" id="aiCatPanel" role="dialog" aria-label="AI小貓" hidden>
+      SD.html(root, `<button type="button" class="cat-launch cat-capsule" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}"><span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span><span class="cap-t">${esc(T('catTitle'))}</span></button>
+        <div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="AI小貓" hidden>
+          <i class="bub b1" aria-hidden="true"></i><i class="bub b2" aria-hidden="true"></i><i class="bub b3" aria-hidden="true"></i><i class="bub b4" aria-hidden="true"></i>
           <div class="ios-hd"><span class="av"><img src="./assets/ai-cat.png" alt=""></span><div class="tt"><div class="t1">${esc(T('catTitle'))}</div><div class="t2">${esc(T('catAskQ'))}</div></div><button type="button" class="ios-x" data-act="catClose" title="${esc(T('catClose'))}" aria-label="${esc(T('catClose'))}"><img src="./assets/ui/x.svg" alt=""></button></div>
           <div class="ios-log" id="aiCatLog" aria-live="polite"></div>
           ${rows}
-          <div class="ios-in"><input class="pill" id="aiCatIn" maxlength="200" placeholder="${esc(T('catInput'))}" autocomplete="off" spellcheck="false"><button type="button" class="send" data-act="catAsk" title="${esc(T('catSend'))}" aria-label="${esc(T('catSend'))}"><img src="./assets/ui/up.svg" alt=""></button></div>
+          <button type="button" class="cat-type" id="catType" data-act="catType">${esc(T('catInput'))}</button>
+          <div class="ios-in" id="aiCatInRow" hidden><input class="pill" id="aiCatIn" maxlength="200" placeholder="${esc(T('catInput'))}" autocomplete="off" spellcheck="false"><button type="button" class="send" data-act="catAsk" title="${esc(T('catSend'))}" aria-label="${esc(T('catSend'))}"><img src="./assets/ui/up.svg" alt=""></button></div>
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
           ${contactHtml('catContact')}
@@ -2742,8 +2753,8 @@
     }
     const panel = $('aiCatPanel')
     if (panel) panel.hidden = !st.catOpen
-    const hint = $('aiCatHint')
-    if (hint) hint.hidden = !!st.catOpen
+    const btn = $('aiCatBtn')
+    if (btn) btn.hidden = !!st.catOpen
     const log = $('aiCatLog')
     if (!log) return
     log.textContent = ''

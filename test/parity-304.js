@@ -119,3 +119,31 @@ assert.ok(cnText.includes('轉帳') && cnText.includes('帳戶'))
 assert.ok(/\[T\('cf_from'\), signingAddress\(payer, route\)/.test(app))
 
 console.log('parity-304: ok')
+
+// ---- 3.0.4 v9 look (approved Doubao direction) ----
+{
+  const dash = require('../src/js/dashboard.js')
+  const css = read('src/css/app112.css')
+  const T = (k, v) => String(I.CN[k]).replace(/\{(\w+)\}/g, (m, n) => (v && v[n] != null ? v[n] : m))
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  const ec = dash.earnCardHtml({ today: '774', total: '1,234.5' }, T, esc)
+  assert.ok(ec.includes('今天賺了') && ec.includes('一共賺了') && ec.includes('id="earnToday">774</b>') && ec.includes('id="earnTotal">1,<wbr>234.<wbr>5</b>'))
+  assert.ok(dash.homeHtml([], [], T, esc, { today: '1', total: '2' }).indexOf('id="earnCard"') < dash.homeHtml([], [], T, esc, {}).indexOf('id="chainCards"'), 'earnings card on top')
+  assert.ok(/body\.on-home #statusIsland \{ display: none; \}/.test(css), 'header island hides on Home (no duplicate earnings)')
+  assert.ok(/\.chains \{ grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/.test(css) && /max-width: 1180px\) \{ \.chains \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/.test(css) && css.includes('.chains { grid-auto-rows: 1fr; }'), 'five in a row, 3 + 2 equal cards when narrow')
+  assert.ok(css.includes('background: #F2F2F7') && css.includes('border-radius: 20px') && css.includes('"PingFang TC", "Microsoft JhengHei UI"'))
+  assert.ok(/\.earn-num b \{ font-size: 34pt;[^}]*tabular-nums/.test(css))
+  assert.ok(read('src/js/safeDom.js').includes("'wbr'"), 'balance line breaks allowed only after , or .')
+  for (const k of ['d_capSynced', 'd_capSyncing', 'd_capChecking', 'd_capPool', 'd_capPublic', 'd_earnToday', 'd_earnTotal', 'catRowBalance']) { assert.ok(I.CN[k] && I.EN[k], k); assert.ok(!/[\u4e00-\u9fff]/.test(I.EN[k]), 'EN ' + k) }
+  eq(I.CN.d_capSynced, '已同步'); eq(I.CN.catRowBalance, '查餘額'); eq(I.CN.catInput, '直接打字問我')
+  // AI小貓: six distinct actions in two columns, black capsule, big green pill, the two links, contacts
+  const rowsSrc = app.slice(app.indexOf('  const CAT_ROWS = ['), app.indexOf('  const catPhrase'))
+  const keys = (rowsSrc.match(/\['(\w+)', 'catRow\w+'/g) || []).map(x => x.split("'")[1])
+  assert.deepStrictEqual(keys, ['create', 'send', 'mine', 'heal', 'balance', 'settings'])
+  assert.ok(/ios-group \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/.test(css))
+  assert.ok(app.includes('class="cat-launch cat-capsule" id="aiCatBtn"') && /\.cat-launch\.cat-capsule \{[^}]*background: #000/.test(css))
+  assert.ok(app.includes('id="catType" data-act="catType">${esc(T(\'catInput\'))}') && /case 'catType':/.test(app))
+  assert.ok(/\.cat-type \{[^}]*background: linear-gradient\(180deg, #1d7a34, #17652b\); color: #fff/.test(css), 'white on #1d7a34..#17652b (5.4:1 or more)')
+  assert.ok(app.includes('id="catLater"') && app.includes('id="catHide"') && app.includes("contactHtml('catContact')"))
+  assert.ok(require('../src/js/aiCat.js').reply('查餘額', { accounts: [] }).say.includes('餘額'), '查餘額 answers the balance')
+}
