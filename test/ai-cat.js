@@ -36,7 +36,7 @@ assert.strictEqual(classicJobs[0].backend, 'gpu')
 assert.strictEqual(classicJobs[0].shard, 1)
 assert.strictEqual(classicJobs[1].backend, 'cpu')
 assert.strictEqual(classicJobs[1].shard, 1)
-assert.ok(bothShards.say.includes('處理器挖 Shard1'))
+assert.ok(bothShards.say.includes('用處理器在 Shard1 挖礦'))
 
 const livePool = cat.planMine(Object.assign({}, base, {
   accounts: accounts.concat([{ label: '乙', file: 'b.json', shard: 2, address: '2S02' + 'ab'.repeat(19), evm: '' }]),
@@ -70,14 +70,14 @@ assert.deepStrictEqual(cpuOnly.actions[0].jobs.map(j => j.backend), ['cpu'])
 
 const none = cat.planMine({ gpu: { available: true }, cpu: { available: true }, accounts: [] })
 assert.deepStrictEqual(none.actions, [])
-assert.ok(none.say.includes('Classic'))
+assert.ok(none.say.includes('Shard1'))
 
 const stalled = cat.planHeal({
   classicGpu: { running: true, mode: 'gpu', shard: 1, wallet: CLASSIC, localBlock: 10, networkBlock: 100, heightAgeMs: cat.STALL_MS }
 })
 assert.strictEqual(stalled.actions[0].type, 'restartJobs')
 assert.strictEqual(stalled.actions[0].jobs[0].chain, 'classic')
-assert.ok(stalled.say.includes('同步停住'))
+assert.ok(stalled.say.includes('帳本下載停住了'))
 assert.deepStrictEqual(cat.planHeal({
   classicGpu: { running: true, mode: 'gpu', shard: 1, wallet: CLASSIC, localBlock: 10, networkBlock: 12, heightAgeMs: cat.STALL_MS }
 }).actions, [])
@@ -86,7 +86,7 @@ const peers = cat.planHeal({
   shard0: { running: true, code: 'NO_PEERS', peers: 0, mode: 'mine', wallet: ADDR, peerAgeMs: 60000 }
 })
 assert.strictEqual(peers.actions[0].jobs[0].chain, 'shard0')
-assert.ok(peers.say.includes('同伴'))
+assert.ok(peers.say.includes('主鏈還沒有連上其他節點'))
 
 const mem = cat.planHeal({
   mem: { free: 200 * 1024 * 1024 },

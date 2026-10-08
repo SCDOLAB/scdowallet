@@ -65,13 +65,13 @@ function liveShardSet (ctx) {
 function startFail (code) {
   const map = {
     NO_ZMINER: '找不到處理器挖礦程式。',
-    NO_CLASSIC_NODE: '找不到 Classic 顯示卡節點。',
-    NO_CUDART: '顯示卡節點缺少執行元件。',
-    NO_NVIDIA: '這台電腦沒有可用的 NVIDIA 顯示卡。',
+    NO_CLASSIC_NODE: '找不到顯卡挖礦程式。',
+    NO_CUDART: '顯卡挖礦程式缺少執行元件。',
+    NO_NVIDIA: '這台電腦沒有可用的 NVIDIA 顯卡。',
     ALREADY_RUNNING: '這個挖礦程式已經在跑。',
-    BAD_ADDRESS: '這個地址不能用來挖這個分片。',
-    BAD_SHARD: '地址和分片不一致。',
-    CANCELED: '你取消了 Shard0 顯示卡啟動。'
+    BAD_ADDRESS: '這個地址不能用來挖這條鏈。',
+    BAD_SHARD: '地址和這條鏈對不上。',
+    CANCELED: '你取消了主鏈的顯卡挖礦。'
   }
   return map[code] || '沒有啟動。'
 }
@@ -80,7 +80,7 @@ function planMine (ctx) {
   ctx = ctx || {}
   const temp = num(ctx.tempC)
   if (temp != null && temp >= HEAT_C) {
-    return { say: '顯示卡 ' + temp + '°C，已超過 85°C，已停止顯示卡挖礦。', actions: [{ type: 'stopGpu' }] }
+    return { say: '顯卡溫度 ' + temp + '°C，已經過熱。75°C 以下才安全，超過 85°C 會自動暫停，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
   }
   const gpuOk = !!(ctx.gpu && ctx.gpu.available)
   const cpuOk = !!(ctx.cpu && ctx.cpu.available)
@@ -92,7 +92,7 @@ function planMine (ctx) {
     return { say: '這台電腦目前沒有可用的顯示卡節點或處理器挖礦程式。', actions: [] }
   }
   if (!shards.length && !ctx.includeShard0) {
-    return { say: '還沒有 Shard1 到 Shard4 的 Classic 帳戶。請先建立或匯入，再一鍵挖礦。', actions: [] }
+    return { say: '還沒有 Shard1 到 Shard4 的帳戶。請先建立或匯入，再開始挖礦。', actions: [] }
   }
   const jobs = []
   const bits = []
@@ -103,31 +103,31 @@ function planMine (ctx) {
     const cpuShard = otherLive.length ? otherLive[0] : gpuShard
     if (gpuOk) {
       jobs.push({ chain: 'classic', backend: 'gpu', shard: gpuShard, address: by[gpuShard][0].address })
-      bits.push('顯示卡挖 Shard' + gpuShard)
+      bits.push('用顯卡在 Shard' + gpuShard + ' 挖礦')
     }
     if (cpuOk) {
       const s = gpuOk ? cpuShard : gpuShard
       jobs.push({ chain: 'classic', backend: 'cpu', shard: s, address: by[s][0].address })
-      bits.push('處理器挖 Shard' + s)
+      bits.push('用處理器在 Shard' + s + ' 挖礦')
     }
     const missing = [1, 2, 3, 4].filter(n => !by[n].length)
-    if (missing.length) bits.push('Shard' + missing.join('、Shard') + ' 沒有帳戶')
+    if (missing.length) bits.push('Shard' + missing.join('、Shard') + ' 還沒有帳戶')
     const used = {}
     jobs.forEach(j => { if (j.chain === 'classic') used[j.shard] = 1 })
     const left = shards.filter(n => !used[n])
-    if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等目前的挖礦程式有空再切')
+    if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等現在這次挖完再換')
   }
   if (ctx.includeShard0) {
-    if (!ctx.shard0Address) bits.push('沒有 Shard0 地址，所以沒有加入 Shard0')
-    else if (!nvidia) bits.push('沒有 NVIDIA 顯示卡，所以沒有加入 Shard0')
+    if (!ctx.shard0Address) bits.push('沒有主鏈地址，所以沒有一起挖主鏈')
+    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖主鏈')
     else {
       jobs.push({ chain: 'shard0', backend: 'gpu', address: ctx.shard0Address })
-      bits.push('另外挖 Shard0 顯示卡')
+      bits.push('另外用顯卡挖主鏈')
     }
   }
   if (!jobs.length) return { say: bits.join('。') + '。', actions: [] }
   return {
-    say: '準備啟動：' + bits.join('，') + '。顯示卡超過 85°C 會停下並告訴你。',
+    say: '準備開始：' + bits.join('，') + '。顯卡超過 85°C 會自動暫停，保護顯卡。',
     actions: [{ type: 'startJobs', jobs: jobs }]
   }
 }
@@ -139,7 +139,7 @@ function heatGuard (ctx) {
   const classicHot = ctx.classicGpu && ctx.classicGpu.running && ctx.classicGpu.mode !== 'cpu'
   const shard0Hot = ctx.shard0 && ctx.shard0.running && ctx.shard0.mode !== 'node'
   if (!classicHot && !shard0Hot) return null
-  return { say: '顯示卡 ' + temp + '°C，已超過 85°C，已停止顯示卡挖礦。', actions: [{ type: 'stopGpu' }] }
+  return { say: '顯卡溫度 ' + temp + '°C，已經過熱。75°C 以下才安全，超過 85°C 會自動暫停，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
 }
 
 function diagnose (ctx) {
@@ -169,30 +169,30 @@ function planHeal (ctx) {
   ctx = ctx || {}
   const temp = num(ctx.tempC)
   if (temp != null && temp >= HEAT_C) {
-    return heatGuard(ctx) || { say: '顯示卡 ' + temp + '°C，已超過 85°C。目前沒有在用顯示卡挖礦，所以沒有重新啟動它。', actions: [] }
+    return heatGuard(ctx) || { say: '顯卡溫度 ' + temp + '°C，已經過熱。現在沒有用顯卡挖礦，所以沒有把挖礦停下來。', actions: [] }
   }
   const found = diagnose(ctx)
-  if (!found.length) return { say: '同步、同伴節點和記憶體目前都正常。', actions: [] }
+  if (!found.length) return { say: '帳本下載、連上的節點和記憶體目前都正常。', actions: [] }
   const jobs = []
   const bits = []
   for (const p of found) {
     if (p.kind === 'stalled') {
       jobs.push({ chain: 'classic', backend: 'gpu', shard: p.shard, address: p.address })
-      bits.push('Shard' + p.shard + ' 同步停住，準備重新啟動節點並重新連線同伴')
+      bits.push('Shard' + p.shard + ' 的帳本下載停住了，準備重新啟動，再連上其他節點')
     } else if (p.kind === 'nopeers') {
       jobs.push({ chain: 'shard0', mode: p.mode, address: p.address })
-      bits.push('Shard0 沒有同伴節點，準備重新連線')
+      bits.push('主鏈還沒有連上其他節點，準備重新連線')
     } else if (p.kind === 'mem') {
       const mb = Math.max(0, Math.round(p.free / (1024 * 1024)))
-      bits.push('可用記憶體剩下 ' + mb + ' MB')
+      bits.push('可用記憶體只剩下 ' + mb + ' MB')
       const gpu = ctx.classicGpu
       const s0 = ctx.shard0
       if (gpu && gpu.running && gpu.wallet && gpu.mode !== 'cpu' && !jobs.some(j => j.chain === 'classic')) {
         jobs.push({ chain: 'classic', backend: 'gpu', shard: Number(gpu.shard), address: gpu.wallet })
-        bits.push('準備重新啟動 Classic 節點')
+        bits.push('準備重新啟動顯卡挖礦')
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
-        bits.push('準備重新啟動 Shard0 節點')
+        bits.push('準備重新啟動主鏈')
       } else if (!jobs.length) bits.push('先不要再啟動新的節點')
     }
   }

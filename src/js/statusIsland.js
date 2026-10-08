@@ -75,20 +75,6 @@ function compactHash (h) {
   return trimFixed(v, digits) + units[i]
 }
 
-// Hours drop the leftover minutes once the wait is long: 107h, not "107 小時 6 分鐘".
-function compactEta (sec) {
-  const n = Number(sec)
-  if (sec == null || !Number.isFinite(n) || n < 0) return ''
-  const s = Math.round(n)
-  if (s < 60) return s + 's'
-  const mins = Math.round(s / 60)
-  if (mins < 60) return mins + 'm'
-  const h = Math.floor(mins / 60)
-  const rm = mins % 60
-  if (h >= 10 || !rm) return h + 'h'
-  return h + 'h' + rm + 'm'
-}
-
 function farBehind (sync) {
   if (!sync || sync.local == null || sync.network == null) return false
   return Number(sync.network) - Number(sync.local) > BEHIND_BLOCKS
@@ -102,63 +88,83 @@ function syncProgress (sync) {
 function tempBand (c) {
   if (c == null || !Number.isFinite(Number(c))) return ''
   if (Number(c) >= 85) return 'hot'
-  if (Number(c) >= 70) return 'warm'
+  if (Number(c) >= 75) return 'warm'
   return 'ok'
 }
 
-// A few seconds is not an ETA while millions of blocks remain. Say 計算中.
-function panelEta (sync, tr, etaText) {
-  if (sync.etaSec == null || (farBehind(sync) && Number(sync.etaSec) < 5)) return tr('isleCalc')
-  let text = etaText ? etaText(sync.etaSec) : compactEta(sync.etaSec)
-  if (farBehind(sync) && (text === '即將完成' || text === 'almost done')) return tr('isleCalc')
-  return text || tr('isleCalc')
+function tempState (band, tr) {
+  if (band === 'hot') return tr('isleHot')
+  if (band === 'warm') return tr('isleWarm')
+  return tr('isleOk')
 }
 
-function etaLabel (sync, tr) {
-  if (!sync || sync.kind !== 'syncing') return ''
-  if (sync.etaSec == null || (farBehind(sync) && Number(sync.etaSec) < 5)) return tr('isleCalc')
-  return compactEta(sync.etaSec) || tr('isleCalc')
+function chainName (n, tr) {
+  return n === 0 ? tr('isleMainChain') : tr('isleShardN', { n: n })
 }
 
-function heightPair (local, network, compact) {
-  const fmt = compact ? compactCount : groupNum
-  const loc = local != null ? fmt(local) : '…'
-  const net = network != null ? fmt(network) : '…'
-  return loc + '/' + net
+function tipOf (name, value, explain, detail) {
+  return { name: name || '', value: value || '', explain: explain || '', detail: detail || '' }
 }
 
-function syncText (sync, tr, etaText) {
-  if (!sync || sync.kind === 'off') return tr('isleOff')
-  if (sync.kind === 'pool') return tr('islePool')
-  if (sync.kind === 'checking') return tr('isleChecking')
-  if (sync.kind === 'pending') return heightPair(sync.local, sync.network, false)
-  if (sync.kind === 'synced') return tr('isleSynced') + ' ' + groupNum(sync.local) + '/' + groupNum(sync.network)
-  return groupNum(sync.local) + '/' + groupNum(sync.network) + ' · ' + panelEta(sync, tr, etaText)
+function syncPct (sync) {
+  if (!sync || sync.local == null || sync.network == null || !(Number(sync.network) > 0)) return null
+  const pct = Math.round((Number(sync.local) / Number(sync.network)) * 100)
+  return Math.max(0, Math.min(100, pct))
 }
 
-function waitingLine (m, tr, syncKind) {
-  if (syncKind === 'syncing' || (m && m.code && String(m.code).indexOf('SYNC') >= 0)) return tr('isleSyncWait')
-  return ''
-}
-
-function mineText (gpu, cpu, nodeOnly, tr, hashText, syncKind) {
-  const bits = []
-  const add = (m, label) => {
-    if (!m || !m.running) return
-    const hr = num(m.hashrate)
-    const rate = hr != null && hr > 0 && hashText ? hashText(hr) : ''
-    if (miningNow(m)) bits.push(label + (rate ? ' ' + rate : ''))
-    else bits.push(waitingLine(m, tr, syncKind) || (label + ' ' + tr('isleBoot')))
+function durationWords (sec, tr) {
+  const n = Number(sec)
+  if (sec == null || !Number.isFinite(n) || n < 0) return ''
+  const s = Math.round(n)
+  if (s < 60) return tr('isleDurSec', { n: s })
+  const mins = Math.round(s / 60)
+  if (mins < 60) return tr('isleDurMin', { n: mins })
+  const h = Math.floor(mins / 60)
+  const rm = mins % 60
+  if (h < 24 * 14) {
+    if (!rm || h >= 10) return tr('isleDurHour', { n: h })
+    return tr('isleDurHourMin', { h: h, m: rm })
   }
-  if (nodeOnly && nodeOnly.running && nodeOnly.mode === 'node') bits.push(tr('isleNode'))
-  add(gpu, tr('isleGpu'))
-  add(cpu, tr('isleCpu'))
-  return bits.length ? bits.join(' · ') : tr('isleNoMine')
+  return tr('isleDurDay', { n: Math.round(h / 24) })
 }
 
-function rateOf (m, label) {
-  if (!m || !m.running || !miningNow(m)) return null
-  return { label: label, hash: compactHash(m.hashrate) || '…' }
+function attemptWords (hash, tr) {
+  const n = Number(hash)
+  if (!Number.isFinite(n) || n <= 0) return { text: tr('isleSpeedUnknown'), count: '' }
+  const rounded = Math.round(n)
+  return { text: tr('islePerSec', { n: rounded.toLocaleString('en-US') }), count: rounded.toLocaleString('en-US') }
+}
+
+function heightDetail (sync, tr) {
+  const local = sync && sync.local != null ? groupNum(sync.local) : tr('isleUnknown')
+  const network = sync && sync.network != null ? groupNum(sync.network) : tr('isleUnknown')
+  return tr('isleHeightDetail', { local: local, network: network })
+}
+
+function gpuLabel (name) {
+  return String(name || '').replace(/^NVIDIA\s+/i, '').replace(/^GeForce\s+/i, '').trim()
+}
+
+function syncSentence (sync, chain, tr) {
+  const pct = syncPct(sync)
+  if (pct == null) return tr('isleSyncUnknown', { chain: chain })
+  return tr('isleSyncPct', { chain: chain, pct: pct })
+}
+
+function speedChip (chain, dev, hash, tr) {
+  const speed = attemptWords(hash, tr)
+  const text = tr('isleSpeed', { chain: chain, dev: dev, speed: speed.text })
+  return {
+    kind: 'rate',
+    text: text,
+    live: true,
+    tip: tipOf(
+      tr('isleSpeedName', { chain: chain, dev: dev }),
+      speed.text,
+      tr('isleTipSpeedExplain', { n: speed.count || tr('isleUnknown') }),
+      speed.count ? tr('isleTipSpeedDetail', { n: speed.count }) : ''
+    )
+  }
 }
 
 function shardSources (n, opts) {
@@ -180,87 +186,167 @@ function shardSources (n, opts) {
   return { node: null, gpu: g && !isCpu(g) ? g : null, cpu: c && isCpu(c) ? c : null, syncFrom: g || null }
 }
 
-function rateChip (n, rate, withShard) {
-  let text
-  if (!withShard) text = rate.label + ' ' + rate.hash
-  else if (n === 0) text = 'S0 ' + rate.hash
-  else text = 'S' + n + ' ' + rate.label + ' ' + rate.hash
-  return { kind: 'rate', text: text, live: true }
+function peersOf (m) {
+  if (!m || m.peers == null || m.peers === '') return null
+  const n = num(m.peers)
+  return n != null && n >= 0 ? Math.round(n) : null
+}
+
+function legendItems (tr) {
+  return [
+    { name: tr('isleLegSyncName'), text: tr('isleLegSync') },
+    { name: tr('isleLegSpeedName'), text: tr('isleLegSpeed') },
+    { name: tr('isleLegTempName'), text: tr('isleLegTemp') },
+    { name: tr('isleLegEarnName'), text: tr('isleLegEarn') },
+    { name: tr('isleLegPeerName'), text: tr('isleLegPeer') },
+    { name: tr('isleLegBalName'), text: tr('isleLegBal') },
+    { name: tr('isleLegWaitName'), text: tr('isleLegWait') }
+  ]
 }
 
 function buildIsland (opts) {
   opts = opts || {}
   const tr = typeof opts.T === 'function' ? opts.T : (k) => k
-  const etaText = opts.etaText
-  const hashText = opts.hashText
   const views = [1, 2, 3, 4, 0].map(n => {
     const src = shardSources(n, opts)
     const sync = src.syncFrom ? syncOf(src.syncFrom) : (src.cpu ? { kind: 'pool' } : { kind: 'off' })
     const gpu = src.gpu && isGpuMine(src.gpu) ? src.gpu : null
-    const rates = [rateOf(gpu, tr('isleGpu')), rateOf(src.cpu, tr('isleCpu'))].filter(Boolean)
-    const liveMine = rates.length > 0
+    const chain = chainName(n, tr)
     const gpuWaiting = gpu && gpu.running && !miningNow(gpu) && (sync.kind === 'syncing' || (gpu.code && String(gpu.code).indexOf('SYNC') >= 0))
+    const row = []
+    const active = sync.kind !== 'off' || gpu || src.cpu || (src.node && src.node.running)
+    if (active && sync.kind !== 'pool') {
+      const sentence = sync.kind === 'off' ? tr('isleSyncUnknown', { chain: chain }) : syncSentence(sync, chain, tr)
+      const pct = syncPct(sync)
+      row.push({
+        kind: 'sync',
+        text: sentence,
+        progress: syncProgress(sync),
+        tip: tipOf(chain + ' ' + tr('isleSyncShort'), pct == null ? tr('isleEtaCalc') : pct + '%', tr('isleTipSyncExplain'), heightDetail(sync, tr))
+      })
+    }
+    if (sync.kind === 'syncing') {
+      const far = farBehind(sync) && sync.etaSec != null && Number(sync.etaSec) < 5
+      const when = (!far && sync.etaSec != null) ? (durationWords(sync.etaSec, tr) || tr('isleEtaCalc')) : tr('isleEtaCalc')
+      const text = tr('isleEtaLeft', { chain: chain, when: when })
+      row.push({
+        kind: 'eta',
+        text: text,
+        progress: syncProgress(sync),
+        tip: tipOf(chain + ' ' + tr('isleEtaCalc'), when, tr('isleTipEtaExplain'), heightDetail(sync, tr))
+      })
+    }
+    if (gpuWaiting) {
+      const text = tr('isleWaitMine', { chain: chain })
+      row.push({
+        kind: 'idle',
+        text: text,
+        tip: tipOf(chain, tr('isleGpuIdle'), tr('isleTipWaitExplain'), heightDetail(sync, tr))
+      })
+    }
+    if (src.node && src.node.running && src.node.mode === 'node') {
+      const text = tr('isleNodeOnly', { chain: chain })
+      row.push({ kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipNodeExplain'), '') })
+    }
+    if (gpu && miningNow(gpu)) row.push(speedChip(chain, tr('isleDevGpu'), gpu.hashrate, tr))
+    if (src.cpu && miningNow(src.cpu)) row.push(speedChip(chain, tr('isleDevCpu'), src.cpu.hashrate, tr))
+    if (sync.kind === 'pool' && !(src.cpu && miningNow(src.cpu))) {
+      const text = tr('islePoolMine', { chain: chain })
+      row.push({ kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipPoolExplain'), '') })
+    }
+    const peerSource = gpu || src.cpu || (src.node && src.node.running ? src.node : null) || src.syncFrom
+    const peers = peersOf(peerSource)
+    if (peers != null) {
+      const text = tr('islePeers', { chain: chain, n: peers })
+      row.push({
+        kind: 'idle',
+        text: text,
+        tip: tipOf(tr('isleLegPeerName'), tr('islePeerCount', { n: peers }), tr('isleTipPeerExplain'), tr('isleTipPeerDetail', { n: peers }))
+      })
+    }
+    const liveMine = row.some(c => c.kind === 'rate')
+    const mineBits = row.filter(c => c.kind !== 'sync' && c.kind !== 'eta').map(c => c.text)
     return {
       n,
+      title: chain,
       sync,
-      rates,
-      standby: gpuWaiting ? tr('isleGpuIdle') : '',
       liveMine,
       progress: syncProgress(sync),
       syncKind: sync.kind,
-      syncText: syncText(sync, tr, etaText),
-      mineText: mineText(gpu, src.cpu, src.node, tr, hashText, sync.kind)
+      syncText: (row.find(c => c.kind === 'sync') || {}).text || (sync.kind === 'off' ? tr('isleOff') : ''),
+      mineText: mineBits.join(' · ') || tr('isleNoMine'),
+      rowChips: row
     }
   })
   const anyMining = views.some(s => s.liveMine)
   const chips = []
-  views.forEach(s => {
-    const sync = s.sync
-    const showHeight = sync.kind === 'syncing' || sync.kind === 'checking' || sync.kind === 'pending' || (sync.kind === 'synced' && !s.rates.length)
-    if (sync.kind === 'off' && !s.rates.length && !s.standby) return
-    if (sync.kind === 'checking') {
-      chips.push({ kind: 'sync', text: 'S' + s.n + ' ' + tr('isleChecking'), progress: 0 })
-    } else if (showHeight && (sync.local != null || sync.kind === 'pending')) {
-      let text = 'S' + s.n + ' '
-      if (sync.kind === 'syncing' && !anyMining) text += tr('isleSyncShort') + ' '
-      text += heightPair(sync.local, sync.network, true)
-      chips.push({ kind: 'sync', text: text.trim(), progress: s.progress })
-      const eta = etaLabel(sync, tr)
-      if (eta) chips.push({ kind: 'eta', text: eta, progress: s.progress })
-    } else if (sync.kind === 'pool' && !s.rates.length) {
-      chips.push({ kind: 'idle', text: 'S' + s.n + ' ' + tr('islePool') })
-    }
-    if (s.standby) chips.push({ kind: 'idle', text: s.standby })
-    const withShard = !showHeight
-    if (s.rates.length === 1) chips.push(rateChip(s.n, s.rates[0], withShard))
-    else s.rates.forEach((r, i) => chips.push(rateChip(s.n, r, withShard && i === 0)))
-  })
+  views.forEach(s => { s.rowChips.forEach(c => chips.push(c)) })
   if (!anyMining) {
-    if (chips.length) chips.push({ kind: 'idle', text: tr('isleIdle') })
-    else chips.push({ kind: 'start', text: tr('isleStart') })
+    if (chips.length) {
+      chips.push({ kind: 'idle', text: tr('isleNotMining'), tip: tipOf(tr('isleNotMining'), tr('isleNotMining'), tr('isleTipIdleExplain'), '') })
+    } else {
+      chips.push({ kind: 'start', text: tr('isleStart'), tip: tipOf(tr('isleStart'), tr('isleStart'), tr('isleTipStartExplain'), '') })
+    }
   }
-  const temps = (opts.temps || []).map(t => num(t && t.tempC)).filter(t => t != null)
-  const tempC = temps.length ? Math.max.apply(null, temps) : null
+  const gpuTemps = (opts.temps || []).map(t => ({ name: gpuLabel(t && t.name), tempC: num(t && t.tempC) })).filter(t => t.tempC != null)
+  const tempC = gpuTemps.length ? Math.max.apply(null, gpuTemps.map(t => t.tempC)) : null
   const band = tempBand(tempC)
   const earn = summarizeEarnings(opts.earnLog || [], opts.now == null ? Date.now() : opts.now, opts.rewardScdo == null ? BLOCK_REWARD_SCDO : opts.rewardScdo)
+  const reward = opts.rewardScdo == null ? BLOCK_REWARD_SCDO : opts.rewardScdo
   const balanceText = opts.balanceText || ''
   const balanceMark = opts.balanceMark || ''
   const balanceName = opts.balanceName || ''
   const money = []
-  if (tempC != null) money.push({ kind: 'temp', text: String(tempC) + '°C', band: band })
-  money.push({ kind: 'earn', text: tr('isleTodayShort', { b: earn.todayBlocks, s: earn.todayScdo }) })
-  if (balanceText) money.push({ kind: 'bal', text: tr('isleBalance') + ' ' + balanceText, mark: balanceMark, name: balanceName })
+  if (!gpuTemps.length) {
+    money.push({ kind: 'idle', text: tr('isleNoTemp'), tip: tipOf(tr('isleLegTempName'), tr('isleNoTemp'), tr('isleTipNoTempExplain'), '') })
+  } else {
+    gpuTemps.forEach((g, i) => {
+      const gBand = tempBand(g.tempC)
+      const state = tempState(gBand, tr)
+      const text = gpuTemps.length > 1
+        ? tr('isleTempMany', { i: i + 1, n: g.tempC, state: state })
+        : tr('isleTempOne', { n: g.tempC, state: state })
+      const detail = g.name ? tr('isleTipTempDetail', { name: g.name }) : ''
+      money.push({
+        kind: 'temp',
+        text: text,
+        band: gBand,
+        tip: tipOf(tr('isleLegTempName'), tr('isleTempValue', { n: g.tempC, state: state }), tr('isleTipTempExplain'), detail)
+      })
+    })
+  }
+  money.push({
+    kind: 'earn',
+    text: tr('isleEarnedToday', { s: earn.todayScdo }),
+    tip: tipOf(tr('isleLegEarnName'), earn.todayScdo + ' SCDO', tr('isleTipEarnExplain'), tr('isleTipEarnDetail', { b: earn.todayBlocks, r: reward }))
+  })
+  money.push({
+    kind: 'earn',
+    text: tr('isleEarnedTotal', { s: earn.totalScdo }),
+    tip: tipOf(tr('isleEarnedTotal', { s: '' }).trim(), earn.totalScdo + ' SCDO', tr('isleTipTotalExplain'), tr('isleTipTotalDetail', { b: earn.totalBlocks, r: reward }))
+  })
+  if (balanceText) {
+    money.push({
+      kind: 'bal',
+      text: tr('isleAcctBal', { text: balanceText }),
+      mark: balanceMark,
+      name: balanceName,
+      tip: tipOf(tr('isleLegBalName'), balanceText, tr('isleTipBalExplain'), balanceName ? balanceName : '')
+    })
+  }
   const compactTop = chips.map(c => c.text).join(' · ')
   const compactBottom = money.map(c => c.text).join(' · ')
   const shards = views.map(s => ({
     n: s.n,
+    title: s.title,
     syncKind: s.syncKind,
     syncText: s.syncText,
     mineText: s.mineText,
     progress: s.progress,
-    liveMine: s.liveMine
+    liveMine: s.liveMine,
+    rowChips: s.rowChips
   }))
-  return { shards, tempC, tempBand: band, earn, balanceText, balanceMark, balanceName, compactTop, compactBottom, chips, money }
+  return { shards, tempC, tempBand: band, earn, balanceText, balanceMark, balanceName, compactTop, compactBottom, chips, money, legend: legendItems(tr) }
 }
 
 function absorbBlocks (state, events, now) {

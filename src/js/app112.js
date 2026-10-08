@@ -947,6 +947,7 @@
     val.className = 'isle-val'
     val.textContent = c.text
     el.appendChild(val)
+    armChip(el, c)
     return el
   }
   function paintAvatar (av, c) {
@@ -964,7 +965,7 @@
   }
   function paintChipRow (host, chips) {
     const list = chips || []
-    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || '', c.name || ''].join('\t')).join('\n')
+    const sig = list.map(c => [c.kind, c.text, c.band || '', c.live ? 1 : 0, c.mark || '', c.name || '', c.tip ? (c.tip.value + '\t' + c.tip.detail) : ''].join('\t')).join('\n')
     const prev = (host.getAttribute('data-sig') || '').split('\n').filter(Boolean)
     const same = prev.length === list.length && host.childElementCount === list.length && list.every((c, i) => prev[i].startsWith(c.kind + '\t'))
     if (same && host.getAttribute('data-sig') === sig) {
@@ -992,6 +993,7 @@
           }
           paintAvatar(av, c)
         } else if (av) av.remove()
+        armChip(el, c)
         if (val && oldText !== c.text) {
           val.textContent = c.text
           el.classList.remove('isle-tick')
@@ -1020,29 +1022,30 @@
     const compact = $('islandCompact')
     const panel = $('islandPanel')
     if (!compact || !panel || !window.SCDOIsland) return
+    if (islePopAnchor && !islePopAnchor.isConnected) closeIslePop(true)
     const model = islandModel()
-    compact.title = model.compactTop + (model.compactBottom ? '\n' + model.compactBottom : '')
+    compact.removeAttribute('title')
     paintChipRow(ensureLine(compact, 'islandLine', 'island-line'), model.chips)
     const bot = ensureLine(compact, 'islandMoney', 'island-line island-money')
     bot.id = 'islandMoney'
     paintChipRow(bot, model.money)
+    ensureIsleHelp(compact)
+    renderIsleLegend(model.legend || [])
     let rows = panel.querySelector('.isle-rows')
-    if (!rows || rows.childElementCount !== model.shards.length || !panel.querySelector('.isle-actions')) {
+    if (!rows || rows.getAttribute('data-plain') !== '1' || rows.childElementCount !== model.shards.length || !panel.querySelector('.isle-actions')) {
       panel.textContent = ''
       rows = document.createElement('div')
       rows.className = 'isle-rows'
+      rows.setAttribute('data-plain', '1')
       model.shards.forEach(s => {
         const row = document.createElement('div')
         row.className = 'isle-row'
         const name = document.createElement('b')
-        name.textContent = 'Shard' + s.n
-        const syncSlot = document.createElement('span')
-        syncSlot.className = 'isle-slot'
-        const mineSlot = document.createElement('span')
-        mineSlot.className = 'isle-slot'
+        name.textContent = s.title || ('Shard' + s.n)
+        const slot = document.createElement('span')
+        slot.className = 'isle-slot'
         row.appendChild(name)
-        row.appendChild(syncSlot)
-        row.appendChild(mineSlot)
+        row.appendChild(slot)
         rows.appendChild(row)
       })
       const meta = document.createElement('div')
@@ -1058,18 +1061,161 @@
     }
     model.shards.forEach((s, i) => {
       const row = rows.children[i]
-      paintChipRow(row.children[1], [{ kind: 'sync', text: s.syncText, progress: s.progress }])
-      const mineKind = s.liveMine ? 'rate' : (s.syncKind === 'syncing' || s.syncKind === 'checking' ? 'sync' : 'idle')
-      paintChipRow(row.children[2], [{ kind: mineKind, text: s.mineText, progress: s.progress, live: s.liveMine }])
+      const name = row.querySelector('b')
+      if (name) name.textContent = s.title || ('Shard' + s.n)
+      paintChipRow(row.children[1], s.rowChips || [])
     })
-    const metaChips = []
-    metaChips.push(model.tempC == null
-      ? { kind: 'idle', text: T('isleNoTemp') }
-      : { kind: 'temp', text: T('isleTemp', { n: model.tempC }), band: model.tempBand })
-    metaChips.push({ kind: 'earn', text: T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }) })
-    metaChips.push({ kind: 'earn', text: T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }) })
-    metaChips.push({ kind: 'bal', text: T('isleBalance') + ' ' + (model.balanceText || ''), mark: model.balanceMark || '', name: model.balanceName || '' })
-    paintChipRow(panel.querySelector('.isle-meta-row'), metaChips)
+    paintChipRow(panel.querySelector('.isle-meta-row'), model.money)
+  }
+  let islePopTimer = 0
+  let islePopHideTimer = 0
+  let islePopToken = 0
+  let islePopPinned = false
+  let islePopAnchor = null
+  let isleLegendOn = false
+  function islePopBox () {
+    let el = $('islePop')
+    if (el) return el
+    el = document.createElement('div')
+    el.id = 'islePop'
+    el.className = 'isle-pop'
+    el.setAttribute('role', 'tooltip')
+    el.hidden = true
+    el.addEventListener('mouseenter', () => { clearTimeout(islePopHideTimer) })
+    el.addEventListener('mouseleave', () => { if (!islePopPinned) queueIslePopHide() })
+    document.body.appendChild(el)
+    return el
+  }
+  function fillIslePop (tip) {
+    const el = islePopBox()
+    el.textContent = ''
+    const name = document.createElement('b')
+    name.className = 'isle-pop-name'
+    name.textContent = tip.name || ''
+    const value = document.createElement('div')
+    value.className = 'isle-pop-value'
+    value.textContent = tip.value || ''
+    const explain = document.createElement('p')
+    explain.className = 'isle-pop-explain'
+    explain.textContent = tip.explain || ''
+    el.appendChild(name)
+    el.appendChild(value)
+    el.appendChild(explain)
+    if (tip.detail) {
+      const detail = document.createElement('p')
+      detail.className = 'isle-pop-detail'
+      detail.textContent = tip.detail
+      el.appendChild(detail)
+    }
+    return el
+  }
+  function placeIslePop (anchor) {
+    const el = islePopBox()
+    el.hidden = false
+    el.style.left = '0px'
+    el.style.top = '0px'
+    const r = anchor.getBoundingClientRect()
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const margin = 8
+    let left = r.left
+    let top = r.bottom + 8
+    if (top + h > window.innerHeight - margin) top = r.top - h - 8
+    if (top < margin) top = margin
+    if (left + w > window.innerWidth - margin) left = window.innerWidth - w - margin
+    if (left < margin) left = margin
+    el.style.left = Math.round(left) + 'px'
+    el.style.top = Math.round(top) + 'px'
+  }
+  function openIslePop (anchor, pin) {
+    const tip = anchor && anchor._isleTip
+    if (!tip || !tip.explain) return
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    if (islePopAnchor && islePopAnchor !== anchor) islePopAnchor.removeAttribute('aria-describedby')
+    fillIslePop(tip)
+    anchor.setAttribute('aria-describedby', 'islePop')
+    islePopAnchor = anchor
+    if (pin) islePopPinned = true
+    placeIslePop(anchor)
+  }
+  function closeIslePop (force) {
+    if (islePopPinned && !force) return
+    islePopPinned = false
+    clearTimeout(islePopTimer)
+    const el = $('islePop')
+    if (el) el.hidden = true
+    if (islePopAnchor) { islePopAnchor.removeAttribute('aria-describedby'); islePopAnchor = null }
+  }
+  function queueIslePop (anchor) {
+    const token = ++islePopToken
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    islePopTimer = setTimeout(() => { if (token === islePopToken) openIslePop(anchor, false) }, 300)
+  }
+  function queueIslePopHide () {
+    islePopToken++
+    clearTimeout(islePopTimer)
+    clearTimeout(islePopHideTimer)
+    islePopHideTimer = setTimeout(() => closeIslePop(false), 200)
+  }
+  function armChip (el, c) {
+    el._isleTip = c.tip || null
+    if (el._isleArmed) return
+    el._isleArmed = true
+    if (el.tagName !== 'BUTTON') el.tabIndex = 0
+    el.addEventListener('mouseenter', () => queueIslePop(el))
+    el.addEventListener('mouseleave', () => queueIslePopHide())
+    el.addEventListener('focus', () => openIslePop(el, false))
+    el.addEventListener('blur', () => queueIslePopHide())
+    el.addEventListener('click', (ev) => {
+      if (el.getAttribute('data-act') === 'isleStart') return
+      ev.stopPropagation()
+      openIslePop(el, true)
+    })
+  }
+  function ensureIsleHelp (compact) {
+    let btn = compact.querySelector('#isleHelp')
+    if (!btn) {
+      btn = document.createElement('button')
+      btn.type = 'button'
+      btn.id = 'isleHelp'
+      btn.className = 'isle-help'
+      btn.setAttribute('data-act', 'isleHelp')
+      btn.textContent = '?'
+      compact.appendChild(btn)
+    }
+    btn.setAttribute('aria-label', T('isleHelpBtn'))
+  }
+  function renderIsleLegend (items) {
+    let box = $('isleLegend')
+    if (!isleLegendOn) { if (box) box.remove(); return }
+    if (!box) {
+      box = document.createElement('div')
+      box.id = 'isleLegend'
+      box.className = 'isle-legend'
+      box.setAttribute('role', 'dialog')
+      box.setAttribute('aria-modal', 'true')
+      document.body.appendChild(box)
+    }
+    box.textContent = ''
+    const h = document.createElement('h2')
+    h.textContent = T('isleHelpTitle')
+    box.appendChild(h)
+    ;(items || []).forEach(it => {
+      const p = document.createElement('p')
+      const b = document.createElement('b')
+      b.textContent = it.name || ''
+      p.appendChild(b)
+      p.appendChild(document.createTextNode((it.name ? '。' : '') + (it.text || '')))
+      box.appendChild(p)
+    })
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'btn sec'
+    close.setAttribute('data-act', 'isleHelpClose')
+    close.textContent = T('isleHelpClose')
+    box.appendChild(close)
   }
   function renderHeaderNetOnly () {
     document.querySelectorAll('[data-netdot]').forEach(d => {
@@ -1989,6 +2135,8 @@
 
   // ---------------- events (one delegated handler) ----------------
   document.addEventListener('click', async (ev) => {
+    const inPop = ev.target.closest && (ev.target.closest('.isle-chip') || ev.target.closest('#islePop') || ev.target.closest('#isleHelp') || ev.target.closest('#isleLegend'))
+    if (!inPop) closeIslePop(true)
     const el = ev.target.closest('[data-act]'); if (!el) return
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
@@ -1996,6 +2144,8 @@
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
       case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
+      case 'isleHelp': isleLegendOn = true; renderIsland(); break
+      case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': askCat('開始挖礦'); break
       case 'catOpen': st.catOpen = !st.catOpen; if (st.catOpen && !st.catLog.length && window.SCDOCat) st.catLog.push(window.SCDOCat.reply('', catCtx()).say); renderCat(); break
       case 'catClose': st.catOpen = false; renderCat(); break
@@ -2092,7 +2242,7 @@
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; const isle = $('statusIsland'); if (isle && isle.classList.contains('open')) { isle.classList.remove('open'); return } if ($('dd')) closeDd(); else if ($('md')) closeModal() }
+    if (ev.key === 'Escape') { if (islePopPinned || ($('islePop') && !$('islePop').hidden)) { closeIslePop(true); return } if (isleLegendOn) { isleLegendOn = false; renderIsland(); return } if (window.__closeAssetList && window.__closeAssetList()) return; const isle = $('statusIsland'); if (isle && isle.classList.contains('open')) { isle.classList.remove('open'); return } if ($('dd')) closeDd(); else if ($('md')) closeModal() }
     if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.id === 'islandCompact') { ev.preventDefault(); const isle = $('statusIsland'); if (isle) isle.classList.toggle('open') }
     if (ev.key === 'Enter' && ev.target && ev.target.id === 'aiCatIn') { ev.preventDefault(); askCat(ev.target.value); ev.target.value = '' }
   })

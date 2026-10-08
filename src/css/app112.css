@@ -34,15 +34,11 @@ header.top > .island { flex: 1 1 auto; min-width: 0; }
 .island { position: relative; min-width: 0; }
 .island-compact { width: 100%; background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: pointer; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
 .island-compact:hover { border-color: #43A047; }
-.island-line { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 800; line-height: 1.25; white-space: nowrap; }
+.island-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; overflow: visible; font-size: 14px; font-weight: 800; line-height: 1.35; white-space: normal; }
 .island-money { font-size: 13px; }
-.isle-chip { position: relative; display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 8px; border-radius: 999px; color: #fff; font-weight: 800; letter-spacing: 0; line-height: 1.25; text-shadow: 0 1px 0 rgba(255,255,255,.45), 0 1px 0 rgba(0,0,0,.35), 0 2px 0 rgba(0,0,0,.28), 0 3px 1px rgba(0,0,0,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 0 rgba(0,0,0,.22), 0 2px 0 rgba(0,0,0,.14); overflow: hidden; }
-.isle-val { position: relative; z-index: 1; min-width: 0; }
-.island-line .isle-chip.sync, .island-line .isle-chip.eta, .island-line .isle-chip.idle { flex: 0 1 auto; min-width: 0; }
-.island-line .isle-chip.sync .isle-val, .island-line .isle-chip.eta .isle-val, .island-line .isle-chip.idle .isle-val { overflow: hidden; text-overflow: ellipsis; }
-.island-line .isle-chip.rate, .island-line .isle-chip.live, .island-line .isle-chip.gold, .island-line .isle-chip.temp, .island-line .isle-chip.start { flex: 0 0 auto; }
-.island-line .isle-chip.bal { flex: 0 1 auto; min-width: 0; }
-.island-line .isle-chip.bal .isle-val { overflow: hidden; text-overflow: ellipsis; }
+.isle-chip { position: relative; display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 8px; border-radius: 999px; color: #fff; font-weight: 800; letter-spacing: 0; line-height: 1.35; text-shadow: 0 1px 0 rgba(255,255,255,.45), 0 1px 0 rgba(0,0,0,.35), 0 2px 0 rgba(0,0,0,.28), 0 3px 1px rgba(0,0,0,.22); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), inset 0 -2px 0 rgba(0,0,0,.22), 0 2px 0 rgba(0,0,0,.14); overflow: hidden; white-space: normal; }
+.isle-val { position: relative; z-index: 1; min-width: 0; white-space: normal; }
+.island-line .isle-chip { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .isle-av { width: 16px; height: 16px; border-radius: 50%; background: #2E7D32; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; flex: none; position: relative; z-index: 1; text-shadow: none; }
 .isle-chip.sync, .isle-chip.eta { background: linear-gradient(180deg, color-mix(in srgb, #81C784 calc(var(--sync, 0) * 100%), #64B5F6), color-mix(in srgb, #1B5E20 calc(var(--sync, 0) * 100%), #0D47A1)); }
 .isle-chip.rate, .isle-chip.temp-ok { background: linear-gradient(180deg, #81C784, #1B5E20); }
@@ -68,7 +64,18 @@ html.isle-paused .isle-chip.shimmer::before,
 html.isle-paused .isle-chip.live::after,
 html.isle-paused .isle-spin,
 html.isle-paused .isle-tick { animation-play-state: paused; }
-@media (max-width: 1023px) { .island-money { display: none; } }
+.isle-help { flex: none; width: 28px; height: 28px; margin: 2px 0 2px 4px; border-radius: 50%; border: 2px solid #2E7D32; background: #fff; color: #2E7D32; font-weight: 800; font-size: 16px; line-height: 1; }
+.isle-help:hover, .isle-help:focus { background: #E8F5E9; outline: none; }
+.isle-pop { position: fixed; z-index: 80; max-width: min(360px, calc(100vw - 16px)); background: #fff; color: #1b1d33; border: 2px solid #43A047; border-radius: 14px; box-shadow: 0 12px 32px rgba(15,18,50,.28); padding: 12px 14px; }
+.isle-pop[hidden] { display: none; }
+.isle-pop-name { display: block; font-size: 16px; color: #1B5E20; }
+.isle-pop-value { font-size: 15px; font-weight: 800; margin: 4px 0 6px; }
+.isle-pop-explain { font-size: 14px; font-weight: 500; line-height: 1.45; margin: 0; }
+.isle-pop-detail { font-size: 12px; color: #6b7280; font-weight: 500; margin: 8px 0 0; }
+.isle-legend { position: fixed; z-index: 70; left: 12px; right: 12px; top: 12px; bottom: 12px; overflow: auto; background: #fff; color: #1b1d33; border: 2px solid #43A047; border-radius: 16px; box-shadow: 0 16px 48px rgba(15,18,50,.28); padding: 18px 20px; }
+.isle-legend h2 { margin: 0 0 10px; color: #1B5E20; font-size: 22px; }
+.isle-legend p { margin: 0 0 10px; font-size: 16px; line-height: 1.45; }
+.isle-legend b { color: #2E7D32; }
 .island-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff; color: #1b1d33; border-radius: 18px; border: 2px solid #43A047; box-shadow: 0 12px 40px rgba(15,18,50,.28); z-index: 30; padding: 12px 14px; max-height: 70vh; overflow: auto; }
 .island-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
 .island:hover .island-panel, .island.open .island-panel { display: block; }
