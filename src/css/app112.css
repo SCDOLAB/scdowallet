@@ -113,7 +113,7 @@ main { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }
 /* ---------- cards / buttons ---------- */
 .card { background: #fff; border-radius: 18px; box-shadow: 0 2px 10px rgba(67,160,71,.08); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; font-weight: 700; border: 0; font-size: 18px; padding: 0 18px; height: 46px; white-space: nowrap; }
-.btn.pri { background: #43A047; color: #fff; } .btn.pri:hover { background: #2E7D32; }
+.btn.pri { background: #1d7a34; color: #fff; } .btn.pri:hover { background: #17652b; }
 .btn.sec { background: #E8F5E9; color: #43A047; } .btn.sec:hover { background: #C8E6C9; }
 .btn.ghost { background: #fff; color: #3d4160; border: 2px solid #cfd3ea; } .btn.ghost:hover { border-color: #43A047; color: #43A047; }
 #cbNo:focus { outline: 3px solid #1B5E20; outline-offset: 3px; box-shadow: 0 0 0 4px rgba(67,160,71,.45); }
@@ -257,7 +257,7 @@ pre.log { background: #11142b; color: #d8dcff; font-size: 13px; padding: 12px; b
 /* 1.1.4: shard filter on the Classic accounts page */
 .shardchips { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 16px; }
 .shardchips button { border: 2px solid #d5d8ea; background: #fff; color: #3d4160; border-radius: 20px; padding: 6px 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
-.shardchips button.on { background: #43A047; border-color: #43A047; color: #fff; }
+.shardchips button.on { background: #1d7a34; border-color: #1d7a34; color: #fff; }
 .shardchips button:disabled { opacity: .55; cursor: default; }
 input.threads { width: 100%; margin-top: 8px; accent-color: #43A047; }
 
@@ -267,7 +267,7 @@ input.threads { width: 100%; margin-top: 8px; accent-color: #43A047; }
 .bootsplash .bs { font-size: 21px; color: #1b1d33; }
 .bootsplash .bm { font-size: 20px; color: #1b1d33; min-height: 28px; }
 .bootsplash .bslow { font-size: 17px; color: #4a4e6a; max-width: 720px; }
-.bootsplash .bsbtn { margin-left: 8px; font-size: 17px; padding: 6px 16px; border-radius: 12px; border: 0; background: #43A047; color: #fff; cursor: pointer; }
+.bootsplash .bsbtn { margin-left: 8px; font-size: 17px; padding: 6px 16px; border-radius: 12px; border: 0; background: #1d7a34; color: #fff; cursor: pointer; }
 .bootsplash .bspin { width: 42px; height: 42px; border: 6px solid #C8E6C9; border-top-color: #43A047; border-radius: 50%; animation: bootr 1s linear infinite; }
 @keyframes bootr { to { transform: rotate(360deg) } }
 .minepill { flex: 0 1 auto; min-width: 0; max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; padding: 6px 14px; border-radius: 18px; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.35); color: #fff; cursor: pointer; }
@@ -405,7 +405,7 @@ main { padding-bottom: 24px; }
 .cat-pop .ios-in .pill { flex: 1; min-width: 0; height: 36px; border-radius: 18px; border: 0; background: rgba(255,255,255,.85); box-shadow: inset 0 0 0 1px rgba(60,60,67,.18); padding: 0 14px; font: inherit; font-size: 17px; color: #1c1c1e; outline: none; }
 .cat-pop .ios-in .pill::placeholder { color: rgba(60,60,67,.72); }
 .cat-pop .ios-in .pill:focus { box-shadow: inset 0 0 0 2px #34c759; }
-.cat-pop .ios-in .send { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; background: #248a3d; display: flex; align-items: center; justify-content: center; flex: none; }
+.cat-pop .ios-in .send { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; background: #1d7a34; display: flex; align-items: center; justify-content: center; flex: none; }
 .cat-pop .ios-in .send img { width: 14px; height: 16px; }
 .cat-pop .ios-foot { display: flex; justify-content: center; gap: 28px; margin: 2px 0 6px; }
 .cat-pop .ios-foot button { border: 0; background: transparent; padding: 4px 2px; font: inherit; font-size: 15px; color: #1d7a34; }

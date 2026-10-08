@@ -132,4 +132,8 @@ assert.ok(/type="password"[^>]*id="cPriv"|id="cPriv"[^>]*type="password"/.test(c
 const css = read('src/css/app112.css')
 assert.ok(css.includes('.foot-bar .sum { flex: 1; min-width: 0; display: flex; flex-wrap: wrap;'), 'footer totals wrap')
 assert.ok(css.includes('.foot-bar .sum > div { flex: 1 0 auto; min-width: max-content; }'), 'each footer total keeps its full number')
+// ---- white text on green is #1d7a34 (5.4:1); #248a3d was 4.40:1 ----
+assert.ok(css.includes('.cat-pop .ios-in .send { width: 32px; height: 32px; border-radius: 50%; border: 0; padding: 0; background: #1d7a34;'))
+assert.ok(css.includes('.btn.pri { background: #1d7a34; color: #fff; }'))
+assert.ok(!/248a3d/i.test(css), 'no #248a3d left')
 console.log('wallet-v8: ok')
