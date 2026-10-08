@@ -204,4 +204,22 @@ async function poolAccount (addr, fetchText) {
   try { return parsePoolAccount(j) } catch (e) { return { ok: false, unreachable: true, error: 'invalid pool response' } }
 }
 
-module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS }
+// nvidia-smi CSV: "GPU name, 61". The name itself may contain commas.
+function parseGpuTemp (text) {
+  const gpus = []
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const parts = line.split(',').map(s => s.trim()).filter(s => s !== '')
+    if (parts.length < 2) continue
+    const tempC = Number(parts[parts.length - 1])
+    const name = parts.slice(0, -1).join(', ')
+    if (name && Number.isFinite(tempC)) gpus.push({ name, tempC })
+  }
+  return gpus
+}
+async function gpuTemperature () {
+  const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,temperature.gpu', '--format=csv,noheader,nounits'], 8000)
+  const gpus = parseGpuTemp(smi)
+  return { ok: !!smi, gpus }
+}
+
+module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature }

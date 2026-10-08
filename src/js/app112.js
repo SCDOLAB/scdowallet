@@ -85,14 +85,15 @@
   // Network follows the account tab: 'new' = SCDO Shard0 (EVM) (chain ID 5680), 'old' = Classic shards.
   // ui.shard = 1..4 (one Classic shard) or 0 (all four), chosen on the Classic page.
   // Kept in ui112.json (synchronous file write) so the choice survives a restart even if localStorage is not flushed.
-  const TABS = ['home', 'new', 'old', 'mine', 'remit']
-  let tab0 = TABS.includes(ui.tab) ? ui.tab : (localStorage.getItem('tab112') || 'home')
-  if (!TABS.includes(tab0)) tab0 = 'home'
+  const TABS = ['old', 'new', 'mine', 'remit']
+  let savedTab = ui.tab || localStorage.getItem('tab112') || 'old'
+  if (savedTab === 'home') savedTab = 'new'
+  let tab0 = TABS.includes(savedTab) ? savedTab : 'old'
   if (ui.net !== 'old' && ui.net !== 'new') ui.net = tab0 === 'old' ? 'old' : 'new'
   ui.shard = [0, 1, 2, 3, 4].includes(Number(ui.shard)) ? Number(ui.shard) : 0
   const shardFilter = (l) => ui.shard ? l.filter(a => String(a.shard) === String(ui.shard)) : l
-  if (ui.net === 'old' && (tab0 === 'home' || tab0 === 'new')) tab0 = 'old'
-  if (ui.net === 'new' && tab0 === 'old') tab0 = 'home'
+  if (ui.net === 'old' && tab0 === 'new') tab0 = 'old'
+  if (ui.net === 'new' && tab0 === 'old') tab0 = 'new'
   const st = {
     tab: tab0,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
@@ -176,16 +177,16 @@
   function oldTotal (list) { let t = 0; let known = 0; for (const a of list) { const v = st.old[a.pubkey]; if (v != null) { t += v; known++ } } return { v: t, known } }
 
   // ---------------- header / tabs ----------------
-  // Account tabs select the network. Classic -> 'old', Shard0 accounts and Home -> 'new'. Mining and 匯款 keep it.
+  // Account tabs select the network. Classic -> 'old', Shard0 accounts -> 'new'. Mining and 匯款 keep the last one.
   function setTab (v) {
-    st.tab = TABS.includes(v) ? v : 'home'
-    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'home' || st.tab === 'new') ui.net = 'new'
+    st.tab = TABS.includes(v) ? v : 'old'
+    if (st.tab === 'old') ui.net = 'old'; else if (st.tab === 'new') ui.net = 'new'
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
   // The account switcher follows the tab that owns the network. Mining and 匯款 follow the last account tab.
   function headerChain () {
     if (st.tab === 'old') return 'old'
-    if (st.tab === 'home' || st.tab === 'new') return 'new'
+    if (st.tab === 'new') return 'new'
     return ui.net === 'old' ? 'old' : 'new'
   }
   function headerAccounts () {
@@ -255,12 +256,15 @@
       </div>`
     } else sw = `<div class="acct-switch" data-act="accMenu" id="acctSwitch">${avatar('?')}<div class="an">${esc(T('noAccount'))} ▾</div></div>`
     SD.html($('hdr'), `<div class="brand"><img src="./assets/icon-128.png" alt=""><div><div class="bt">${esc(T('appName'))}</div><div class="bv">SCDO Wallet ${esc(APPVER)}</div></div></div>
-      ${sw}<div class="spacer"></div>
-      <div class="minepill" id="minePill" data-act="tab" data-v="mine" role="button" tabindex="0"></div>
+      ${sw}
+      <div class="island" id="statusIsland">
+        <div class="island-compact" id="islandCompact" data-act="island" role="button" tabindex="0"></div>
+        <div class="island-panel" id="islandPanel"></div>
+      </div>
       <div class="langtg" id="langToggle" role="group" aria-label="語言 / Language"><button type="button" class="${lang() === 'CN' ? 'on' : ''}" data-act="hdrLang" data-v="CN" id="langZh">華語</button><button type="button" class="${lang() === 'EN' ? 'on' : ''}" data-act="hdrLang" data-v="EN" id="langEn">English</button></div>
       <button class="gear" data-act="settings" id="gear" title="${esc(T('settings'))}">⚙</button>`)
-    renderMinePill()
-    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['home', 'tabHome'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
+    renderIsland()
+    const tabs = [['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine'], ['remit', 'tabRemit']]
     SD.html($('tabs'), tabs.map(([k, l]) => {
       const dot = k === 'old' || k === 'new' ? tabNetDot(k) : ''
       return `<button class="${st.tab === k ? 'on' : ''}" data-act="tab" data-v="${esc(k)}" id="tab-${esc(k)}">${dot}${esc(T(l))}</button>`
@@ -275,45 +279,13 @@
   }
 
   // ---------------- pages ----------------
-  function pageHome () {
-    const a = selected()
-    if (!st.accounts.length) {
-      return `<div class="page"><div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
-        <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div></div>`
-    }
-    const vis = visible('new')
-    const tot = s0Total(vis)
-    const hiddenN = ui.hidden.new.length
-    let top
-    if (!a) top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div><div class="muted" style="margin-top:14px">${esc(T('hiddenHint', { n: hiddenN }))}</div></div>`
-    else if (!a.evm) {
-      top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
-        <div style="font-size:24px;font-weight:700;margin-top:16px">🔒 ${esc(T('unlockTitle'))}</div>
-        <div class="unlockbox"><input class="inp" type="password" id="homePw" placeholder="${esc(T('password'))}" style="width:320px" data-enter="unlockHome">
-        <button class="btn pri" data-act="unlock" data-f="${esc(a.filename)}" data-in="homePw">${esc(T('showAddress'))}</button></div>
-        <div class="actions"><button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
-    } else {
-      const b = st.s0[a.filename]
-      const bal = b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…'
-      top = `<div class="balance-card card"><div class="bl">${esc(T('s0Balance'))}</div>
-        <div class="bn" id="homeBal">${esc(bal)}<span>SCDO</span></div>
-        <div class="bs">${esc(T('currentAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b>${PU.bar()}${esc(T('allNewTotal'))}${PU.c()}<span id="homeTot">${tot.known ? esc(fmtWei(tot.wei)) : '…'}</span> SCDO${PU.l()}${esc(T('nAccounts', { n: vis.length }))}${hiddenN ? PU.com() + esc(T('exclHidden')) : ''}${PU.r()}</div>
-        <div class="actions"><button class="btn pri big" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" id="btnReceive">⬇&nbsp; ${esc(T('receive'))}</button>
-        <button class="btn pri big" data-act="send" data-f="${esc(a.filename)}" id="btnSend">⬆&nbsp; ${esc(T('send'))}</button>
-        <button class="btn sec big" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button></div></div>`
-    }
-    let lower = ''
-    if (a && a.evm) {
-      lower = `<div class="card" style="margin-top:22px"><div class="subtabs">
-        <button class="${st.homeSub === 'assets' ? 'on' : ''}" data-act="homeSub" data-v="assets">${esc(T('assets'))}</button>
-        <button class="${st.homeSub === 'activity' ? 'on' : ''}" data-act="homeSub" data-v="activity">${esc(T('activity'))}</button></div>
-        <div id="homeLower">${st.homeSub === 'assets' ? assetsHtml(a) : activityHtml(a)}</div></div>`
-    }
-    const ot = oldTotal(visible('old'))
-    const oldBox = `<div class="oldbox"><div style="flex:1;min-width:280px"><div class="lbl" style="font-size:17px">${esc(T('oldTotal'))}</div>
-      <div class="ov" id="homeOld">${ot.known ? esc(fmtNum(ot.v)) : '…'} <span style="font-size:19px">SCDO</span></div></div>
-      <button class="link" style="font-size:20px" data-act="tab" data-v="old">${esc(T('viewOld'))}</button></div>`
-    return `<div class="page">${top}${lower}${oldBox}</div>`
+  // Home's balance, sync, and earnings live in the status island. Assets, activity, and send live on the wallet card.
+  function cardHomeFold (a) {
+    if (!a || !a.evm || a.filename !== st.sel) return ''
+    return `<div class="home-fold"><div class="subtabs">
+      <button class="${st.homeSub === 'assets' ? 'on' : ''}" data-act="homeSub" data-v="assets">${esc(T('assets'))}</button>
+      <button class="${st.homeSub === 'activity' ? 'on' : ''}" data-act="homeSub" data-v="activity">${esc(T('activity'))}</button></div>
+      <div id="homeLower">${st.homeSub === 'assets' ? assetsHtml(a) : activityHtml(a)}</div></div>`
   }
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
@@ -385,14 +357,16 @@
     let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(T('newTitle'))}</div><div class="muted" style="font-size:17px;margin-top:4px">${esc(T('newNote'))}</div></div>
       <button class="toggle" data-act="toggleHidden" id="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
       <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
-    if (!st.accounts.length) h += `<div class="hint-box">${esc(T('emptyList'))}</div>`
+    if (!st.accounts.length) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
+      <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div>`
     list.forEach((a, i) => {
       const hid = isHidden('new', a.filename)
       const b = st.s0[a.filename]
       let mid; let right
       if (a.evm) {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:2px;flex-wrap:wrap"><span class="mono addr">${esc(a.evm)}</span>
-          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new">${esc(T('qr'))}</button></div>`
+          <button class="btn ghost small" data-act="copy" data-v="${esc(a.evm)}">${esc(T('copy'))}</button><button class="btn ghost small" data-act="receive" data-f="${esc(a.filename)}" data-chain="new" ${a.filename === st.sel ? 'id="btnReceive"' : ''}>${esc(T('receive'))}</button>
+          <button class="btn sec small" data-act="send" data-f="${esc(a.filename)}" ${a.filename === st.sel ? 'id="btnSend"' : ''}>${esc(T('send'))}</button></div>`
         right = `<div class="bal"><div class="lbl">${esc(T('balance'))}</div><div class="v" data-bal="${esc(a.filename)}">${b && b.nativeWei != null ? esc(fmtWei(b.nativeWei)) : '…'} <span>SCDO</span></div></div>`
       } else {
         mid = `<div class="lbl" style="margin-top:4px">${esc(T('newAddrLabel'))}</div><div class="row" style="margin-top:6px;flex-wrap:wrap"><span class="lockline">🔒 ${esc(T('locked'))}</span>
@@ -402,7 +376,7 @@
       }
       h += `<div class="card acc ${hid ? 'hidden-acc' : ''}" data-row="${esc(a.filename)}"><div class="main"><div class="nm">${esc(accLabel(a))} ${hid ? `<span class="tag grey">${esc(T('hiddenTag'))}</span>` : ''}</div>${mid}</div>${right}
         <div class="ops one">${cardFeatureOps(a, 'new')}<button class="btn ghost small" data-act="rename" data-f="${esc(a.filename)}">${esc(T('rename'))}</button><button class="btn ghost small" data-act="${hid ? 'unhide' : 'hide'}" data-chain="new" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
-        <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div>`
+        <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div>${cardHomeFold(a)}</div>`
     })
     if (hiddenN && !ui.showHidden) h += `<div class="hint-box">👁 ${esc(T('hiddenHint', { n: hiddenN }))}</div>`
     return h + '</div>'
@@ -414,8 +388,10 @@
     const chips = `<div class="shardchips" id="shardChips">${[0, 1, 2, 3, 4].map(n => `<button class="${ui.shard === n ? 'on' : ''}" data-act="pickShard" data-v="${n}" id="chip-${n}">${esc(n ? T('shardN', { n }) : T('shardAll'))}</button>`).join('')}</div>`
     let h = `<div class="page"><div class="list-head"><div style="flex:1;min-width:300px"><div class="h1">${esc(ui.shard ? T('oldTitleN', { n: ui.shard }) : T('oldTitle'))} <span style="font-size:20px;color:#5f6482;font-weight:500">${esc(ui.shard ? T('oldSubN', { n: ui.shard }) : T('oldSub'))}</span></div>
       <div class="muted" style="font-size:17px;margin-top:4px">${esc(T('oldNote'))}</div></div>
-      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button></div>${chips}`
-    if (!st.accounts.length) h += `<div class="hint-box">${esc(T('emptyList'))}</div>`
+      <button class="toggle" data-act="toggleHidden"><span class="sw ${ui.showHidden ? 'on' : ''}"></span>${esc(T('showHidden', { n: hiddenN }))}</button>
+      <button class="btn sec" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>${chips}`
+    if (!st.accounts.length) h += `<div class="card welcome"><h2>${esc(T('welcomeTitle'))}</h2><div class="muted" style="font-size:21px">${esc(T('welcomeText'))}</div>
+      <div class="actions"><button class="btn pri big" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec big" data-act="import">${esc(T('importAccount'))}</button></div></div>`
     else if (!list.length) h += `<div class="hint-box">${esc(T('noShardAcc'))}</div>`
     list.forEach(a => {
       const hid = isHidden('old', a.filename)
@@ -820,8 +796,8 @@
     renderHeader()
     const main = $('main')
     const y = main.scrollTop
-    const pages = { home: pageHome, new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
-    SD.html(main, (pages[st.tab] || pageHome)())
+    const pages = { new: pageNew, old: pageOld, mine: pageMine, remit: pageRemit }
+    SD.html(main, (pages[st.tab] || pageNew)())
     if (st.tab === 'mine') mountMining(); else window.SCDOMining.MiningPage.unmount()
     main.scrollTop = y
     document.title = 'SCDO Wallet ' + APPVER
@@ -833,12 +809,9 @@
   // cheap updates of numbers without re-rendering inputs the user may be typing into
   function renderLive () {
     renderHeaderNetOnly()
+    renderIsland()
     if ($('md')) return
-    if (st.tab === 'home') {
-      const active = document.activeElement
-      if (active && active.tagName === 'INPUT') return
-      render()
-    } else if (st.tab === 'new') {
+    if (st.tab === 'new') {
       document.querySelectorAll('[data-bal]').forEach(el => { const b = st.s0[el.getAttribute('data-bal')]; if (b && b.nativeWei != null) SD.valueUnit(el, fmtWei(b.nativeWei), 'SCDO') })
     } else if (st.tab === 'old') {
       document.querySelectorAll('[data-oldbal]').forEach(el => { const v = st.old[el.getAttribute('data-oldbal')]; if (v != null) SD.valueUnit(el, fmtNum(v), 'SCDO') })
@@ -865,10 +838,80 @@
     }
     return x
   }
-  function renderMinePill () {
-    const e = $('minePill'); if (!e) return
-    const x = currentMinePill()
-    e.className = 'minepill ' + x.cls; e.textContent = x.t; e.title = x.t
+  function headerBalanceText () {
+    const a = headerAccount()
+    if (!a) return T('noAccount')
+    if (headerChain() === 'old') {
+      const v = st.old[a.pubkey]
+      return (v != null ? fmtNum(v) : '…') + ' SCDO'
+    }
+    if (!a.evm) return T('lockedShort')
+    const b = st.s0[a.filename]
+    return (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+  }
+  function earnEvents () {
+    const out = []
+    const push = (m, shard) => {
+      if (!m || !Array.isArray(m.blocksFoundHeights) || shard == null || !Number.isFinite(Number(shard))) return
+      for (const h of m.blocksFoundHeights) out.push({ shard: Number(shard), height: h })
+    }
+    const s0 = (st.miners && st.miners.shard0) || st.miner
+    push(s0 && s0.chain !== 'classic' ? s0 : null, 0)
+    const cpu = st.miners && st.miners.classicCpu
+    const gpu = st.miners && st.miners.classicGpu
+    push(cpu, cpu && cpu.shard)
+    push(gpu, gpu && gpu.shard)
+    return out
+  }
+  function noteEarn () {
+    let prev = null
+    try { prev = JSON.parse(localStorage.getItem('mineEarn112') || 'null') } catch (e) { prev = null }
+    const next = window.SCDOIsland.absorbBlocks(prev, earnEvents(), Date.now())
+    try { localStorage.setItem('mineEarn112', JSON.stringify(next)) } catch (e) {}
+    st.earn = next
+    return next
+  }
+  function islandModel () {
+    const earn = st.earn || noteEarn()
+    return window.SCDOIsland.buildIsland({
+      shard0: (st.miners && st.miners.shard0) || st.miner,
+      classicCpu: st.miners && st.miners.classicCpu,
+      classicGpu: st.miners && st.miners.classicGpu,
+      temps: st.gpuTemp && st.gpuTemp.gpus,
+      earnLog: earn,
+      now: Date.now(),
+      balanceText: headerBalanceText(),
+      T,
+      etaText: fmtSyncEta,
+      hashText: fmtHash
+    })
+  }
+  function renderIsland () {
+    const compact = $('islandCompact')
+    const panel = $('islandPanel')
+    if (!compact || !panel || !window.SCDOIsland) return
+    const model = islandModel()
+    compact.textContent = ''
+    const top = document.createElement('div')
+    top.className = 'island-line'
+    top.textContent = model.compactTop
+    const bot = document.createElement('div')
+    bot.className = 'island-line island-money'
+    bot.textContent = model.compactBottom
+    compact.appendChild(top)
+    compact.appendChild(bot)
+    compact.title = model.compactTop + '\n' + model.compactBottom
+    const rows = model.shards.map(s => `<div class="isle-row"><b>Shard${s.n}</b><span>${esc(s.syncText)}</span><span>${esc(s.mineText)}</span></div>`).join('')
+    SD.html(panel, `${rows}
+      <div class="isle-meta">${esc(model.tempC == null ? T('isleNoTemp') : T('isleTemp', { n: model.tempC }))}</div>
+      <div class="isle-meta">${esc(T('isleToday', { b: model.earn.todayBlocks, s: model.earn.todayScdo }))}</div>
+      <div class="isle-meta">${esc(T('isleTotal', { b: model.earn.totalBlocks, s: model.earn.totalScdo }))}</div>
+      <div class="isle-meta">${esc(T('isleBalance'))} ${esc(model.balanceText)}</div>
+      <div class="isle-actions">
+        <button type="button" class="btn pri" data-act="tab" data-v="mine" id="islandMine">${esc(T('isleGoMine'))}</button>
+        <button type="button" class="btn dan" data-act="stopAll" id="islandStop">${esc(T('isleStopAll'))}</button>
+        <button type="button" class="btn sec" data-act="tab" data-v="remit" id="btnRemit">${esc(T('tabRemit'))}</button>
+      </div>`)
   }
   function renderHeaderNetOnly () {
     document.querySelectorAll('[data-netdot]').forEach(d => {
@@ -1526,6 +1569,15 @@
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(r.error || r.code, 7000); return }
   }
+  async function stopAll () {
+    let ok = false
+    try { ok = await api.invoke('miner:confirmStop') } catch (e) { ok = false }
+    if (!ok) return
+    try { await api.invoke('miner:stop', 'mine') } catch (e) {}
+    try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
+    try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    toast(T('stopped'))
+  }
   async function minerStop (src) {
     const classic = Number(st.mineShard) >= 1
     if (classic) {
@@ -1549,7 +1601,8 @@
     const prev0 = st.miners && st.miners.shard0
     storeMiner(m)
     st.miner = viewMiner()
-    renderMinePill()
+    noteEarn()
+    renderIsland()
     const cur0 = st.miners.shard0
     if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && api.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
@@ -1564,12 +1617,14 @@
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu') closeDd()
     switch (act) {
-      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new' || v === 'home') refreshS0(); break
+      case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine') { ensureGpu(); ensureCaps() }; if (v === 'old') refreshOld(); if (v === 'new') refreshS0(); break
+      case 'island': { const isle = $('statusIsland'); if (isle) isle.classList.toggle('open'); break }
+      case 'stopAll': stopAll(); break
       case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'accMenu': if ($('dd')) closeDd(); else accMenu(el); break
-      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'home' || st.tab === 'new') setTab('old') } else if (st.tab !== 'home') setTab('home'); render(); break
+      case 'pickAcc': st.sel = f; localStorage.setItem('selAcc112', f); if (headerChain() === 'old') { if (st.tab === 'new') setTab('old') } else if (st.tab !== 'new' && st.tab !== 'mine' && st.tab !== 'remit') setTab('new'); render(); break
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': settingsModal(); break
       case 'setLang': setLangUi(v); break
@@ -1654,8 +1709,8 @@
   })
   document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; if ($('dd')) closeDd(); else if ($('md')) closeModal() }
-    if (ev.key === 'Enter' && ev.target && ev.target.id === 'homePw') { const b = document.querySelector('[data-act=unlock][data-in=homePw]'); if (b) b.click() }
+    if (ev.key === 'Escape') { if (window.__closeAssetList && window.__closeAssetList()) return; const isle = $('statusIsland'); if (isle && isle.classList.contains('open')) { isle.classList.remove('open'); return } if ($('dd')) closeDd(); else if ($('md')) closeModal() }
+    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target && ev.target.id === 'islandCompact') { ev.preventDefault(); const isle = $('statusIsland'); if (isle) isle.classList.toggle('open') }
   })
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
@@ -1680,6 +1735,11 @@
     if (!p || !p.ok) { toast(T(p && p.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + (p && p.error ? PU.c() + p.error : ''), 8000); closeModal() }
   })
 
+  async function refreshGpuTemp () {
+    try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
+    renderIsland()
+  }
+
   // ---------------- boot ----------------
   let APPVER = '2.0.9'
   api.on('miner:status', (m) => onMinerStatus(m))
@@ -1702,8 +1762,8 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld()
-    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000)
+    refreshS0(); refreshOld(); refreshGpuTemp()
+    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000)
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}

@@ -15,6 +15,8 @@ const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/mine
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
 const { ZpowManager, formatExitMessage } = require('../src/miner/zpow/manager')
 const { formatMinePill } = require('../src/js/minePill')
+const { buildIsland, absorbBlocks, summarizeEarnings, syncOf, BLOCK_REWARD_SCDO } = require('../src/js/statusIsland')
+const { parseGpuTemp } = require('../src/main/miningService')
 
 const REAL = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
 assert.strictEqual(REAL.length, 42)
@@ -312,8 +314,18 @@ assert.ok(ui.includes('function remitAccount'))
 assert.ok(!ui.includes('id="netSel"'))
 assert.ok(!ui.includes('data-act="netMenu"'))
 assert.ok(!ui.includes('data-act="pickNet"'))
-assert.ok(ui.includes("[['old', 'tabOld'], ['new', 'tabNew'], ['home', 'tabHome'], ['mine', 'tabMine'], ['remit', 'tabRemit']]"))
-assert.ok(ui.includes('id="minePill" data-act="tab" data-v="mine"'))
+assert.ok(ui.includes("[['old', 'tabOld'], ['new', 'tabNew'], ['mine', 'tabMine'], ['remit', 'tabRemit']]"))
+assert.ok(!ui.includes("['home', 'tabHome']"))
+assert.ok(!ui.includes('id="minePill"'))
+assert.ok(ui.includes('id="statusIsland"'))
+assert.ok(ui.includes('id="islandCompact" data-act="island"'))
+assert.ok(ui.includes('id="islandMine"'))
+assert.ok(ui.includes('data-act="stopAll" id="islandStop"'))
+assert.ok(ui.includes('id="btnRemit"'))
+assert.ok(ui.includes('id="btnSend"'))
+assert.ok(ui.includes('function cardHomeFold'))
+assert.ok(ui.includes('welcomeTitle'))
+assert.ok(ui.includes("savedTab === 'home'"))
 assert.ok(ui.includes('function headerChain'))
 assert.ok(ui.includes("if (st.tab === 'old') return 'old'"))
 assert.ok(ui.includes("shardFilter(visible('old'))"))
@@ -324,6 +336,103 @@ assert.ok(ui.includes('data-netdot'))
 assert.ok(ui.includes("data-act=\"pickShard\""))
 assert.ok(i18n.includes("pillShard0: 'Shard0'") || i18n.includes('pillShard0: "Shard0"'))
 assert.ok(i18n.includes('Classic 帳戶分頁在最前面'))
+assert.ok(i18n.includes('狀態島'))
+assert.ok(i18n.includes('isleGoMine: "前往挖礦"') || i18n.includes("isleGoMine: '前往挖礦'"))
+assert.ok(i18n.includes('isleStopAll: "全部停止"') || i18n.includes("isleStopAll: '全部停止'"))
+assert.ok(i18n.includes('isleGoMine: "Open Mining"') || i18n.includes("isleGoMine: 'Open Mining'"))
+const indexHtml = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8')
+assert.ok(indexHtml.includes('statusIsland.js'))
+assert.ok(indexHtml.indexOf('statusIsland.js') < indexHtml.indexOf('app112.js'))
+assert.ok(fs.readFileSync(path.join(__dirname, '../preload.js'), 'utf8').includes("'mining:gpuTemp'"))
+assert.ok(fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8').includes("ipcMain.handle('mining:gpuTemp'"))
+const isleT = (k, p) => {
+  const m = {
+    isleOff: '未啟動', isleChecking: '檢查中', isleSynced: '已同步', islePool: '礦池', isleNoMine: '未挖',
+    isleGpu: 'GPU', isleCpu: 'CPU', isleNode: '只跑節點', isleTemp: '顯示卡 {n}°C', isleNoTemp: '無溫度',
+    isleToday: '今日 {b} 區塊 · {s} SCDO', isleTotal: '累計 {b} 區塊 · {s} SCDO', isleBalance: '餘額',
+    pillStarting: '挖礦程式啟動中…'
+  }
+  let s = m[k] || k
+  if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
+  return s
+}
+const noon = new Date(2026, 9, 7, 12, 0, 0, 0).getTime()
+const island = buildIsland({
+  classicGpu: { running: true, shard: 1, code: 'CLASSIC_SYNCING', chain: 'classic', mode: 'gpu', localBlock: 100, networkBlock: 200, syncEtaSec: 3600 },
+  classicCpu: { running: true, shard: 2, code: 'CLASSIC_MINING', chain: 'classic', mode: 'cpu', hashrate: 1500 },
+  shard0: { running: true, chain: 'shard0', mode: 'mine', code: 'MINING', hashrate: 2000000, localBlock: 50, networkBlock: 50 },
+  temps: [{ name: 'A', tempC: 61 }, { name: 'B', tempC: 70 }],
+  earnLog: { items: [{ t: noon, shard: 1, height: 9 }] },
+  now: noon,
+  balanceText: '1.5 SCDO',
+  T: isleT,
+  etaText: (sec) => Math.round(sec / 3600) + ' 小時',
+  hashText: (h) => String(h)
+})
+assert.deepStrictEqual(island.shards.map(s => s.n), [1, 2, 3, 4, 0])
+assert.strictEqual(island.shards[0].syncKind, 'syncing')
+assert.ok(island.shards[0].syncText.includes('100/200'))
+assert.ok(island.shards[0].syncText.includes('1 小時'))
+assert.ok(island.shards[0].mineText.includes('GPU'))
+assert.ok(island.shards[0].mineText.includes('挖礦程式啟動中'))
+assert.ok(!island.shards[0].mineText.includes('挖礦中'))
+assert.strictEqual(island.shards[1].syncKind, 'pool')
+assert.ok(island.shards[1].mineText.includes('CPU 1500'))
+assert.strictEqual(island.shards[2].syncKind, 'off')
+assert.ok(island.shards[2].mineText.includes('未挖'))
+assert.strictEqual(island.shards[4].syncKind, 'synced')
+assert.ok(island.shards[4].syncText.includes('已同步 50/50'))
+assert.ok(island.shards[4].mineText.includes('GPU 2000000'))
+assert.strictEqual(island.tempC, 70)
+assert.ok(island.compactTop.startsWith('S1 '))
+assert.ok(island.compactTop.indexOf('S4 ') < island.compactTop.indexOf('S0 '))
+assert.ok(island.compactBottom.includes('顯示卡 70°C'))
+assert.ok(island.compactBottom.includes('今日 1 區塊 · 2 SCDO'))
+assert.ok(island.compactBottom.includes('餘額 1.5 SCDO'))
+assert.strictEqual(island.earn.todayScdo, 2)
+const both = buildIsland({
+  classicGpu: { running: true, shard: 3, code: 'CLASSIC_GPU', mode: 'gpu', localBlock: 10, networkBlock: 12, hashrate: 100 },
+  classicCpu: { running: true, shard: 3, code: 'CLASSIC_MINING', mode: 'cpu', hashrate: 50 },
+  T: isleT,
+  hashText: (h) => String(h)
+})
+assert.strictEqual(both.shards[2].n, 3)
+assert.strictEqual(both.shards[2].syncKind, 'synced')
+assert.ok(both.shards[2].mineText.includes('GPU 100'))
+assert.ok(both.shards[2].mineText.includes('CPU 50'))
+const nodeOnly = buildIsland({
+  shard0: { running: true, mode: 'node', chain: 'shard0', localBlock: 8, networkBlock: 8 },
+  T: isleT
+})
+assert.strictEqual(nodeOnly.shards[4].mineText, '只跑節點')
+assert.strictEqual(nodeOnly.shards[4].syncKind, 'synced')
+assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 108 }).kind, 'synced')
+assert.strictEqual(syncOf({ running: true, localBlock: 100, networkBlock: 109 }).kind, 'syncing')
+assert.strictEqual(syncOf({ running: true, mode: 'cpu', code: 'CLASSIC_MINING' }).kind, 'pool')
+let earn = absorbBlocks(null, [{ shard: 1, height: 100 }, { shard: 1, height: 101 }], noon)
+assert.strictEqual(earn.seeded, true)
+assert.strictEqual(earn.items.length, 0)
+earn = absorbBlocks(earn, [{ shard: 1, height: 100 }, { shard: 1, height: 101 }], noon)
+assert.strictEqual(earn.items.length, 0)
+earn = absorbBlocks(earn, [{ shard: 1, height: 100 }, { shard: 1, height: 102 }], noon)
+assert.strictEqual(earn.items.length, 1)
+assert.strictEqual(earn.items[0].height, 102)
+assert.strictEqual(earn.items[0].t, noon)
+const sum = summarizeEarnings(earn, noon, BLOCK_REWARD_SCDO)
+assert.strictEqual(sum.todayBlocks, 1)
+assert.strictEqual(sum.totalBlocks, 1)
+assert.strictEqual(sum.todayScdo, 2)
+assert.strictEqual(sum.totalScdo, 2)
+const yest = noon - 24 * 3600 * 1000
+const sum2 = summarizeEarnings([{ t: yest, shard: 0, height: 1 }, { t: noon, shard: 0, height: 2 }], noon, 2)
+assert.strictEqual(sum2.todayBlocks, 1)
+assert.strictEqual(sum2.totalBlocks, 2)
+assert.strictEqual(sum2.todayScdo, 2)
+assert.strictEqual(sum2.totalScdo, 4)
+assert.deepStrictEqual(parseGpuTemp('NVIDIA GeForce RTX 3060, 61\n'), [{ name: 'NVIDIA GeForce RTX 3060', tempC: 61 }])
+assert.deepStrictEqual(parseGpuTemp('Tesla T4, 40\nQuadro, RTX, 55\n'), [{ name: 'Tesla T4', tempC: 40 }, { name: 'Quadro, RTX', tempC: 55 }])
+assert.deepStrictEqual(parseGpuTemp(''), [])
+assert.deepStrictEqual(parseGpuTemp('no comma here\n'), [])
 const pillT = (k, p) => {
   const m = { pillStopped: '未在挖礦', pillMining: '挖礦中', pillStarting: '挖礦程式啟動中…', pillNode: '只執行節點（未挖礦）', pillError: '挖礦程式出錯', pillShard0: 'Shard0', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
   let s = m[k] || k

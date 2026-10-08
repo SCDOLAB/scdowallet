@@ -445,6 +445,7 @@ function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu'
 
 // ---------------- 2.0.1 mining batch 1 ----------------
 ipcMain.handle('mining:gpuPreflight', async () => { let g = null; try { g = await getMiner().gpu() } catch (e) {} return miningService.gpuPreflight(g) })
+ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature() } catch (err) { return { ok: false, gpus: [], error: err.message } } })
 ipcMain.handle('mining:networkStats', async () => {
   const st = miner ? miner.status() : null
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0

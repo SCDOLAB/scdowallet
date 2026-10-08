@@ -14,11 +14,10 @@ input, select { font-family: inherit; }
 
 /* ---------- header ---------- */
 /* 2.0.9: keep one row at ~1024/900px — no wrap; address ellipsizes instead of break-all */
-header.top { background: #43A047; color: #fff; display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: nowrap; min-height: 78px; max-height: 96px; overflow: hidden; }
+header.top { background: #43A047; color: #fff; display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: nowrap; min-height: 86px; overflow: visible; position: relative; z-index: 20; }
 header.top > * { flex: none; }
-header.top > .acct-switch { flex: 1 1 200px; min-width: 0; max-width: 640px; overflow: hidden; }
-header.top > .spacer { flex: 0 1 12px; min-width: 0; }
-header.top > .minepill { flex: 0 1 280px; min-width: 0; max-width: 460px; }
+header.top > .acct-switch { flex: 0 1 240px; min-width: 0; max-width: 320px; overflow: hidden; }
+header.top > .island { flex: 1 1 420px; min-width: 160px; }
 header.top > .langtg { flex: none; }
 .brand { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; }
 .brand img { width: 46px; height: 46px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.6); flex: none; }
@@ -33,6 +32,20 @@ header.top > .langtg { flex: none; }
 .acct-switch .ico:hover { background: rgba(255,255,255,.32); }
 .avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 18px; flex: none; border: 2px solid rgba(255,255,255,.7); }
 .spacer { flex: 1; }
+.island { position: relative; min-width: 0; }
+.island-compact { background: #fff; color: #1b1d33; border-radius: 22px; padding: 6px 14px; cursor: pointer; border: 2px solid #2E7D32; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+.island-compact:hover { border-color: #43A047; }
+.island-line { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+.island-money { font-size: 13px; font-weight: 700; color: #2E7D32; }
+.island-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% + 8px); background: #fff; color: #1b1d33; border-radius: 18px; border: 2px solid #43A047; box-shadow: 0 12px 40px rgba(15,18,50,.28); z-index: 30; padding: 12px 14px; max-height: 70vh; overflow: auto; }
+.island-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
+.island:hover .island-panel, .island.open .island-panel { display: block; }
+.isle-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #E8F5E9; font-size: 15px; }
+.isle-row b { min-width: 72px; color: #2E7D32; flex: none; }
+.isle-row span { min-width: 0; }
+.isle-meta { font-size: 15px; font-weight: 700; padding: 4px 0; }
+.isle-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.home-fold { margin-top: 8px; padding-top: 8px; border-top: 1px solid #E8F5E9; }
 .netsel { display: flex; align-items: center; gap: 8px; border: 2px solid rgba(255,255,255,.6); border-radius: 22px; padding: 6px 14px; font-size: 17px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .dot { width: 11px; height: 11px; border-radius: 50%; background: #9aa0b8; display: inline-block; flex: none; }
 .dot.ok { background: #34d27b; } .dot.bad { background: #ff6b5b; }
