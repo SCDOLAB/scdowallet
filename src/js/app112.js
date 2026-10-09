@@ -2830,23 +2830,21 @@
     btn.setAttribute('data-drag', '1')
     let d = null
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-    btn.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return
-      const r = btn.getBoundingClientRect()
-      d = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false }
-    })
-    btn.addEventListener('pointermove', (e) => {
+    // moves and the release are read on window (a fast drag leaves the button before the first move event arrives)
+    const move = (e) => {
       if (!d || e.pointerId !== d.id) return
       if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return
-      if (!d.moved) { d.moved = true; try { btn.setPointerCapture(d.id) } catch (err) {} btn.classList.add('dragging') }
+      if (!d.moved) { d.moved = true; btn.classList.add('dragging') }
+      e.preventDefault()
       const r = btn.getBoundingClientRect()
       btn.style.left = clamp(e.clientX - d.dx, 0, innerWidth - r.width) + 'px'
       btn.style.top = clamp(e.clientY - d.dy, 0, innerHeight - r.height) + 'px'
       btn.style.right = 'auto'; btn.style.bottom = 'auto'
-    })
+    }
     const end = (e) => {
       if (!d || (e && e.pointerId !== d.id)) return
       const moved = d.moved; d = null
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end)
       if (!moved) return
       const r = btn.getBoundingClientRect(); const cx = r.left + r.width / 2; const cy = r.top + r.height / 2
       btn.classList.remove('dragging')
@@ -2854,8 +2852,13 @@
       catPlace.dragAt = Date.now()
       catSetPlace((cy < innerHeight / 2 ? 't' : 'b') + (cx < innerWidth / 2 ? 'l' : 'r'), null)
     }
-    btn.addEventListener('pointerup', end)
-    btn.addEventListener('pointercancel', end)
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return
+      const r = btn.getBoundingClientRect()
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false }
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end)
+    })
+    btn.addEventListener('dragstart', (e) => e.preventDefault())
     btn.addEventListener('click', (e) => { if (Date.now() - catPlace.dragAt < 500) { e.stopPropagation(); e.preventDefault() } }, true)
   }
   window.addEventListener('resize', () => { try { catReserve() } catch (e) {} })
