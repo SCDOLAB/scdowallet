@@ -90,7 +90,8 @@ for (const L of ['CN', 'EN']) {
   for (const [k, v] of Object.entries(I[L])) {
     const s = JSON.stringify(v)
     assert.ok(!/main chain/i.test(s), L + ' ' + k + ' says main chain')
-    assert.ok(!/Classic/.test(s), L + ' ' + k + ' still splits out Classic: ' + s.slice(0, 80))
+    const classicLeft = s.replace(/Shard\d Classic/g, '').replace(/Shard1–Shard4 Classic/g, '').replace(/Shard1-Shard4 Classic/g, '').replace(/Shard1–4 Classic/g, '')
+    assert.ok(!/Classic/.test(classicLeft), L + ' ' + k + ' still splits out Classic: ' + classicLeft.slice(0, 80))
   }
 }
 

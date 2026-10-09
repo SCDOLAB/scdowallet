@@ -1,7 +1,7 @@
 // SCDO Wallet 3.0.2 Home dashboard (approved v8 mockup): five identical full-width chain cards
 // (Shard0 EVM, Shard1, Shard2, Shard3, Shard4), the recent-transactions list and the fixed 總餘額 footer.
-// Read-only: the only controls are copy and QR on each receiving address. Every action lives in AI小貓 and the
-// window menu. Pure functions (no DOM, no IPC) so the card structure can be tested in Node.
+// Read-only chain cards: the only controls on those cards are copy and QR. The Home mining card
+// (passed in as HTML) is the one place with a start/stop control. Pure functions (no DOM, no IPC).
 'use strict'
 ;(function () {
 const FIELDS = ['sync', 'speed', 'blocks', 'gpu', 'temp', 'net']
@@ -145,8 +145,9 @@ function footerHtml (totals, T, esc) {
   return `<div class="foot-line" id="footLine"><span class="foot-h">${esc(T('d_totalLine'))}</span><b id="footAll">${esc(totals.all)} SCDO</b></div>`
 }
 
-function homeHtml (models, txRows, T, esc, earn) {
+function homeHtml (models, txRows, T, esc, earn, mineHtml) {
   return `<div class="page dash" id="homePage">
+    <div id="homeMineHost">${mineHtml || ''}</div>
     ${earnCardHtml(earn, T, esc)}
     <div class="sec-h">${esc(T('d_accHead'))}</div>
     ${tempKeyHtml(T, esc)}

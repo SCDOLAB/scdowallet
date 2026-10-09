@@ -33,6 +33,7 @@ const LABELS = {
     home: 'Home',
     accounts: 'Accounts',
     mining: 'Mining',
+    miningHome: 'Mining status',
     settings: 'Settings / Network Info…',
     remit: 'Remittance',
     help: 'Help',
@@ -67,6 +68,7 @@ const LABELS = {
     home: '首頁',
     accounts: '帳戶',
     mining: '挖礦',
+    miningHome: '挖礦狀態',
     settings: '設定 / 網路資訊…',
     remit: '匯款',
     help: '說明',
@@ -90,6 +92,12 @@ function buildTemplate (mainWindow, lang) {
         { label: L.fullscreen, accelerator: 'CmdOrCtrl+Shift+F', role: 'togglefullscreen' },
         // 2.0.6: closing the window hides the wallet to the tray (mining keeps running); quitting is done from the tray menu
         { label: L.close, accelerator: 'CmdOrCtrl+W', role: 'close' }
+      ]
+    },
+    {
+      label: L.mining,
+      submenu: [
+        { label: L.miningHome, click: act('mineHome') }
       ]
     },
     {

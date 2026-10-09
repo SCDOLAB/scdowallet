@@ -158,7 +158,7 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false,
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '',
     payReview: null
   }
   const shard0 = () => ({
@@ -500,8 +500,30 @@
     try { e = islandModel(true).earn } catch (x) { e = null }
     return e ? { today: fmtNum(e.todayScdo), total: fmtNum(e.totalScdo) } : { today: null, total: null }
   }
+  function mineHomeInput () {
+    let earn = st.earn || null
+    try { earn = noteEarn() } catch (e) { earn = st.earn || null }
+    let phase = 'stopped'
+    if (st.homeMine === 'starting' || st.homeMine === 'stopping') phase = st.homeMine
+    else if (miningBusy() || st.homeMine === 'mining') phase = 'mining'
+    return {
+      miners: {
+        shard0: (st.miners && st.miners.shard0) || st.miner,
+        classicCpu: st.miners && st.miners.classicCpu,
+        classicGpu: st.miners && st.miners.classicGpu
+      },
+      temps: (st.gpuTemp && st.gpuTemp.gpus) || [],
+      earnLog: earn,
+      now: Date.now(),
+      phase: phase
+    }
+  }
+  function mineHomeCardHtml () {
+    if (!window.SCDOMineHome) return ''
+    return window.SCDOMineHome.cardHtml(mineHomeInput(), T, esc)
+  }
   function pageHome () {
-    return window.SCDODash.homeHtml(dashModels(), recentTx(), T, esc, earnTexts())
+    return window.SCDODash.homeHtml(dashModels(), recentTx(), T, esc, earnTexts(), mineHomeCardHtml())
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
@@ -521,6 +543,8 @@
       if (host) { const html = dashModels().map(m => window.SCDODash.cardHtml(m, T, esc)).join(''); if (refreshDash.cards !== html) { refreshDash.cards = html; SD.html(host, html) } }
       const eh = $('earnCard')
       if (eh) { const html = window.SCDODash.earnHtml(earnTexts(), T, esc); if (refreshDash.earn !== html) { refreshDash.earn = html; SD.html(eh, html) } }
+      const mh = $('homeMineHost')
+      if (mh) { const html = mineHomeCardHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
       const tx = $('recentTxHost')
       if (tx) { const html = window.SCDODash.txHtml(recentTx(), T, esc); if (refreshDash.tx !== html) { refreshDash.tx = html; SD.html(tx, html) } }
     } else if (st.tab === 'acc') {
@@ -980,12 +1004,12 @@
     const y = main.scrollTop
     const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet }
     SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
-    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = null
+    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
     if (st.tab === 'mineSet') mountMining(); else window.SCDOMining.MiningPage.unmount()
     renderFooter()
     const want = st.scrollTo; st.scrollTo = null
-    const to = st.tab === 'acc' && want && want !== 'top' ? $(want) : null
+    const to = want && want !== 'top' ? $(want) : null
     if (want === 'top' || (to && to.id === 'secOld')) main.scrollTop = 0
     else if (to) main.scrollTop = Math.max(0, to.offsetTop - main.offsetTop - 8)
     else main.scrollTop = y
@@ -2422,9 +2446,7 @@
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
-  async function stopAll () {
-    const ok = await confirmStopAll()
-    if (!ok) return
+  async function stopAllNow () {
     localStorage.setItem('minerRunClassicCpu', '')
     localStorage.setItem('minerRunClassicGpu', '')
     const mode = localStorage.getItem('minerMode')
@@ -2434,6 +2456,124 @@
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
     try { await api.invoke('miner:intentClear') } catch (e) {}
     toast(T('stopped'))
+  }
+  async function stopAll () {
+    const ok = await confirmStopAll()
+    if (!ok) return false
+    await stopAllNow()
+    return true
+  }
+  function classicTargetForHome () {
+    const backendName = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
+    const key = backendName === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu'
+    const pref = Number(st.mineShard)
+    const accounts = []
+    for (const a of st.accounts || []) {
+      const p = parseClassicAddress(a.pubkey)
+      if (p && p.shard >= 1 && p.shard <= 4) accounts.push(p)
+    }
+    const savedKey = parseClassicAddress(localStorage.getItem(key) || '')
+    const savedAny = parseClassicAddress(localStorage.getItem('minerClassic') || '')
+    const ok = (p) => !!(p && p.shard >= 1 && p.shard <= 4)
+    let picked = null
+    if (pref >= 1 && pref <= 4) {
+      if (ok(savedKey) && savedKey.shard === pref) picked = savedKey
+      else if (ok(savedAny) && savedAny.shard === pref) picked = savedAny
+      else picked = accounts.find(p => p.shard === pref) || null
+    }
+    if (!picked && ok(savedKey)) picked = savedKey
+    if (!picked && ok(savedAny)) picked = savedAny
+    if (!picked && accounts.length) {
+      const sel = headerAccount()
+      const selP = sel ? parseClassicAddress(sel.pubkey) : null
+      picked = (selP && accounts.find(p => p.address === selP.address)) || accounts[0]
+    }
+    return picked ? { address: picked.address, shard: picked.shard } : null
+  }
+  function rewardForHome () {
+    const saved = localStorage.getItem('minerReward') || ''
+    if (/^0x[0-9a-fA-F]{40}$/.test(saved)) return saved
+    let addr = ''
+    try { addr = (catCtx().shard0Address) || '' } catch (e) { addr = '' }
+    return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : ''
+  }
+  async function startOneHomeJob (job) {
+    if (job.chain === 'classic' && job.gpuMiner === 'external') {
+      const gpu = gpuParams()
+      let r
+      try {
+        r = await api.invoke('miner:start', job.address, {
+          chain: 'classic', backend: 'gpu', gpuMiner: 'external', shard: job.shard,
+          threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+        })
+      } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
+      if (!r || !r.ok) {
+        const key = 'st_' + ((r && r.code) || '')
+        const stText = r && r.code && r.code !== 'ERROR' && T(key) !== key ? T(key) : ''
+        toast(window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, stText), 8000)
+        return false
+      }
+      localStorage.setItem('minerRunClassicGpu', 'external')
+      localStorage.setItem('minerClassicGpu', job.address)
+      return true
+    }
+    const r = await startCatJob(job)
+    if (r && r.ok) return true
+    if (r && r.fail) toast(r.fail, 7000)
+    return false
+  }
+  async function startHomeMining () {
+    try { await ensureCaps() } catch (e) {}
+    try { await ensureGpu(true) } catch (e) {}
+    const hot = catTemp() != null && catTemp() >= 85
+    const spec = {
+      backend: st.mineBackend,
+      caps: st.caps,
+      classic: classicTargetForHome(),
+      reward: rewardForHome(),
+      nvidia: !!(st.gpu && st.gpu.nvidia)
+    }
+    const cool = window.SCDOMineHome.jobsForHome(spec)
+    const jobs = hot ? window.SCDOMineHome.jobsForHome(Object.assign({ hot: true }, spec)) : cool
+    const droppedGpu = cool.some(j => j.chain === 'shard0' || j.backend === 'gpu') && !jobs.some(j => j.chain === 'shard0' || j.backend === 'gpu')
+    if (!jobs.length) {
+      toast(droppedGpu ? T('homeMineHot') : T('pickAddr'), 7000)
+      return false
+    }
+    if (droppedGpu) toast(T('homeMineHot'), 7000)
+    if (jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
+      localStorage.setItem('defenderAsked112', '1')
+      if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) {
+        const r = await api.invoke('miner:defender')
+        toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000)
+      }
+    }
+    let any = false
+    for (const job of jobs) { if (await startOneHomeJob(job)) any = true }
+    return any
+  }
+  async function homeMineToggle () {
+    if (st.homeMine === 'starting' || st.homeMine === 'stopping' || st.actStarting) return
+    const phase = miningBusy() ? 'mining' : 'stopped'
+    const next = window.SCDOMineHome.reduceMinePhase(phase, 'click')
+    if (next === phase) return
+    st.homeMine = next
+    refreshDash()
+    try {
+      if (next === 'stopping') {
+        await stopAll()
+        st.homeMine = ''
+      } else {
+        st.actStarting = true
+        const ok = await startHomeMining()
+        st.actStarting = false
+        st.homeMine = ok ? 'mining' : ''
+      }
+    } catch (e) {
+      st.actStarting = false
+      st.homeMine = ''
+    }
+    refreshDash()
   }
   async function minerStop (src) {
     const classic = Number(st.mineShard) >= 1
@@ -2462,6 +2602,7 @@
     if (cur0 && cur0.code === 'DEFENDER' && (!prev0 || prev0.code !== 'DEFENDER') && api.platform === 'win32') {
       confirmBox(T('defender'), T('st_DEFENDER'), T('yes'), T('no')).then(async ok => { if (ok) { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail'), 6000); if (r && r.ok) mineStart() } })
     }
+    if (st.homeMine === 'mining' && miningBusy()) st.homeMine = ''
     scheduleMinerDom()
   }
 
@@ -2536,6 +2677,7 @@
       case 'backupOne': { const r = await api.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'mineStart': mineStart(); break
+      case 'homeMine': homeMineToggle(); break
       case 'nodeStart': nodeStart(); break
       case 'minerStop': minerStop(el.id === 'btnNode' || (st.miner && st.miner.mode === 'node') ? 'node' : 'mine'); break
       case 'toggleLog': st.logOpen = !st.logOpen; st.advOpen = true; render(); break
@@ -2617,6 +2759,14 @@
     setTab(v); render()
     if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() } else { refreshOld(); refreshS0() }
   }
+  function goMineHome () {
+    if ($('md')) SD.clear($('modalRoot'))
+    setTab('home')
+    st.scrollTo = 'homeMineCard'
+    render()
+    refreshOld()
+    refreshS0()
+  }
   async function menuStartMining () {
     if (miningBusy() || st.actStarting) { toast(currentMinePill().t, 5000); return }
     st.actStarting = true
@@ -2632,6 +2782,7 @@
       case 'mineStop': stopAll(); break
       case 'reward': case 'mineSettings': goPage('mineSet'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
+      case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
       case 'remit': openRemittance(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
@@ -2662,6 +2813,7 @@
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
     renderIsland()
+    refreshDash()
     catWatch()
   }
 

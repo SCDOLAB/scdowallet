@@ -48,7 +48,7 @@ Module._load = function (req, parent, ...rest) {
   if (req === 'electron') {
     return {
       Menu: { buildFromTemplate: (t) => t, setApplicationMenu () {} },
-      app: { getVersion: () => '3.0.8' },
+      app: { getVersion: () => '3.0.9' },
       shell: {}
     }
   }
@@ -58,14 +58,18 @@ const menu = require('../src/js/menu.js')
 Module._load = realLoad
 const cnMenu = menu.buildTemplate(null, undefined)
 const enMenu = menu.buildTemplate(null, 'EN')
-assert.strictEqual(cnMenu[1].label, '檔案', 'first launch menu is 華語')
+assert.strictEqual(cnMenu[1].label, '挖礦', 'first launch menu is 華語')
+assert.strictEqual(cnMenu[1].submenu[0].label, '挖礦狀態')
+assert.strictEqual(cnMenu[2].label, '檔案')
 assert.strictEqual(cnMenu[0].label, 'SCDO 錢包')
-assert.strictEqual(enMenu[1].label, 'File', 'saved English menu stays English')
+assert.strictEqual(enMenu[1].label, 'Mining', 'saved English menu stays English')
+assert.strictEqual(enMenu[1].submenu[0].label, 'Mining status')
+assert.strictEqual(enMenu[2].label, 'File')
 assert.strictEqual(enMenu[0].label, 'SCDO Wallet')
-assert.strictEqual(menu.buildTemplate(null, 'zh-Hant-TW')[1].label, '檔案')
+assert.strictEqual(menu.buildTemplate(null, 'zh-Hant-TW')[2].label, '檔案')
 menu.createMenu({ isDestroyed: () => false }, undefined)
-assert.strictEqual(menu.buildTemplate(null, 'EN')[5].label, 'Help')
-assert.strictEqual(menu.buildTemplate(null, 'CN')[5].label, '說明')
+assert.strictEqual(menu.buildTemplate(null, 'EN')[6].label, 'Help')
+assert.strictEqual(menu.buildTemplate(null, 'CN')[6].label, '說明')
 
 // ---- (2) platform strings: Windows bytes unchanged, Mac path and notification centre ----
 const box = { window: {} }
@@ -94,18 +98,19 @@ assert.ok(enNote.startsWith('Shown in macOS Notification Centre'))
 assert.ok(!enNote.includes('Windows'))
 assert.strictEqual(cnNote.slice('在 Mac 通知中心顯示'.length), WIN_CN_NOTIFY.slice('在 Windows 通知中心顯示'.length))
 assert.strictEqual(enNote.slice('Shown in macOS Notification Centre'.length), WIN_EN_NOTIFY.slice('Shown in the Windows notification centre'.length))
-assert.strictEqual(I.CN.relNotes[0].v, '3.0.8')
-assert.strictEqual(I.EN.relNotes[0].v, '3.0.8')
-assert.ok(I.CN.relNotes[0].items.join(' ').includes('繁體中文'))
+assert.strictEqual(I.CN.relNotes[0].v, '3.0.9')
+assert.strictEqual(I.EN.relNotes[0].v, '3.0.9')
+assert.ok(I.CN.relNotes[0].items.join(' ').includes('挖礦狀態'))
+assert.ok(I.CN.relNotes[1].items.join(' ').includes('繁體中文'))
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(read('src/js/app112.js').includes('T(\'backupHint\')') && read('src/js/app112.js').includes('T(\'notifyHint\')'))
 
 // version and Windows build left as they were, plus the Mac signing gate
 const pkg = require('../package.json')
-assert.strictEqual(pkg.version, '3.0.8')
+assert.strictEqual(pkg.version, '3.0.9')
 const lock = JSON.parse(read('package-lock.json'))
-assert.strictEqual(lock.version, '3.0.8')
-assert.strictEqual(lock.packages[''].version, '3.0.8')
+assert.strictEqual(lock.version, '3.0.9')
+assert.strictEqual(lock.packages[''].version, '3.0.9')
 const base = JSON.parse(execFileSync('git', ['show', 'c8049bb:package.json'], { encoding: 'utf8' }))
 assert.deepStrictEqual(pkg.build.win, base.build.win)
 assert.deepStrictEqual(pkg.build.nsis, base.build.nsis)
