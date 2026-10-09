@@ -96,7 +96,7 @@ const { TrayStatus } = require('./src/main/trayStatus')
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
 // 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 繁體中文, 'EN')
-function uiLang () { try { return walletService.currentLang() === 'CN' ? 'CN' : 'EN' } catch (e) { return 'EN' } }
+function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
     stopTitle: '停止挖礦 — SCDO Wallet', stopMsg: '確定要停止挖礦嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止挖礦'],
@@ -111,7 +111,7 @@ const MT = {
     trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Mining and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
   }
 }
-function mt (k) { return (MT[uiLang()] || MT.EN)[k] }
+function mt (k) { return (MT[uiLang()] || MT.CN)[k] }
 // 2.0.6: Stop-mining confirmation (Mining tab button and tray item). Cancel is the default and the Esc answer.
 async function confirmStopMining () {
   const opts = { type: 'question', title: mt('stopTitle'), message: mt('stopMsg'), buttons: mt('stopBtns'), defaultId: 0, cancelId: 0, noLink: true }

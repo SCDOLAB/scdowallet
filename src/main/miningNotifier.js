@@ -77,7 +77,7 @@ class MiningNotifier {
     return { ok: true, config: c }
   }
   labels () { return TEXT[this.lang()].labels }
-  lang () { try { return this.o.lang && this.o.lang() === 'CN' ? 'CN' : 'EN' } catch (e) { return 'EN' } }
+  lang () { try { return this.o.lang && this.o.lang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 
   // ---- delivery: toggle + 1 per type per 10 minutes ----
   fire (type, textKey, params, url) {

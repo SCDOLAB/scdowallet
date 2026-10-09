@@ -1,6 +1,6 @@
 {
     "name": "ScdoWallet",
-    "version": "3.0.7",
+    "version": "3.0.8",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
@@ -40,6 +40,7 @@
         ],
         "asar": true,
         "beforePack": "scripts/before-pack-win.js",
+        "afterSign": "scripts/mac-after-sign.js",
         "win": {
             "target": [
                 {
@@ -92,7 +93,12 @@
             ],
             "icon": "build/icon-1024.png",
             "category": "public.app-category.finance",
-            "identity": null,
+            "identity": "-",
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist",
+            "notarize": false,
             "artifactName": "SCDOWallet-${version}-mac-arm64.${ext}",
             "extraResources": [
                 {

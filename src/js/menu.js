@@ -1,6 +1,7 @@
 // SCDO Wallet 2.0.12: application menu follows wallet language (EN / CN=繁體中文).
 // Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
 const { Menu, app, shell } = require('electron')
+const { menuLang } = require('./uiLang')
 
 const LABELS = {
   EN: {
@@ -74,7 +75,7 @@ const LABELS = {
 }
 
 function buildTemplate (mainWindow, lang) {
-  const L = LABELS[lang === 'CN' ? 'CN' : 'EN']
+  const L = LABELS[menuLang(lang)]
   const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
   // Remittance stays on the allowlisted menu:action channel. The page opens the tab in openRemittance().
   function openRemittance () { act('remit')() }
@@ -148,7 +149,7 @@ function buildTemplate (mainWindow, lang) {
 }
 
 function createMenu (mainWindow, lang) {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate(mainWindow, lang === 'CN' ? 'CN' : 'EN')))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate(mainWindow, menuLang(lang))))
 }
 
 module.exports.createMenu = createMenu

@@ -17,8 +17,9 @@
 
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
-  // 2.0.4: UI language follows the saved choice ('EN' default, 'CN' = 繁體中文 / Traditional Chinese)
-  let LANG = (CFG && CFG.lang === 'CN') ? 'CN' : 'EN'
+  // 3.0.8: first launch is 華語. A saved EN or CN from wallet:boot is kept. The operating-system language is not used.
+  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) { return String(v == null ? '' : v).trim().toUpperCase() === 'EN' ? 'EN' : 'CN' }
+  let LANG = normUi(CFG && CFG.lang)
   function lang () { return LANG }
   function applyLangAttr () { try { document.documentElement.lang = LANG === 'CN' ? 'zh-Hant-TW' : 'en'; if (window.SCDOMining) window.SCDOMining.lang = LANG } catch (e) {} }
   applyLangAttr()
@@ -37,7 +38,11 @@
   }
   const formatEther = (v) => formatUnits(v, 18)
   function T (k, p) {
-    let s = (window.I18N112[lang()] || {})[k]; if (s == null) s = window.I18N112.EN[k]; if (s == null) s = k
+    const plat = (api && api.platform) || (window.scdo && window.scdo.platform) || ''
+    const pick = (pack) => (window.SCDOPlatformCopy ? window.SCDOPlatformCopy.copyText(pack, k, plat) : (pack || {})[k])
+    let s = pick(window.I18N112[lang()] || {})
+    if (s == null) s = pick(window.I18N112.EN)
+    if (s == null) s = k
     if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
     return s
   }
@@ -2211,7 +2216,7 @@
     let r = null
     try { r = await api.invoke('wallet:setLang', want) } catch (e) { r = { ok: false, error: e.message } }
     if (!r || !r.ok) { toast((r && r.error) || 'language not saved', 6000); return }
-    LANG = r.lang === 'CN' ? 'CN' : 'EN'
+    LANG = r.lang === 'EN' ? 'EN' : 'CN'
     applyLangAttr()
     try { api.invoke('app:titles') } catch (e) {}
     if ($('md')) SD.clear($('modalRoot'))

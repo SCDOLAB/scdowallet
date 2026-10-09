@@ -12,6 +12,7 @@ const { dialog, BrowserWindow } = require('electron')
 const ScdoClient = require('../api/scdoClient')
 const { Shard0 } = require('../api/evm')
 const { normalizeHalfWidth } = require('../js/halfWidth')
+const { normLang } = require('../js/uiLang')
 
 const S0_CHAIN_ID = 5680
 const HOME = path.join(os.homedir(), '.ScdoWallet')
@@ -467,13 +468,9 @@ function saveUi (ui) {
   return true
 }
 
-// 2.0.4: UI language. Only 'EN' (English, default) and 'CN' (= 繁體中文 / Traditional Chinese) exist.
+// 3.0.8: UI language. Only 'EN' and 'CN' (= 繁體中文 / Traditional Chinese) are stored.
 // 'CN' stays the stored value so older wallets that share viewconfig_1.1.json keep reading it.
-function normLang (v) {
-  const s = String(v == null ? '' : v).trim().toUpperCase()
-  if (s === 'CN' || s === 'TW' || s === 'ZH' || s.startsWith('ZH-') || s.startsWith('ZH_') || s === 'HK') return 'CN'
-  return 'EN'
-}
+// An unset language is CN. A saved EN or CN is kept. The operating-system language is not used.
 function setLang (v) {
   const l = normLang(v)
   const cl = c()
@@ -488,7 +485,7 @@ function setLang (v) {
 function boot () {
   const cl = c()
   const cfg = cl.config || {}
-  // 2.0.4: the saved language is respected (English is the default for new installs). The Chinese UI is
+  // 3.0.8: a saved EN or CN is kept. An unset language is 華語. The Chinese UI is
   // Traditional Chinese only; an old saved "CN" (or any zh / TW value) maps to the Traditional strings.
   return {
     config: { lang: normLang(cfg.lang), connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
@@ -533,5 +530,5 @@ function register (ipcMain, getWin) {
 }
 
 // 2.0.6: language for main-process dialogs / tray / window titles
-function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'EN' } }
+function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
 module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
