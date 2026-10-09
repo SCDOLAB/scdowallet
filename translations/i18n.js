@@ -1,9 +1,7 @@
 const path = require("path")
-const electron = require('electron')
 const fs = require('fs');
 let loadedDictionary;
 let loadedLanguage;
-const locale = electron.app ? electron.app.getLocale() : ((typeof navigator !== 'undefined' && navigator.language) || 'en')
 
 module.exports = i18n;
 
@@ -12,17 +10,16 @@ function i18n() {
     var scdoClient = new ScdoClient;
     var settings = JSON.parse(fs.readFileSync(scdoClient.configpath), 'utf8')
 
-    
-    global.languageSetting = settings.lang;
-    
-    loadedLanguage = settings.lang;
+    // 3.0.8: the saved language wins. The operating-system locale is not read.
+    // On a case-insensitive Mac disk, an English locale name used to open EN.json and force English.
+    var saved = settings && settings.lang ? String(settings.lang) : 'CN'
+    global.languageSetting = saved;
+
+    loadedLanguage = saved;
     let langfile = loadedLanguage + '.json';
-    if(fs.existsSync(path.join(__dirname, locale + '.json'))) {
-         loadedDictionary = JSON.parse(fs.readFileSync(path.join(__dirname, locale + '.json'), 'utf8'))
-    }
-    else {
-         loadedDictionary = JSON.parse(fs.readFileSync(path.join(__dirname, langfile), 'utf8'))
-    }
+    var file = path.join(__dirname, langfile)
+    if (!fs.existsSync(file)) file = path.join(__dirname, 'CN.json')
+    loadedDictionary = JSON.parse(fs.readFileSync(file, 'utf8'))
 }
 
 i18n.prototype.__ = function(phrase) {

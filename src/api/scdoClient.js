@@ -29,7 +29,7 @@ function migrateConfig(configpath) {
   var cfg;
   try { cfg = JSON.parse(fs.readFileSync(configpath).toString()); } catch (e) { cfg = {}; }
   var changed = false;
-  if (!cfg.lang) { cfg.lang = "EN"; changed = true; }
+  if (!cfg.lang) { cfg.lang = "CN"; changed = true; }
   if (!Array.isArray(cfg.connect) || cfg.connect.length < 5) { cfg.connect = NEW_DEFAULT_CONNECT.slice(); changed = true; }
   for (var i = 1; i <= 4; i++) {
     if (!cfg.connect[i] || cfg.connect[i] === OLD_DEFAULT_CONNECT[i]) { cfg.connect[i] = NEW_DEFAULT_CONNECT[i]; changed = true; }

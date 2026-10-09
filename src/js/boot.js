@@ -9,7 +9,7 @@
     CN: { loading: '正在載入錢包…', mining: '挖礦中', starting: '挖礦程式啟動中…', stopped: '目前沒有在挖礦', node: '只執行節點（未挖礦）', error: '挖礦程式出錯', pool: '礦池', local: '本機節點（單獨挖礦）', slow: '載入時間比平常久。挖礦不受影響。', reload: '重新載入畫面', speed: '挖礦速度 每秒 {n} 次' },
     EN: { loading: 'Loading wallet…', mining: 'Mining', starting: 'Miner starting…', stopped: 'Not mining right now', node: 'Node only (not mining)', error: 'Miner error', pool: 'pool', local: 'local node (solo)', slow: 'Loading is taking longer than usual. Mining is not affected.', reload: 'Reload the window', speed: 'Mining speed {n} tries per second' }
   }
-  let L = TX.EN, lang = null, done = false, last = null, off = null
+  let L = TX.CN, lang = 'CN', done = false, last = null, off = null
   function fmtHash (h) { const n = Math.round(Number(h) || 0).toLocaleString('en-US'); return String(L.speed || '').replace('{n}', n) }
   function mineText (m) {
     if (!m) return ''
@@ -29,7 +29,7 @@
   try { off = api.on('miner:status', paintMine) } catch (e) {}
   api.invoke('app:info').then(info => {
     if (!info) return
-    lang = info.lang === 'CN' ? 'CN' : 'EN'; L = TX[lang]
+    lang = info.lang === 'EN' ? 'EN' : 'CN'; L = TX[lang]
     const t = $('bootTitle'); if (t) t.textContent = 'SCDO Wallet ' + (info.displayVersion || info.version || '')
     const m = $('bootMsg'); if (m) m.textContent = L.loading
     paintMine(last)

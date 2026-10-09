@@ -42,7 +42,7 @@
     }
   }
   function lang () {
-    try { return JSON.parse(fsx.readFileSync(client.configpath)).lang === 'CN' ? 'CN' : 'EN' } catch (e) { return 'EN' }
+    try { return JSON.parse(fsx.readFileSync(client.configpath)).lang === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' }
   }
   function T (k) { return (DICT[lang()] || DICT.EN)[k] || DICT.EN[k] || k }
   function esc (s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }

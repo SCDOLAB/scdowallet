@@ -27,7 +27,7 @@ const TL = {
   CN: { show: '顯示 SCDO Wallet', notMining: '未在挖礦', minerError: '挖礦程式出錯', nodeOnly: '只執行節點（未挖礦）', nodeOnlyShort: '只執行節點', mining: '挖礦中：', starting: '挖礦程式啟動中…', stop: '停止挖礦', keep: '持續挖礦（挖礦程式退出時自動重新啟動）', quit: '結束' }
 }
 function tooltipText (version, st, lang) {
-  const L = TL[lang] || TL.EN
+  const L = TL[lang] || TL.CN
   const head = 'SCDO Wallet ' + version
   let line
   const classic = st && st.classicNote
@@ -50,14 +50,14 @@ class TrayStatus {
     this.last = null
     this.lastBadge = null
     this.tray = new Tray(process.platform === 'win32' ? path.join(o.assetsDir, 'tray.ico') : this.img('icon-32.png'))
-    this.lang = o.lang === 'CN' ? 'CN' : 'EN'
+    this.lang = o.lang === 'EN' ? 'EN' : 'CN'
     this.tray.setToolTip(tooltipText(o.version, null, this.lang))
     this.tray.on('click', () => this.showWindow())
     this.rebuild()
   }
 
-  L () { return TL[this.lang] || TL.EN }
-  setLang (l) { const n = l === 'CN' ? 'CN' : 'EN'; if (n === this.lang) return; this.lang = n; this.sig = null; this.update(this.last); this.rebuild() }
+  L () { return TL[this.lang] || TL.CN }
+  setLang (l) { const n = l === 'EN' ? 'EN' : 'CN'; if (n === this.lang) return; this.lang = n; this.sig = null; this.update(this.last); this.rebuild() }
   // 2.0.6: one-time Windows notification when the window is hidden to the tray
   balloon (title, content) { try { if (this.tray && !this.tray.isDestroyed() && process.platform === 'win32') this.tray.displayBalloon({ title, content, iconType: 'info', noSound: true }) } catch (e) {} }
 
