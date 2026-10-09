@@ -2732,7 +2732,7 @@
   ]
   const catPhrase = (k) => { for (const g of CAT_ROWS) for (const r of g) if (r[0] === k) return r[4]; return '' }
   // 3.0.5: animated AI小貓 in the launcher (same as the web wallet): a 68px cat replaces the avatar and cycles through
-  // the frames listed in src/js/catPoses.js (window.SCDOCatPoses), one every holdMs, with pop + crossfade + breathing and a
+  // the frames listed in src/js/catPoses.js (window.SCDOCatPoses), one every holdMs (3 s), with a small pop + crossfade + breathing and a
   // soft dark ellipse shadow. Clicking advances one pose, then opens the same popup as before. prefers-reduced-motion
   // shows the static reducedMotionFrame and never animates. The timer only runs while the launcher is visible.
   const CAT_ANIM = (() => {
@@ -2740,12 +2740,12 @@
     const frames = (Array.isArray(c.frames) ? c.frames : []).filter(f => typeof f === 'string' && /^[\w.-]+\.(webp|png)$/.test(f))
     const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
     const still = Math.max(0, frames.indexOf(c.reducedMotionFrame))
-    return { dir: typeof c.dir === 'string' ? c.dir : './assets/cat/', hold: Math.max(400, Number(c.holdMs) || 1200), frames, reduce, idx: reduce ? still : 0, timer: 0, bad: new Set() }
+    return { dir: typeof c.dir === 'string' ? c.dir : './assets/cat/', hold: Math.max(400, Number(c.holdMs) || 3000), fade: Math.max(0, Number(c.fadeMs) || 600), popScale: Math.min(1.3, Math.max(1, Number(c.popScale) || 1.05)), popMs: Math.max(100, Number(c.popMs) || 450), frames, reduce, idx: reduce ? still : 0, timer: 0, bad: new Set() }
   })()
   function catAnimHtml () {
     if (!CAT_ANIM.frames.length) return '<span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span>'
     const imgs = CAT_ANIM.frames.map((f, i) => `<img class="cat-f${i === CAT_ANIM.idx ? ' on' : ''}" data-i="${i}" src="${esc(CAT_ANIM.dir + f)}" alt="" draggable="false">`).join('')
-    return `<span class="cap-av cat-anim${CAT_ANIM.reduce ? ' still' : ' breathe'}" id="aiCatAnim" aria-hidden="true"><i class="cat-shadow"></i>${imgs}</span>`
+    return `<span class="cap-av cat-anim${CAT_ANIM.reduce ? ' still' : ' breathe'}" id="aiCatAnim" aria-hidden="true" style="--cat-fade:${CAT_ANIM.fade}ms;--cat-pop:${CAT_ANIM.popScale};--cat-pop-ms:${CAT_ANIM.popMs}ms"><i class="cat-shadow"></i>${imgs}</span>`
   }
   function catAnimShow (i, pop) {
     const box = $('aiCatAnim'); const n = CAT_ANIM.frames.length
@@ -2758,7 +2758,7 @@
     box.classList.remove('pop', 'breathe'); void box.offsetWidth
     if (pop) box.classList.add('pop')
     clearTimeout(CAT_ANIM.popT)
-    CAT_ANIM.popT = setTimeout(() => { box.classList.remove('pop'); box.classList.add('breathe') }, 450)
+    CAT_ANIM.popT = setTimeout(() => { box.classList.remove('pop'); box.classList.add('breathe') }, CAT_ANIM.popMs)
   }
   function catAnimNext () { catAnimShow(CAT_ANIM.idx + 1, true) }
   function catAnimSync () {

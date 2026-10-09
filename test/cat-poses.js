@@ -6,7 +6,7 @@ const box = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(root, '
 const c = box.window.SCDOCatPoses
 assert.ok(c && Array.isArray(c.frames) && c.frames.length >= 1, 'frame list')
 assert.strictEqual(new Set(c.frames).size, c.frames.length, 'duplicate frames')
-assert.strictEqual(c.holdMs, 1200)
+assert.strictEqual(c.holdMs, 3000); assert.strictEqual(c.fadeMs, 600); assert.ok(c.popScale > 1 && c.popScale <= 1.06)
 assert.ok(c.frames.includes(c.reducedMotionFrame), 'reduced-motion frame is listed')
 for (const f of c.frames) {
   assert.ok(/^[\w.-]+\.webp$/.test(f), f)
