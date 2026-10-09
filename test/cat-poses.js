@@ -25,12 +25,24 @@ assert.ok(app.includes('window.SCDOCatPoses') && app.includes("prefers-reduced-m
 assert.ok(app.includes('class="cat-launch cat-capsule" id="aiCatBtn"') && app.includes('id="aiCatPanel"'), 'launcher + round3 popup kept')
 assert.ok(/case 'catOpen': if \(!st\.catOpen && \$\('aiCatAnim'\) && !CAT_ANIM\.reduce\) catAnimNext\(\); st\.catOpen = !st\.catOpen; renderCat\(\)/.test(app), 'click advances then opens')
 const css = fs.readFileSync(path.join(root, 'src/css/app112.css'), 'utf8')
-assert.ok(/\.cap-av\.cat-anim img\.cat-f \{[^}]*top: 6px; width: 68px; height: 68px/.test(css), '68px cat')
+assert.ok(/\.cap-av\.cat-anim img\.cat-f \{[^}]*top: 6px; width: var\(--cat-px, 64px\); height: var\(--cat-px, 64px\)/.test(css), 'cat size from --cat-px')
 // 3.0.6: the cat stays inside the button box (76px tall, image top 6px + 68px = 74px) and the layout reserves the strip
-assert.ok(/\.cat-launch\.cat-capsule:has\(\.cat-anim\) \{[^}]*height: 76px;[^}]*bottom: 10px;[^}]*overflow: visible/.test(css))
-assert.ok(/\.cap-av\.cat-anim \{[^}]*height: 76px/.test(css))
+assert.ok(/\.cat-launch\.cat-capsule:has\(\.cat-anim\) \{[^}]*height: calc\(var\(--cat-px, 64px\) \+ 8px\);[^}]*bottom: 10px;/.test(css))
+assert.ok(/\.cap-av\.cat-anim \{[^}]*height: calc\(var\(--cat-px, 64px\) \+ 8px\)/.test(css))
 assert.ok(!/\.cap-av\.cat-anim \{[^}]*(bottom|top): -/.test(css), 'nothing positioned outside the button')
-assert.ok(/body:has\(#aiCatAnim\) \.foot-bar \{ min-height: 100px;/.test(css) && /body:has\(#aiCatAnim\) #app:has\(> \.foot-bar\[hidden\]\) > main \{ margin-bottom: 100px; \}/.test(css), 'reserved strip >= 10 + 76')
+// 3.0.7: four corners, three sizes, reserved strip at the cat's corner, popup opens from that corner
+for (const c of ['tl', 'tr', 'bl', 'br']) {
+  assert.ok(new RegExp('body\\.cat-at-' + c + ' \\.cat-launch\\.cat-capsule:has\\(\\.cat-anim\\) \\{').test(css), 'corner ' + c)
+  if (c !== 'br') assert.ok(css.includes('body.cat-at-' + c + ' .cat-pop.bubble {'), 'popup corner ' + c)
+}
+for (const r of ['body.cat-reserve.cat-top header.top { min-height: var(--cat-res', 'body.cat-reserve.cat-at-tr header.top { padding-right: var(--cat-side', 'body.cat-reserve.cat-at-tl header.top { padding-left: var(--cat-side',
+  'body.cat-reserve.cat-bottom .foot-bar { min-height: var(--cat-res', 'body.cat-reserve.cat-at-br .foot-bar { padding-right: var(--cat-side', 'body.cat-reserve.cat-at-bl .foot-bar { padding-left: var(--cat-side',
+  'body.cat-reserve.cat-bottom #app:has(> .foot-bar[hidden]) > main { margin-bottom: var(--cat-res']) assert.ok(css.includes(r), r)
+assert.ok(app.includes("const CAT_SIZES = { s: 64, m: 112, l: 160 }") && app.includes("localStorage.setItem('aiCatCorner'") && app.includes("localStorage.setItem('aiCatSize'"))
+assert.ok(/Math\.hypot\(e\.clientX - d\.x, e\.clientY - d\.y\) < 5/.test(app), 'a press that moves < 5px is a click')
+assert.ok(app.includes("case 'catSize': catSetPlace(null, v); break") && app.includes("case 'catCorner': catSetPlace(v, null); break") && app.includes('data-act="catCorner" data-v="br"'))
+const i18n = fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8')
+assert.ok(i18n.includes('catSizeLbl: "小貓大小：", catSize_s: "小", catSize_m: "中", catSize_l: "大"') && i18n.includes('catCornerReset: "放回右下角"'))
 assert.ok(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cat-capsule \.cap-av\.cat-anim img\.cat-f \{[^}]*animation: none/.test(css))
 const pkg = require(path.join(root, 'package.json'))
 assert.ok(!pkg.build.files.some(f => /assets/.test(f) && f.startsWith('!')), 'assets are packaged')

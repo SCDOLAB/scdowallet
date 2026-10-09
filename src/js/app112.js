@@ -2487,6 +2487,8 @@
         break
       }
       case 'catOpen': if (!st.catOpen && $('aiCatAnim') && !CAT_ANIM.reduce) catAnimNext(); st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
+      case 'catSize': catSetPlace(null, v); break
+      case 'catCorner': catSetPlace(v, null); break
       case 'catClose': case 'catLater': st.catOpen = false; renderCat(); break
       case 'catHide': localStorage.setItem('aiCat112', '0'); st.catOpen = false; renderCat(); toast(T('catHidden'), 7000); break
       case 'catType': { const row = $('aiCatInRow'); const b = $('catType'); if (row) row.hidden = false; if (b) b.hidden = true; const inp = $('aiCatIn'); if (inp) inp.focus(); break }
@@ -2745,7 +2747,7 @@
   function catAnimHtml () {
     if (!CAT_ANIM.frames.length) return '<span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span>'
     const imgs = CAT_ANIM.frames.map((f, i) => `<img class="cat-f${i === CAT_ANIM.idx ? ' on' : ''}" data-i="${i}" src="${esc(CAT_ANIM.dir + f)}" alt="" draggable="false">`).join('')
-    return `<span class="cap-av cat-anim${CAT_ANIM.reduce ? ' still' : ' breathe'}" id="aiCatAnim" aria-hidden="true" style="--cat-fade:${CAT_ANIM.fade}ms;--cat-pop:${CAT_ANIM.popScale};--cat-pop-ms:${CAT_ANIM.popMs}ms"><i class="cat-shadow"></i>${imgs}</span>`
+    return `<span class="cap-av cat-anim${CAT_ANIM.reduce ? ' still' : ' breathe'}" id="aiCatAnim" style="--cat-fade:${CAT_ANIM.fade}ms;--cat-pop:${CAT_ANIM.popScale};--cat-pop-ms:${CAT_ANIM.popMs}ms"><i class="cat-shadow" aria-hidden="true"></i>${imgs}<span class="cat-grip" id="catGrip" data-act="catSize" data-v="next" role="button" title="" aria-label=""></span></span>`
   }
   function catAnimShow (i, pop) {
     const box = $('aiCatAnim'); const n = CAT_ANIM.frames.length
@@ -2769,15 +2771,98 @@
         im.addEventListener('error', () => { CAT_ANIM.bad.add(Number(im.getAttribute('data-i'))); im.remove(); if (Number(im.getAttribute('data-i')) === CAT_ANIM.idx) catAnimNext() }, { once: true })
       }
     }
+    catWireDrag(box ? btn : null)
+    catPlaceApply()
     const run = !!(box && btn && !btn.hidden && !document.hidden && !CAT_ANIM.reduce && CAT_ANIM.frames.length > 1)
     if (run && !CAT_ANIM.timer) CAT_ANIM.timer = setInterval(() => { if (!document.hidden) catAnimNext() }, CAT_ANIM.hold)
     if (!run && CAT_ANIM.timer) { clearInterval(CAT_ANIM.timer); CAT_ANIM.timer = 0 }
   }
   document.addEventListener('visibilitychange', () => { try { catAnimSync() } catch (e) {} })
+  // 3.0.7: drag the cat + 「AI小貓」 button to any corner (it snaps to the nearest one on release; a press that moves less
+  // than 5px is still a plain click), three sizes (小 64px / 中 112px / 大 160px) from the grip on the cat or the popup,
+  // 「放回右下角」 resets. Corner and size are kept in localStorage. The layout reserves the button's strip at that corner
+  // (header for the top corners, footer or the end of main for the bottom corners, plus side padding), so the button
+  // never covers any text; the popup opens from the same corner toward the inside of the window.
+  const CAT_SIZES = { s: 64, m: 112, l: 160 }
+  const CAT_CORNERS = ['tl', 'tr', 'bl', 'br']
+  const catPlace = {
+    corner: CAT_CORNERS.includes(localStorage.getItem('aiCatCorner')) ? localStorage.getItem('aiCatCorner') : 'br',
+    size: CAT_SIZES[localStorage.getItem('aiCatSize')] ? localStorage.getItem('aiCatSize') : 's',
+    h: 0, w: 0, dragAt: 0
+  }
+  function catReserve () {
+    const on = !!$('aiCatAnim'); const btn = $('aiCatBtn'); const root = document.documentElement
+    document.body.classList.toggle('cat-reserve', on)
+    if (!on) return
+    if (btn && !btn.hidden && !btn.classList.contains('dragging')) {
+      const r = btn.getBoundingClientRect()
+      if (r.height > 0) { catPlace.h = r.height; catPlace.w = r.width; catPlace.hSize = catPlace.size }
+    }
+    let h = catPlace.h; let w = catPlace.w
+    if (!h || catPlace.hSize !== catPlace.size) { const px = CAT_SIZES[catPlace.size]; h = px + 8; w = px + 4 + 84 } // estimate until the button is measured at this size
+    root.style.setProperty('--cat-res', Math.ceil(h + 20) + 'px')
+    root.style.setProperty('--cat-side', Math.ceil(w + 16 + 14) + 'px')
+  }
+  function catPlaceApply () {
+    const b = document.body; const c = catPlace.corner
+    for (const k of CAT_CORNERS) b.classList.toggle('cat-at-' + k, k === c)
+    b.classList.toggle('cat-top', c[0] === 't'); b.classList.toggle('cat-bottom', c[0] === 'b')
+    document.documentElement.style.setProperty('--cat-px', CAT_SIZES[catPlace.size] + 'px')
+    const order = ['s', 'm', 'l']; const next = order[(order.indexOf(catPlace.size) + 1) % 3]
+    const grip = $('catGrip')
+    if (grip) {
+      const tip = T('catSizeTip', { s: T('catSize_' + catPlace.size), n: T('catSize_' + next) })
+      if (grip.title !== tip) { grip.title = tip; grip.setAttribute('aria-label', tip) }
+    }
+    for (const k of order) { const e = $('catSize-' + k); if (e) { e.setAttribute('aria-pressed', String(k === catPlace.size)); e.classList.toggle('on', k === catPlace.size) } }
+    const rs = $('catCornerReset'); if (rs) rs.disabled = c === 'br'
+    catReserve()
+    requestAnimationFrame(catReserve)
+  }
+  function catSetPlace (corner, size) {
+    if (corner && CAT_CORNERS.includes(corner)) { catPlace.corner = corner; localStorage.setItem('aiCatCorner', corner) }
+    if (size === 'next') { const o = ['s', 'm', 'l']; size = o[(o.indexOf(catPlace.size) + 1) % 3] }
+    if (size && CAT_SIZES[size]) { catPlace.size = size; localStorage.setItem('aiCatSize', size) }
+    catPlaceApply()
+  }
+  function catWireDrag (btn) {
+    if (!btn || btn.getAttribute('data-drag')) return
+    btn.setAttribute('data-drag', '1')
+    let d = null
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return
+      const r = btn.getBoundingClientRect()
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false }
+    })
+    btn.addEventListener('pointermove', (e) => {
+      if (!d || e.pointerId !== d.id) return
+      if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return
+      if (!d.moved) { d.moved = true; try { btn.setPointerCapture(d.id) } catch (err) {} btn.classList.add('dragging') }
+      const r = btn.getBoundingClientRect()
+      btn.style.left = clamp(e.clientX - d.dx, 0, innerWidth - r.width) + 'px'
+      btn.style.top = clamp(e.clientY - d.dy, 0, innerHeight - r.height) + 'px'
+      btn.style.right = 'auto'; btn.style.bottom = 'auto'
+    })
+    const end = (e) => {
+      if (!d || (e && e.pointerId !== d.id)) return
+      const moved = d.moved; d = null
+      if (!moved) return
+      const r = btn.getBoundingClientRect(); const cx = r.left + r.width / 2; const cy = r.top + r.height / 2
+      btn.classList.remove('dragging')
+      btn.style.left = ''; btn.style.top = ''; btn.style.right = ''; btn.style.bottom = ''
+      catPlace.dragAt = Date.now()
+      catSetPlace((cy < innerHeight / 2 ? 't' : 'b') + (cx < innerWidth / 2 ? 'l' : 'r'), null)
+    }
+    btn.addEventListener('pointerup', end)
+    btn.addEventListener('pointercancel', end)
+    btn.addEventListener('click', (e) => { if (Date.now() - catPlace.dragAt < 500) { e.stopPropagation(); e.preventDefault() } }, true)
+  }
+  window.addEventListener('resize', () => { try { catReserve() } catch (e) {} })
   function renderCat () {
     const root = $('aiCatRoot')
     if (!root) return
-    if (!catOn() || !window.SCDOCat) { SD.clear(root); root.removeAttribute('data-lang'); return }
+    if (!catOn() || !window.SCDOCat) { SD.clear(root); root.removeAttribute('data-lang'); document.body.classList.remove('cat-reserve'); return }
     if (!$('aiCatBtn') || root.getAttribute('data-lang') !== lang()) {
       root.setAttribute('data-lang', lang())
       const rows = CAT_ROWS.map(g => `<div class="ios-group">${g.map(([k, label, color, icon]) => `<button type="button" class="ios-row" data-act="catRow" data-v="${k}" id="catRow-${k}"><span class="ios-tile" style="background:${color}"><img src="./assets/ui/${icon}.svg" alt=""></span><span class="ios-lbl">${esc(T(label))}</span><img class="ios-chev" src="./assets/ui/chev.svg" alt=""></button>`).join('')}</div>`).join('')
@@ -2791,6 +2876,7 @@
           <button type="button" class="cat-type" id="catType" data-act="catType">${esc(T('catInput'))}</button>
           <div class="ios-in" id="aiCatInRow" hidden><input class="pill" id="aiCatIn" maxlength="200" placeholder="${esc(T('catInput'))}" autocomplete="off" spellcheck="false"><button type="button" class="send" data-act="catAsk" title="${esc(T('catSend'))}" aria-label="${esc(T('catSend'))}"><img src="./assets/ui/up.svg" alt=""></button></div>
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
+          <div class="cat-place" id="catPlace" role="group" aria-label="${esc(T('catSizeLbl'))}"><span class="cat-place-l">${esc(T('catSizeLbl'))}</span><span class="cat-seg">${['s', 'm', 'l'].map(k => `<button type="button" data-act="catSize" data-v="${k}" id="catSize-${k}" aria-pressed="false">${esc(T('catSize_' + k))}</button>`).join('')}</span><button type="button" class="cat-reset" data-act="catCorner" data-v="br" id="catCornerReset">${esc(T('catCornerReset'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
           <details class="cat-help"><summary>${esc(T('help_title'))}</summary>${contactHtml('catContact')}</details>
         </div>`)
