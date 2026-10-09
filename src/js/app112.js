@@ -158,7 +158,7 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '',
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', otherRigels: [],
     payReview: null
   }
   const shard0 = () => ({
@@ -515,7 +515,8 @@
       temps: (st.gpuTemp && st.gpuTemp.gpus) || [],
       earnLog: earn,
       now: Date.now(),
-      phase: phase
+      phase: phase,
+      gpuBusy: !!(st.otherRigels && st.otherRigels.length)
     }
   }
   function mineHomeCardHtml () {
@@ -2429,6 +2430,7 @@
       toast(text, 7000)
       return
     }
+    localStorage.setItem('minerRunShard0', '1')
     // 1.1.5: the on/off state is saved by the main process (miner-intent.json), not in localStorage
   }
   // 1.1.5: another Rigel (e.g. the SCDO-Mining task of the standalone miner package) already uses the GPU -> ask first
@@ -2446,15 +2448,30 @@
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
+  function rememberMineChoice () {
+    const gpu = st.miners && st.miners.classicGpu
+    const cpu = st.miners && st.miners.classicCpu
+    const s0 = st.miners && st.miners.shard0
+    if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') {
+      localStorage.setItem('minerRunClassicGpu', gpu.backend === 'external' ? 'external' : 'gpu')
+      if (gpu.wallet) localStorage.setItem('minerClassicGpu', gpu.wallet)
+    }
+    if (cpu && cpu.running && cpu.mode !== 'node') {
+      localStorage.setItem('minerRunClassicCpu', '1')
+      if (cpu.wallet) localStorage.setItem('minerClassicCpu', cpu.wallet)
+    }
+    if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic') {
+      localStorage.setItem('minerRunShard0', '1')
+      if (s0.wallet && /^0x[0-9a-fA-F]{40}$/.test(s0.wallet)) localStorage.setItem('minerReward', s0.wallet)
+    }
+  }
+  // Stop only stops processes. The saved graphics-card / processor choice stays,
+  // so the next Start mining restores that session instead of falling back to the processor.
   async function stopAllNow () {
-    localStorage.setItem('minerRunClassicCpu', '')
-    localStorage.setItem('minerRunClassicGpu', '')
-    const mode = localStorage.getItem('minerMode')
-    if (mode === 'classic-cpu' || mode === 'classic-gpu') localStorage.removeItem('minerMode')
+    rememberMineChoice()
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
-    try { await api.invoke('miner:intentClear') } catch (e) {}
     toast(T('stopped'))
   }
   async function stopAll () {
@@ -2463,9 +2480,19 @@
     await stopAllNow()
     return true
   }
-  function classicTargetForHome () {
-    const backendName = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
-    const key = backendName === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu'
+  function savedMineChoice () {
+    const gpu = localStorage.getItem('minerRunClassicGpu') || ''
+    const cpuOn = localStorage.getItem('minerRunClassicCpu') === '1'
+    let classic = ''
+    if (gpu === 'external' || gpu === 'gpu') classic = gpu
+    else if (cpuOn) classic = 'cpu'
+    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: localStorage.getItem('minerRunShard0') === '1' }
+  }
+  function classicTargetForHome (backendName) {
+    const pickedBackend = backendName === 'gpu' || backendName === 'external' || backendName === 'cpu'
+      ? backendName
+      : (st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu')
+    const key = pickedBackend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu'
     const pref = Number(st.mineShard)
     const accounts = []
     for (const a of st.accounts || []) {
@@ -2525,22 +2552,35 @@
   async function startHomeMining () {
     try { await ensureCaps() } catch (e) {}
     try { await ensureGpu(true) } catch (e) {}
+    const saved = savedMineChoice()
+    let preflight = null
+    if (saved.shard0) {
+      try { preflight = await api.invoke('mining:gpuPreflight') } catch (e) { preflight = { ok: false, gpus: [] } }
+      try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) { st.otherRigels = st.otherRigels || [] }
+    }
+    const gpuBusy = !!(st.otherRigels && st.otherRigels.length)
     const hot = catTemp() != null && catTemp() >= 85
+    const classicMode = saved.classic || (st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu')
     const spec = {
-      backend: st.mineBackend,
+      saved: saved,
+      backend: classicMode,
       caps: st.caps,
-      classic: classicTargetForHome(),
+      classic: classicTargetForHome(classicMode),
+      classicCpu: saved.cpu ? classicTargetForHome('cpu') : null,
       reward: rewardForHome(),
-      nvidia: !!(st.gpu && st.gpu.nvidia)
+      nvidia: !!(st.gpu && st.gpu.nvidia),
+      preflight: preflight,
+      gpuBusy: gpuBusy && saved.shard0
     }
     const cool = window.SCDOMineHome.jobsForHome(spec)
     const jobs = hot ? window.SCDOMineHome.jobsForHome(Object.assign({ hot: true }, spec)) : cool
     const droppedGpu = cool.some(j => j.chain === 'shard0' || j.backend === 'gpu') && !jobs.some(j => j.chain === 'shard0' || j.backend === 'gpu')
     if (!jobs.length) {
-      toast(droppedGpu ? T('homeMineHot') : T('pickAddr'), 7000)
+      toast(droppedGpu ? T('homeMineHot') : (saved.shard0 && gpuBusy ? T('homeMineGpuBusy') : T('pickAddr')), 7000)
       return false
     }
     if (droppedGpu) toast(T('homeMineHot'), 7000)
+    else if (saved.shard0 && gpuBusy) toast(T('homeMineGpuBusy'), 7000)
     if (jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
       localStorage.setItem('defenderAsked112', '1')
       if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) {
@@ -2579,8 +2619,6 @@
     const classic = Number(st.mineShard) >= 1
     if (classic) {
       const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
-      if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '')
-      else localStorage.setItem('minerRunClassicGpu', '')
       toast(T('stopping'), 60000)
       await api.invoke('miner:stop', { chain: 'classic', backend })
       toast(T('stopped'))
@@ -2812,6 +2850,7 @@
 
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
+    try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) {}
     renderIsland()
     refreshDash()
     catWatch()
@@ -3081,13 +3120,13 @@
     let r
     try { r = await api.invoke('miner:start', job.address, { mode: job.mode === 'node' ? 'node' : 'mine' }) } catch (e) { r = { ok: false } }
     if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+    if (job.mode !== 'node') localStorage.setItem('minerRunShard0', '1')
     return { ok: true }
   }
   async function runCatAction (action) {
     if (!action || action.type === 'send' || action.type === 'sign' || action.type === 'spend' || action.type === 'review' || action.type === 'login') return { ok: false }
     if (action.type === 'stopGpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
-      localStorage.setItem('minerRunClassicGpu', '')
       const s0 = (st.miners && st.miners.shard0) || st.miner
       if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
       return { ok: true }

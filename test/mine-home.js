@@ -1,4 +1,4 @@
-// 3.0.9: Home mining card wording, and the start/stop click state machine.
+// 3.0.10: Home mining card wording, start/stop choice, and listed-only-if-running.
 'use strict'
 const assert = require('assert')
 const fs = require('fs')
@@ -62,9 +62,9 @@ function stopped () {
   const now = t0 + 3 * 60000 + 20000
   const earlier = t0 - 24 * 3600 * 1000
   const miners = {
-    shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'MINING', hashrate: 1200.4 },
-    classicCpu: { running: true, mode: 'cpu', chain: 'classic', code: 'CLASSIC_MINING', shard: 3, hashrate: 40 },
-    classicGpu: { running: true, mode: 'gpu', chain: 'classic', code: 'CLASSIC_GPU', shard: 1, hashrate: 80 }
+    shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'MINING', hashrate: 1200.4, procs: ['rigel'] },
+    classicCpu: { running: true, mode: 'cpu', chain: 'classic', code: 'CLASSIC_MINING', shard: 3, hashrate: 40, procs: ['zminer'] },
+    classicGpu: { running: true, mode: 'gpu', chain: 'classic', code: 'CLASSIC_GPU', shard: 1, hashrate: 80, procs: ['classic-node'] }
   }
   const log = { items: [{ t: earlier, shard: 1, height: 10 }, { t: t0, shard: 0, height: 20 }, { t: t0, shard: 1, height: 21 }] }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 55 }, { tempC: 40 }], earnLog: log, now, phase: 'mining' }, CN)
@@ -113,13 +113,14 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
 
 // A known empty earnings log is 0 SCDO, not a dash. No log at all is a dash.
 {
-  const miners = { classicCpu: { running: true, mode: 'cpu', chain: 'classic', shard: 2, hashrate: 0 } }
+  const miners = { classicCpu: { running: true, mode: 'cpu', chain: 'classic', shard: 2, hashrate: 0, procs: ['zminer'] } }
   const known = mine.formatMineHome({ miners, temps: [{ tempC: 90 }], earnLog: { items: [] }, now: Date.now(), phase: 'mining' }, CN)
   assert.strictEqual(known.todayText, '今天挖到 0 SCDO')
   assert.strictEqual(known.lastText, '最近一次收益：—')
   assert.strictEqual(known.speedText, '挖礦速度 —')
   assert.strictEqual(known.tempText, '顯卡溫度 —', 'processor mining does not invent a graphics-card temperature')
-  assert.strictEqual(known.chainsText, '正在挖的鏈：Shard2 Classic')
+  assert.strictEqual(known.chainsText, '正在挖的鏈：—', 'a process with no speed is not listed')
+  assert.ok(!known.chains.includes('Shard2 Classic'))
   assert.ok(!known.chainsText.includes('EVM'))
 }
 
@@ -127,7 +128,7 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
 {
   const miners = {
     shard0: { running: true, mode: 'node', chain: 'shard0', hashrate: 999 },
-    classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 0, hashrate: 10 }
+    classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 0, hashrate: 10, procs: ['classic-node'] }
   }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 55 }], earnLog: null, phase: 'mining' }, CN)
   assert.strictEqual(m.chainsText, '正在挖的鏈：—')
@@ -138,7 +139,7 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
 
 // English stays English and uses the same bands.
 {
-  const miners = { shard0: { running: true, mode: 'mine', chain: 'shard0', hashrate: 10 } }
+  const miners = { shard0: { running: true, mode: 'mine', chain: 'shard0', hashrate: 10, procs: ['rigel'] } }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 85 }], earnLog: { items: [] }, now: 0, phase: 'mining' }, EN)
   assert.strictEqual(m.statusText, 'Mining status: mining now')
   assert.strictEqual(m.tempText, 'Graphics card temperature 85°C (too hot, paused)')
@@ -188,9 +189,21 @@ assert.deepStrictEqual(mine.jobsForHome({ backend: 'cpu', nvidia: true, caps: { 
     caps: { cpu: { available: true }, gpu: { available: true } },
     classic: { address: CLASSIC, shard: 2 },
     reward: ADDR,
-    nvidia: true
+    nvidia: true,
+    preflight: { gpus: [{ status: 'ready', vendor: 'NVIDIA' }] }
   })
   assert.deepStrictEqual(jobs, [
+    { chain: 'classic', backend: 'cpu', gpuMiner: 'classic-node', shard: 2, address: CLASSIC }
+  ])
+  const withShard0 = mine.jobsForHome({
+    saved: { classic: 'cpu', shard0: true },
+    caps: { cpu: { available: true }, gpu: { available: true } },
+    classic: { address: CLASSIC, shard: 2 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: { gpus: [{ status: 'ready', vendor: 'NVIDIA' }] }
+  })
+  assert.deepStrictEqual(withShard0, [
     { chain: 'classic', backend: 'cpu', gpuMiner: 'classic-node', shard: 2, address: CLASSIC },
     { chain: 'shard0', backend: 'gpu', mode: 'mine', address: ADDR }
   ])
@@ -234,6 +247,138 @@ assert.deepStrictEqual(mine.jobsForHome({
   nvidia: true
 }).filter(j => j.chain === 'classic'), [])
 
+// Stop keeps the graphics-card choice. The next start does not fall back to the processor,
+// and Shard0 EVM is started only when it was enabled and the check passed.
+{
+  const saved = { classic: 'gpu', shard0: false }
+  const kept = mine.choiceAfterStop(saved)
+  assert.deepStrictEqual(kept, { classic: 'gpu', cpu: false, shard0: false })
+  const ready = { gpus: [{ status: 'ready', vendor: 'NVIDIA' }] }
+  const jobs = mine.jobsForHome({
+    saved: kept,
+    backend: 'cpu',
+    caps: { cpu: { available: true }, gpu: { available: true } },
+    classic: { address: CLASSIC, shard: 2 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: ready
+  })
+  assert.deepStrictEqual(jobs, [
+    { chain: 'classic', backend: 'gpu', gpuMiner: 'classic-node', shard: 2, address: CLASSIC }
+  ])
+  const again = mine.jobsForHome({
+    saved: mine.choiceAfterStop(kept),
+    backend: 'cpu',
+    caps: { cpu: { available: true }, gpu: { available: true } },
+    classic: { address: CLASSIC, shard: 2 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: ready
+  })
+  assert.strictEqual(again[0].backend, 'gpu')
+  assert.ok(!again.some(j => j.backend === 'cpu'))
+  assert.ok(!again.some(j => j.chain === 'shard0'))
+}
+{
+  const blocked = mine.jobsForHome({
+    saved: { classic: 'gpu', shard0: true },
+    backend: 'cpu',
+    caps: { gpu: { available: true }, cpu: { available: true } },
+    classic: { address: CLASSIC, shard: 1 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: { gpus: [{ status: 'notReady', vendor: 'NVIDIA' }] }
+  })
+  assert.strictEqual(blocked.length, 1)
+  assert.strictEqual(blocked[0].backend, 'gpu')
+  assert.ok(!blocked.some(j => j.chain === 'shard0'))
+  assert.strictEqual(mine.shard0PreflightOk({ gpus: [{ status: 'notReady' }] }), false)
+  assert.strictEqual(mine.shard0PreflightOk({ gpus: [{ status: 'ready' }] }), true)
+  const busy = mine.jobsForHome({
+    saved: { classic: 'external', shard0: true },
+    caps: { external: { available: true } },
+    classic: { address: CLASSIC, shard: 4 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: { gpus: [{ status: 'ready' }] },
+    gpuBusy: true
+  })
+  assert.strictEqual(busy.length, 1)
+  assert.strictEqual(busy[0].gpuMiner, 'external')
+  assert.ok(!busy.some(j => j.chain === 'shard0'))
+}
+{
+  const hot = mine.jobsForHome({
+    saved: { classic: 'gpu', shard0: true },
+    caps: { gpu: { available: true }, cpu: { available: true } },
+    classic: { address: CLASSIC, shard: 1 },
+    reward: ADDR,
+    nvidia: true,
+    preflight: { gpus: [{ status: 'ready' }] },
+    hot: true
+  })
+  assert.deepStrictEqual(hot, [])
+  assert.deepStrictEqual(mine.choiceAfterStop({ classic: 'gpu', shard0: true }), { classic: 'gpu', cpu: false, shard0: true })
+}
+
+// Listed only when the process is alive and a speed has been read.
+{
+  const wanted = mine.formatMineHome({
+    miners: {
+      shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'MINING', hashrate: 500 },
+      classicGpu: { running: true, mode: 'gpu', chain: 'classic', code: 'CLASSIC_GPU', shard: 2, hashrate: 80 }
+    },
+    phase: 'mining'
+  }, CN)
+  assert.deepStrictEqual(wanted.chains, [])
+  assert.strictEqual(wanted.chainsText, '正在挖的鏈：—')
+  assert.strictEqual(wanted.statusText, '挖礦狀態：已停止')
+  assert.strictEqual(wanted.speedText, '挖礦速度 —')
+  assert.strictEqual(wanted.buttonText, '停止挖礦')
+  const alive = {
+    running: true, mode: 'gpu', chain: 'classic', code: 'CLASSIC_GPU', shard: 1,
+    procs: ['classic-node'], hashrate: null, poolStats: { hashrate: 80 }
+  }
+  const resumed = mine.formatMineHome({ miners: { classicGpu: alive }, phase: 'stopped' }, CN)
+  assert.deepStrictEqual(resumed.chains, ['Shard1 Classic'])
+  assert.strictEqual(resumed.speedText, '挖礦速度 每秒 80 次')
+  assert.strictEqual(resumed.statusText, '挖礦狀態：正在挖礦')
+  const syncing = mine.formatMineHome({
+    miners: {
+      shard0: {
+        running: true, mode: 'mine', chain: 'shard0', code: 'SYNCING', procs: ['geth'],
+        hashrate: null, localBlock: 960000, networkBlock: 1000000
+      }
+    }
+  }, CN)
+  assert.deepStrictEqual(syncing.chains, [])
+  assert.strictEqual(syncing.statusText, '挖礦狀態：已停止')
+  assert.strictEqual(syncing.noteText, 'Shard0 EVM 還在同步（同步進度 96%），同步完成後自動開始')
+  assert.ok(!syncing.noteText.includes('96%').valueOf() || syncing.noteText.includes('同步進度 96%'))
+  assert.ok(!/Shard0 EVM/.test(syncing.chains.join(' ')))
+  const html = mine.cardHtml({
+    miners: {
+      shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'SYNCING', localBlock: 960000, networkBlock: 1000000 }
+    }
+  }, CN, esc)
+  assert.ok(html.includes('id="homeMineNote"'))
+  assert.ok(html.includes('同步進度 96%'))
+  assert.ok(html.includes('同步完成後自動開始'))
+  assert.ok(!html.includes('正在挖的鏈：Shard0 EVM'))
+  const busy = mine.formatMineHome({ miners: {}, gpuBusy: true }, CN)
+  assert.strictEqual(busy.noteText, '顯卡正被其他程式使用')
+  assert.deepStrictEqual(busy.chains, [])
+  assert.strictEqual(busy.statusText, '挖礦狀態：已停止')
+  const busyEn = mine.formatMineHome({ miners: {}, gpuBusy: true }, EN)
+  assert.strictEqual(busyEn.noteText, 'The graphics card is being used by another program.')
+  assert.ok(!/[\u4e00-\u9fff]/.test(busyEn.noteText))
+  const noPct = mine.formatMineHome({
+    miners: { shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'SYNCING' } }
+  }, CN)
+  assert.strictEqual(noPct.noteText, 'Shard0 EVM 還在同步，同步完成後自動開始')
+  assert.ok(!noPct.noteText.includes('96'))
+}
+
 // The card is on Home, above the five chain cards, and the page function does not grow a second button.
 const dash = read('src/js/dashboard.js')
 const homeFn = dash.slice(dash.indexOf('function homeHtml'), dash.indexOf('const api'))
@@ -252,5 +397,12 @@ assert.ok(menu.includes("act('mineHome')"))
 assert.ok(menu.includes("act('mine')"))
 assert.ok(!read('src/js/mineHome.js').includes('主鏈'))
 assert.ok(!read('src/js/mineHome.js').includes('Shard1 EVM'))
+const stopAt = ui.indexOf('async function stopAllNow')
+const stopFn = ui.slice(stopAt, ui.indexOf('async function stopAll ()', stopAt))
+assert.ok(stopFn.includes('rememberMineChoice()'))
+assert.ok(!stopFn.includes("setItem('minerRunClassicGpu'"))
+assert.ok(!stopFn.includes("setItem('minerRunClassicCpu'"))
+assert.ok(!stopFn.includes('intentClear'))
+assert.ok(ui.includes('minerRunShard0'))
 
 console.log('mine-home: ok')

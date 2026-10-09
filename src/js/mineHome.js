@@ -1,6 +1,8 @@
-// SCDO Wallet 3.0.9: the Home mining card. Pure functions (no DOM, no IPC).
+// SCDO Wallet 3.0.10: the Home mining card. Pure functions (no DOM, no IPC).
 // Numbers come only from the miner, temperature and earnings objects passed in.
 // A missing reading is a dash. Nothing here invents a sample speed, temperature or payout.
+// A chain is listed only when its process is alive and a speed has been read.
+// Stop keeps the saved graphics-card / processor choice; start uses that choice again.
 'use strict'
 ;(function () {
 const DASH = '\u2014'
@@ -18,22 +20,47 @@ function tr (T, k, p) {
   return s
 }
 
-function shard0On (m) {
-  return !!(m && m.running && m.mode !== 'node' && m.chain !== 'classic')
+// A miner process the wallet started. An intended or wanted session has no procs yet.
+function procsAlive (m) {
+  if (!m || !Array.isArray(m.procs)) return false
+  return m.procs.some(p => p != null && p !== false && p !== '')
 }
 
-function classicOn (m) {
-  return !!(m && m.running && m.mode !== 'node')
+// Tries per second from this session. The pool stat is the speed a Classic graphics-card
+// session reports when the process itself has not copied a number onto hashrate yet.
+function sessionHashrate (m) {
+  if (!m) return null
+  const direct = num(m.hashrate)
+  if (direct != null && direct > 0) return direct
+  const pool = m.poolStats
+  const fromPool = num(pool && (pool.hashrate != null ? pool.hashrate : pool.hashrate_hs))
+  if (fromPool != null && fromPool > 0) return fromPool
+  return null
 }
 
-function anyOn (miners) {
-  miners = miners || {}
-  return shard0On(miners.shard0) || classicOn(miners.classicCpu) || classicOn(miners.classicGpu)
+function hashing (m, kind) {
+  if (!m || m.mode === 'node') return false
+  if (kind === 'shard0' && m.chain === 'classic') return false
+  if (kind === 'classic' && m.chain && m.chain !== 'classic') return false
+  return procsAlive(m) && sessionHashrate(m) != null
+}
+
+function liveMiner (m, kind) {
+  if (!hashing(m, kind)) return false
+  if (m.mode !== 'cpu' && stillSyncing(m)) return false
+  return true
+}
+
+function engaged (m, kind) {
+  if (!m || !m.running || m.mode === 'node') return false
+  if (kind === 'shard0' && m.chain === 'classic') return false
+  return true
 }
 
 function gpuOn (miners) {
   miners = miners || {}
-  if (shard0On(miners.shard0)) return true
+  const s0 = miners.shard0
+  if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic') return true
   const g = miners.classicGpu
   return !!(g && g.running && g.mode !== 'cpu' && g.mode !== 'node')
 }
@@ -67,10 +94,10 @@ function hottest (temps) {
 function chainNames (miners) {
   miners = miners || {}
   const out = []
-  if (shard0On(miners.shard0)) out.push('Shard0 EVM')
+  if (liveMiner(miners.shard0, 'shard0')) out.push('Shard0 EVM')
   const shards = []
   for (const m of [miners.classicCpu, miners.classicGpu]) {
-    if (!classicOn(m)) continue
+    if (!liveMiner(m, 'classic')) continue
     const n = Number(m.shard)
     if (n >= 1 && n <= 4 && shards.indexOf(n) < 0) shards.push(n)
   }
@@ -83,15 +110,48 @@ function speedCount (miners) {
   miners = miners || {}
   let sum = 0
   let any = false
-  const list = [miners.shard0, miners.classicCpu, miners.classicGpu]
-  for (const m of list) {
-    if (!m || !m.running) continue
-    if (m === miners.shard0 && !shard0On(m)) continue
-    if (m !== miners.shard0 && !classicOn(m)) continue
-    const n = num(m.hashrate)
+  const list = [
+    [miners.shard0, 'shard0'],
+    [miners.classicCpu, 'classic'],
+    [miners.classicGpu, 'classic']
+  ]
+  for (const pair of list) {
+    const m = pair[0]
+    if (!hashing(m, pair[1])) continue
+    const n = sessionHashrate(m)
     if (n != null && n > 0) { sum += n; any = true }
   }
   return any ? Math.round(sum) : null
+}
+
+const BEHIND_BLOCKS = 8
+
+function knownHeight (v) {
+  const n = num(v)
+  return n != null && n > 0 ? n : null
+}
+
+function syncPctOf (m) {
+  const local = knownHeight(m && m.localBlock)
+  const network = knownHeight(m && m.networkBlock)
+  if (local == null || network == null || !(network > 0)) return null
+  return Math.max(0, Math.min(100, Math.round((local / network) * 100)))
+}
+
+function stillSyncing (m) {
+  if (!m) return false
+  if (m.phase === 'syncing' || m.paused) return true
+  if (m.code === 'CLASSIC_SYNCING' || m.code === 'CLASSIC_PAUSED' || m.code === 'CLASSIC_CHECKING' || m.code === 'CLASSIC_STARTING' || m.code === 'SYNCING') return true
+  const local = knownHeight(m.localBlock)
+  const network = knownHeight(m.networkBlock)
+  if (local == null || network == null) return false
+  return network - local > BEHIND_BLOCKS
+}
+
+function waitingSync (m, kind) {
+  if (!m || liveMiner(m, kind) || m.mode === 'node' || m.mode === 'cpu') return false
+  if (!(m.running || procsAlive(m))) return false
+  return stillSyncing(m)
 }
 
 function earnOf (log, now) {
@@ -126,10 +186,32 @@ function minutesAgo (t, now) {
   return Math.max(0, Math.floor(ms / 60000))
 }
 
-function shownPhase (input) {
+function anyLive (miners) {
+  miners = miners || {}
+  return liveMiner(miners.shard0, 'shard0') || liveMiner(miners.classicCpu, 'classic') || liveMiner(miners.classicGpu, 'classic')
+}
+
+function anyEngaged (miners) {
+  miners = miners || {}
+  return engaged(miners.shard0, 'shard0') || engaged(miners.classicCpu, 'classic') || engaged(miners.classicGpu, 'classic')
+}
+
+// The big status says mining only when a process is alive and reporting a speed.
+// starting and stopping are the in-progress click. A wanted session that is not
+// hashing yet stays "stopped" so the card does not claim it is mining.
+function statusPhase (input) {
   const p = input && input.phase
-  if (p === 'starting' || p === 'stopping' || p === 'mining' || p === 'stopped') return p
-  return anyOn(input && input.miners) ? 'mining' : 'stopped'
+  if (p === 'starting' || p === 'stopping') return p
+  return anyLive(input && input.miners) ? 'mining' : 'stopped'
+}
+
+// The button stays on Stop while a process is wanted, even before a speed arrives,
+// so a syncing session can still be stopped.
+function buttonPhase (input) {
+  const p = input && input.phase
+  if (p === 'starting' || p === 'stopping') return p
+  if (p === 'mining' || anyLive(input && input.miners) || anyEngaged(input && input.miners)) return 'mining'
+  return 'stopped'
 }
 
 // Click moves stopped → starting and mining → stopping.
@@ -156,39 +238,105 @@ function reduceMinePhase (phase, event) {
   return p
 }
 
-// Which miners a Home click should start, from the saved backend and addresses.
-// An empty configuration returns no jobs. A hot graphics card keeps only a processor job.
+// Stop does not change the saved choice. Graphics card stays graphics card.
+function choiceAfterStop (saved) {
+  saved = saved || {}
+  const classic = saved.classic === 'gpu' || saved.classic === 'external' || saved.classic === 'cpu' ? saved.classic : ''
+  return { classic: classic, cpu: !!(saved.cpu && classic !== 'cpu'), shard0: !!saved.shard0 }
+}
+
+function normalizeSaved (input) {
+  input = input || {}
+  const s = input.saved || {}
+  let classic = s.classic
+  if (classic !== 'gpu' && classic !== 'external' && classic !== 'cpu') {
+    if (input.backend === 'gpu' || input.backend === 'external' || input.backend === 'cpu') classic = input.backend
+    else classic = ''
+  }
+  return choiceAfterStop({ classic: classic, cpu: !!s.cpu, shard0: !!s.shard0 })
+}
+
+// Shard0 EVM starts only when the graphics-card check passed.
+// A missing check, or a card that is not ready, does not pass.
+function shard0PreflightOk (preflight) {
+  if (!preflight || preflight.ok === false || preflight.supported === false) return false
+  const gpus = preflight.gpus
+  if (!Array.isArray(gpus) || !gpus.length) return false
+  return gpus.some(g => g && (g.status === 'ready' || g.status === 'warn'))
+}
+
+function pushClassic (jobs, mode, target, caps) {
+  if (mode !== 'gpu' && mode !== 'external' && mode !== 'cpu') return
+  if (!target || !target.address) return
+  const shard = Number(target.shard)
+  if (!(shard >= 1 && shard <= 4)) return
+  let allowed = true
+  if (caps) {
+    if (mode === 'cpu') allowed = !!(caps.cpu && caps.cpu.available)
+    else if (mode === 'external') allowed = !!(caps.external && caps.external.available)
+    else allowed = !!(caps.gpu && caps.gpu.available)
+  }
+  if (!allowed) return
+  jobs.push({
+    chain: 'classic',
+    backend: mode === 'cpu' ? 'cpu' : 'gpu',
+    gpuMiner: mode === 'external' ? 'external' : 'classic-node',
+    shard: shard,
+    address: String(target.address)
+  })
+}
+
+// Which miners a Home click should start. The saved choice wins over the settings
+// default, so a graphics-card session is not replaced by the processor.
+// Shard0 EVM is included only when it was enabled and its preflight passed.
+// An empty configuration returns no jobs. A hot graphics card keeps only a processor job
+// that was already chosen. It does not invent one.
 function jobsForHome (input) {
   input = input || {}
-  const backendName = input.backend === 'gpu' || input.backend === 'external' ? input.backend : 'cpu'
-  const backend = backendName === 'cpu' ? 'cpu' : 'gpu'
-  const gpuMiner = backendName === 'external' ? 'external' : 'classic-node'
+  const saved = normalizeSaved(input)
   const caps = input.caps
-  const classic = input.classic
-  let classicAllowed = true
-  if (caps) {
-    if (backendName === 'cpu') classicAllowed = !!(caps.cpu && caps.cpu.available)
-    else if (backendName === 'external') classicAllowed = !!(caps.external && caps.external.available)
-    else classicAllowed = !!(caps.gpu && caps.gpu.available)
-  }
   const jobs = []
-  const shard = classic ? Number(classic.shard) : 0
-  if (classicAllowed && classic && classic.address && shard >= 1 && shard <= 4) {
-    jobs.push({ chain: 'classic', backend: backend, gpuMiner: gpuMiner, shard: shard, address: String(classic.address) })
-  }
+  const primary = saved.classic === 'cpu' ? (input.classicCpu || input.classic) : input.classic
+  if (saved.classic) pushClassic(jobs, saved.classic, primary, caps)
+  if (saved.cpu) pushClassic(jobs, 'cpu', input.classicCpu || input.classic, caps)
   const reward = String(input.reward || '')
-  if (input.nvidia && /^0x[0-9a-fA-F]{40}$/.test(reward)) {
+  if (saved.shard0 && !input.gpuBusy && input.nvidia && shard0PreflightOk(input.preflight) && /^0x[0-9a-fA-F]{40}$/.test(reward)) {
     jobs.push({ chain: 'shard0', backend: 'gpu', mode: 'mine', address: reward })
   }
   if (input.hot) return jobs.filter(j => j.chain === 'classic' && j.backend === 'cpu')
   return jobs
 }
 
+function syncNote (m, chain, T) {
+  const pct = syncPctOf(m)
+  if (chain === 'Shard0 EVM') {
+    return pct == null ? tr(T, 'homeMineSyncSoon') : tr(T, 'homeMineSync', { pct: pct })
+  }
+  return pct == null ? tr(T, 'homeMineSyncSoonChain', { chain: chain }) : tr(T, 'homeMineSyncChain', { chain: chain, pct: pct })
+}
+
+function noteLines (miners, input, T) {
+  miners = miners || {}
+  input = input || {}
+  const lines = []
+  const s0 = miners.shard0
+  const s0Waiting = waitingSync(s0, 'shard0')
+  if (s0Waiting) lines.push(syncNote(s0, 'Shard0 EVM', T))
+  if (input.gpuBusy && !liveMiner(s0, 'shard0') && !s0Waiting) lines.push(tr(T, 'homeMineGpuBusy'))
+  const g = miners.classicGpu
+  if (waitingSync(g, 'classic')) {
+    const n = Number(g.shard)
+    if (n >= 1 && n <= 4) lines.push(syncNote(g, 'Shard' + n + ' Classic', T))
+  }
+  return lines
+}
+
 function formatMineHome (input, T) {
   input = input || {}
   T = T || function (k) { return k }
   const miners = input.miners || {}
-  const phase = shownPhase(input)
+  const phase = statusPhase(input)
+  const press = buttonPhase(input)
   const sep = tr(T, 'd_listSep')
   const statusKey = phase === 'starting' ? 'homeMineStarting' : phase === 'stopping' ? 'homeMineStopping' : phase === 'mining' ? 'homeMineOn' : 'homeMineOff'
   const tone = phase === 'mining' ? 'on' : phase === 'stopped' ? 'off' : 'busy'
@@ -230,7 +378,9 @@ function formatMineHome (input, T) {
   const names = chainNames(miners)
   const chainsValue = names.length ? names.join(sep) : DASH
   const chainsText = names.length ? tr(T, 'homeMineChains', { list: names.join(sep) }) : tr(T, 'homeMineChainsNone')
-  const buttonKey = phase === 'starting' ? 'homeMineBtnStarting' : phase === 'stopping' ? 'homeMineBtnStopping' : phase === 'mining' ? 'homeMineStop' : 'homeMineStart'
+  const reasons = noteLines(miners, input, T)
+  const noteText = reasons.join(' ')
+  const buttonKey = press === 'starting' ? 'homeMineBtnStarting' : press === 'stopping' ? 'homeMineBtnStopping' : press === 'mining' ? 'homeMineStop' : 'homeMineStart'
   return {
     phase: phase,
     statusText: tr(T, statusKey),
@@ -249,9 +399,11 @@ function formatMineHome (input, T) {
     chainsText: chainsText,
     chainsValue: chainsValue,
     chains: names,
+    noteText: noteText,
+    reasons: reasons,
     buttonText: tr(T, buttonKey),
-    buttonDisabled: phase === 'starting' || phase === 'stopping',
-    buttonKind: phase === 'mining' ? 'stop' : phase === 'stopped' ? 'start' : 'busy'
+    buttonDisabled: press === 'starting' || press === 'stopping',
+    buttonKind: press === 'mining' ? 'stop' : press === 'stopped' ? 'start' : 'busy'
   }
 }
 
@@ -269,6 +421,7 @@ function cardHtml (input, T, esc) {
   ].join('')
   const kind = m.buttonKind === 'stop' ? 'dan' : 'pri'
   const dis = m.buttonDisabled ? ' disabled' : ''
+  const note = m.noteText ? `<div class="mh-note" id="homeMineNote">${esc(m.noteText)}</div>` : ''
   return `<section class="mine-home card" id="homeMineCard" aria-label="${esc(tr(T, 'homeMineTitle'))}">
     <div class="mh-top">
       <div class="mh-main">
@@ -278,10 +431,11 @@ function cardHtml (input, T, esc) {
       <button type="button" class="btn big ${kind}" data-act="homeMine" id="homeMineBtn"${dis}>${esc(m.buttonText)}</button>
     </div>
     <div class="mh-stats">${stats}</div>
+    ${note}
   </section>`
 }
 
-const api = { DASH, REWARD_SCDO, tempBand, chainNames, reduceMinePhase, jobsForHome, formatMineHome, cardHtml, clockText, minutesAgo, earnOf }
+const api = { DASH, REWARD_SCDO, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, clockText, minutesAgo, earnOf }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

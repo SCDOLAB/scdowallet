@@ -48,7 +48,7 @@ Module._load = function (req, parent, ...rest) {
   if (req === 'electron') {
     return {
       Menu: { buildFromTemplate: (t) => t, setApplicationMenu () {} },
-      app: { getVersion: () => '3.0.9' },
+      app: { getVersion: () => '3.0.10' },
       shell: {}
     }
   }
@@ -98,19 +98,19 @@ assert.ok(enNote.startsWith('Shown in macOS Notification Centre'))
 assert.ok(!enNote.includes('Windows'))
 assert.strictEqual(cnNote.slice('在 Mac 通知中心顯示'.length), WIN_CN_NOTIFY.slice('在 Windows 通知中心顯示'.length))
 assert.strictEqual(enNote.slice('Shown in macOS Notification Centre'.length), WIN_EN_NOTIFY.slice('Shown in the Windows notification centre'.length))
-assert.strictEqual(I.CN.relNotes[0].v, '3.0.9')
-assert.strictEqual(I.EN.relNotes[0].v, '3.0.9')
-assert.ok(I.CN.relNotes[0].items.join(' ').includes('挖礦狀態'))
-assert.ok(I.CN.relNotes[1].items.join(' ').includes('繁體中文'))
+assert.strictEqual(I.CN.relNotes[0].v, '3.0.10')
+assert.strictEqual(I.EN.relNotes[0].v, '3.0.10')
+assert.ok(I.CN.relNotes[0].items.join(' ').includes('顯卡正被其他程式使用'))
+assert.ok(I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('繁體中文'))
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(read('src/js/app112.js').includes('T(\'backupHint\')') && read('src/js/app112.js').includes('T(\'notifyHint\')'))
 
 // version and Windows build left as they were, plus the Mac signing gate
 const pkg = require('../package.json')
-assert.strictEqual(pkg.version, '3.0.9')
+assert.strictEqual(pkg.version, '3.0.10')
 const lock = JSON.parse(read('package-lock.json'))
-assert.strictEqual(lock.version, '3.0.9')
-assert.strictEqual(lock.packages[''].version, '3.0.9')
+assert.strictEqual(lock.version, '3.0.10')
+assert.strictEqual(lock.packages[''].version, '3.0.10')
 const base = JSON.parse(execFileSync('git', ['show', 'c8049bb:package.json'], { encoding: 'utf8' }))
 assert.deepStrictEqual(pkg.build.win, base.build.win)
 assert.deepStrictEqual(pkg.build.nsis, base.build.nsis)
