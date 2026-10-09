@@ -768,7 +768,6 @@
           ? statHtml('mPending', T('poolPending'), pending, tipPack(T('poolPending'), pending, T('mineTipPending'))) + statHtml('mPaid', T('poolPaid'), paid, tipPack(T('poolPaid'), paid, T('mineTipPaid')))
           : statHtml('mRate', T('blockRate'), rate, tipPack(T('blockRate'), rate, T('mineTipRate')))}
       </div>
-      <div class="row" style="margin-top:22px"><button class="btn ${active ? 'dan' : 'pri'} big" data-act="${active ? 'minerStop' : 'mineStart'}" id="btnMine">${esc(active ? T('stopMining') : T('startMining'))}</button></div>
       <div class="lbl" style="margin-top:10px">${esc(backend === 'cpu' ? T('classicFirst') : T('blockRateHint'))}</div>`
     if (backend !== 'cpu') h += `<div class="lbl">${esc(T('classicFirst'))}</div>`
     return h
@@ -797,7 +796,7 @@
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
       <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
   }
-  // 挖礦設定 (File → 挖礦設定 / 更改出塊獎勵地址, or AI小貓): the existing mining form, opened like a dialog page.
+  // 挖礦設定 (menu → 挖礦設定; the old 更改出塊獎勵地址 item opened this same page): shard, reward address, and the node. Start and stop mining stay on the Home card.
   function pageMineSet () {
     st.miner = viewMiner()
     const m = st.miner || {}
@@ -806,6 +805,7 @@
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('d_mineSetTitle'))}</div><div class="lbl">${esc(T('d_mineSetLead'))}</div>`
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
+    h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
@@ -832,7 +832,6 @@
         <div class="stats">${statHtml('mHr', T('hashrate') + (mineMode ? '' : ' ' + T('hashrateHint')), speedText(m.hashrate, mineMode), tipPack(T('hashrate'), speedText(m.hashrate, mineMode), T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
         ${statHtml('mFound', T('blocksFound'), blockText(m.blocksFound), tipPack(T('blocksFound'), blockText(m.blocksFound), T('mineTipBlocks')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
-          ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
         </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
         ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
@@ -2258,7 +2257,6 @@
   // ----- settings (gear): language, accounts, backup/export, advanced, about -----
   async function settingsModal () {
     const paths = await api.invoke('keyfile:paths')
-    const nHid = new Set(ui.hidden.new.concat(ui.hidden.old)).size
     const cfg = CFG
     // 2.0.7: mining notification toggles (P1) and update channel (P3) from the main-process settings store
     let nt = null; let chan = 'stable'
@@ -2273,11 +2271,7 @@
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
       <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
         <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
-      <div class="setsec"><div class="sh">${esc(T('accounts'))}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ghost" data-act="toggleHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button>
-        <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
-      <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div><div class="row" style="flex-wrap:wrap;margin-top:8px">
-        <button class="btn ghost" data-act="backupPick">${esc(T('backupKeyfile'))}</button><button class="btn ghost" data-act="openBackups">${esc(T('openBackups'))}</button></div>
+      <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div>
         <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
         <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
@@ -2356,6 +2350,7 @@
   }
   // 管理帳戶（改名稱、隱藏、刪除）: the per-account actions that used to sit on the panels
   function manageModal () {
+    const nHid = new Set(ui.hidden.new.concat(ui.hidden.old)).size
     const rows = st.accounts.map((a, i) => {
       const hidOld = isHidden('old', a.filename); const hidNew = isHidden('new', a.filename)
       const hid = hidOld || hidNew
@@ -2367,7 +2362,8 @@
         <button class="btn ghost small" data-act="${hid ? 'unhideAll' : 'hideAll'}" data-chain="${chain}" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div></div>`
     }).join('') || esc(T('noAccount'))
-    modal(`<div class="mh"><h2>${esc(T('d_manageTitle'))}</h2><button class="btn ghost small" data-act="closeModal" aria-label="${esc(T('catClose'))}">✕</button></div>${rows}
+    modal(`<div class="mh"><h2>${esc(T('d_manageTitle'))}</h2><button class="btn ghost small" data-act="closeModal" aria-label="${esc(T('catClose'))}">✕</button></div>
+      <div class="row" style="margin:0 0 10px"><button class="btn ghost" data-act="toggleHidden" id="manageHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button></div>${rows}
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 860, noFocus: true })
   }
 
@@ -2701,7 +2697,7 @@
       case 'hideAll': case 'unhideAll': { const on = act === 'hideAll'; for (const ch of ['old', 'new']) { const l = ui.hidden[ch]; if (on && !l.includes(f)) l.push(f); if (!on) ui.hidden[ch] = l.filter(x => x !== f) } saveUi(); toast(on ? T('hideOk') : T('unhideOk')); render(); manageModal(); break }
       case 'importKey': createModal({ priv: true }); break
       case 'unhide': setHidden(el.getAttribute('data-chain') || 'new', f, false); break
-      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); settingsModal() } else render(); break
+      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); manageModal() } else render(); break
       case 'delete': deleteModal(f); break
       case 'rename': renameModal(f); break
       case 'cardMine': openMineFor(f, el.getAttribute('data-chain') || 'new'); break
@@ -2819,6 +2815,7 @@
       case 'mineStart': menuStartMining(); break
       case 'mineStop': stopAll(); break
       case 'reward': case 'mineSettings': goPage('mineSet'); break
+      case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
       case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
@@ -2924,9 +2921,9 @@
   // iOS-style popup: two inset-grouped lists (coloured icon tiles, chevrons), an iMessage-style input, 下次再說 /
   // 先隱藏小貓 and the safety note. Each row goes through askCat() → SCDOCat.reply() → runCatAction(), which only opens
   // the wallet's own dialogs; transfers, remittance and signing always end in a visible confirmation.
-  // 3.0.4 (v9, water-bubble glass): six distinct actions in one two-column inset-grouped list
+  // 3.0.10: the popup keeps 修同步 only. Create, send, mining, balance and settings each have one place in the menu or on Home. Typing still opens those screens.
   const CAT_ROWS = [
-    [['create', 'catRowCreate', '#34c759', 'plus', '建立新地址'], ['send', 'catRowSend', '#007aff', 'plane', '轉帳'], ['mine', 'catRowMine', '#ff9500', 'bolt', '開始／停止挖礦'], ['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步'], ['balance', 'catRowBalance', '#5856d6', 'wallet', '查餘額'], ['settings', 'catRowSettings', '#8e8e93', 'gear', '設定']]
+    [['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步']]
   ]
   const catPhrase = (k) => { for (const g of CAT_ROWS) for (const r of g) if (r[0] === k) return r[4]; return '' }
   // 3.0.5: animated AI小貓 in the launcher (same as the web wallet): a 68px cat replaces the avatar and cycles through

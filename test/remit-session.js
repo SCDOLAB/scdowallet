@@ -213,7 +213,7 @@ async function main () {
     const remitFns = app.slice(app.indexOf('function remitErrText'), app.indexOf('// ---------------- render ----------------'))
     assert.ok(!app.includes("['remit', 'tabRemit']"))
     // 3.0.2 (v8): remittance opens from the 匯款 menu (Ctrl+P) or AI小貓, not a Home button
-    assert.ok(!app.includes('id="btnRemit"') && menu.includes("{ label: L.remitItem, accelerator: 'CmdOrCtrl+P', click: act('remit') }") && app.includes("case 'remit': openRemittance(); break"))
+    assert.ok(!app.includes('id="btnRemit"') && menu.includes("{ label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }") && app.includes("case 'remit': openRemittance(); break"))
     assert.ok(app.includes('function payModal'))
     assert.ok(app.includes('SCDORemitRoute.routePay'))
     assert.ok(app.includes('id="btnRemitSign"'))

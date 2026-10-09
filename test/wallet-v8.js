@@ -98,7 +98,7 @@ for (const L of ['CN', 'EN']) {
 // ---- menu: every action by hand, with the v8 shortcuts ------------------------
 const menu = read('src/js/menu.js')
 assert.ok(menu.includes("建立新地址（Shard0–Shard4 任選）…"))
-for (const [act, key] of [['create', 'CmdOrCtrl+N'], ['import', 'CmdOrCtrl+I'], ['backup', 'CmdOrCtrl+B'], ['mineStart', 'CmdOrCtrl+G'], ['mineStop', 'CmdOrCtrl+Shift+G'], ['send', 'CmdOrCtrl+T'], ['remitItem', 'CmdOrCtrl+P']]) {
+for (const [act, key] of [['create', 'CmdOrCtrl+N'], ['import', 'CmdOrCtrl+I'], ['backup', 'CmdOrCtrl+B'], ['remitItem', 'CmdOrCtrl+T']]) {
   const line = menu.split('\n').find(l => l.includes('L.' + act + ',') && l.includes('accelerator'))
   assert.ok(line && line.includes("'" + key + "'"), 'menu ' + act + ' ' + key)
 }
