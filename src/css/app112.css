@@ -594,13 +594,19 @@ body.on-home #statusIsland { display: none; }
 .cat-pop.bubble .ios-hd.center .t2 { font-size: 15px; font-weight: 400; color: #3c3c43; }
 .cat-pop.bubble .b1 { left: 18px; top: 18px; } .cat-pop.bubble .b2 { left: 36px; top: 8px; width: 10px; height: 10px; }
 .cat-pop.bubble .b3 { right: 42px; top: 12px; } .cat-pop.bubble .b4 { right: 18px; top: 28px; width: 14px; height: 14px; }
-/* 3.0.5: animated AI小貓 in the launcher — a 68px cat replaces the avatar (frames: src/js/catPoses.js), standing on a soft dark
-   ellipse shadow and rising above the black capsule; pop + crossfade + breathing; prefers-reduced-motion = one still frame.
-   The popup (round3 water bubble) is unchanged. Pages get extra bottom padding so the launcher never covers the last controls. */
-.cat-launch.cat-capsule { padding-left: 76px; overflow: visible; }
-.cat-capsule .cap-av.cat-anim { position: absolute; left: 4px; bottom: 2px; width: 68px; height: 68px; border-radius: 0; overflow: visible; background: transparent; pointer-events: none; transform-origin: 50% 100%; }
-.cat-capsule .cap-av.cat-anim .cat-shadow { position: absolute; left: 50%; bottom: -3px; width: 72%; height: 10px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.45), rgba(0,0,0,0) 70%); z-index: 0; }
-.cat-capsule .cap-av.cat-anim img.cat-f { position: absolute; inset: 0; width: 68px; height: 68px; object-fit: contain; opacity: 0; transition: opacity var(--cat-fade, .6s) ease; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); z-index: 1; transform-origin: 50% 100%; will-change: opacity, transform; user-select: none; }
+/* 3.0.5/3.0.6: animated AI小貓 in the launcher — a 68px cat (frames: src/js/catPoses.js) stands on a soft dark ellipse
+   shadow beside the black 「AI小貓」 pill; pop + crossfade + breathing; prefers-reduced-motion = one still frame. The popup
+   (round3 water bubble) is unchanged.
+   3.0.6: the whole cat stays inside the button's own 76px-tall box (6px headroom for the pop/breathing, nothing sticks out
+   above it), and the layout reserves that strip: the footer is at least 100px tall and, on pages without the footer, main
+   ends 100px above the window bottom. So the button never covers any card or text at any scroll position or window size. */
+.cat-launch.cat-capsule:has(.cat-anim) { height: 76px; right: 16px; bottom: 10px; padding: 0; gap: 4px; align-items: flex-end; background: transparent; border-radius: 0; box-shadow: none; overflow: visible; }
+.cat-launch.cat-capsule:has(.cat-anim):hover { background: transparent; }
+.cat-launch.cat-capsule:has(.cat-anim) .cap-t { display: flex; align-items: center; height: 44px; margin-bottom: 6px; padding: 0 16px; border-radius: 22px; background: #000; color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,.28); }
+.cat-launch.cat-capsule:has(.cat-anim):hover .cap-t { background: #1c1c1e; }
+.cat-capsule .cap-av.cat-anim { position: relative; width: 68px; height: 76px; border-radius: 0; overflow: visible; background: transparent; pointer-events: none; flex: none; }
+.cat-capsule .cap-av.cat-anim .cat-shadow { position: absolute; left: 50%; bottom: 1px; width: 72%; height: 10px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.45), rgba(0,0,0,0) 70%); z-index: 0; }
+.cat-capsule .cap-av.cat-anim img.cat-f { position: absolute; left: 0; top: 6px; width: 68px; height: 68px; object-fit: contain; opacity: 0; transition: opacity var(--cat-fade, .6s) ease; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); z-index: 1; transform-origin: 50% 100%; will-change: opacity, transform; user-select: none; }
 .cat-capsule .cap-av.cat-anim img.cat-f.on { opacity: 1; }
 .cat-capsule .cap-av.cat-anim.pop img.cat-f.on { animation: catPop var(--cat-pop-ms, .45s) ease; }
 .cat-capsule .cap-av.cat-anim.breathe img.cat-f.on { animation: catBreathe 2.4s ease-in-out infinite; }
@@ -610,4 +616,5 @@ body.on-home #statusIsland { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .cat-capsule .cap-av.cat-anim img.cat-f { transition: none !important; animation: none !important; }
 }
-main { padding-bottom: 112px; }
+body:has(#aiCatAnim) .foot-bar { min-height: 100px; box-sizing: border-box; }
+body:has(#aiCatAnim) #app:has(> .foot-bar[hidden]) > main { margin-bottom: 100px; }
