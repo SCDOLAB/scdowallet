@@ -6,6 +6,9 @@ const box = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(root, '
 const c = box.window.SCDOCatPoses
 assert.ok(c && Array.isArray(c.frames) && c.frames.length >= 1, 'frame list')
 assert.strictEqual(new Set(c.frames).size, c.frames.length, 'duplicate frames')
+const want = [].concat(...['pose', 'taichi', 'wingchun'].map(s => [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => s + '-' + n + '.webp')))
+assert.deepStrictEqual([...c.frames], want, 'play order: pose 1-9, taichi 1-9, wingchun 1-9')
+assert.strictEqual(c.reducedMotionFrame, 'pose-6.webp')
 assert.strictEqual(c.holdMs, 3000); assert.strictEqual(c.fadeMs, 600); assert.ok(c.popScale > 1 && c.popScale <= 1.06)
 assert.ok(c.frames.includes(c.reducedMotionFrame), 'reduced-motion frame is listed')
 for (const f of c.frames) {

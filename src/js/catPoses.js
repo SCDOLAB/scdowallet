@@ -1,6 +1,7 @@
-// 3.0.5: AI小貓 animated launcher frames (kung fu / yoga / fitness). Data-driven: the launcher shows every frame listed
-// here, in order, one every holdMs (crossfade fadeMs, pop popScale). To swap the art, drop the new pose-N.webp files into assets/cat/ and list them below
-// (or run `node scripts/sync-cat-poses.js <frames dir>`, which copies pose-*.webp and rewrites this list).
+// 3.0.5: AI小貓 animated launcher frames (kung fu / yoga / fitness poses, a full tai chi form, a full Wing Chun set). Data-driven: the launcher shows every frame listed
+// here, in order, one every holdMs (crossfade fadeMs, pop popScale). Play order: pose 1→9, taichi 1→9 (keep
+// the form's order), wingchun 1→9, then loop. To swap the art, drop new <set>-N.webp files into assets/cat/ and list them
+// below (or run `node scripts/sync-cat-poses.js <frames dir>`, which copies pose-/taichi-/wingchun-*.webp and rewrites this list).
 // Frames: 256×256 transparent WebP, feet aligned. A listed frame that fails to load is skipped, never shown broken.
 // reducedMotionFrame is the single static frame used with prefers-reduced-motion (falls back to the first frame).
 window.SCDOCatPoses = Object.freeze({
@@ -19,7 +20,26 @@ window.SCDOCatPoses = Object.freeze({
     'pose-5.webp',
     'pose-6.webp',
     'pose-7.webp',
-    'pose-8.webp'
+    'pose-8.webp',
+    'pose-9.webp',
+    'taichi-1.webp',
+    'taichi-2.webp',
+    'taichi-3.webp',
+    'taichi-4.webp',
+    'taichi-5.webp',
+    'taichi-6.webp',
+    'taichi-7.webp',
+    'taichi-8.webp',
+    'taichi-9.webp',
+    'wingchun-1.webp',
+    'wingchun-2.webp',
+    'wingchun-3.webp',
+    'wingchun-4.webp',
+    'wingchun-5.webp',
+    'wingchun-6.webp',
+    'wingchun-7.webp',
+    'wingchun-8.webp',
+    'wingchun-9.webp'
     // END FRAMES
   ])
 })
