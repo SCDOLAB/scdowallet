@@ -594,3 +594,20 @@ body.on-home #statusIsland { display: none; }
 .cat-pop.bubble .ios-hd.center .t2 { font-size: 15px; font-weight: 400; color: #3c3c43; }
 .cat-pop.bubble .b1 { left: 18px; top: 18px; } .cat-pop.bubble .b2 { left: 36px; top: 8px; width: 10px; height: 10px; }
 .cat-pop.bubble .b3 { right: 42px; top: 12px; } .cat-pop.bubble .b4 { right: 18px; top: 28px; width: 14px; height: 14px; }
+/* 3.0.5: animated AI小貓 in the launcher — a 68px cat replaces the avatar (frames: src/js/catPoses.js), standing on a soft dark
+   ellipse shadow and rising above the black capsule; pop + crossfade + breathing; prefers-reduced-motion = one still frame.
+   The popup (round3 water bubble) is unchanged. Pages get extra bottom padding so the launcher never covers the last controls. */
+.cat-launch.cat-capsule { padding-left: 76px; overflow: visible; }
+.cat-capsule .cap-av.cat-anim { position: absolute; left: 4px; bottom: 2px; width: 68px; height: 68px; border-radius: 0; overflow: visible; background: transparent; pointer-events: none; transform-origin: 50% 100%; }
+.cat-capsule .cap-av.cat-anim .cat-shadow { position: absolute; left: 50%; bottom: -3px; width: 72%; height: 10px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.45), rgba(0,0,0,0) 70%); z-index: 0; }
+.cat-capsule .cap-av.cat-anim img.cat-f { position: absolute; inset: 0; width: 68px; height: 68px; object-fit: contain; opacity: 0; transition: opacity .35s ease; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); z-index: 1; transform-origin: 50% 100%; will-change: opacity, transform; user-select: none; }
+.cat-capsule .cap-av.cat-anim img.cat-f.on { opacity: 1; }
+.cat-capsule .cap-av.cat-anim.pop img.cat-f.on { animation: catPop .45s ease; }
+.cat-capsule .cap-av.cat-anim.breathe img.cat-f.on { animation: catBreathe 2.4s ease-in-out infinite; }
+.cat-launch.cat-capsule:hover .cap-av.cat-anim img.cat-f.on { transform: none; }
+@keyframes catPop { 0% { transform: scale(1); } 35% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes catBreathe { 0%, 100% { transform: scale(1) translateY(0); } 50% { transform: scale(1.03) translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .cat-capsule .cap-av.cat-anim img.cat-f { transition: none !important; animation: none !important; }
+}
+main { padding-bottom: 112px; }

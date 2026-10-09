@@ -1,0 +1,31 @@
+// 3.0.5: AI小貓 animated launcher — frames are data-driven (src/js/catPoses.js) and every listed frame ships in assets/cat/.
+'use strict'
+const assert = require('assert'); const fs = require('fs'); const path = require('path'); const vm = require('vm')
+const root = path.join(__dirname, '..')
+const box = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(root, 'src/js/catPoses.js'), 'utf8'), box)
+const c = box.window.SCDOCatPoses
+assert.ok(c && Array.isArray(c.frames) && c.frames.length >= 1, 'frame list')
+assert.strictEqual(new Set(c.frames).size, c.frames.length, 'duplicate frames')
+assert.strictEqual(c.holdMs, 1200)
+assert.ok(c.frames.includes(c.reducedMotionFrame), 'reduced-motion frame is listed')
+for (const f of c.frames) {
+  assert.ok(/^[\w.-]+\.webp$/.test(f), f)
+  const b = fs.readFileSync(path.join(root, c.dir, f))
+  assert.ok(b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP', f + ' is WebP')
+  assert.ok(b.length < 200 * 1024, f + ' size')
+}
+assert.ok(!fs.existsSync(path.join(root, 'assets/cat/rejected')), 'no rejected frames shipped')
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+assert.ok(html.indexOf('src/js/catPoses.js') > 0 && html.indexOf('src/js/catPoses.js') < html.indexOf('src/js/app112.js'))
+const app = fs.readFileSync(path.join(root, 'src/js/app112.js'), 'utf8')
+assert.ok(app.includes('window.SCDOCatPoses') && app.includes("prefers-reduced-motion: reduce"))
+assert.ok(app.includes('class="cat-launch cat-capsule" id="aiCatBtn"') && app.includes('id="aiCatPanel"'), 'launcher + round3 popup kept')
+assert.ok(/case 'catOpen': if \(!st\.catOpen && \$\('aiCatAnim'\) && !CAT_ANIM\.reduce\) catAnimNext\(\); st\.catOpen = !st\.catOpen; renderCat\(\)/.test(app), 'click advances then opens')
+const css = fs.readFileSync(path.join(root, 'src/css/app112.css'), 'utf8')
+assert.ok(/\.cap-av\.cat-anim \{[^}]*width: 68px; height: 68px/.test(css))
+assert.ok(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cat-capsule \.cap-av\.cat-anim img\.cat-f \{[^}]*animation: none/.test(css))
+const pads = [...css.matchAll(/^main \{ padding-bottom: (\d+)px; \}/gm)].map(m => +m[1])
+assert.ok(pads.length && pads[pads.length - 1] >= 100, 'bottom padding clears the launcher')
+const pkg = require(path.join(root, 'package.json'))
+assert.ok(!pkg.build.files.some(f => /assets/.test(f) && f.startsWith('!')), 'assets are packaged')
+console.log('cat-poses ok (' + c.frames.length + ' frames)')

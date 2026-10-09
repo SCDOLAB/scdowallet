@@ -2486,7 +2486,7 @@
         askCat('開始挖礦').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
         break
       }
-      case 'catOpen': st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
+      case 'catOpen': if (!st.catOpen && $('aiCatAnim') && !CAT_ANIM.reduce) catAnimNext(); st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
       case 'catClose': case 'catLater': st.catOpen = false; renderCat(); break
       case 'catHide': localStorage.setItem('aiCat112', '0'); st.catOpen = false; renderCat(); toast(T('catHidden'), 7000); break
       case 'catType': { const row = $('aiCatInRow'); const b = $('catType'); if (row) row.hidden = false; if (b) b.hidden = true; const inp = $('aiCatIn'); if (inp) inp.focus(); break }
@@ -2731,6 +2731,49 @@
     [['create', 'catRowCreate', '#34c759', 'plus', '建立新地址'], ['send', 'catRowSend', '#007aff', 'plane', '轉帳'], ['mine', 'catRowMine', '#ff9500', 'bolt', '開始／停止挖礦'], ['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步'], ['balance', 'catRowBalance', '#5856d6', 'wallet', '查餘額'], ['settings', 'catRowSettings', '#8e8e93', 'gear', '設定']]
   ]
   const catPhrase = (k) => { for (const g of CAT_ROWS) for (const r of g) if (r[0] === k) return r[4]; return '' }
+  // 3.0.5: animated AI小貓 in the launcher (same as the web wallet): a 68px cat replaces the avatar and cycles through
+  // the frames listed in src/js/catPoses.js (window.SCDOCatPoses), one every holdMs, with pop + crossfade + breathing and a
+  // soft dark ellipse shadow. Clicking advances one pose, then opens the same popup as before. prefers-reduced-motion
+  // shows the static reducedMotionFrame and never animates. The timer only runs while the launcher is visible.
+  const CAT_ANIM = (() => {
+    const c = window.SCDOCatPoses || {}
+    const frames = (Array.isArray(c.frames) ? c.frames : []).filter(f => typeof f === 'string' && /^[\w.-]+\.(webp|png)$/.test(f))
+    const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    const still = Math.max(0, frames.indexOf(c.reducedMotionFrame))
+    return { dir: typeof c.dir === 'string' ? c.dir : './assets/cat/', hold: Math.max(400, Number(c.holdMs) || 1200), frames, reduce, idx: reduce ? still : 0, timer: 0, bad: new Set() }
+  })()
+  function catAnimHtml () {
+    if (!CAT_ANIM.frames.length) return '<span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span>'
+    const imgs = CAT_ANIM.frames.map((f, i) => `<img class="cat-f${i === CAT_ANIM.idx ? ' on' : ''}" data-i="${i}" src="${esc(CAT_ANIM.dir + f)}" alt="" draggable="false">`).join('')
+    return `<span class="cap-av cat-anim${CAT_ANIM.reduce ? ' still' : ' breathe'}" id="aiCatAnim" aria-hidden="true"><i class="cat-shadow"></i>${imgs}</span>`
+  }
+  function catAnimShow (i, pop) {
+    const box = $('aiCatAnim'); const n = CAT_ANIM.frames.length
+    if (!box || !n) return
+    let k = ((i % n) + n) % n
+    for (let t = 0; t < n && CAT_ANIM.bad.has(k); t++) k = (k + 1) % n // skip a frame that failed to load
+    CAT_ANIM.idx = k
+    for (const im of box.querySelectorAll('img.cat-f')) im.classList.toggle('on', Number(im.getAttribute('data-i')) === k)
+    if (CAT_ANIM.reduce) return
+    box.classList.remove('pop', 'breathe'); void box.offsetWidth
+    if (pop) box.classList.add('pop')
+    clearTimeout(CAT_ANIM.popT)
+    CAT_ANIM.popT = setTimeout(() => { box.classList.remove('pop'); box.classList.add('breathe') }, 450)
+  }
+  function catAnimNext () { catAnimShow(CAT_ANIM.idx + 1, true) }
+  function catAnimSync () {
+    const box = $('aiCatAnim'); const btn = $('aiCatBtn')
+    if (box && !box.getAttribute('data-wired')) {
+      box.setAttribute('data-wired', '1')
+      for (const im of box.querySelectorAll('img.cat-f')) {
+        im.addEventListener('error', () => { CAT_ANIM.bad.add(Number(im.getAttribute('data-i'))); im.remove(); if (Number(im.getAttribute('data-i')) === CAT_ANIM.idx) catAnimNext() }, { once: true })
+      }
+    }
+    const run = !!(box && btn && !btn.hidden && !document.hidden && !CAT_ANIM.reduce && CAT_ANIM.frames.length > 1)
+    if (run && !CAT_ANIM.timer) CAT_ANIM.timer = setInterval(() => { if (!document.hidden) catAnimNext() }, CAT_ANIM.hold)
+    if (!run && CAT_ANIM.timer) { clearInterval(CAT_ANIM.timer); CAT_ANIM.timer = 0 }
+  }
+  document.addEventListener('visibilitychange', () => { try { catAnimSync() } catch (e) {} })
   function renderCat () {
     const root = $('aiCatRoot')
     if (!root) return
@@ -2738,7 +2781,7 @@
     if (!$('aiCatBtn') || root.getAttribute('data-lang') !== lang()) {
       root.setAttribute('data-lang', lang())
       const rows = CAT_ROWS.map(g => `<div class="ios-group">${g.map(([k, label, color, icon]) => `<button type="button" class="ios-row" data-act="catRow" data-v="${k}" id="catRow-${k}"><span class="ios-tile" style="background:${color}"><img src="./assets/ui/${icon}.svg" alt=""></span><span class="ios-lbl">${esc(T(label))}</span><img class="ios-chev" src="./assets/ui/chev.svg" alt=""></button>`).join('')}</div>`).join('')
-      SD.html(root, `<button type="button" class="cat-launch cat-capsule" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}"><span class="cap-av"><img src="./assets/ai-cat.png" alt=""></span><span class="cap-t">${esc(T('catTitle'))}</span></button>
+      SD.html(root, `<button type="button" class="cat-launch cat-capsule" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}">${catAnimHtml()}<span class="cap-t">${esc(T('catTitle'))}</span></button>
         <div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="AI小貓" hidden>
           <i class="bub b1" aria-hidden="true"></i><i class="bub b2" aria-hidden="true"></i><i class="bub b3" aria-hidden="true"></i><i class="bub b4" aria-hidden="true"></i>
           <button type="button" class="ios-x" data-act="catClose" title="${esc(T('catClose'))}" aria-label="${esc(T('catClose'))}"><img src="./assets/ui/x.svg" alt=""></button>
@@ -2756,6 +2799,7 @@
     if (panel) panel.hidden = !st.catOpen
     const btn = $('aiCatBtn')
     if (btn) btn.hidden = !!st.catOpen
+    catAnimSync()
     const log = $('aiCatLog')
     if (!log) return
     log.textContent = ''
