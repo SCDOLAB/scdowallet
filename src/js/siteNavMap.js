@@ -8,7 +8,7 @@
   // Temporary pages. Each address lives only here.
   const MEMBERSHIP_URL = 'https://scdoscan.io/membership/'
   const OTC_URL = 'https://scdoscan.io/otc/'
-  // Temporary invite link. The address is the selected Shard1 Classic address.
+  // Temporary invite link. The address is the selected Shard0 EVM address.
   const REFERRAL_URL = 'https://scdoscan.io/r/'
 
   const GROUPS = [

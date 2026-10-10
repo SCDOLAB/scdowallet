@@ -24,7 +24,7 @@ The wallet does not write 「主鏈」. Shard0 is Shard0 EVM. Shard1–Shard4 ar
 | 運算服務 | Mining screen (processor on the left, graphics card on the right) |
 | 算力中心 | https://scdoscan.io/pool/ |
 | 算力服務分支 | Mining settings when this wallet runs a node |
-| 產品 / 代幣發行 / 企業服務 / 會員 / 向 SCDO OTC 購買 SCDO | Matching pages. 會員 is `MEMBERSHIP_URL` and 向 SCDO OTC 購買 SCDO is `OTC_URL` in `src/js/siteNavMap.js`. Opening either one adds `?lang=zh-TW` or `?lang=en` and the selected Shard1 Classic address. The invite link is `REFERRAL_URL` in the same file. It is not a menu item. The cat phrase 「邀請好友」 and the Home card use it, with `?ref=` set to the selected Shard1 Classic address. |
+| 產品 / 代幣發行 / 企業服務 / 會員 / 向 SCDO OTC 購買 SCDO | Matching pages. 會員 is `MEMBERSHIP_URL` and 向 SCDO OTC 購買 SCDO is `OTC_URL` in `src/js/siteNavMap.js`. Opening either one adds `?lang=zh-TW` or `?lang=en` and the selected Shard1 Classic address. The invite link is `REFERRAL_URL` in the same file. It is not a menu item. The cat phrase 「邀請好友」 and the Home card use it, with `?ref=` set to the selected Shard0 EVM address. |
 | 開發者 / API / 驗證並發布 | Matching scdoscan.io pages |
 | 資源 / 新手入門 / 部落格 / 論文 / 我的 IP / 漏洞賞金 / 智慧體賬本 | Matching scdoscan.io pages |
 | 關於 / 團隊 / 路線圖 / 合作夥伴 / 透明中心 / 合規 / 投資者關係 | Matching scdoscan.io pages |

@@ -630,6 +630,14 @@
     if (host) host.querySelectorAll('details[data-chain-row]').forEach(d => { if (d.open) open[d.getAttribute('data-chain-row')] = true })
     return window.SCDOChainHome.rowsHtml(chainRowModel(open), T, esc)
   }
+  function selectedShard0 () {
+    const model = (chainRowModel({})[0]) || { entries: [] }
+    let last = ''
+    try { last = localStorage.getItem('recvAddr310-0') || '' } catch (e) {}
+    const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
+    const addr = picked && picked.address ? String(picked.address) : ''
+    return /^0x[a-fA-F0-9]{40}$/.test(addr) ? addr : ''
+  }
   function selectedShard1 () {
     const model = (chainRowModel({})[1]) || { entries: [] }
     let last = ''
@@ -652,7 +660,7 @@
   function referralLink () {
     const nav = window.SCDOSiteNav
     if (!nav || !nav.referral) return ''
-    return nav.referral(selectedShard1())
+    return nav.referral(selectedShard0())
   }
   function homeMineLine () {
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
@@ -4058,7 +4066,7 @@
     }
     if (action.type === 'openSite') {
       const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
-      if (hit && hit.referral && window.SCDOSiteNav.referral) openExternal(window.SCDOSiteNav.referral(selectedShard1()))
+      if (hit && hit.referral && window.SCDOSiteNav.referral) openExternal(window.SCDOSiteNav.referral(selectedShard0()))
       else if (hit && hit.withAddress) openAccountSite(hit.id)
       else if (hit && hit.action) menuAction(hit.action)
       else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
