@@ -158,8 +158,13 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', otherRigels: [],
-    payReview: null
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', homeMineDev: { cpu: '', gpu: '' }, otherRigels: [],
+    payReview: null,
+    chainOpen: {},
+    txMore: {},
+    txFilter: {},
+    poolStatus: null,
+    oldErr: {}
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -222,9 +227,10 @@
       const to = setTimeout(() => { if (!answered) { answered = true; doneOne() } }, 20000)
       api.invoke('old:balance', a.pubkey, a.shard).then(v => {
         if (answered) return; answered = true; clearTimeout(to)
-        if (v != null) { st.old[a.pubkey] = v; anyOk = true }
+        if (v != null) { st.old[a.pubkey] = v; if (st.oldErr) delete st.oldErr[a.pubkey]; anyOk = true }
+        else if (st.oldErr) st.oldErr[a.pubkey] = 1
         doneOne()
-      }).catch(() => { if (!answered) { answered = true; clearTimeout(to); doneOne() } })
+      }).catch(() => { if (!answered) { answered = true; clearTimeout(to); if (st.oldErr) st.oldErr[a.pubkey] = 1; doneOne() } })
     })
     api.invoke('old:records').then(r => { st.oldRecords = r || [] }).catch(() => {})
     loadOldActivity()
@@ -245,12 +251,15 @@
   // 'old' / 'new' (old tab names, deep links) open the Accounts tab at that section and pick that chain.
   // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
-    if (v === 'remit') { openRemitFor((headerAccount() || {}).filename || st.sel); return }
-    if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
+    if (v === 'remit') { st.tab = 'remit'; st.scrollTo = 'top' }
+    else if (v === 'recv') { st.tab = 'recv'; st.scrollTo = 'top' }
+    else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
+    else if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
       st.tab = TABS.includes(v) ? v : 'home'
-      if (st.tab === 'acc') st.scrollTo = 'secOld'
-      if (st.tab === 'home' || st.tab === 'mine' || st.tab === 'mineSet') st.scrollTo = 'top'
+      if (st.tab === 'acc') { st.tab = 'home'; st.scrollTo = 'top' }
+      else if (st.tab === 'home' || st.tab === 'mine' || st.tab === 'mineSet') st.scrollTo = 'top'
     }
+    if (st.tab === 'acc') { st.tab = 'home'; st.scrollTo = 'top' }
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
   // The header switcher lists both kinds; the chain of the picked account decides balances, send and receive.
@@ -302,7 +311,8 @@
       localStorage.setItem('selAcc112', a.filename)
     }
     if ($('md')) SD.clear($('modalRoot'))
-    payModal(a ? a.filename : '')
+    setTab('remit')
+    render()
   }
   // 3.0.2 (v8): the header is the SCDO logo (goes Home) and the status island. Account switching, language and
   // settings moved to AI小貓 and the window menu, so the header has no other buttons.
@@ -419,7 +429,7 @@
     const s0 = (sel && sel.evm) ? sel : unlocked[0]
     out.push(s0
       ? { label: accLabel(s0), count: evms.length, address: s0.evm, file: s0.filename, chain: 'new' }
-      : { label: evms[0] ? accLabel(evms[0]) : '', count: evms.length, address: '', locked: evms.length > 0 })
+      : { label: evms[0] ? accLabel(evms[0]) : '', count: evms.length, address: '', locked: evms.length > 0, file: evms[0] ? evms[0].filename : '' })
     const mineAddr = [localStorage.getItem('minerClassicGpu'), localStorage.getItem('minerClassicCpu'), localStorage.getItem('minerClassic')]
       .concat([st.miners && st.miners.classicGpu && st.miners.classicGpu.wallet, st.miners && st.miners.classicCpu && st.miners.classicCpu.wallet])
       .map(x => parseClassicAddress(x || '')).filter(Boolean)
@@ -438,10 +448,8 @@
     const s0 = s0Total(visible('new').filter(a => a.evm))
     vals.push(s0.known ? s0.wei : null)
     for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length ? (t.known ? t.v * 10n ** 10n : null) : 0n) }
-    const text = vals.map(v => v == null ? '…' : AMT.fmtUnits(v, 18))
-    const known = vals.filter(v => v != null)
-    const all = known.length ? AMT.fmtUnits(known.reduce((x, y) => x + y, 0n), 18) + (known.length < 5 ? '…' : '') : '…'
-    return { text, all }
+    const text = vals.map(v => v == null ? '\u2014' : AMT.fmtUnits(v, 18))
+    return { text }
   }
   function blocksPerShard () {
     const out = [0, 0, 0, 0, 0]
@@ -538,23 +546,82 @@
       earnLog: window.SCDOMineHome.confirmedEarnLog(rewardRowsByAddress(), Date.now()),
       now: Date.now(),
       phase: phase,
-      gpuBusy: !!(st.otherRigels && st.otherRigels.length)
+      gpuBusy: !!(st.otherRigels && st.otherRigels.length),
+      press: { cpu: st.homeMineDev && st.homeMineDev.cpu, gpu: st.homeMineDev && st.homeMineDev.gpu },
+      chains: readChainPick(),
+      caps: st.caps,
+      saved: savedMineChoice(),
+      targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
+      addresses: mineChainAddresses(),
+      pools: st.poolStatus,
+      mineRows: st.mineRows || {}
     }
   }
   function mineHomeCardHtml () {
     if (!window.SCDOMineHome) return ''
     return window.SCDOMineHome.cardHtml(mineHomeInput(), T, esc)
   }
+  function mineHomeStripHtml () {
+    if (!window.SCDOMineHome) return ''
+    return window.SCDOMineHome.stripHtml(mineHomeInput(), T, esc)
+  }
+  function chainRowModel (openMap) {
+    const open = openMap || {}
+    const rows = []
+    for (const n of [0, 1, 2, 3, 4]) {
+      const entries = []
+      if (n === 0) {
+        for (const a of visible('new')) {
+          if (!a.evm) continue
+          const b = st.s0[a.filename]
+          entries.push({ name: accLabel(a), address: a.evm, file: a.filename, units: b && b.nativeWei != null ? b.nativeWei : null, decimals: 18, failed: !!(b && b.err && b.nativeWei == null) })
+        }
+      } else {
+        for (const a of classicOn(n)) {
+          const p = parseClassicAddress(a.pubkey)
+          entries.push({ name: accLabel(a), address: p ? p.address : '', file: a.filename, units: oldRaw(a.pubkey), decimals: 8, failed: !!(st.oldErr && st.oldErr[a.pubkey]) })
+        }
+      }
+      const txs = []
+      if (n === 0) {
+        for (const e of entries) for (const r of (st.activity[String(e.address).toLowerCase()] || [])) txs.push(Object.assign({}, r, { address: e.address }))
+      } else {
+        for (const e of entries) {
+          for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
+            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdoscan.io/tx/' + r.hash) : ''
+            txs.push(Object.assign({}, r, { address: e.address, href: href }))
+          }
+        }
+      }
+      rows.push({ n: n, open: !!(open[n] || open[String(n)]), entries: entries, txs: txs, txLimit: (st.txMore && st.txMore[n]) || 8, filter: (st.txFilter && st.txFilter[n]) || '' })
+    }
+    return rows
+  }
+  function chainRowsHtml () {
+    if (!window.SCDOChainHome) return ''
+    const host = document.getElementById('chainRows')
+    const open = {}
+    if (host) host.querySelectorAll('details[data-chain-row]').forEach(d => { if (d.open) open[d.getAttribute('data-chain-row')] = true })
+    return window.SCDOChainHome.rowsHtml(chainRowModel(open), T, esc)
+  }
   function pageHome () {
-    return window.SCDODash.homeHtml(dashModels(), recentTx(), T, esc, earnTexts(), mineHomeCardHtml())
+    return `<div class="page shell-home" id="homePage">
+      <div class="shell-actions">
+        <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
+        <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
+        <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
+      </div>
+      <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
+      <div class="chain-rows" id="chainRows">${chainRowsHtml()}</div>
+    </div>`
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
     const show = st.tab !== 'mineSet'
     f.hidden = !show
-    if (!show) return
-    const b = chainBalances()
-    const html = window.SCDODash.footerHtml({ all: b.all }, T, esc)
+    if (!show || !window.SCDOChainHome) return
+    const per = chainRowModel({}).map(c => window.SCDOChainHome.summarize(c).text)
+    const html = window.SCDODash.footerHtml({ per: per }, T, esc)
     if (renderFooter.last !== html) { renderFooter.last = html; SD.html(f, html) }
   }
   // repaint the read-only cards in place (no full page render) when the data changed
@@ -562,19 +629,16 @@
     renderFooter()
     if ($('md')) return
     if (st.tab === 'home') {
-      const host = $('chainCards')
-      if (host) { const html = dashModels().map(m => window.SCDODash.cardHtml(m, T, esc)).join(''); if (refreshDash.cards !== html) { refreshDash.cards = html; SD.html(host, html) } }
-      const eh = $('earnCard')
-      if (eh) { const html = window.SCDODash.earnHtml(earnTexts(), T, esc); if (refreshDash.earn !== html) { refreshDash.earn = html; SD.html(eh, html) } }
       const mh = $('homeMineHost')
-      if (mh) { const html = mineHomeCardHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
-      const tx = $('recentTxHost')
-      if (tx) { const html = window.SCDODash.txHtml(recentTx(), T, esc); if (refreshDash.tx !== html) { refreshDash.tx = html; SD.html(tx, html) } }
+      if (mh) { const html = mineHomeStripHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
+      const rows = $('chainRows')
+      if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
-      const host = $('mineSlots'); if (host) { const html = mineSlotsHtml(); if (refreshDash.mine !== html) { refreshDash.mine = html; SD.html(host, html) } }
-    }
+      const host = $('mineSimple')
+      if (host && window.SCDOMineHome) { const html = window.SCDOMineHome.minePageHtml(mineHomeInput(), T, esc); if (refreshDash.mine !== html) { refreshDash.mine = html; SD.html(host, html) } }
+    } else if (st.tab === 'recv') paintRecvQr()
   }
   function backHome () {
     return `<div class="back-home-row"><button type="button" class="link back-home" data-act="goHome" id="backHome">${esc(T('goHome'))}</button></div>`
@@ -621,7 +685,43 @@
     }).join('')
   }
   function pageMine () {
-    return `<div class="page dash" id="minePage"><div class="dash-h"><span class="h1">${esc(T('d_minePageTitle'))}</span><span class="lbl">${esc(T('d_minePageLead'))}</span></div>${window.SCDODash.tempKeyHtml(T, esc)}<div class="chains" id="mineSlots">${mineSlotsHtml()}</div></div>`
+    const inner = window.SCDOMineHome ? window.SCDOMineHome.minePageHtml(mineHomeInput(), T, esc) : ''
+    return `<div id="mineSimple">${inner}</div>`
+  }
+  function pageRecv () {
+    const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
+    const model = chainRowModel({})[n] || { entries: [] }
+    let last = ''
+    try { last = localStorage.getItem('recvAddr310-' + n) || '' } catch (e) {}
+    const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
+    const addr = (picked && picked.address) || ''
+    const tabs = [0, 1, 2, 3, 4].map(i => {
+      const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
+      return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
+    }).join('')
+    const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
+    const locked = n === 0 ? visible('new').find(a => !a.evm) : null
+    let body
+    if (addr) {
+      body = `<div class="qrwrap"><div id="qrBox" data-addr="${esc(addr)}"></div></div><div class="recv-line"><div class="recv-addr mono" id="rcvAddr">${esc(addr)}</div><button type="button" class="shell-copy" data-act="copy" data-v="${esc(addr)}">${esc(T('copy'))}</button></div>`
+    } else if (locked) {
+      body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
+    } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
+    const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+  }
+  function paintRecvQr () {
+    const box = $('qrBox')
+    if (!box || box.getAttribute('data-painted') === '1') return
+    const addr = box.getAttribute('data-addr') || ''
+    if (!addr || !window.QRCode) return
+    try { new window.QRCode(box, { text: addr, width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
+  }
+  function pageRemit () {
+    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><div id="remitHost"></div></div>`
+  }
+  function pageSettings () {
+    return `<div class="page shell-set" id="setPage"><h1 class="shell-h">${esc(T('navSettings'))}</h1><div id="setHost"></div></div>`
   }
 
   // ---------------- mining ----------------
@@ -677,18 +777,34 @@
   function addrSelect (id, opts, cur, disabled, placeholder, otherLabel) {
     const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
     const open = !!(st.otherOpen && st.otherOpen[id])
-    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
+    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.show || (o.l + ' — ' + o.v))}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
       <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono half" id="${id}-in" placeholder="${esc(placeholder || '0x…')}" style="flex:1;min-width:320px" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
   }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
+  function mineAddrOpts (n, opts) {
+    const entries = (chainRowModel({})[n] || {}).entries || []
+    return (opts || []).map(o => {
+      const hit = entries.find(e => String(e.address || '').toLowerCase() === String(o.v || '').toLowerCase())
+      const dec = hit && hit.decimals != null ? hit.decimals : (Number(n) === 0 ? 18 : 8)
+      const bal = hit && !hit.failed && hit.units != null ? AMT.fmtUnits(hit.units, dec) : '\u2014'
+      const short = window.SCDOChainHome ? window.SCDOChainHome.shortAddr(o.v) : String(o.v || '')
+      return Object.assign({}, o, { show: (o.l || '') + ' · ' + short + ' · ' + (bal === '\u2014' ? '\u2014' : bal + ' SCDO') })
+    })
+  }
+  function mineAddrDefault (n, saved, opts) {
+    const want = String(saved || '')
+    if (want && (opts || []).some(o => String(o.v).toLowerCase() === want.toLowerCase())) return want
+    if (!window.SCDOChainHome) return want
+    const picked = window.SCDOChainHome.pickDefault((chainRowModel({})[n] || {}).entries || [], '')
+    return (picked && picked.address) || want
+  }
   function payoutDefault () {
     const opts = rewardOptions(); const saved = localStorage.getItem('nodePayout') || ''
-    if (saved && opts.some(o => o.v.toLowerCase() === saved.toLowerCase())) return saved
-    const a = selected(); return a && a.evm ? a.evm : ''
+    return mineAddrDefault(0, saved, opts)
   }
   function payoutField (m, running) {
     if (running && m.mode === 'node') return m.payout ? `<div class="infobox" style="font-size:18px">${esc(T('payoutNow', { a: m.payout }))}</div>` : ''
-    const opts = rewardOptions(); const cur = payoutDefault()
+    const opts = mineAddrOpts(0, rewardOptions()); const cur = payoutDefault()
     return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div>${addrSelect('nPayout', opts, cur, running)}${opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('payoutNone'))}</div>`}</div>`
   }
   function miningInput (v) {
@@ -744,9 +860,10 @@
     const gpuOn = !!(caps.gpu && caps.gpu.available)
     const extOn = !!(caps.external && caps.external.available)
     const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
-    const opts = classicOptions(shard)
+    const rawOpts = classicOptions(shard)
+    const opts = mineAddrOpts(shard, rawOpts)
     const saved = localStorage.getItem('minerClassic') || ''
-    const cur = (running && m.chain === 'classic' && m.wallet) || saved
+    const cur = (running && m.chain === 'classic' && m.wallet) || mineAddrDefault(shard, saved, rawOpts)
     const sel = addrSelect('mClassic', opts, cur, running, T('classicAddrPh', { n: shard, p: shard + 'S0' + shard }), T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
     const pool = (caps.pools && caps.pools[shard]) || {}
     const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
@@ -758,7 +875,6 @@
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
       h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
-      if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
     }
     if (backend === 'cpu') {
       const threads = threadCount(); const max = cpuCount()
@@ -809,17 +925,24 @@
     else if (m && m.chain === 'classic') st.miners.classicGpu = m
     else if (m) st.miners.shard0 = Object.assign({ chain: 'shard0' }, m)
   }
+  function shellFoldSummary (title) {
+    return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(title)}</summary>`
+  }
+  function shellFold (id, title, inner) {
+    return `<details class="shell-fold" id="${esc(id)}">${shellFoldSummary(title)}${inner}</details>`
+  }
   function mineAdvanced (showDefender, m) {
     m = m || {}
-    return `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
-      <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
+    const inner = `<div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
       ${showDefender ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
-      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
+      <pre class="log" id="mLog" hidden>${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre>`
+    return shellFold('advBox', T('advanced') + ' ' + T('advHint'), inner)
   }
   // 挖礦設定 (menu → 挖礦設定; the old 更改出塊獎勵地址 item opened this same page): shard, reward address, and the node. Start and stop mining stay on the Home card.
   function pageMineSet () {
+    st.logOpen = false
     st.miner = viewMiner()
     const m = st.miner || {}
     const running = !!m.running
@@ -842,9 +965,10 @@
     const peerLine = peerText(m.peers)
     const blocks = statHtml('mPeers', T('peers'), peerLine, tipPack(T('peers'), peerLine, T('mineTipPeer')))
     if (g.nvidia) {
-      const opts = rewardOptions()
+      const rawOpts = rewardOptions()
+      const opts = mineAddrOpts(0, rawOpts)
       const saved = localStorage.getItem('minerReward') || ''
-      const cur = saved
+      const cur = saved || mineAddrDefault(0, '', rawOpts)
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>
@@ -917,51 +1041,6 @@
         <div style="font-weight:700">${esc(amt)}</div></div>`
     }).join('')
   }
-  function pageRemit () {
-    const a = remitAccount()
-    if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) SD.text(el, r.base) } }).catch(() => {})
-    const signedIn = remitOwnsSession()
-    if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
-    const phase = signedIn ? 'in' : st.remit.phase
-    let body
-    if (!a) {
-      body = `<div class="muted" style="font-size:20px;margin-top:12px">${esc(T('remitNeedAccount'))}</div>
-        <div class="actions" style="justify-content:flex-start"><button class="btn pri" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
-    } else if (signedIn) {
-      body = `<div class="ok" id="remitStatus" style="font-size:22px;font-weight:700;margin-top:8px">${esc(T('remitIn'))}</div>
-        <div class="lbl" style="margin-top:8px">${esc(T('remitAddr'))}</div>
-        <div class="mono" id="remitAddr">${esc(st.remit.address)}</div>
-        <div class="card" id="remitLedger" style="margin-top:16px;padding:8px 0">${remitLedgerHtml(st.remit.ledger)}</div>
-        <div class="row" style="margin-top:16px;flex-wrap:wrap">
-          <button class="btn sec" data-act="remitRefresh" id="btnRemitRefresh">${esc(T('remitRefresh'))}</button>
-          <button class="btn ghost" data-act="remitLogout" id="btnRemitLogout">${esc(T('remitLogout'))}</button>
-        </div>`
-    } else {
-      const busy = phase === 'challenge' || phase === 'sign' || phase === 'session' || phase === 'ledger'
-      const status = phase === 'challenge' ? T('remitChallenge') : phase === 'sign' ? T('remitSigning') : phase === 'session' ? T('remitSession') : phase === 'ledger' ? T('remitLedgerLoad') : ''
-      body = `<div class="lbl" style="margin-top:14px">${esc(T('remitAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b></div>
-        ${a.evm ? `<div class="lbl">${esc(T('remitAddr'))}</div><div class="mono" id="remitAddr">${esc(a.evm)}</div>` : `<div class="lbl">🔒 ${esc(T('locked'))}</div>`}
-        <div class="muted" style="margin-top:10px">${esc(T('remitSigningNote'))}</div>
-        <div class="unlockbox" style="justify-content:flex-start">
-          <input class="inp" type="password" id="remitPw" placeholder="${esc(T('password'))}" style="width:320px;max-width:100%" ${busy ? 'disabled' : ''}>
-          <button class="btn pri" data-act="remitSign" data-f="${esc(a.filename)}" id="btnRemitSign" ${busy ? 'disabled' : ''}>${esc(T('remitSignIn'))}</button>
-        </div>
-        ${status ? `<div id="remitStatus" style="margin-top:12px"><span class="spin"></span> ${esc(status)}</div>` : '<div id="remitStatus"></div>'}
-        ${st.remit.error ? `<div class="err" id="remitErr">${esc(st.remit.error)}</div>` : ''}`
-    }
-    return `<div class="page"><div class="h1" style="font-size:30px;font-weight:700">${esc(T('remitTitle'))}</div>
-      <div class="muted" style="font-size:18px;margin-top:4px">${esc(T('remitEn'))}</div>
-      <div class="card" style="margin-top:18px;padding:28px 32px">
-        <div style="font-size:20px">${esc(T('remitLead'))}</div>
-        <div style="font-size:20px;margin-top:8px">${esc(T('remitZero'))}</div>
-        <div class="enline">${esc(T('remitZeroEn'))}</div>
-        <div class="lbl" style="margin-top:12px">${esc(T('remitOwnOnly'))}</div>
-        ${remitSteps(phase)}
-        ${body}
-        <div class="lbl wrap" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(st.remit.base || 'https://scdoscan.io/remit-api')}</span></div>
-        <div class="enline">${esc(T('remitEnv'))}</div>
-      </div></div>`
-  }
   function remitErrText (r) {
     if (r && r.wrongPw) return T('wrongPw')
     if (r && r.foreign) return T('remitForeign')
@@ -1018,17 +1097,52 @@
     el.textContent = p === 'challenge' ? T('remitChallenge') : p === 'sign' ? T('remitSigning') : p === 'session' ? T('remitSession') : T('remitLedgerLoad')
   })
 
+  function renderSiteBar () {
+    const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
+    const cn = lang() !== 'EN'
+    const primary = window.SCDOSiteNav.GROUPS.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
+    const rest = window.SCDOSiteNav.GROUPS.filter(g => primary.indexOf(g) < 0)
+    const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
+    const group = (g) => {
+      if (!g.children || !g.children.length) return btn(g)
+      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary>${g.children.map(btn).join('')}</details>`
+    }
+    const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
+    const html = primary.map(group).join('') + more
+    if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
+  }
+  function renderSideNav () {
+    const nav = $('sideNav'); if (!nav) return
+    const cur = st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab)
+    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit'], ['mine', 'navMine'], ['settings', 'navSettings']]
+    const ico = {
+      home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
+      recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
+      remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
+      mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
+      settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
+    }
+    const html = items.map(([id, key]) => `<button type="button" class="nav-item${cur === id ? ' on' : ''}" data-act="nav" data-v="${id}">${ico[id]}<span>${esc(T(key))}</span></button>`).join('')
+    if (renderSideNav.last !== html) { renderSideNav.last = html; SD.html(nav, html) }
+  }
   // ---------------- render ----------------
   function render () {
     loadAccounts()
+    renderSideNav()
+    renderSiteBar()
     renderHeader()
     const main = $('main')
-    const y = main.scrollTop
-    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet }
-    SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    const y = main ? main.scrollTop : 0
+    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings }
+    const wiz = $('payWiz')
+    const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
+    if (main && !keepPay) SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    if (st.tab === 'remit' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
+    if (st.tab === 'recv') paintRecvQr()
+    if (st.tab === 'settings') settingsModal()
     refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
-    if (st.tab === 'mineSet') mountMining(); else window.SCDOMining.MiningPage.unmount()
+    if (st.tab === 'mineSet') mountMining(); else if (window.SCDOMining && window.SCDOMining.MiningPage) window.SCDOMining.MiningPage.unmount()
     renderFooter()
     const want = st.scrollTo; st.scrollTo = null
     const to = want && want !== 'top' ? $(want) : null
@@ -1751,20 +1865,27 @@
     saveUi()
   }
   function payModal (f, prefill) {
+    if (!prefill && st.payPrefill) prefill = st.payPrefill
+    st.payPrefill = null
     const TC = (k, p) => T(k, p)
     const opened = accByFile(f) || headerAccount()
     if (!opened) {
-      modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}"><h2>${esc(TC('payTitle'))}</h2>
         <div class="muted" style="font-size:20px">${esc(TC('remitNeedAccount'))}</div>
-        <div class="foot"><button class="btn pri" data-act="create">${esc(TC('createAccount'))}</button><button class="btn sec" data-act="import">${esc(TC('importAccount'))}</button></div>`, { width: 640 })
+        <div class="wiz-nav"><button class="shell-go" data-act="create">${esc(TC('setCreate'))}</button><button class="shell-go ghost" data-act="import">${esc(TC('setImport'))}</button></div></div>`)
       return
     }
     const s = {
       to: prefill && prefill.to ? String(prefill.to) : '',
       amount: prefill && prefill.amount ? String(prefill.amount) : '',
       feeText: '',
+      feeReady: false,
       feeFor: null,
+      step: 1,
       gas: null,
+      feeWei: null,
+      shardPick: prefill && [0, 1, 2, 3, 4].includes(Number(prefill.shard)) ? Number(prefill.shard) : (prefill && /^[1-4]S/.test(String(prefill.to || '')) ? Number(String(prefill.to)[0]) : 0),
+      payAddr: prefill && prefill.from ? String(prefill.from) : '',
       payerFile: opened.filename
     }
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
@@ -1775,6 +1896,36 @@
     })
     let feeTimer = 0
     let feeGen = 0
+    function mountPay (html) {
+      const host = $('remitHost')
+      if (host) { SD.html(host, html); return }
+      modal(html, { width: 760 })
+    }
+    function inferShard (to) {
+      if (/^0x[0-9a-fA-F]{40}$/.test(to)) return 0
+      if (/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) return Number(to[0])
+      return null
+    }
+    function nameLike (to) { return !!to && !/^0x/i.test(to) && !/^[1-4]S/i.test(to) }
+    function maskMid (a) {
+      const t = String(a || '')
+      if (!t) return '\u2014'
+      if (t.length <= 12) return t
+      return t.slice(0, 6) + '\u2026' + t.slice(-4)
+    }
+    function chainLabel (route) {
+      if (route && route.kind === 'gateway') return TC('wizGate')
+      const n = route && route.kind === 'chain' ? route.shard : inferShard(s.to)
+      if (n === 0) return 'Shard0 EVM'
+      if (n >= 1 && n <= 4) return 'Shard' + n + ' Classic'
+      return '\u2014'
+    }
+    function showStep (n) {
+      s.step = n
+      const root = $('payWiz')
+      if (root) root.setAttribute('data-step', String(n))
+      for (const k of [1, 2, 3, 4]) { const el = $('wizStep' + k); if (el) el.hidden = k !== n }
+    }
     function chosenPayer (route) {
       const payer = accByFile(s.payerFile)
       return payer && payerValid(payer, route) ? payer : null
@@ -1795,6 +1946,7 @@
         if (sel) sel.onchange = () => {
           s.payerFile = sel.value || ''
           s.feeText = ''
+          s.feeReady = false
           s.feeFor = null
           s.gas = null
           if (st.payReview && st.payReview.file !== s.payerFile) dropReview()
@@ -1835,6 +1987,13 @@
       const payer = paintPayer(route)
       const note = $('payNote')
       if (note) note.textContent = route.kind === 'gateway' ? TC('payGateNote') : route.kind === 'chain' ? TC('payChainNote') : ''
+      const sumTo = $('wizTo'); if (sumTo) sumTo.textContent = maskMid(route.to || s.to)
+      const sumAmt = $('wizAmt'); if (sumAmt) sumAmt.textContent = (route.amount || s.amount) ? ((route.amount || s.amount) + ' SCDO') : '\u2014'
+      const sumFee = $('wizFee'); if (sumFee) sumFee.textContent = s.feeReady && s.feeText ? s.feeText : '\u2014'
+      const sumGas = $('wizGas'); if (sumGas) sumGas.textContent = s.gas != null && s.gas !== '' ? String(s.gas) : '\u2014'
+      const sumChain = $('wizChainNow'); if (sumChain) sumChain.textContent = chainLabel(route)
+      const chainBox = $('payChain')
+      if (chainBox) chainBox.hidden = !(s.to && inferShard(s.to) == null && !nameLike(s.to))
       return route && payer ? route : route
     }
     function dropReview () {
@@ -1858,9 +2017,11 @@
         }
       } else if (route.kind !== 'chain') {
         s.feeText = ''
+        s.feeReady = false
         s.feeFor = null
       } else if (s.feeFor !== 0) {
         s.feeText = ''
+        s.feeReady = false
         s.feeFor = 0
       }
       route = currentRoute()
@@ -1877,7 +2038,7 @@
         try {
           if (snap.shard === 0 && payer && payer.evm) {
             const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
-            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei)) + ' SCDO'
+            if (est && est.estFeeWei != null) { text = fmtWei(BigInt(est.estFeeWei)) + ' SCDO'; s.feeWei = est.estFeeWei }
           } else if (snap.shard >= 1) {
             if (payer && payer.pubkey) {
               const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
@@ -1889,28 +2050,50 @@
           if (snap.shard >= 1) text = '0.00021 SCDO'
         }
         if (gen !== feeGen || !$('payRoute')) return
-        if (text) s.feeText = text
+        if (text) { s.feeText = text; s.feeReady = true }
         if (gas) s.gas = gas
         paint()
       }, 350)
     }
-    modal(`<div class="mh"><h2>${esc(TC('payTitle'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      <div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap" style="font-size:18px;font-weight:700"></div>
-      <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
-      <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
-        <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
-        <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
-      <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
-        <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"></div>
-      <div class="infobox" id="payRoute"></div>
-      <div class="lbl" id="payNote" style="margin-top:8px"></div>
-      <div id="payExtra"></div>
-      <div id="payStatus" style="margin-top:8px"></div>
-      <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
-      <div class="err" id="payErr"></div>
-      <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(TC('cancel'))}</button><button class="btn pri" type="button" id="btnRemitSign">${esc(TC('payGo'))}</button></div>`, { width: 680 })
+    const chip = (n) => `<button type="button" class="wiz-chip" data-wiz-chain="${n}">${esc(n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic'))}</button>`
+    mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}">
+      <div class="wiz-dots"><span data-wiz-dot="1">1 ${esc(TC('wizAddr'))}</span><span data-wiz-dot="2">2 ${esc(TC('wizAmount'))}</span><span data-wiz-dot="3">3 ${esc(TC('wizConfirm'))}</span></div>
+      <div id="wizStep1" class="wiz-step">
+        <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
+        <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
+          <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
+        <details class="shell-fold" id="wizPayees"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('shellPayees'))}</summary><div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></details>
+        <div id="payChain" class="wiz-chain"><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
+        <div class="field"><div class="lbl">${esc(TC('shellPickAddr'))}</div><div id="payFromPick"></div><div class="lbl" id="payFromBal"></div></div>
+        <div class="err" id="payErr1"></div>
+        <div class="wiz-nav"><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
+      </div>
+      <div id="wizStep2" class="wiz-step" hidden>
+        <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
+          <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"><div class="lbl" id="payAmtHint"></div><button type="button" class="link" id="payMax">${esc(TC('shellMax'))}</button></div>
+        <div class="err" id="payErr2"></div>
+        <div class="wiz-nav"><button type="button" class="shell-back" id="wizBack2">${esc(TC('wizBack'))}</button><button type="button" class="shell-go" id="wizNext2">${esc(TC('wizNext'))}</button></div>
+      </div>
+      <div id="wizStep3" class="wiz-step" hidden>
+        <div class="wiz-sum"><div><span>${esc(TC('wizTo'))}</span><b id="wizTo">\u2014</b></div><div><span>${esc(TC('wizAmt'))}</span><b id="wizAmt">\u2014</b></div><div><span>${esc(TC('wizFee'))}</span><b id="wizFee">\u2014</b></div></div>
+        <details class="shell-fold" id="wizDetails"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('wizDetails'))}</summary>
+          <div class="wiz-sum"><div><span>${esc(TC('wizChain'))}</span><b id="wizChainNow">\u2014</b></div><div><span>${esc(TC('wizGas'))}</span><b id="wizGas">\u2014</b></div></div>
+          <div class="lbl" id="payNote"></div>
+        </details>
+        <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
+        <div id="payRoute" hidden></div>
+        <div id="payExtra"></div>
+        <div id="payStatus" style="margin-top:8px"></div>
+        <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
+        <div class="err" id="payErr"></div>
+        <div class="wiz-nav"><button type="button" class="shell-back" id="wizBack3">${esc(TC('wizBack'))}</button><button class="shell-go" type="button" id="btnRemitSign">${esc(TC('wizSend'))}</button></div>
+      </div>
+      <div id="wizStep4" class="wiz-step" hidden></div>
+    </div>`)
     const chips = $('payeeChips')
     const names = allPayees().map(p => p.name).slice(0, 8)
+    const payeeFold = $('wizPayees')
+    if (payeeFold && !names.length) payeeFold.hidden = true
     if (chips && names.length) {
       SD.html(chips, names.map(n => `<button type="button" class="btn ghost small" data-payee="${esc(n)}">${esc(n)}</button>`).join(''))
       chips.querySelectorAll('[data-payee]').forEach(b => {
@@ -1918,49 +2101,225 @@
       })
     }
     const toEl = $('payTo'); const amtEl = $('payAmt'); const pwEl = $('remitPw'); const go = $('btnRemitSign')
-    if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
-    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() } }
+    function stepErr (id, msg) { const el = $(id); if (el) el.textContent = msg || '' }
+    function next1 () {
+      s.to = nhw($('payTo') ? $('payTo').value : s.to)
+      stepErr('payErr1', '')
+      if (!s.to) { stepErr('payErr1', TC('wizNeedAddr')); return }
+      if (inferShard(s.to) == null && !nameLike(s.to)) { stepErr('payErr1', TC('wizNeedFull')); const box = $('payChain'); if (box) box.hidden = false; return }
+      showStep(2)
+    }
+    function next2 () {
+      s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      stepErr('payErr2', '')
+      const g = AMT.guardAmount(s.amount)
+      if (!g.ok) { stepErr('payErr2', g.code === 'TOO_MANY_DECIMALS' ? TC('shellAmtLimit') : TC('wizNeedAmt')); return }
+      s.amount = g.value
+      if ($('payAmt')) $('payAmt').value = g.value
+      const units = AMT.toUnits(s.amount, 18)
+      if (units == null || units <= 0n) { stepErr('payErr2', TC('wizNeedAmt')); return }
+      showStep(3)
+      sync()
+    }
+    function maxShard (route) {
+      if (route && route.kind === 'chain' && (route.shard === 0 || route.shard >= 1)) return route.shard
+      const to = nhw($('payTo') ? $('payTo').value : s.to)
+      const n = inferShard(to)
+      if (n != null) return n
+      if ([0, 1, 2, 3, 4].includes(Number(s.shardPick))) return Number(s.shardPick)
+      return null
+    }
+    async function fillMax () {
+      const btn = $('payMax')
+      if (btn && btn.disabled) return
+      if (btn) btn.disabled = true
+      try {
+        const route = currentRoute()
+        const to = nhw($('payTo') ? $('payTo').value : s.to)
+        const payer = chosenPayer(route) || accByFile(s.payerFile)
+        const shard = maxShard(route)
+        if (!payer || shard == null) return
+        let bal = null
+        let dec = 18
+        let fee = null
+        if (shard === 0) {
+          const b = st.s0[payer.filename]
+          bal = b && b.nativeWei != null ? b.nativeWei : null
+          const dest = (route && route.to) || to
+          if (!/^0x[0-9a-fA-F]{40}$/.test(dest) || !payer.evm) return
+          if (s.feeWei != null && s.feeFor === 0) {
+            try { fee = BigInt(s.feeWei) } catch (e) { fee = null }
+          }
+          if (fee == null) {
+            try {
+              const est = await api.invoke('s0:estimate', payer.evm, dest, '0.00000001', 'SCDO')
+              if (est && est.estFeeWei != null) {
+                fee = BigInt(est.estFeeWei)
+                s.feeWei = est.estFeeWei
+                s.feeFor = 0
+                s.feeText = fmtWei(fee) + ' SCDO'
+                s.feeReady = true
+              }
+            } catch (e) { fee = null }
+          }
+        } else if (shard >= 1) {
+          bal = oldRaw(payer.pubkey)
+          dec = 8
+          const dest = (route && route.kind === 'chain' && route.to) || to
+          let gas = null
+          if (payer.pubkey && /^[1-4]S[0-9a-fA-F]{40}$/.test(dest)) {
+            try {
+              const g = await api.invoke('old:estimateGas', payer.pubkey, dest)
+              if (g && Number(g) > 0) gas = Number(g)
+            } catch (e) { gas = null }
+          }
+          fee = AMT.classicFeeUnits(gas)
+          s.gas = Number(fee)
+          s.feeFor = shard
+          s.feeText = AMT.fmtUnits(fee, 8) + ' SCDO'
+          s.feeReady = true
+        }
+        if (fee == null) return
+        const text = AMT.maxAmount(bal, fee, dec)
+        if (text == null) return
+        s.amount = text
+        if ($('payAmt')) $('payAmt').value = text
+        sync()
+      } finally {
+        const again = $('payMax')
+        if (again) again.disabled = false
+      }
+    }
+    if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
+    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
     if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
     if (go) go.onclick = () => { confirmPay() }
+    const n1 = $('wizNext1'); if (n1) n1.onclick = next1
+    const n2 = $('wizNext2'); if (n2) n2.onclick = next2
+    const b2 = $('wizBack2'); if (b2) b2.onclick = () => showStep(1)
+    const b3 = $('wizBack3'); if (b3) b3.onclick = () => showStep(2)
+    s.shardPick = [0, 1, 2, 3, 4].includes(Number(s.shardPick)) ? Number(s.shardPick) : (inferShard(s.to) == null ? 0 : inferShard(s.to))
+    document.querySelectorAll('[data-wiz-chain]').forEach(b => {
+      b.classList.toggle('on', Number(b.getAttribute('data-wiz-chain')) === s.shardPick)
+      b.onclick = (e) => {
+        e.preventDefault(); e.stopPropagation()
+        s.shardPick = Number(b.getAttribute('data-wiz-chain'))
+        s.payAddr = ''
+        document.querySelectorAll('[data-wiz-chain]').forEach(x => x.classList.toggle('on', x === b))
+        paintFromPick()
+      }
+    })
+    function paintFromPick () {
+      const n = s.shardPick
+      const box = $('payFromPick')
+      if (!box || !window.SCDOChainHome) return
+      const entries = (chainRowModel({})[n] || {}).entries || []
+      let last = s.payAddr || ''
+      try { if (!last) last = localStorage.getItem('payAddr310-' + n) || '' } catch (e) {}
+      const picked = window.SCDOChainHome.pickDefault(entries, last)
+      const html = window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
+      if (box.getAttribute('data-html') !== html) {
+        box.setAttribute('data-html', html)
+        SD.html(box, html)
+        const sel = $('payAddr')
+        if (sel) sel.onchange = () => {
+          s.payAddr = sel.value
+          try { localStorage.setItem('payAddr310-' + n, sel.value) } catch (e) {}
+          const hit = entries.find(e => String(e.address).toLowerCase() === String(sel.value).toLowerCase())
+          if (hit && hit.file) s.payerFile = hit.file
+          sync()
+        }
+      }
+      if (picked && picked.file) s.payerFile = picked.file
+      const bal = $('payFromBal')
+      if (bal) {
+        const text = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text : '\u2014'
+        bal.textContent = text === '\u2014' ? '\u2014' : text + ' SCDO'
+      }
+    }
+    paintFromPick()
+    const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
+    showStep(1)
     sync()
-    function showDone (text) {
-      const extra = $('payExtra')
-      if (extra) SD.html(extra, `<div class="statusbar good" style="font-size:20px">${esc(text)}</div>`)
+    function showDone (text, hash) {
+      s.to = ''; s.amount = ''; s.feeText = ''; s.feeReady = false
+      if ($('payTo')) $('payTo').value = ''
+      if ($('payAmt')) $('payAmt').value = ''
+      if ($('remitPw')) $('remitPw').value = ''
+      const h = String(hash || '')
+      const link = /^0x[0-9a-fA-F]{64}$/.test(h) || /^[0-9a-fA-F]{64}$/.test(h) ? `<button type="button" class="shell-copy" data-act="openTx" data-v="${esc(h)}">${esc(TC('wizExplorer'))}</button>` : ''
+      const done = $('wizStep4')
+      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizDone'))}</div>${h ? `<div class="mono" id="payHash">${esc(h)}</div>` : ''}${link}<div class="muted">${esc(text)}</div><button type="button" class="shell-go" id="wizAgain">${esc(TC('wizAgain'))}</button>`)
+      const again = $('wizAgain')
+      if (again) again.onclick = () => { const err = $('payErr'); if (err) err.textContent = ''; const b = $('btnRemitSign'); if (b) b.disabled = false; showStep(1) }
+      showStep(4)
       const b = $('btnRemitSign'); if (b) b.disabled = true
+    }
+    // 3.1.0: same recipient and same amount inside a fixed 10-minute window asks once. Not a setting.
+    const DUP_SEND_MS = 10 * 60 * 1000
+    function dupSendKey (to, amount) {
+      return String(to || '').trim().toLowerCase() + '\n' + String(amount || '').trim()
+    }
+    function recentSameSend (to, amount) {
+      try {
+        const rec = JSON.parse(localStorage.getItem('dupSend310') || 'null')
+        if (!rec || rec.key !== dupSendKey(to, amount)) return false
+        return Date.now() - Number(rec.at) < DUP_SEND_MS
+      } catch (e) { return false }
+    }
+    function rememberSameSend (to, amount) {
+      try { localStorage.setItem('dupSend310', JSON.stringify({ key: dupSendKey(to, amount), at: Date.now() })) } catch (e) {}
+    }
+    async function confirmSameSend (route, err, btn) {
+      if (!route || !recentSameSend(route.to, route.amount)) return true
+      const ok = await confirmBox(T('shellDupTitle'), T('shellDupAsk'), T('yes'), T('no'))
+      if (!ok) {
+        if (btn) btn.disabled = false
+        if (err) err.textContent = T('cf_canceled')
+      }
+      return ok
     }
     async function confirmPay () {
       const btn = $('btnRemitSign'); const err = $('payErr')
+      if (btn && btn.disabled) return
+      if (btn) btn.disabled = true
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      const guarded = AMT.guardAmount(s.amount)
+      if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
+      s.amount = guarded.value
       const route = paint()
       if (route.kind !== 'chain' && route.kind !== 'gateway') {
+        if (btn) btn.disabled = false
         if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
         return
       }
       const payer = chosenPayer(route)
-      if (!payer) { if (err) err.textContent = TC('payNoPayer'); return }
+      if (!payer) { if (btn) btn.disabled = false; if (err) err.textContent = TC('payNoPayer'); return }
       const pw = $('remitPw') ? $('remitPw').value : ''
       if (route.kind === 'gateway') {
         rememberPayee(route.to)
-        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { payShowLedger(); return }
-        if (!pw) { if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_titleSign'), yes: T('cf_yesSign'), rows: cfRows(route, payer) }))) { if (err) err.textContent = T('cf_canceled'); return }
+        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { if (btn) btn.disabled = false; payShowLedger(); return }
+        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+        if (!(await confirmTx({ title: T('cf_titleSign'), yes: T('cf_yesSign'), rows: cfRows(route, payer) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
         await remitLogin(payer.filename)
         if ($('remitPw')) $('remitPw').value = ''
+        if (btn) btn.disabled = false
         return
       }
       if (route.shard === 0) { await confirmShard0(route, payer, pw, err, btn); return }
       await confirmClassic(route, payer, pw, err, btn)
     }
     async function confirmShard0 (route, payer, pw, err, btn) {
-      if (!payer.evm) { if (err) err.textContent = TC('payUnlock'); return }
+      if (!payer.evm) { if (btn) btn.disabled = false; if (err) err.textContent = TC('payUnlock'); return }
+      if (!(await confirmSameSend(route, err, btn))) return
       if (st.payReview && st.payReview.to === route.to && st.payReview.amount === route.amount && st.payReview.file === payer.filename) {
         const ack = $('payAck')
         if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
-        if (!pw) { if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (err) err.textContent = T('cf_canceled'); return }
-        if (!st.payReview) return
+        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+        if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
         if ($('remitPw')) $('remitPw').value = ''
@@ -1987,7 +2346,11 @@
       if (rev.check && !rev.check.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[rev.check.errors[0]] || 'errAddr'); if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
       if (!rev.ok) {
         if (btn) btn.disabled = false
-        if (err) err.textContent = rev.errors && rev.errors.length ? TC(SEND_ERR[rev.errors[0]] || 'errAmount') : (SEND_ERR[rev.error] ? TC(SEND_ERR[rev.error]) : TC('errReview', { e: rev.error || '?' }))
+        if (err) {
+          if (rev.errors && rev.errors.length && SEND_ERR[rev.errors[0]]) err.textContent = TC(SEND_ERR[rev.errors[0]])
+          else if (SEND_ERR[rev.error]) err.textContent = TC(SEND_ERR[rev.error])
+          else paintSendErr(err, rev.error || 'BAD_AMOUNT')
+        }
         return
       }
       const warns = ((rev.check && rev.check.warnings) || []).filter(w => ADDR_WARN[w])
@@ -2025,17 +2388,21 @@
     }
     const selfWarn = (payer, to) => (payer && to && String(payer.evm || '').toLowerCase() === String(to).toLowerCase()) ? T('cf_warnSelf') : ''
     function finishShard0 (res, route, payer, err, btn) {
-      if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || '')); loadActivity(payer.evm); refreshS0(); return }
-      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash); loadActivity(payer.evm); return }
-      if (err) err.textContent = TC('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? TC(SEND_ERR[res.error]) : String((res && res.error) || 'error'))
+      if (res && res.ok) { rememberSameSend(route.to, route.amount); showDone(TC('waiting') + ' ' + (res.hash || ''), res.hash); loadActivity(payer.evm); refreshS0(); return }
+      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash, res.hash); loadActivity(payer.evm); return }
+      if (err) {
+        if (SEND_ERR[res && res.error]) err.textContent = TC('sendFailedPrefix') + ' ' + TC(SEND_ERR[res.error])
+        else paintSendErr(err, (res && res.error) || 'error')
+      }
       if (btn) btn.disabled = false
       loadActivity(payer.evm)
     }
     async function confirmClassic (route, payer, pw, err, btn) {
-      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
-      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
+      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errAddrOld'); return }
+      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
       const units = /^\d+(\.\d{1,8})?$/.test(route.amount) ? AMT.toUnits(route.amount, 8) : null
-      if (units == null || units <= 0n) { if (err) err.textContent = TC('errAmount'); return }
+      if (units == null || units <= 0n) { if (err) err.textContent = TC('errAmount'); if (btn) btn.disabled = false; return }
+      if (!(await confirmSameSend(route, err, btn))) return
       // 3.0.4: sending to this account's own address is allowed after the user ticks the box (same as Shard0 EVM)
       const self = String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()
       if (self) {
@@ -2057,9 +2424,9 @@
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
-      if (bal != null && units + feeU > bal) { if (err) err.textContent = TC('errTooMuch'); return }
-      if (!pw) { if (err) err.textContent = TC('errPw'); return }
-      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (err) err.textContent = T('cf_canceled'); return }
+      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
+      if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
       if ($('remitPw')) $('remitPw').value = ''
       if (btn) btn.disabled = true
       if (err) SD.spin(err, TC('sending'))
@@ -2068,13 +2435,19 @@
       if (!$('payRoute')) return
       if (!res || !res.ok) {
         const em = String((res && res.error) || 'error')
-        if (err) err.textContent = em === 'WRONG_PASSWORD' ? TC('wrongPw') : em
+        if (err) { if (em === 'WRONG_PASSWORD') err.textContent = TC('wrongPw'); else paintSendErr(err, em) }
         if (btn) btn.disabled = false
         return
       }
-      showDone(TC('sentOld') + ' ' + (res.hash || ''))
+      rememberSameSend(route.to, route.amount)
+      showDone(TC('sentOld') + ' ' + (res.hash || ''), res.hash)
       refreshOld(); loadOldActivity(true)
     }
+  }
+  function paintSendErr (el, raw) {
+    if (!el) return
+    if (window.SCDOSendError) SD.html(el, window.SCDOSendError.html(raw, lang(), esc))
+    else el.textContent = String(raw || '')
   }
   function payShowLedger () {
     const box = $('payExtra')
@@ -2096,7 +2469,7 @@
       <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" maxlength="40" placeholder="${esc(T('accountN', { n: nextNo() }))}"></div>
       <div class="field"><div class="lbl">${esc(T('pw1'))}</div><input class="inp" type="password" id="cPw1"></div>
       <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
-      <details style="margin-top:14px"><summary style="font-size:18px;cursor:pointer;color:#3d4160">${esc(T('advanced'))}</summary>
+      <details class="shell-fold" style="margin-top:14px"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
         <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="1" style="width:120px"></div>
         ${opts.priv ? '' : privField}</details>
       <div class="infobox">${esc(T('createSave'))}</div>
@@ -2273,11 +2646,12 @@
     const N = (window.I18N112[lang()] || {}).relNotes || window.I18N112.EN.relNotes || []
     const one = (n) => `<div class="rn"><div class="rnv">${esc(n.v)}</div><ul>${n.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`
     let h = N.slice(0, 3).map(one).join('')
-    if (N.length > 3) h += `<details class="rnmore" id="rnMore"><summary>${esc(T('earlierVersions'))}</summary>${N.slice(3).map(one).join('')}</details>`
+    if (N.length > 3) h += `<details class="rnmore shell-fold" id="rnMore"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('earlierVersions'))}</summary>${N.slice(3).map(one).join('')}</details>`
     return h
   }
   // ----- settings (gear): language, accounts, backup/export, advanced, about -----
   async function settingsModal () {
+    const wantPage = !!$('setHost')
     const paths = await api.invoke('keyfile:paths')
     const cfg = CFG
     // 2.0.7: mining notification toggles (P1) and update channel (P3) from the main-process settings store
@@ -2285,29 +2659,39 @@
     try { nt = await api.invoke('notify:get') } catch (e) {}
     try { chan = ((await api.invoke('update:getChannel')) || {}).channel || 'stable' } catch (e) {}
     const NT_TYPES = ['firstShare', 'payout', 'hashZero', 'stopNonUser', 'nodeBehind']
-    const notifyHtml = nt && nt.config ? `<div class="setsec" id="setNotify"><div class="sh">${esc(T('notifyTitle'))}</div><div class="lbl">${esc(T('notifyHint'))}</div>
-      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}</div>` : ''
+    const notifyInner = nt && nt.config ? `<div class="lbl">${esc(T('notifyHint'))}</div>
+      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}` : ''
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
-    modal(`<div class="mh"><h2>⚙ ${esc(T('settings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
-      <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
-        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
-      <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div>
-        <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
-        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
-      <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
-        <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
-      ${notifyHtml}
-      <div class="setsec"><div class="sh">${esc(T('updTitle'))}</div>
-        <div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
+    const langNow = lang() === 'CN' ? '華語繁體' : 'English'
+    const setHtml = `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
+      ${shellFold('setLang', T('setLang') + ' · ' + langNow, `<div class="row" style="flex-wrap:wrap">
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div>`)}
+      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
+      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+          <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
+          <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
+          <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
+          <button class="btn sec" data-act="manage">${esc(T('setManage'))}</button>
+          <button class="btn sec" data-act="openBackups">${esc(T('setOpenBackups'))}</button>
+        </div>
+        <div class="lbl">${esc(T('backupHint'))}</div>`)}
+      ${shellFold('setUpdate', T('updTitle') + ' · ' + APPVER, `<div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
         <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
         <div class="lbl" style="margin-top:6px">${esc(T('chanHint'))}</div>
         <div class="row" style="flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
-          <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div></div>
-      <div class="setsec" id="setAbout"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-09</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div></div>`, { width: 820, noFocus: true })
+          <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
+      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-10</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
+      ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}
+      ${shellFold('setAdvanced', T('advanced'), `<div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
+        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
+        <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
+        <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>`)}`
+    const setHost = $('setHost')
+    if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
+    else modal(setHtml, { width: 820, noFocus: true })
     fillAboutHash()
   }
   // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
@@ -2467,21 +2851,26 @@
     if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
   function rememberMineChoice () {
+    // Selection only. Running flags (minerRun*) are cleared on stop and quit.
+    const pick = readChainPick()
     const gpu = st.miners && st.miners.classicGpu
     const cpu = st.miners && st.miners.classicCpu
     const s0 = st.miners && st.miners.shard0
-    if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') {
-      localStorage.setItem('minerRunClassicGpu', gpu.backend === 'external' ? 'external' : 'gpu')
-      if (gpu.wallet) localStorage.setItem('minerClassicGpu', gpu.wallet)
-    }
-    if (cpu && cpu.running && cpu.mode !== 'node') {
-      localStorage.setItem('minerRunClassicCpu', '1')
-      if (cpu.wallet) localStorage.setItem('minerClassicCpu', cpu.wallet)
-    }
-    if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic') {
-      localStorage.setItem('minerRunShard0', '1')
-      if (s0.wallet && /^0x[0-9a-fA-F]{40}$/.test(s0.wallet)) localStorage.setItem('minerReward', s0.wallet)
-    }
+    if (gpu && gpu.wallet) localStorage.setItem('minerClassicGpu', gpu.wallet)
+    if (cpu && cpu.wallet) localStorage.setItem('minerClassicCpu', cpu.wallet)
+    if (s0 && s0.wallet && /^0x[0-9a-fA-F]{40}$/.test(s0.wallet)) localStorage.setItem('minerReward', s0.wallet)
+    if ((pick.gpu || []).some(n => n >= 1)) localStorage.setItem('minerPickClassicGpu', gpu && gpu.backend === 'external' ? 'external' : 'gpu')
+    if ((pick.cpu || []).length) localStorage.setItem('minerPickClassicCpu', '1')
+    if ((pick.gpu || []).indexOf(0) >= 0) localStorage.setItem('minerPickShard0', '1')
+    else try { localStorage.removeItem('minerPickShard0') } catch (e) {}
+  }
+  function clearMineRunningFlags () {
+    try {
+      localStorage.removeItem('minerRunClassicCpu')
+      localStorage.removeItem('minerRunClassicGpu')
+      localStorage.removeItem('minerRunShard0')
+    } catch (e) {}
+    try { api.invoke('miner:clearRunning') } catch (e) {}
   }
   // Stop only stops processes. The saved graphics-card / processor choice stays,
   // so the next Start mining restores that session instead of falling back to the processor.
@@ -2490,6 +2879,7 @@
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    clearMineRunningFlags()
     toast(T('stopped'))
   }
   async function stopAll () {
@@ -2499,12 +2889,15 @@
     return true
   }
   function savedMineChoice () {
-    const gpu = localStorage.getItem('minerRunClassicGpu') || ''
-    const cpuOn = localStorage.getItem('minerRunClassicCpu') === '1'
+    const gpuList = loadChainList('mineChainsGpu310')
+    const cpuList = loadChainList('mineChainsCpu310')
+    const gpuKind = localStorage.getItem('minerPickClassicGpu') || ''
+    const cpuOn = localStorage.getItem('minerPickClassicCpu') === '1' || !!(cpuList && cpuList.length)
+    const shard0 = (gpuList && gpuList.indexOf(0) >= 0) || localStorage.getItem('minerPickShard0') === '1'
     let classic = ''
-    if (gpu === 'external' || gpu === 'gpu') classic = gpu
+    if (gpuKind === 'external' || gpuKind === 'gpu' || (gpuList && gpuList.some(n => n >= 1))) classic = gpuKind === 'external' ? 'external' : 'gpu'
     else if (cpuOn) classic = 'cpu'
-    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: localStorage.getItem('minerRunShard0') === '1' }
+    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: !!shard0 }
   }
   function classicTargetForHome (backendName) {
     const pickedBackend = backendName === 'gpu' || backendName === 'external' || backendName === 'cpu'
@@ -2543,28 +2936,40 @@
     return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : ''
   }
   async function startOneHomeJob (job) {
-    if (job.chain === 'classic' && job.gpuMiner === 'external') {
+    if (job.chain === 'classic' && (job.gpuMiner === 'external' || job.gpuMiner === 'pool')) {
       const gpu = gpuParams()
       let r
       try {
         r = await api.invoke('miner:start', job.address, {
-          chain: 'classic', backend: 'gpu', gpuMiner: 'external', shard: job.shard,
-          threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+          chain: 'classic', backend: 'gpu', gpuMiner: job.gpuMiner, shard: job.shard,
+          threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads,
+          mineLabel: job.mineLabel || '', syncPct: job.syncPct == null ? null : job.syncPct
         })
       } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
       if (!r || !r.ok) {
         const key = 'st_' + ((r && r.code) || '')
         const stText = r && r.code && r.code !== 'ERROR' && T(key) !== key ? T(key) : ''
-        toast(window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, stText), 8000)
+        const text = window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, stText)
+        toast(text, 8000)
+        if (job.shard != null) {
+          st.mineRows = st.mineRows || {}
+          st.mineRows[job.shard] = { reason: text }
+        }
         return false
       }
-      localStorage.setItem('minerRunClassicGpu', 'external')
+      localStorage.setItem('minerRunClassicGpu', job.gpuMiner === 'external' ? 'external' : 'gpu')
       localStorage.setItem('minerClassicGpu', job.address)
       return true
     }
     const r = await startCatJob(job)
     if (r && r.ok) return true
-    if (r && r.fail) toast(r.fail, 7000)
+    if (r && r.fail) {
+      toast(r.fail, 7000)
+      if (job.shard != null) {
+        st.mineRows = st.mineRows || {}
+        st.mineRows[job.shard] = { reason: r.fail }
+      }
+    }
     return false
   }
   async function startHomeMining () {
@@ -2578,7 +2983,11 @@
     }
     const gpuBusy = !!(st.otherRigels && st.otherRigels.length)
     const hot = catTemp() != null && catTemp() >= 85
-    const classicMode = saved.classic || (st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu')
+    // A saved graphics-card or processor choice wins. With nothing saved, use a
+    // graphics card when one is available, otherwise the processor. Shard0 EVM
+    // still starts only when it was already enabled and its check passed.
+    const gpuAvail = !!(st.caps && st.caps.gpu && st.caps.gpu.available)
+    const classicMode = saved.classic || (gpuAvail ? 'gpu' : 'cpu')
     const spec = {
       saved: saved,
       backend: classicMode,
@@ -2609,6 +3018,228 @@
     let any = false
     for (const job of jobs) { if (await startOneHomeJob(job)) any = true }
     return any
+  }
+  function mineChainAddresses () {
+    const out = { 0: rewardForHome() }
+    for (const n of [1, 2, 3, 4]) {
+      let addr = ''
+      for (const a of st.accounts || []) {
+        const p = parseClassicAddress(a.pubkey)
+        if (p && p.shard === n) { addr = p.address; break }
+      }
+      out[n] = addr
+    }
+    return out
+  }
+  function loadChainList (key) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || 'null')
+      if (!Array.isArray(v)) return null
+      return v.map(Number).filter(n => n === 0 || (n >= 1 && n <= 4))
+    } catch (e) { return null }
+  }
+  function readChainPick () {
+    let cpu = loadChainList('mineChainsCpu310')
+    let gpu = loadChainList('mineChainsGpu310')
+    if (!window.SCDOMineHome) return { cpu: cpu || [], gpu: gpu || [] }
+    if (cpu == null || gpu == null) {
+      const snap = {
+        minerRunClassicGpu: localStorage.getItem('minerRunClassicGpu') || '',
+        minerRunClassicCpu: localStorage.getItem('minerRunClassicCpu') === '1' ? '1' : '',
+        minerRunShard0: localStorage.getItem('minerRunShard0') || '',
+        minerMode: localStorage.getItem('minerMode') || '',
+        minerClassic: localStorage.getItem('minerClassic') || '',
+        minerClassicCpu: localStorage.getItem('minerClassicCpu') || '',
+        minerClassicGpu: localStorage.getItem('minerClassicGpu') || '',
+        minerPickClassicGpu: localStorage.getItem('minerPickClassicGpu') || '',
+        minerPickClassicCpu: localStorage.getItem('minerPickClassicCpu') || '',
+        minerPickShard0: localStorage.getItem('minerPickShard0') || ''
+      }
+      let d = window.SCDOMineSession ? window.SCDOMineSession.migrateSelection(snap) : null
+      const targets = { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') }
+      if (!d && window.SCDOMineSession && !snap.minerPickClassicGpu && snap.minerPickClassicCpu !== '1' && snap.minerPickShard0 !== '1') {
+        d = window.SCDOMineSession.freshSelection(st.caps, targets)
+      }
+      if (!d) {
+        d = window.SCDOMineHome.defaultChainPick({
+          classic: snap.minerPickClassicGpu === 'external' || snap.minerPickClassicGpu === 'gpu' ? snap.minerPickClassicGpu : (snap.minerPickClassicCpu === '1' ? 'cpu' : ''),
+          cpu: snap.minerPickClassicCpu === '1',
+          shard0: snap.minerPickShard0 === '1'
+        }, st.caps, targets, st.miners)
+      }
+      if (cpu == null) cpu = d.cpu
+      if (gpu == null) gpu = d.gpu
+      try {
+        if (loadChainList('mineChainsCpu310') == null) localStorage.setItem('mineChainsCpu310', JSON.stringify(cpu || []))
+        if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
+      } catch (e) {}
+    }
+    return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps, st.poolStatus)
+  }
+  function writeChainPick (device, list) {
+    const key = device === 'cpu' ? 'mineChainsCpu310' : 'mineChainsGpu310'
+    const clean = []
+    for (const n of list || []) {
+      const x = Number(n)
+      if (clean.indexOf(x) < 0) clean.push(x)
+    }
+    clean.sort((a, b) => a - b)
+    try { localStorage.setItem(key, JSON.stringify(clean)) } catch (e) {}
+  }
+  function deviceBusy (device) {
+    if (device === 'cpu') return !!(st.miners && st.miners.classicCpu && st.miners.classicCpu.running && st.miners.classicCpu.mode !== 'node')
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = st.miners && st.miners.shard0
+    if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') return true
+    return !!(s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic')
+  }
+  async function stopDevice (device) {
+    rememberMineChoice()
+    if (device === 'cpu') {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
+    } else {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      const s0 = st.miners && st.miners.shard0
+      if (s0 && s0.running && s0.mode !== 'node') {
+        try { await api.invoke('miner:stop', 'mine') } catch (e) {}
+      }
+    }
+    const stoppedPick = readChainPick()
+    st.mineRows = st.mineRows || {}
+    for (const n of stoppedPick[device] || []) delete st.mineRows[n]
+    clearMineRunningFlags()
+    toast(T('stopped'))
+  }
+  function rememberMineRows (device, built) {
+    st.mineRows = st.mineRows || {}
+    const pick = readChainPick()
+    for (const n of pick[device] || []) delete st.mineRows[n]
+    for (const b of built.blocked || []) {
+      st.mineRows[b.shard] = { reason: b.reason || '', reasonKey: b.reason ? '' : (b.reasonKey || '') }
+    }
+    for (const j of built.jobs || []) {
+      if (j.shard == null) continue
+      st.mineRows[j.shard] = {
+        action: j.action || (j.backend === 'cpu' ? 'cpu' : 'mine'),
+        label: j.mineLabel || '',
+        offerCpu: j.offerCpu === true,
+        syncPct: j.syncPct == null ? null : j.syncPct
+      }
+    }
+  }
+  async function nodeMapForStart () {
+    let heights = {}
+    try { heights = await api.invoke('mining:localSync') || {} } catch (e) { heights = {} }
+    const nodes = {}
+    for (const n of [1, 2, 3, 4]) {
+      const pool = st.poolStatus && (st.poolStatus[n] || st.poolStatus[String(n)])
+      const slot = [st.miners && st.miners.classicGpu, st.miners && st.miners.classicCpu].find(m => m && Number(m.shard) === n)
+      const probed = heights[n] || heights[String(n)] || {}
+      const local = probed.local != null ? probed.local : (slot && slot.localBlock)
+      const network = (pool && pool.online && pool.chain_height != null) ? pool.chain_height : (slot && slot.networkBlock)
+      nodes[n] = window.SCDOMineHome.nodeSyncOf({ local: local, network: network })
+    }
+    return nodes
+  }
+  async function startDevice (device, opts) {
+    opts = opts || {}
+    try { await ensureCaps() } catch (e) {}
+    try { await ensureGpu(true) } catch (e) {}
+    try { await refreshPools() } catch (e) {}
+    let intent = null
+    try { intent = await api.invoke('miner:intent') } catch (e) { intent = null }
+    const pick = readChainPick()
+    const chains = pick[device] || []
+    const addresses = mineChainAddresses()
+    let preflight = null
+    if (device === 'gpu' && chains.indexOf(0) >= 0 && !opts.skipShard0) {
+      try { preflight = await api.invoke('mining:gpuPreflight') } catch (e) { preflight = { ok: false, gpus: [] } }
+      try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) { st.otherRigels = st.otherRigels || [] }
+    }
+    const hot = catTemp() != null && catTemp() >= 85
+    const nodes = device === 'gpu' ? await nodeMapForStart() : {}
+    const built = window.SCDOMineHome.jobsForDevice({
+      device: device,
+      chains: chains,
+      addresses: addresses,
+      caps: st.caps,
+      saved: savedMineChoice(),
+      gpuBusy: device === 'gpu' && !!(st.otherRigels && st.otherRigels.length),
+      nvidia: !!(st.gpu && st.gpu.nvidia),
+      preflight: preflight,
+      hot: device === 'gpu' && hot,
+      reward: addresses[0],
+      pools: st.poolStatus,
+      nodes: nodes,
+      explicitSolo: !!(intent && intent.miningMode === 'solo'),
+      zh: lang() !== 'EN',
+      skipShard0: !!opts.skipShard0
+    })
+    rememberMineRows(device, built)
+    for (const key of built.notices || []) toast(T(key), 7000)
+    if (!built.jobs.length) return false
+    if (built.jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
+      localStorage.setItem('defenderAsked112', '1')
+      if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) {
+        const r = await api.invoke('miner:defender')
+        toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000)
+      }
+    }
+    let any = false
+    for (const job of built.jobs) { if (await startOneHomeJob(job)) any = true }
+    return any
+  }
+  async function startCpuPool (shard, address) {
+    const n = Number(shard)
+    if (!(n >= 1 && n <= 4) || !address) return
+    const cpu = st.miners && st.miners.classicCpu
+    if (cpu && cpu.running && cpu.mode !== 'node') {
+      if (Number(cpu.shard) === n) return
+      toast(T('shellOneClassic'), 7000)
+      return
+    }
+    const pick = readChainPick()
+    const cpuChains = (pick.cpu || []).slice()
+    if (cpuChains.indexOf(n) < 0) cpuChains.push(n)
+    writeChainPick('cpu', cpuChains)
+    let r
+    try {
+      r = await api.invoke('miner:start', address, {
+        chain: 'classic', backend: 'cpu', shard: n, threads: threadCount()
+      })
+    } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
+    if (!r || !r.ok) {
+      const text = window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, '')
+      toast(text, 8000)
+      return
+    }
+    localStorage.setItem('minerRunClassicCpu', '1')
+    localStorage.setItem('minerClassicCpu', address)
+    refreshDash()
+  }
+  async function homeMineToggleDevice (device) {
+    if (device !== 'cpu' && device !== 'gpu') return
+    if (!st.homeMineDev) st.homeMineDev = { cpu: '', gpu: '' }
+    if (st.homeMineDev[device] === 'starting' || st.homeMineDev[device] === 'stopping') return
+    const phase = deviceBusy(device) ? 'mining' : 'stopped'
+    const next = window.SCDOMineHome.reduceMinePhase(phase, 'click')
+    if (next === phase) return
+    st.homeMineDev[device] = next
+    refreshDash()
+    try {
+      if (next === 'stopping') {
+        const ok = await confirmBox(T('shellStopAsk'), '', T('stopAllYes'), T('cancel'), true)
+        if (!ok) { st.homeMineDev[device] = ''; refreshDash(); return }
+        await stopDevice(device)
+        st.homeMineDev[device] = ''
+      } else {
+        const ok = await startDevice(device)
+        st.homeMineDev[device] = ok ? 'mining' : ''
+      }
+    } catch (e) {
+      st.homeMineDev[device] = ''
+    }
+    refreshDash()
   }
   async function homeMineToggle () {
     if (st.homeMine === 'starting' || st.homeMine === 'stopping' || st.actStarting) return
@@ -2645,6 +3276,7 @@
     const ext = st.miners && st.miners.shard0 && st.miners.shard0.phase === 'external'
     if (!ext) toast(T('stopping'), 60000)
     await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
+    if (src !== 'node') clearMineRunningFlags()
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
@@ -2702,11 +3334,41 @@
       case 'mineShard': st.mineShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; localStorage.setItem('mineShard112', String(st.mineShard)); render(); break
       case 'mineBackend': st.mineBackend = v === 'gpu' || v === 'external' ? v : 'cpu'; localStorage.setItem('mineBackend112', st.mineBackend); render(); break
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
+      case 'nav': {
+        if ($('md')) SD.clear($('modalRoot'))
+        setTab(v)
+        render()
+        if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }
+        if (v === 'home' || v === 'recv' || v === 'acc') { refreshOld(); refreshS0() }
+        break
+      }
+      case 'recvShard': st.recvShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; render(); break
+      case 'recvAddr': {
+        const n = Number(el.getAttribute('data-shard'))
+        st.recvShard = [0, 1, 2, 3, 4].includes(n) ? n : 0
+        try { localStorage.setItem('recvAddr310-' + st.recvShard, v) } catch (e) {}
+        goPage('recv'); break
+      }
+      case 'remitAddr': {
+        const n = Number(el.getAttribute('data-shard'))
+        st.payPrefill = { from: v || '', shard: [0, 1, 2, 3, 4].includes(n) ? n : 0, to: '', amount: '' }
+        goPage('remit'); break
+      }
+      case 'chainTxMore': { const n = Number(v); st.txMore[n] = ((st.txMore && st.txMore[n]) || 8) + 8; render(); break }
+      case 'openExplorer': if (/^https:\/\/scdoscan\.io\//.test(String(v || ''))) openExternal(v); break
+      case 'site': {
+        const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
+        if (hit && hit.action) menuAction(hit.action)
+        else if (hit && hit.href && window.SCDOSiteNav) openExternal(window.SCDOSiteNav.url(hit.href))
+        break
+      }
+      case 'backup': backupPickModal(); break
+      case 'manage': manageModal(); break
       case 'accMenu':
       case 'accChip': if ($('dd')) closeDd(); else accChipMenu(el); break
       case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
-      case 'settings': settingsModal(); break
+      case 'settings': goPage('settings'); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
@@ -2726,7 +3388,12 @@
       case 'cardRemit': openRemitFor(f); break
       case 'useOtherAddr': useOtherAddr(v); break
       case 'closeModal': closeModal(); break
-      case 'openTx': if (/^0x[0-9a-fA-F]{64}$/.test(String(v || ''))) openExternal(shard0().explorerTx(v)); break
+      case 'openTx': {
+        const h = String(v || '')
+        if (/^0x[0-9a-fA-F]{64}$/.test(h)) openExternal(shard0().explorerTx(h))
+        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdoscan.io/tx/' + h)
+        break
+      }
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
       case 'openLink': if (CONTACT_URLS.includes(String(v || ''))) openExternal(v); break
       case 'backupPick': backupPickModal(); break
@@ -2734,9 +3401,35 @@
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'mineStart': mineStart(); break
       case 'homeMine': homeMineToggle(); break
+      case 'homeMineDev': homeMineToggleDevice(el.getAttribute('data-dev')); break
+      case 'mineCpuFirst': startCpuPool(el.getAttribute('data-shard'), el.getAttribute('data-addr')); break
+      case 'mineChain': {
+        const device = el.getAttribute('data-dev') === 'gpu' ? 'gpu' : 'cpu'
+        const raw = el.getAttribute('data-v')
+        const pick = readChainPick()
+        const cur = (pick[device] || []).slice()
+        if (raw === 'all') {
+          const all = [0, 1, 2, 3, 4].filter(n => window.SCDOMineHome.chainSupport(device, n, st.caps).ok)
+          const on = all.length > 0 && all.every(n => cur.indexOf(n) >= 0)
+          pick[device] = on ? [] : all
+        } else {
+          const n = Number(raw)
+          if (!window.SCDOMineHome.chainSupport(device, n, st.caps).ok) break
+          pick[device] = cur.indexOf(n) >= 0 ? cur.filter(x => x !== n) : cur.concat(n)
+        }
+        writeChainPick(device, pick[device])
+        render()
+        break
+      }
       case 'nodeStart': nodeStart(); break
       case 'minerStop': minerStop(el.id === 'btnNode' || (st.miner && st.miner.mode === 'node') ? 'node' : 'mine'); break
-      case 'toggleLog': st.logOpen = !st.logOpen; st.advOpen = true; render(); break
+      case 'toggleLog': {
+        st.logOpen = !st.logOpen
+        const pre = $('mLog')
+        if (pre) pre.hidden = !st.logOpen
+        el.textContent = st.logOpen ? T('hideLog') : T('showLog')
+        break
+      }
       case 'openLogs': api.invoke('miner:openLogs'); break
       case 'remitSign': remitLogin(f); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); render(); break
@@ -2776,6 +3469,16 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
+    if (t.id === 'recvPick') {
+      const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
+      try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
+      render(); return
+    }
+    if (t.id && String(t.id).indexOf('chainFilter-') === 0) {
+      const n = Number(String(t.id).slice('chainFilter-'.length))
+      st.txFilter[n] = t.value
+      render(); return
+    }
     if (t.id === 'mThreads') {
       const lab = $('mThreadsLab')
       const cores = T('cpuCoresLine', { n: t.value, max: t.max })
@@ -2785,14 +3488,19 @@
     }
     const half = t.id === 'mClassic-in' || t.id === 'mReward-in' || t.id === 'nPayout-in' || t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads' || t.id === 'cPriv'
     if (!half) return
-    const next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    let next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    if (t.id === 'payAmt' || t.id === 'sAmt') {
+      const clip = AMT.clipDecimals(next, 8)
+      next = clip.value
+      const hint = $('payAmtHint')
+      if (hint) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+    }
     if (next !== t.value) {
       const pos = t.selectionStart
       t.value = next
       try { t.setSelectionRange(pos, pos) } catch (e) {}
     }
   })
-  document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
       if ($('stopAllDlg')) { const n = $('cbNo'); if (n) n.click(); return }
@@ -2817,11 +3525,10 @@
   }
   function goMineHome () {
     if ($('md')) SD.clear($('modalRoot'))
-    setTab('home')
-    st.scrollTo = 'homeMineCard'
+    setTab('mine')
     render()
-    refreshOld()
-    refreshS0()
+    ensureGpu()
+    ensureCaps()
   }
   async function menuStartMining () {
     if (miningBusy() || st.actStarting) { toast(currentMinePill().t, 5000); return }
@@ -2839,12 +3546,14 @@
       case 'reward': case 'mineSettings': goPage('mineSet'); break
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
+      case 'recv': goPage('recv'); break
       case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
       case 'remit': openRemittance(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
-      case 'settings': settingsModal(); break
+      case 'settings': goPage('settings'); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
+      case 'clearMineRunning': clearMineRunningFlags(); break
     }
   }
   api.on('menu:action', (a) => menuAction(a))
@@ -2867,6 +3576,10 @@
     if (!p || !p.ok) { toast(T(p && p.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + (p && p.error ? PU.c() + p.error : ''), 8000); closeModal() }
   })
 
+  async function refreshPools () {
+    try { st.poolStatus = await api.invoke('mining:poolStatus') } catch (e) { st.poolStatus = st.poolStatus || null }
+    refreshDash()
+  }
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
     try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) {}
@@ -2895,15 +3608,12 @@
     } else st.catH.peersAt = 0
   }
   function catBalances () {
-    const a = headerAccount()
-    if (!a) return []
-    if (headerChain() === 'old') {
-      const v = fmtOld(a.pubkey)
-      return [{ label: accLabel(a), text: (v != null ? v : '…') + ' SCDO' }]
-    }
-    if (!a.evm) return [{ label: accLabel(a), text: '尚未解鎖' }]
-    const b = st.s0[a.filename]
-    return [{ label: accLabel(a), text: (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO' }]
+    if (!window.SCDOChainHome) return []
+    return chainRowModel({}).map(c => {
+      const s = window.SCDOChainHome.summarize(c)
+      const text = s.text || '\u2014'
+      return { label: s.title, text: text === '\u2014' ? '\u2014' : text + ' SCDO' }
+    })
   }
   function catCtx (extra) {
     const caps = st.caps || {}
@@ -3096,6 +3806,7 @@
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
           <div class="cat-place" id="catPlace" role="group" aria-label="${esc(T('catSizeLbl'))}"><span class="cat-place-l">${esc(T('catSizeLbl'))}</span><span class="cat-seg">${['s', 'm', 'l'].map(k => `<button type="button" data-act="catSize" data-v="${k}" id="catSize-${k}" aria-pressed="false">${esc(T('catSize_' + k))}</button>`).join('')}</span><button type="button" class="cat-reset" data-act="catCorner" data-v="br" id="catCornerReset">${esc(T('catCornerReset'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
+          <details class="cat-help" id="catSites"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('shellSites'))}</summary><div class="cat-sites">${window.SCDOSiteNav ? window.SCDOSiteNav.flat().map(it => `<button type="button" class="link" data-act="site" data-v="${esc(it.id)}">${esc(lang() === 'EN' ? it.en : it.cn)}</button>`).join('') : ''}</div></details>
           <details class="cat-help"><summary>${esc(T('help_title'))}</summary>${contactHtml('catContact')}</details>
         </div>`)
     }
@@ -3166,7 +3877,14 @@
     }
     if (action.type === 'prefill') {
       if (!action.file) return { fail: '請先選擇帳戶。' }
-      payModal(action.file, { to: action.to || '', amount: action.amount || '' })
+      st.payPrefill = { to: action.to || '', amount: action.amount || '' }
+      openRemitFor(action.file)
+      return { ok: true }
+    }
+    if (action.type === 'openSite') {
+      const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
+      if (hit && hit.action) menuAction(hit.action)
+      else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
       return { ok: true }
     }
     if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }
@@ -3175,7 +3893,7 @@
       const f = action.form
       if (f === 'create') createModal()
       else if (f === 'import') importChoiceModal()
-      else if (f === 'settings') settingsModal()
+      else if (f === 'settings') goPage('settings')
       else if (f === 'reward') goPage('mineSet')
       else if (f === 'send' || f === 'remit') openRemittance()
       else if (f === 'stop') stopAll()
@@ -3272,37 +3990,47 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld(); refreshGpuTemp(); renderCat()
-    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000)
+    refreshS0(); refreshOld(); refreshGpuTemp(); refreshPools(); renderCat()
+    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000); setInterval(refreshPools, 60000)
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
-    ensureCaps().then(async caps => {
-      const classicCpu = localStorage.getItem('minerRunClassicCpu') === '1'
-      let classicGpu = localStorage.getItem('minerRunClassicGpu') || ''
-      if (!classicCpu && !classicGpu && localStorage.getItem('minerMode') === 'classic-cpu') localStorage.setItem('minerRunClassicCpu', '1')
-      if (localStorage.getItem('minerRunClassicCpu') === '1' && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps && caps.cpu && caps.cpu.available) {
-        const p = parseClassicAddress(localStorage.getItem('minerClassicCpu') || localStorage.getItem('minerClassic') || '')
-        if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
-      }
-      if (!classicGpu && localStorage.getItem('minerMode') === 'classic-gpu') classicGpu = localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu'
-      if (classicGpu && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
-        const p = parseClassicAddress(localStorage.getItem('minerClassicGpu') || localStorage.getItem('minerClassic') || '')
-        const gpuOk = classicGpu === 'external' ? (caps && caps.external && caps.external.available) : (caps && caps.gpu && caps.gpu.available)
-        if (p && gpuOk) {
-          const gpu = gpuParams()
-          api.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: classicGpu === 'external' ? 'external' : 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
-        }
-      }
-    }).catch(() => {})
+    ensureCaps().catch(() => {})
     ensureGpu().then(async () => {
       let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
-      if (!rc || !rc.autoResume || rc.running || (st.miner && st.miner.running)) return
-      if (rc.mode === 'node') { nodeStart(); return }
-      if (!rc.gpuOk || !rc.reward) return
-      if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
-      const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
-      if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
+      // Running flags never start a miner. Auto-resume has to be explicitly on.
+      const legacyOn = localStorage.getItem('minerRunClassicCpu') === '1'
+      const plan = window.SCDOMineSession ? window.SCDOMineSession.launchPlan({
+        autoResume: !!(rc && rc.autoResume === true),
+        resume: rc && rc.resume,
+        running: {
+          cpu: legacyOn,
+          classicGpu: !!(localStorage.getItem('minerRunClassicGpu')),
+          shard0: localStorage.getItem('minerRunShard0') === '1'
+        }
+      }) : { start: [] }
+      if (!rc || rc.autoResume !== true || !plan.start.length) {
+        clearMineRunningFlags()
+        return
+      }
+      if (rc.running || (st.miner && st.miner.running)) return
+      if (rc.mode === 'node' && plan.start.indexOf('shard0') < 0 && plan.start.indexOf('cpu') < 0 && plan.start.indexOf('classicGpu') < 0) { nodeStart(); return }
+      const caps = st.caps || {}
+      if (plan.start.indexOf('cpu') >= 0 && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps.cpu && caps.cpu.available !== false) {
+        const p = classicTargetForHome('cpu')
+        if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
+      }
+      if (plan.start.indexOf('classicGpu') >= 0 && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
+        const gpuOk = caps.gpu && caps.gpu.available
+        if (gpuOk) await startDevice('gpu', { skipShard0: true })
+      }
+      if (plan.start.indexOf('shard0') >= 0) {
+        if (rc.mode === 'node') { nodeStart(); return }
+        if (!rc.gpuOk || !rc.reward) return
+        if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
+        const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
+        if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
+      }
     })
     if (st.tab === 'mineSet') render()
   }

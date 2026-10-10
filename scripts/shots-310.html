@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>SCDO Wallet 3.1.0 測試畫面</title>
+  <link href="../src/css/app112.css" rel="stylesheet">
+  <link href="../src/css/shell310.css" rel="stylesheet">
+  <style>
+    .shot-banner { position: sticky; top: 0; z-index: 80; background: #1d7a34; color: #fff; text-align: center; font-weight: 800; font-size: 14px; letter-spacing: .2px; padding: 7px 16px; }
+    html, body { background: #F2F2F7; }
+  </style>
+</head>
+<body>
+  <div id="app" class="shell">
+    <nav id="sideNav" class="side-nav"></nav>
+    <div class="shell-col">
+      <div class="shot-banner" id="shotBanner">測試資料</div>
+      <div id="siteBar" class="site-bar"></div>
+      <main id="main"></main>
+    </div>
+  </div>
+  <div id="aiCatRoot"></div>
+  <script src="../src/js/qrcode.js"></script>
+  <script src="../src/js/i18n112.js"></script>
+  <script src="../src/js/amount.js"></script>
+  <script src="../src/js/chainHome.js"></script>
+  <script src="../src/js/mineHome.js"></script>
+  <script src="../src/js/siteNavMap.js"></script>
+  <script>
+    'use strict'
+    const I = window.I18N112.CN
+    const CH = window.SCDOChainHome
+    const MH = window.SCDOMineHome
+    const AMT = window.SCDOAmount
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+    function T (k, p) {
+      let s = I[k]
+      if (s == null) s = k
+      if (p) s = String(s).replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
+      return s
+    }
+    const A0 = '0xa11ce00000000000000000000000000000a11ce0'
+    const A0b = '0x' + 'b0b0' + '0'.repeat(32) + 'b0b0'
+    const C1 = '1S' + 'c1a55'.repeat(8)
+    const C1b = '1S' + 'd2b66'.repeat(8)
+    const C2 = '2S' + 'e3c77'.repeat(8)
+    if (A0.length !== 42 || A0b.length !== 42 || C1.length !== 42) throw new Error('test address length')
+    const u18 = (s) => AMT.toUnits(s, 18)
+    const u8 = (s) => AMT.toUnits(s, 8)
+    const when = Date.parse('2026-10-09T08:15:00Z')
+    function chains (open0, open1) {
+      return [
+        { n: 0, open: !!open0, txLimit: 8, filter: '', entries: [
+          { name: '測試帳戶甲', address: A0, units: u18('1.25'), decimals: 18 },
+          { name: '測試帳戶乙', address: A0b, units: u18('0.5'), decimals: 18 }
+        ], txs: [
+          { address: A0, dir: 'in', amount: '0.125', t: when, status: 'done', hash: 'ab'.repeat(32) },
+          { address: A0b, dir: 'out', amount: '0.08', t: when - 3600000, status: 'done', hash: 'cd'.repeat(32) }
+        ] },
+        { n: 1, open: !!open1, txLimit: 8, filter: '', entries: [
+          { name: '測試帳戶丙', address: C1, units: u8('3.5'), decimals: 8 },
+          { name: '測試帳戶丁', address: C1b, units: null, decimals: 8, failed: true }
+        ], txs: [
+          { address: C1, dir: 'in', amount: '0.2', t: when - 7200000, status: 'done', hash: 'ef'.repeat(32), href: 'https://scdoscan.io/tx/' + 'ef'.repeat(32) }
+        ] },
+        { n: 2, open: false, txLimit: 8, filter: '', entries: [
+          { name: '測試帳戶戊', address: C2, units: null, decimals: 8 }
+        ], txs: [] },
+        { n: 3, open: false, txLimit: 8, filter: '', entries: [], txs: [] },
+        { n: 4, open: false, txLimit: 8, filter: '', entries: [], txs: [] }
+      ]
+    }
+    const ICO = {
+      home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
+      recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
+      remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
+      mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
+      settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
+    }
+    function side (cur) {
+      const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit'], ['mine', 'navMine'], ['settings', 'navSettings']]
+      document.getElementById('sideNav').innerHTML = items.map(([id, key]) => '<button type="button" class="nav-item' + (cur === id ? ' on' : '') + '">' + ICO[id] + '<span>' + esc(T(key)) + '</span></button>').join('')
+    }
+    function siteBar () {
+      const nav = window.SCDOSiteNav
+      const primary = nav.GROUPS.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
+      const rest = nav.GROUPS.filter(g => primary.indexOf(g) < 0)
+      const btn = (it) => '<button type="button" class="site-link">' + esc(it.cn) + '</button>'
+      const group = (g) => (!g.children || !g.children.length) ? btn(g) : '<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ' + esc(g.cn) + '</summary>' + g.children.map(btn).join('') + '</details>'
+      const more = rest.length ? '<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> 更多</summary>' + rest.map(group).join('') + '</details>' : ''
+      document.getElementById('siteBar').innerHTML = primary.map(group).join('') + more
+    }
+    function fold (id, title, inner) {
+      return '<details class="shell-fold" id="' + id + '"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ' + esc(title) + '</summary>' + inner + '</details>'
+    }
+    function mineInput (live) {
+      return {
+        miners: live ? {
+          classicGpu: {
+            running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_GPU', phase: 'mining',
+            procs: ['classic-node'], hashrate: 1250, localBlock: 120, networkBlock: 120
+          }
+        } : {},
+        caps: { gpu: { available: true }, cpu: { available: true } },
+        chains: { cpu: [1], gpu: [1] },
+        addresses: { 1: C1 },
+        temps: live ? [{ tempC: 62 }] : [],
+        pools: live ? { 1: { online: true, chain_height: 90210, connections: 6 }, 2: { online: null } } : {}
+      }
+    }
+    function homeHtml (expanded) {
+      const rows = CH.rowsHtml(chains(expanded, expanded), T, esc)
+      const strip = MH.stripHtml(mineInput(false), T, esc)
+      return '<div class="page shell-home" id="homePage"><div class="shell-actions"><button type="button" class="shell-act">' + esc(T('navRecv')) + '</button><button type="button" class="shell-act">' + esc(T('navRemit')) + '</button><button type="button" class="shell-act">' + esc(T('navMine')) + '</button></div><section class="mine-strip" id="homeMineHost">' + strip + '</section><div class="chain-rows" id="chainRows">' + rows + '</div></div>'
+    }
+    function recvHtml () {
+      const model = chains(false, false)[0]
+      const pick = CH.selectHtml('recvPick', model.entries, A0, esc)
+      const tabs = [0, 1, 2, 3, 4].map(i => {
+        const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
+        return '<button type="button" class="recv-tab' + (i === 0 ? ' on' : '') + '">' + esc(label) + '</button>'
+      }).join('')
+      return '<div class="page shell-recv" id="recvPage"><h1 class="shell-h">' + esc(T('navRecv')) + '</h1><div class="recv-sum">Shard0 EVM</div><div class="recv-tabs">' + tabs + '</div><div class="field">' + pick + '</div><div class="qrwrap"><div id="qrBox" data-addr="' + esc(A0) + '"></div></div><div class="recv-line"><div class="recv-addr mono" id="rcvAddr">' + esc(A0) + '</div><button type="button" class="shell-copy">' + esc(T('copy')) + '</button></div>' + fold('recvChains', T('shellRecvChains'), '<div class="lbl">' + esc(T('recvOnly')) + '</div>') + '</div>'
+    }
+    function sendHtml () {
+      const model = chains(false, false)[0]
+      const pick = CH.selectHtml('payFromPick', model.entries, A0, esc)
+      const chip = (n) => '<button type="button" class="wiz-chip' + (n === 0 ? ' on' : '') + '">' + esc(n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')) + '</button>'
+      return '<div class="page shell-remit" id="remitPage"><h1 class="shell-h">' + esc(T('navRemit')) + '</h1><div id="remitHost"><div class="wiz" id="payWiz" data-step="1"><div class="wiz-dots"><span data-wiz-dot="1">1 ' + esc(T('wizAddr')) + '</span><span data-wiz-dot="2">2 ' + esc(T('wizAmount')) + '</span><span data-wiz-dot="3">3 ' + esc(T('wizConfirm')) + '</span></div><div id="wizStep1" class="wiz-step">' + fold('wizPayer', T('payFrom'), '<div class="wrap">' + esc('測試帳戶甲') + '</div>') + '<div class="field"><div class="lbl">' + esc(T('payTo')) + '</div><input class="inp" id="payTo" placeholder="' + esc(T('payToPh')) + '" autocomplete="off"></div>' + fold('wizPayees', T('shellPayees'), '<div class="row" id="payeeChips"></div>') + '<div id="payChain" class="wiz-chain"><div class="lbl">' + esc(T('wizChain')) + '</div><div class="wiz-chips">' + [0, 1, 2, 3, 4].map(chip).join('') + '</div></div><div class="field"><div class="lbl">' + esc(T('shellPickAddr')) + '</div><div id="payFromPick">' + pick + '</div><div class="lbl" id="payFromBal">1.25 SCDO</div></div><div class="wiz-nav"><button type="button" class="shell-go" id="wizNext1">' + esc(T('wizNext')) + '</button></div></div></div></div></div>'
+    }
+    function settingsHtml () {
+      const groups = [
+        ['setLang', T('setLang') + ' · 華語繁體', '<button type="button" class="btn ghost">English</button><button type="button" class="btn pri">華語繁體</button>'],
+        ['setNotify', T('notifyTitle'), '<div class="lbl">' + esc(T('notifyHint')) + '</div>'],
+        ['setSecurity', T('setSecTitle'), '<button type="button" class="btn sec">' + esc(T('setCreate')) + '</button>'],
+        ['setUpdate', T('updTitle') + ' · 3.1.0', '<div class="lbl">SCDO Wallet 3.1.0</div>'],
+        ['setAbout', T('about') + ' · 3.1.0', '<div>SCDO Wallet 3.1.0</div>'],
+        ['setCat', 'AI小貓', '<div class="lbl">' + esc(T('catHint')) + '</div>'],
+        ['setAdvanced', T('advanced'), '<div class="lbl">測試資料</div>']
+      ]
+      return '<div class="page shell-set" id="setPage"><h1 class="shell-h">' + esc(T('navSettings')) + '</h1><div id="setHost"><div class="mh"><h2>' + esc(T('navSettings')) + '</h2></div>' + groups.map(g => fold(g[0], g[1], g[2])).join('') + '</div></div>'
+    }
+    function catHtml () {
+      const sites = window.SCDOSiteNav.flat().map(it => '<button type="button" class="link">' + esc(it.cn) + '</button>').join('')
+      return '<div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="AI小貓"><i class="bub b1"></i><i class="bub b2"></i><i class="bub b3"></i><i class="bub b4"></i><button type="button" class="ios-x" aria-label="' + esc(T('catClose')) + '">✕</button><div class="ios-hd center"><span class="av"><img src="../assets/ai-cat.png" alt=""></span><div class="t1">' + esc(T('catTitle')) + '</div><div class="t2">' + esc(T('catAskQ')) + '</div></div><div class="ios-log" id="aiCatLog"><div class="ai-line me">你：餘額在哪裡看？</div><div class="ai-line">測試資料：這是畫面測試。餘額在首頁每一條鏈自己的列，讀不到時顯示 —。</div></div><div class="ios-group"><button type="button" class="ios-row"><span class="ios-tile" style="background:#ff2d55"></span><span class="ios-lbl">' + esc(T('catRowHeal')) + '</span></button></div><button type="button" class="cat-type">' + esc(T('catInput')) + '</button><div class="ios-foot"><button type="button">' + esc(T('catLater')) + '</button><button type="button">' + esc(T('catHide')) + '</button></div><div class="ios-note">' + esc(T('catNote')) + '</div><details class="cat-help" id="catSites"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ' + esc(T('shellSites')) + '</summary><div class="cat-sites">' + sites + '</div></details></div>'
+    }
+    function paintQr () {
+      const box = document.getElementById('qrBox')
+      if (!box || !window.QRCode) return
+      try { new window.QRCode(box, { text: A0, width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M }) } catch (e) {}
+    }
+    window.showShot = function (name) {
+      document.getElementById('aiCatRoot').innerHTML = ''
+      document.getElementById('shotBanner').textContent = '測試資料 · ' + name
+      siteBar()
+      const main = document.getElementById('main')
+      if (name === 'home-collapsed') { side('home'); main.innerHTML = homeHtml(false) }
+      else if (name === 'home-expanded') { side('home'); main.innerHTML = homeHtml(true) }
+      else if (name === 'mining-stopped') { side('mine'); main.innerHTML = MH.minePageHtml(mineInput(false), T, esc) }
+      else if (name === 'mining-expanded') {
+        side('mine')
+        main.innerHTML = MH.minePageHtml(mineInput(true), T, esc)
+        main.querySelectorAll('details').forEach(d => { d.open = true })
+      } else if (name === 'receive') { side('recv'); main.innerHTML = recvHtml(); paintQr() }
+      else if (name === 'send-step1') { side('remit'); main.innerHTML = sendHtml() }
+      else if (name === 'settings') { side('settings'); main.innerHTML = settingsHtml() }
+      else if (name === 'cat-chat') { side('home'); main.innerHTML = homeHtml(false); document.getElementById('aiCatRoot').innerHTML = catHtml() }
+      else throw new Error('unknown shot ' + name)
+      const banned = ['12846', '288.40', '48.2', '76.0', '0.0033', '範例', '總餘額']
+      const text = document.body.innerText
+      for (const b of banned) if (text.includes(b)) throw new Error('banned demo text ' + b)
+      return name
+    }
+  </script>
+</body>
+</html>

@@ -1,8 +1,9 @@
 // Classic shard 1–4 mining. The main process keeps one instance for CPU and
 // one for GPU, so both can run next to Shard0.
 // CPU: zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// GPU: go-scdo node.exe CUDA zpow, one shard, coinbase = the user's address.
-// A third binary can be dropped in with SCDO_ZPOW_GPU_BIN / SCDO_ZPOW_GPU_ARGS.
+// GPU solo and the unsynced start both use the shipped Classic node (node.exe + libcudart).
+// While the node is behind the tip it only syncs. It mines after it catches up.
+// The payout address is basic.coinbase. Pool shares are the processor miner.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -155,7 +156,7 @@ class ZpowManager extends EventEmitter {
       if (ev.rejected != null) patch.sharesRejected = ev.rejected
       if (ev.connected != null) patch.connected = ev.connected
       if (ev.blocks != null) patch.blocksFound = Math.max(this.state.blocksFound, ev.blocks)
-      if (this.state.mode === 'cpu') {
+      if (this.state.mode === 'cpu' || this.state.backend === 'pool' || this.state.backend === 'external') {
         patch.code = ev.connected ? 'CLASSIC_MINING' : 'POOL_CONNECTING'
         patch.phase = ev.connected ? 'mining' : 'starting'
         patch.message = ev.connected ? '' : 'connecting'
@@ -405,8 +406,10 @@ class ZpowManager extends EventEmitter {
       backend: backend === 'cpu' ? 'zminer' : gpuMiner,
       pool: backend === 'gpu' && gpuMiner === 'classic-node' ? null : { stratum: pool.stratum, stats: minerStatsUrl(pool, parsed.address), live: pool.live },
       phase: 'starting',
-      code: backend === 'cpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
+      code: backend === 'cpu' || gpuMiner === 'pool' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
       message: '',
+      mineLabel: opts.mineLabel || '',
+      syncPct: opts.syncPct == null ? null : opts.syncPct,
       startedAt: Date.now()
     })
     this.restarts = []
@@ -514,9 +517,25 @@ class ZpowManager extends EventEmitter {
         ctrlCScript: ctrl ? ctrlCScript(path.join(this.o.dataRoot, 'tools')) : undefined
       })
     }
-    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '' })
+    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())
   }
 }
 
-module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage }
+async function localNodeHeights (call, timeoutMs) {
+  const rpc = call || rpcCall
+  const ms = timeoutMs || 800
+  const out = {}
+  await Promise.all([1, 2, 3, 4].map(async (n) => {
+    const port = SHARD_PORTS[n]
+    if (!port) return
+    try {
+      const info = await rpc('http://127.0.0.1:' + port.http, 'scdo_getInfo', [], ms)
+      const h = info && (info.CurrentBlockHeight != null ? info.CurrentBlockHeight : info.currentBlockHeight)
+      if (h != null && Number(h) > 0) out[n] = { local: Number(h) }
+    } catch (e) {}
+  }))
+  return out
+}
+
+module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage, localNodeHeights }

@@ -9,6 +9,7 @@ require('./src/main/safeLog') // 2.0.2: EPIPE-safe logging + crash guards, must 
 const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const mineResume = require('./src/main/mineResume')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
@@ -95,7 +96,7 @@ const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
-// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 繁體中文, 'EN')
+// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 華語繁體, 'EN')
 function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
@@ -378,6 +379,10 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
     try {
       await getZpow(backend).start(wallet, Object.assign({}, opts, { chain: 'classic', backend }))
+      const cfgNow = readIntent() || {}
+      const runPatch = backend === 'cpu' ? { runningCpu: true } : { runningClassicGpu: true }
+      if (cfgNow.keepMining) runPatch.autoResume = true
+      writeIntent(runPatch)
       refreshTray()
       return { ok: true }
     } catch (err) {
@@ -393,7 +398,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
   try {
     await getMiner().start(wallet, startOpts)
     // 2.0.1: autoResume (start again on the next launch) only when the user turned on "Keep mining"
-    writeIntent(Object.assign({ autoResume: !!cfg.keepMining, mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
+    writeIntent(Object.assign({ autoResume: !!cfg.keepMining, runningShard0: mode !== 'node', mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
@@ -404,6 +409,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
 })
 ipcMain.handle('miner:intent', () => readIntent())
 ipcMain.handle('miner:intentClear', () => writeIntent({ autoResume: false }))
+ipcMain.handle('miner:clearRunning', () => writeIntent(mineResume.clearedRunning(readIntent() || {})))
 // one-time migration of the 1.1.1-1.1.4 localStorage values (only when no intent file exists yet)
 ipcMain.handle('miner:intentMigrate', (e, ls) => {
   if (readIntent()) return readIntent()
@@ -426,15 +432,21 @@ ipcMain.handle('miner:resumeCheck', async () => {
   // update always gives back the mining state the user had, whatever "Keep mining" says
   const once = !!it.resumeOnce
   if (once) writeIntent({ resumeOnce: false })
-  return { autoResume: !!((it.autoResume && it.keepMining) || once), mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning }
+  const autoResume = !!((it.autoResume && it.keepMining) || once)
+  return { autoResume, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? (it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async (e, src) => {
   if (src && typeof src === 'object' && src.chain === 'classic') {
     const backend = optsBackend(src)
-    try { await stopClassic(backend); refreshTray(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
+    try {
+      await stopClassic(backend)
+      writeIntent(mineResume.afterStop(readIntent() || {}, backend === 'gpu' ? 'classicGpu' : 'cpu'))
+      refreshTray()
+      return { ok: true }
+    } catch (err) { return { ok: false, error: err.message } }
   }
-  writeIntent({ autoResume: false }) // the user's Stop is on disk before anything else happens
+  writeIntent(mineResume.afterStop(readIntent() || {}, 'shard0')) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
   try { getMiner().log('wallet', 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')') } catch (err) {}
   if (miner) await stopMinerVisibly(mainWindow)
@@ -470,6 +482,20 @@ ipcMain.handle('mining:setConfig', (e, cfg) => {
   return { ok: true, miningMode: mode, poolUrl }
 })
 ipcMain.handle('mining:setKeepMining', (e, on) => setKeepMining(!!on))
+ipcMain.handle('mining:localSync', async () => {
+  try { return await require('./src/miner/zpow/manager').localNodeHeights() } catch (e) { return {} }
+})
+ipcMain.handle('mining:poolStatus', async () => {
+  const poolStatus = require('./src/js/poolStatus')
+  const { poolForShard, poolsFromEnv } = require('./src/miner/zpow/pools')
+  let overrides = null
+  try { overrides = poolsFromEnv() } catch (e) { overrides = null }
+  return poolStatus.readAll(() => {
+    const out = {}
+    for (const n of [1, 2, 3, 4]) out[n] = poolForShard(n, overrides)
+    return out
+  })
+})
 function setKeepMining (on) {
   writeIntent({ keepMining: on, autoResume: on && !!(miner && miner.wantRunning) })
   if (tray) tray.rebuild()
@@ -492,7 +518,7 @@ function createTray () {
       lang: uiLang(),
       onStop: async () => {
         if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
-        writeIntent({ autoResume: false }); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
+        writeIntent(mineResume.afterStop(readIntent() || {}, 'all')); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
         if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
         try { await stopClassic() } catch (err) { console.error('classic stop failed', err) }
         refreshTray()
@@ -581,6 +607,8 @@ function createWindow () {
     minWidth: 1000,
     minHeight: 700,
     backgroundColor: '#E8F5E9',
+    // 3.1.0: the operating system's own title bar and window buttons. Do not draw a custom bar.
+    titleBarStyle: 'default',
     icon: path.join(ASSETS, process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
     resizable: true,
     title: windowTitle(),
@@ -678,8 +706,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // 1.1.5: quitting while the miner runs (or is stopping / cleaning up) keeps a visible "Stopping miner, saving chain
-// data" window until rigel, proxy and geth have exited, and only then quits. The mining intent is NOT changed by a
-// quit, so mining resumes on the next launch if it was on.
+// data" window until rigel, proxy and geth have exited, and only then quits. A clean quit clears the running flags.
+// Auto-resume, when it is explicitly on, keeps a snapshot of what was running so the next launch can start only that.
 let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
@@ -695,6 +723,8 @@ async function requestQuit ({ confirm, reason } = {}) {
     if (r.response !== 1) { try { getMiner().log('wallet', 'quit cancelled by the user (' + reason + ')') } catch (e) {} return }
   }
   quitting = true
+  try { writeIntent(mineResume.afterQuit(readIntent() || {})) } catch (e) { console.error('clear running flags on quit failed', e) }
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', 'clearMineRunning') } catch (e) {}
   // 2.0.7: a quit stops mining on purpose; only an update quit is reported as "paused for an update"
   try { if (reason === 'update') getNotifier().markStopReason('update'); else getNotifier().markUserStop() } catch (e) {}
   try { if (miner) getMiner().log('wallet', 'quit (' + (reason || 'app') + ')') } catch (e) {}

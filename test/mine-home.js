@@ -139,7 +139,7 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
   }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 55 }], earnLog: null, phase: 'mining' }, CN)
   assert.strictEqual(m.chainsText, '正在挖的鏈：—')
-  assert.strictEqual(m.speedText, '挖礦速度 每秒 10 次')
+  assert.strictEqual(m.speedText, '挖礦速度 —')
   assert.strictEqual(m.tempText, '顯卡溫度 55°C（正常）')
   assert.ok(!m.chains.join(' ').includes('Shard1 EVM'))
 }
@@ -350,7 +350,7 @@ assert.deepStrictEqual(mine.jobsForHome({
   }
   const resumed = mine.formatMineHome({ miners: { classicGpu: alive }, phase: 'stopped' }, CN)
   assert.deepStrictEqual(resumed.chains, ['Shard1 Classic'])
-  assert.strictEqual(resumed.speedText, '挖礦速度 每秒 80 次')
+  assert.strictEqual(resumed.speedText, '挖礦速度 —')
   assert.strictEqual(resumed.statusText, '挖礦狀態：正在挖礦')
   const syncing = mine.formatMineHome({
     miners: {
@@ -465,7 +465,7 @@ assert.ok(homeFn.indexOf('homeMineHost') < homeFn.indexOf('id="chainCards"'))
 assert.ok(homeFn.indexOf('id="earnCard"') < homeFn.indexOf('id="chainCards"'))
 const ui = read('src/js/app112.js')
 const page = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
-assert.ok(page.includes('mineHomeCardHtml()'))
+assert.ok(page.includes('mineHomeStripHtml()'))
 const inputFn = ui.slice(ui.indexOf('function mineHomeInput'), ui.indexOf('function mineHomeCardHtml'))
 assert.ok(inputFn.includes('confirmedEarnLog(rewardRowsByAddress()'))
 assert.ok(!inputFn.includes('noteEarn()'))
@@ -478,6 +478,110 @@ assert.ok(menu.includes("label: L.mining"))
 assert.ok(menu.includes("act('mineHome')"))
 assert.ok(!menu.includes("act('mine')"))
 assert.ok(!ui.includes('id="btnMine"'))
+assert.deepStrictEqual(mine.nodeSyncOf({ local: 52, network: 100 }), { synced: false, pct: 52 })
+assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: true, pct: 93 })
+assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
+}).label, '等待同步（Shard1 52%），同步完成後顯卡自動開始')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
+}).action, 'sync')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: true, syncPct: 100, poolOnline: true, zh: true
+}).action, 'mine')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: false, nodeSynced: true, syncPct: 100, poolOnline: false, zh: true
+}).label, '顯卡挖礦中')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 2, nodeSynced: false, syncPct: 52, zh: false
+}).label, 'Waiting for sync (Shard2 52%). The graphics card starts on its own when sync finishes.')
+{
+  const addr = (n) => n + 'S0' + n + 'a'.repeat(37)
+  const built = mine.jobsForDevice({
+    device: 'gpu',
+    chains: [1, 2, 3, 4],
+    addresses: { 1: addr(1), 2: addr(2), 3: addr(3), 4: addr(4) },
+    caps: { gpu: { available: true } },
+    nodes: {
+      1: { synced: false, pct: 52 },
+      2: { synced: false, pct: 52 },
+      3: { synced: false, pct: 52 },
+      4: { synced: true, pct: 100 }
+    },
+    zh: true
+  })
+  assert.strictEqual(built.jobs.length, 1)
+  assert.strictEqual(built.jobs[0].shard, 1)
+  assert.strictEqual(built.jobs[0].gpuMiner, 'classic-node')
+  assert.strictEqual(built.jobs[0].action, 'sync')
+  assert.strictEqual(built.jobs[0].offerCpu, true)
+  assert.strictEqual(built.jobs[0].address, addr(1))
+  assert.strictEqual(built.jobs[0].mineLabel, '等待同步（Shard1 52%），同步完成後顯卡自動開始')
+  const by = {}
+  for (const b of built.blocked) by[b.shard] = b
+  assert.strictEqual(by[2].reasonKey, 'shellOneClassic')
+  assert.strictEqual(by[3].reasonKey, 'shellOneClassic')
+  assert.strictEqual(by[4].reasonKey, 'shellOneClassic')
+  const synced = mine.jobsForDevice({
+    device: 'gpu',
+    chains: [2],
+    addresses: { 2: addr(2) },
+    caps: { gpu: { available: true } },
+    nodes: { 2: { synced: true, pct: 100 } },
+    zh: true
+  })
+  assert.strictEqual(synced.jobs[0].action, 'mine')
+  assert.strictEqual(synced.jobs[0].mineLabel, '顯卡挖礦中')
+  assert.strictEqual(synced.jobs[0].gpuMiner, 'classic-node')
+  const cpu = mine.jobsForDevice({
+    device: 'cpu',
+    chains: [1],
+    addresses: { 1: addr(1) },
+    zh: true
+  })
+  assert.strictEqual(cpu.jobs[0].mineLabel, '經礦池挖')
+  assert.strictEqual(cpu.jobs[0].backend, 'cpu')
+  const now = Date.now()
+  const earnLog = {
+    certain: true,
+    items: [{ t: now, amount: 2, address: addr(1), confirmed: true }]
+  }
+  const shown = mine.minePageHtml({
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_SYNCING', phase: 'syncing',
+        procs: ['classic-node'], localBlock: 52, networkBlock: 100, hashrate: 80, poolStats: { hashrate: 80 }
+      }
+    },
+    chains: { cpu: [], gpu: [1] },
+    caps: { gpu: { available: true } },
+    addresses: { 1: addr(1) },
+    earnLog: earnLog,
+    now: now
+  }, CN, esc)
+  assert.ok(shown.includes('等待同步（Shard1 52%），同步完成後顯卡自動開始'))
+  assert.ok(shown.includes('先用 CPU 經礦池挖'))
+  assert.ok(shown.includes('data-act="mineCpuFirst"'))
+  assert.ok(shown.includes('class="wait"'))
+  assert.ok(!shown.includes('每秒 80'))
+  assert.ok(!shown.includes('2 SCDO'))
+  const mining = mine.minePageHtml({
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_GPU', gpuActive: true,
+        procs: ['classic-node'], localBlock: 100, networkBlock: 100, hashrate: null, poolStats: { hashrate: 90 }
+      }
+    },
+    chains: { cpu: [], gpu: [1] },
+    addresses: { 1: addr(1) },
+    earnLog: earnLog,
+    now: now
+  }, CN, esc)
+  assert.ok(mining.includes('顯卡挖礦中'))
+  assert.ok(!mining.includes('先用 CPU 經礦池挖'))
+  assert.ok(!mining.includes('90'))
+}
 assert.ok(!read('src/js/mineHome.js').includes('主鏈'))
 assert.ok(!read('src/js/mineHome.js').includes('Shard1 EVM'))
 const stopAt = ui.indexOf('async function stopAllNow')

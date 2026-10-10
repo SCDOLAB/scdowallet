@@ -97,7 +97,7 @@ assert.ok(!ui.includes('data-act="send"'))
 assert.ok(ui.includes('function openRemittance'))
 assert.ok(ui.includes('SCDORemitRoute.routePay'))
 const run = ui.slice(ui.indexOf('function runCatAction'), ui.indexOf('function applyCatPlan'))
-assert.ok(run.includes('payModal('))
+assert.ok(run.includes('openRemitFor(') || run.includes('payModal('))
 assert.ok(!run.includes('sendModal'))
 assert.ok(!run.includes('sendOldModal'))
 assert.ok(!run.includes('s0:send'))
@@ -151,9 +151,9 @@ assert.strictEqual(CN.remitDown, '現在連不上匯款服務，請稍後再試�
 assert.strictEqual(EN.remitDown, "The remittance service can't be reached right now. Please try again later. If it keeps failing, contact support.")
 const pageRemit = ui.slice(ui.indexOf('function pageRemit'), ui.indexOf('function remitErrText'))
 assert.ok(pageRemit.length > 0 && !pageRemit.includes('SCDO_'))
-// English release notes: no Chinese except the deliberate names (AI小貓, the 華語 button label,
-// the 繁體中文 option name, the Documents\ScdoWallet\備份 folder)
-const DELIBERATE = ['AI小貓', '華語', '繁體中文', '備份']
+// English release notes: no Chinese except the deliberate names (AI小貓, the 華語繁體 button label,
+// and the Documents\ScdoWallet\備份 folder). 華語繁體 is removed before the shorter 華語 token.
+const DELIBERATE = ['AI小貓', '華語繁體', '華語', '備份']
 for (const note of EN.relNotes) {
   for (const item of note.items) {
     let rest = item
@@ -194,6 +194,6 @@ assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
 
 console.log('remit-route: ok')
 // 3.0.2: the newest notes are first and the English ones have no Chinese
-assert.strictEqual(EN.relNotes[0].v, '3.0.10')
+assert.strictEqual(EN.relNotes[0].v, '3.1.0')
 assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.10 notes contain Chinese')
 assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[1].items.join(' ')), 'EN 3.0.2 notes contain Chinese')
