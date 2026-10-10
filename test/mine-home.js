@@ -483,7 +483,7 @@ assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: 
 assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).label, '經礦池挖（本機節點同步 52%）')
+}).label, '本機顯卡挖（本機節點同步 52%）')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
 }).action, 'pool')
@@ -492,7 +492,7 @@ assert.strictEqual(mine.chooseMinePath({
 }).action, 'solo')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: false, nodeSynced: true, syncPct: 100, poolOnline: true, zh: true
-}).label, '經礦池挖')
+}).label, '本機顯卡挖')
 {
   const blocked = mine.chooseMinePath({ shard: 2, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: false, zh: true })
   assert.strictEqual(blocked.action, 'blocked')
@@ -523,7 +523,7 @@ assert.strictEqual(mine.chooseMinePath({
   assert.strictEqual(built.jobs[0].shard, 1)
   assert.strictEqual(built.jobs[0].gpuMiner, 'pool')
   assert.strictEqual(built.jobs[0].address, addr(1))
-  assert.strictEqual(built.jobs[0].mineLabel, '經礦池挖（本機節點同步 52%）')
+  assert.strictEqual(built.jobs[0].mineLabel, '本機顯卡挖（本機節點同步 52%）')
   const by = {}
   for (const b of built.blocked) by[b.shard] = b
   assert.strictEqual(by[2].reasonKey, 'shellOneClassic')
@@ -550,11 +550,11 @@ assert.strictEqual(mine.chooseMinePath({
     caps: { gpu: { available: true } },
     addresses: { 1: addr(1), 2: addr(2) },
     mineRows: {
-      1: { action: 'pool', label: '經礦池挖（本機節點同步 52%）' },
+      1: { action: 'pool', label: '本機顯卡挖（本機節點同步 52%）' },
       2: { reason: 'Shard2 礦池暫時連不上；本機節點同步中 52%' }
     }
   }, CN, esc)
-  assert.ok(shown.includes('經礦池挖（本機節點同步 52%）'))
+  assert.ok(shown.includes('本機顯卡挖（本機節點同步 52%）'))
   assert.ok(shown.includes('Shard2 礦池暫時連不上；本機節點同步中 52%'))
 }
 assert.ok(!read('src/js/mineHome.js').includes('主鏈'))

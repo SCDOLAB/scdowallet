@@ -379,7 +379,9 @@ function pushClassic (jobs, mode, target, caps) {
 }
 
 // Start path for one Shard1–Shard4 Classic chain.
-// Pool when the pool is up, including while the local node is still syncing.
+// When the pool is up, start now, including while the local node is still syncing.
+// That start uses the shipped Classic GPU miner (the 3.0.10 node command). It
+// cannot take a stratum host, so the payout address is the node's coinbase.
 // Solo only when 進階 saved solo AND the node is already synced.
 // Otherwise a plain reason, never a silent skip.
 function chooseMinePath (input) {
@@ -395,8 +397,8 @@ function chooseMinePath (input) {
   if (explicitSolo && synced) return { action: 'solo', reason: '', label: zh ? '本機節點' : 'Local node' }
   if (poolUp) {
     const label = zh
-      ? (pctOk && !synced ? ('經礦池挖（本機節點同步 ' + pctText + '%）') : '經礦池挖')
-      : (pctOk && !synced ? ('Mining through the pool (local node sync ' + pctText + '%)') : 'Mining through the pool')
+      ? (pctOk && !synced ? ('本機顯卡挖（本機節點同步 ' + pctText + '%）') : '本機顯卡挖')
+      : (pctOk && !synced ? ('Graphics card (local node sync ' + pctText + '%)') : 'Graphics card')
     return { action: 'pool', reason: '', label: label }
   }
   const reasons = []

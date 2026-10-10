@@ -73,7 +73,9 @@ function externalProfile (env) {
 }
 
 const ZMINER_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-threads', '{threads}']
-const GPU_POOL_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-device', '0']
+// Classic GPU, solo and the pool start. go-scdo node has no stratum host flag.
+// --pool on this binary is a local coinbase-list switch, not 82.223.19.88:3341.
+// The payout address is basic.coinbase in {config}. See doc/mining-modes.md.
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
 function relaxMinerPriority (proc) {
@@ -139,7 +141,6 @@ module.exports = {
   renderArgs,
   externalProfile,
   ZMINER_ARGS,
-  GPU_POOL_ARGS,
   CLASSIC_NODE_ARGS,
   spawnMiner,
   stopMiner,

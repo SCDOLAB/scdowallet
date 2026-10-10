@@ -1,9 +1,9 @@
 // Classic shard 1–4 mining. The main process keeps one instance for CPU and
 // one for GPU, so both can run next to Shard0.
 // CPU: zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// GPU solo: go-scdo node.exe CUDA zpow, one shard, coinbase = the user's address.
-// GPU pool: zminer-gpu to that shard's stratum, paid to the selected address.
-// A third binary can be dropped in with SCDO_ZPOW_GPU_BIN / SCDO_ZPOW_GPU_ARGS.
+// GPU solo and GPU pool both use the shipped Classic node (node.exe + libcudart).
+// That binary cannot dial a stratum host. The payout address is basic.coinbase.
+// A different binary is used only when the job asks for external (SCDO_ZPOW_GPU_BIN).
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -30,8 +30,8 @@ function formatExitMessage (code, logTail) {
   if (msg.length > 500) msg = msg.slice(0, 497) + '...'
   return msg
 }
-const { firstExisting, zminerCandidates, classicNodeCandidates, gpuPoolCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, GPU_POOL_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
+const { firstExisting, zminerCandidates, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
+const { renderArgs, externalProfile, ZMINER_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -332,7 +332,9 @@ class ZpowManager extends EventEmitter {
       throw err
     }
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
-    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : (opts.gpuMiner === 'pool' ? 'pool' : 'classic-node')
+    // 'pool' is the start-now path. It still launches the Classic node: the
+    // shipped GPU miner has no stratum argument. See doc/mining-modes.md.
+    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : 'classic-node'
     const env = this.o.env || process.env
     const caps = this.capabilities(env)
     const asInt = (v, fallback) => {
@@ -355,27 +357,6 @@ class ZpowManager extends EventEmitter {
       shaOpts = Object.assign({ required: true }, this.sumsFor(binary, env.SCDO_ZMINER_SHA256))
       args = renderArgs(ZMINER_ARGS, {
         pool: pool.stratum, user: parsed.address, worker: opts.worker || 'wallet', threads
-      })
-      cwd = path.dirname(binary)
-    } else if (gpuMiner === 'pool') {
-      const profile = externalProfile(env)
-      const discovered = firstExisting(gpuPoolCandidates({ binDir: this.o.binDir, root: this.o.root, platform: this.o.platform, env }))
-      const binaryPath = discovered || (profile && profile.binary && fs.existsSync(profile.binary) ? profile.binary : '')
-      if (!binaryPath) {
-        const err = new Error('graphics-card pool miner was not found (zminer-gpu or SCDO_ZPOW_GPU_BIN)')
-        err.code = 'NO_POOL_GPU'
-        throw err
-      }
-      binary = binaryPath
-      const custom = !!(profile && env.SCDO_ZPOW_GPU_ARGS && profile.binary === binaryPath)
-      shaOpts = Object.assign({ required: false }, custom && profile.sha256 ? { expected: profile.sha256 } : this.sumsFor(binary, env.SCDO_ZPOW_GPU_SHA256))
-      args = renderArgs(custom ? profile.args : GPU_POOL_ARGS, {
-        pool: pool.stratum,
-        user: parsed.address,
-        threads,
-        worker: opts.worker || 'wallet',
-        shard: String(parsed.shard),
-        device: '0'
       })
       cwd = path.dirname(binary)
     } else if (gpuMiner === 'external') {

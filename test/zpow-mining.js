@@ -12,6 +12,7 @@ const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
+const { missingMinerBins, assertMinerBinsPresent, referencedMinerFiles } = require('../scripts/require-miner-bins')
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
 const { ZpowManager, formatExitMessage } = require('../src/miner/zpow/manager')
 const { formatMinePill } = require('../src/js/minePill')
@@ -1127,6 +1128,62 @@ async function publishedZminer () {
   assert.strictEqual(caps.pools[4].port, 3344)
   assert.strictEqual(caps.pools[2].live, undefined)
 assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
+  const banned = []
+  for (const rel of ['src/miner/zpow/launch.js', 'src/miner/zpow/bins.js', 'src/miner/zpow/manager.js', 'src/js/minerStartError.js', 'scripts/before-pack-win.js']) {
+    if (fs.readFileSync(path.join(root, rel), 'utf8').includes('zminer-gpu')) banned.push(rel)
+  }
+  assert.deepStrictEqual(banned, [])
+  const packHook = fs.readFileSync(path.join(root, 'scripts', 'before-pack-win.js'), 'utf8')
+  assert.ok(packHook.includes('assertMinerBinsPresent'))
+  const modes = fs.readFileSync(path.join(root, 'doc', 'mining-modes.md'), 'utf8')
+  assert.ok(modes.includes('node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100'))
+  assert.ok(modes.includes('zminer.exe -pool 82.223.19.88:3341 -user 1S01… -worker wallet -threads 4'))
+  assert.deepStrictEqual(referencedMinerFiles('win32'), ['zminer.exe', 'geth.exe', 'scdo-stratum.exe', 'classic/node.exe'])
+  const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-bins-'))
+  assert.ok(missingMinerBins(binRoot, 'win32').includes('zminer.exe'))
+  assert.ok(missingMinerBins(binRoot, 'win32').includes('classic/node.exe'))
+  assert.ok(missingMinerBins(binRoot, 'win32').includes('classic/libcudart.dll'))
+  let missingBins = null
+  try { assertMinerBinsPresent(binRoot, 'win32') } catch (e) { missingBins = e }
+  assert.ok(missingBins)
+  assert.strictEqual(missingBins.code, 'MINER_BIN_MISSING')
+  fs.mkdirSync(path.join(binRoot, 'classic'), { recursive: true })
+  for (const name of ['zminer.exe', 'geth.exe', 'scdo-stratum.exe']) fs.writeFileSync(path.join(binRoot, name), name)
+  fs.writeFileSync(path.join(binRoot, 'classic', 'node.exe'), 'node')
+  fs.writeFileSync(path.join(binRoot, 'classic', 'libcudart64_12.dll'), 'cudart')
+  assert.deepStrictEqual(missingMinerBins(binRoot, 'win32'), [])
+  assert.deepStrictEqual(await Promise.resolve(assertMinerBinsPresent(binRoot, 'win32')), [])
+  fs.rmSync(binRoot, { recursive: true, force: true })
+
+  const poolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-pool-node-'))
+  const poolBin = path.join(poolDir, 'node')
+  fs.writeFileSync(poolBin, '#!/bin/sh\nsleep 30\n')
+  fs.chmodSync(poolBin, 0o755)
+  fs.writeFileSync(path.join(poolDir, 'libcudart.so.12'), '')
+  const poolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-pool-root-'))
+  const pooling = new ZpowManager({
+    platform: 'linux',
+    root,
+    dataRoot: poolRoot,
+    env: { SCDO_CLASSIC_NODE: poolBin, SCDO_ZPOW_GPU_BIN: path.join(poolDir, 'not-packed') }
+  })
+  const pooled = await pooling.start(REAL, {
+    backend: 'gpu', gpuMiner: 'pool', shard: 1, threads: 1, threadblocks: 100, blockthreads: 100,
+    mineLabel: 'graphics card'
+  })
+  assert.strictEqual(pooled.backend, 'classic-node')
+  assert.strictEqual(pooled.pool, null)
+  assert.strictEqual(pooling.launchSpec.binary, poolBin)
+  assert.deepStrictEqual(pooling.launchSpec.args.slice(0, 2), ['start', '-c'])
+  assert.deepStrictEqual(pooling.launchSpec.args.slice(3), ['-m', 'start', '--threads', '1', '--threadblocks', '100', '--blockthreads', '100'])
+  assert.ok(!pooling.launchSpec.args.includes('-pool'))
+  assert.ok(!pooling.launchSpec.args.includes('-device'))
+  const poolCfg = JSON.parse(fs.readFileSync(pooling.launchSpec.args[2], 'utf8'))
+  assert.strictEqual(poolCfg.basic.coinbase, REAL)
+  await pooling.stop()
+  fs.rmSync(poolDir, { recursive: true, force: true })
+  fs.rmSync(poolRoot, { recursive: true, force: true })
+
   if (!fs.existsSync(distLinux)) return
   assert.strictEqual(caps.cpu.available, true)
   assert.ok(String(caps.cpu.path).endsWith('zminer-linux-amd64'))
