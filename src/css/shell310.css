@@ -132,9 +132,9 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .cat-sites { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .shell-fold > summary { cursor: pointer; list-style: none; font-size: 18px; font-weight: 700; color: #1c1c1e; padding: 14px 16px; }
 .shell-fold > summary::-webkit-details-marker { display: none; }
-.shell-fold > summary .fold-open { display: none; }
-.shell-fold[open] > summary .fold-shut { display: none; }
-.shell-fold[open] > summary .fold-open { display: inline; }
+.shell-fold > summary .fold-open, .cat-help > summary .fold-open { display: none; }
+.shell-fold[open] > summary .fold-shut, .cat-help[open] > summary .fold-shut { display: none; }
+.shell-fold[open] > summary .fold-open, .cat-help[open] > summary .fold-open { display: inline; }
 .shell-fold > :not(summary) { margin-left: 16px; margin-right: 16px; }
 .shell-fold > :last-child { margin-bottom: 14px; }
 

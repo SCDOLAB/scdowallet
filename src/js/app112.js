@@ -2350,7 +2350,7 @@
       if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errAddrOld'); return }
       if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
       const units = /^\d+(\.\d{1,8})?$/.test(route.amount) ? AMT.toUnits(route.amount, 8) : null
-      if (units == null || units <= 0n) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errAmount'); return }
+      if (units == null || units <= 0n) { if (err) err.textContent = TC('errAmount'); if (btn) btn.disabled = false; return }
       if (!(await confirmSameSend(route, err, btn))) return
       // 3.0.4: sending to this account's own address is allowed after the user ticks the box (same as Shard0 EVM)
       const self = String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()
