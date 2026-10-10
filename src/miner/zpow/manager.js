@@ -1,9 +1,9 @@
 // Classic shard 1–4 mining. The main process keeps one instance for CPU and
 // one for GPU, so both can run next to Shard0.
 // CPU: zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// GPU solo and GPU pool both use the shipped Classic node (node.exe + libcudart).
-// That binary cannot dial a stratum host. The payout address is basic.coinbase.
-// A different binary is used only when the job asks for external (SCDO_ZPOW_GPU_BIN).
+// GPU solo and the unsynced start both use the shipped Classic node (node.exe + libcudart).
+// While the node is behind the tip it only syncs. It mines after it catches up.
+// The payout address is basic.coinbase. Pool shares are the processor miner.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -332,8 +332,6 @@ class ZpowManager extends EventEmitter {
       throw err
     }
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
-    // 'pool' is the start-now path. It still launches the Classic node: the
-    // shipped GPU miner has no stratum argument. See doc/mining-modes.md.
     const gpuMiner = opts.gpuMiner === 'external' ? 'external' : 'classic-node'
     const env = this.o.env || process.env
     const caps = this.capabilities(env)

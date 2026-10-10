@@ -3119,8 +3119,12 @@
     }
     for (const j of built.jobs || []) {
       if (j.shard == null) continue
-      const pool = j.gpuMiner === 'pool' || j.gpuMiner === 'external'
-      st.mineRows[j.shard] = { action: pool ? 'pool' : 'solo', label: j.mineLabel || '' }
+      st.mineRows[j.shard] = {
+        action: j.action || (j.backend === 'cpu' ? 'cpu' : 'mine'),
+        label: j.mineLabel || '',
+        offerCpu: j.offerCpu === true,
+        syncPct: j.syncPct == null ? null : j.syncPct
+      }
     }
   }
   async function nodeMapForStart () {
@@ -3184,6 +3188,34 @@
     let any = false
     for (const job of built.jobs) { if (await startOneHomeJob(job)) any = true }
     return any
+  }
+  async function startCpuPool (shard, address) {
+    const n = Number(shard)
+    if (!(n >= 1 && n <= 4) || !address) return
+    const cpu = st.miners && st.miners.classicCpu
+    if (cpu && cpu.running && cpu.mode !== 'node') {
+      if (Number(cpu.shard) === n) return
+      toast(T('shellOneClassic'), 7000)
+      return
+    }
+    const pick = readChainPick()
+    const cpuChains = (pick.cpu || []).slice()
+    if (cpuChains.indexOf(n) < 0) cpuChains.push(n)
+    writeChainPick('cpu', cpuChains)
+    let r
+    try {
+      r = await api.invoke('miner:start', address, {
+        chain: 'classic', backend: 'cpu', shard: n, threads: threadCount()
+      })
+    } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
+    if (!r || !r.ok) {
+      const text = window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, '')
+      toast(text, 8000)
+      return
+    }
+    localStorage.setItem('minerRunClassicCpu', '1')
+    localStorage.setItem('minerClassicCpu', address)
+    refreshDash()
   }
   async function homeMineToggleDevice (device) {
     if (device !== 'cpu' && device !== 'gpu') return
@@ -3370,6 +3402,7 @@
       case 'mineStart': mineStart(); break
       case 'homeMine': homeMineToggle(); break
       case 'homeMineDev': homeMineToggleDevice(el.getAttribute('data-dev')); break
+      case 'mineCpuFirst': startCpuPool(el.getAttribute('data-shard'), el.getAttribute('data-addr')); break
       case 'mineChain': {
         const device = el.getAttribute('data-dev') === 'gpu' ? 'gpu' : 'cpu'
         const raw = el.getAttribute('data-v')

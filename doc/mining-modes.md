@@ -4,23 +4,23 @@ The wallet only launches binaries that the Windows pack places under `miner/bin`
 
 ## Shard1–Shard4 Classic, graphics card
 
-3.0.10 and 3.1.0 use the same program. It is the go-scdo node with the CUDA zpow engine, `miner-bin/win32/classic/node.exe`, with `libcudart.dll` (any `libcudart*.dll`) beside it. This is the program that mined on the RTX 4060.
+3.0.10 and 3.1.0 use the same program: `miner-bin/win32/classic/node.exe`, with `libcudart.dll` (any `libcudart*.dll`) beside it. This is the program that mined on the RTX 4060. It mines its own local chain. It does not speak stratum.
 
-Solo, and the 3.1.0 path that starts as soon as that shard's pool is up, both run:
+When that shard's node is already synced (within 8 blocks of the tip), Start runs:
 
 ```text
 node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100
 ```
 
-`N` is the shard, 1–4. The wallet writes `nodeN.json` under its own data directory (`classic/shardN/nodeN.json`). The selected payout address is `basic.coinbase` in that file (`1S01…` on Shard1, `2S02…` on Shard2, `3S03…` on Shard3, `4S04…` on Shard4). Defaults are `--threads 1`, `--threadblocks 100`, `--blockthreads 100`.
+`N` is the shard, 1–4. The wallet writes `nodeN.json` under its own data directory (`classic/shardN/nodeN.json`). The selected payout address is `basic.coinbase`. Defaults are `--threads 1`, `--threadblocks 100`, `--blockthreads 100`. The row says 「顯卡挖礦中」.
 
-`node.exe` cannot be pointed at `82.223.19.88:3341`–`3344`. Its `start` flags are `-c`, `-m start|stop`, `--threads`, `--threadblocks`, `--blockthreads`, and a boolean `--pool` that only rotates a local coinbase list from `--poolaccounts`. That boolean does not open a stratum connection. The packed `scdo-stratum.exe` is the Shard0 Ethash proxy (`-rpc` to local geth, `-listen` on a local port). It does not speak Classic zpow and is not started in front of `82.223.19.88`.
+When the node is not synced, Start runs the same command so the node can catch up in the background. The node pauses mining while it downloads (`got download start event, stop miner`) and mines on its own once it is caught up. The row is not pool mining. It is the amber line 「等待同步（Shard1 52%），同步完成後顯卡自動開始」 (the shard and percent change). The same row has 「先用 CPU 經礦池挖」, which starts the processor miner below on that shard's pool, paid to the same address.
 
-So a graphics-card start, including while the local node is still syncing, is the command above. The node syncs, then mines to the coinbase. The row says 「本機顯卡挖（本機節點同步 …%）」 while that sync percent is known and the node is not caught up.
+Speed and earnings stay blank until the miner is producing valid work. This node does not print a hashrate, so the graphics-card speed stays a dash even while 「顯卡挖礦中」. A syncing node shows neither a speed nor earnings.
 
 ## Shard1–Shard4 Classic, processor
 
-The processor miner is `zminer.exe`. It does speak stratum. Shard ports are 3341, 3342, 3343, 3344. The payout address is `-user`.
+The processor miner is `zminer.exe`. It speaks stratum. Shard ports are 3341, 3342, 3343, 3344. The payout address is `-user`. The row says 「經礦池挖」. Speed and earnings appear only after it is connected and reporting a speed.
 
 ```text
 zminer.exe -pool 82.223.19.88:3341 -user 1S01… -worker wallet -threads 4

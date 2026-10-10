@@ -42,7 +42,7 @@ Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 
 The GPU miner is the go-scdo node (`node.exe` with `libcudart.dll` next to it), packed like Shard0 under `miner-bin/win32/classic/`. `libgoGpuDet.a` is linked into `node.exe`. The node does not load `goGpuDet.dll`; that name is not a second runtime library. One node per shard. The wallet writes `nodeN.json` under its own data directory, sets `basic.coinbase` to the user's Classic address, and generates a new P2P key there. It does not read `~/.scdo` or any other node key on the machine.
 
-Solo and the start that runs while the pool is up use the same command. The node has no stratum host argument, so the payout address is `basic.coinbase`, not `-user`. The exact lines, including the processor stratum command, are in [doc/mining-modes.md](../doc/mining-modes.md).
+The graphics-card miner is the go-scdo node. When the local chain is synced it mines with the command below, and the row says the graphics card is mining. When the chain is behind, the same process syncs in the background and the row waits. It is not pool mining. The processor pool command is in [doc/mining-modes.md](../doc/mining-modes.md).
 
 ```text
 node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100

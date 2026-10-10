@@ -621,7 +621,8 @@ for (const langName of ['CN', 'EN']) {
     assert.ok(!s.toLowerCase().includes('cuda'), langName + ': ' + s.slice(0, 90))
     assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
     assert.ok(!/GPU/i.test(s), langName + ' GPU: ' + s.slice(0, 90))
-    assert.ok(!/CPU/.test(s), langName + ' CPU: ' + s.slice(0, 90))
+    // The one-tap hint is the product name 「先用 CPU 經礦池挖」. Nothing else may say CPU.
+    assert.ok(!/CPU/.test(s.split('先用 CPU 經礦池挖').join('')), langName + ' CPU: ' + s.slice(0, 90))
     assert.ok(!s.includes('算力'), langName + ' 算力: ' + s.slice(0, 90))
   })
 }
