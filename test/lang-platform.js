@@ -116,7 +116,14 @@ const lock = JSON.parse(read('package-lock.json'))
 assert.strictEqual(lock.version, '3.1.0')
 assert.strictEqual(lock.packages[''].version, '3.1.0')
 const base = JSON.parse(execFileSync('git', ['show', 'c8049bb:package.json'], { encoding: 'utf8' }))
-assert.deepStrictEqual(pkg.build.win, base.build.win)
+const win = JSON.parse(JSON.stringify(base.build.win))
+const genesisAt = win.extraResources.findIndex(x => x.from === 'miner-bin/scdo-shard0-genesis.json')
+win.extraResources.splice(genesisAt, 0, {
+  from: 'resources/miners/zminer-gpu',
+  to: 'miners/zminer-gpu',
+  filter: ['zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll']
+})
+assert.deepStrictEqual(pkg.build.win, win)
 assert.deepStrictEqual(pkg.build.nsis, base.build.nsis)
 assert.deepStrictEqual(pkg.build.portable, base.build.portable)
 assert.strictEqual(pkg.build.beforePack, base.build.beforePack)

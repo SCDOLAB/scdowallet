@@ -230,14 +230,19 @@ setInterval(pollPayout, 2 * 60 * 1000)
 
 // ---------------- built-in miners ----------------
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
-// Classic shards 1–4: zminer CPU to the pool, and the go-scdo CUDA node (libcudart.dll beside node.exe; no goGpuDet.dll).
+// Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
+// Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
 // Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// Shard0 GPU, Classic GPU and Classic CPU may all run together. Nothing here refuses a start.
+// Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
-const { ZpowManager } = require('./src/miner/zpow/manager')
+const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')
 function minerBinDir () {
   if (app.isPackaged) return path.join(process.resourcesPath, 'miner', 'bin')
   return path.join(__dirname, 'miner-bin', process.platform)
+}
+function zminerGpuDir () {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'miners', 'zminer-gpu')
+  return path.join(__dirname, 'resources', 'miners', 'zminer-gpu')
 }
 let miner = null
 let zpowCpu = null
@@ -245,15 +250,25 @@ let zpowGpu = null
 function zpowOptions () {
   return {
     binDir: minerBinDir(),
+    gpuDir: zminerGpuDir(),
     dataRoot: (!app.isPackaged && process.env.SCDO_MINER_DIR) || minerDataRoot(),
     root: __dirname
   }
 }
 function classicNote () {
   const parts = []
-  const shardOf = (z) => { const n = Number(z && z.state && z.state.shard); return n >= 1 && n <= 4 ? ' Shard' + n : '' }
-  if (zpowCpu && zpowCpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu))
-  if (zpowGpu && zpowGpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card') + shardOf(zpowGpu))
+  const cn = uiLang() === 'CN'
+  if (zpowCpu && zpowCpu.wantRunning) {
+    const n = Number(zpowCpu.state && zpowCpu.state.shard)
+    parts.push((cn ? 'Classic 處理器礦池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
+  }
+  if (zpowGpu && zpowGpu.wantRunning) {
+    const st = zpowGpu.status()
+    const shards = (st.shards || []).map(s => Number(s.shard)).filter(n => n >= 1 && n <= 4)
+    const solo = st.backend === 'classic-node'
+    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')
+    parts.push(label + (shards.length ? ' Shard' + shards.join(' ') : ''))
+  }
   return parts.join(' · ')
 }
 function refreshTray () {
@@ -276,7 +291,7 @@ function getZpow (kind) {
     return zpowCpu
   }
   if (!zpowGpu) {
-    zpowGpu = new ZpowManager(zpowOptions())
+    zpowGpu = new GpuFleet(zpowOptions())
     zpowGpu.on('status', st => publishClassic(st))
   }
   return zpowGpu

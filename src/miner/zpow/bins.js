@@ -39,6 +39,22 @@ function zminerCandidates (opts) {
   return list
 }
 
+function zminerGpuCandidates (opts) {
+  const env = opts.env || {}
+  const list = []
+  if (env.SCDO_ZMINER_GPU_EXE) list.push(env.SCDO_ZMINER_GPU_EXE)
+  if (opts.gpuDir) list.push(path.join(opts.gpuDir, 'zminer-gpu.exe'))
+  if (opts.root) list.push(path.join(opts.root, 'resources', 'miners', 'zminer-gpu', 'zminer-gpu.exe'))
+  return list
+}
+
+// The three files from the zminer-gpu zip must sit in one folder.
+function gpuPackReady (exe) {
+  if (!exe || !fs.existsSync(exe)) return false
+  const dir = path.dirname(exe)
+  return fs.existsSync(path.join(dir, 'zpowdet.dll')) && fs.existsSync(path.join(dir, 'cudart64_12.dll'))
+}
+
 function classicNodeCandidates (opts) {
   const env = opts.env || {}
   const platform = opts.platform || process.platform
@@ -114,6 +130,8 @@ module.exports = {
   zminerName,
   nodeName,
   zminerCandidates,
+  zminerGpuCandidates,
+  gpuPackReady,
   classicNodeCandidates,
   findCudart,
   firstExisting,

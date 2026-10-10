@@ -142,6 +142,7 @@ assert.strictEqual(tooltipText('3.0.2', { running: false, classicNote: 'Classic 
 assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.2\n未在挖礦')
 assert.ok(tooltipText('3.0.2', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
 assert.ok(tooltipText('3.0.2', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('挖礦程式出錯：'))
-assert.ok(mainJs.includes("'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu)"))
+assert.ok(mainJs.includes("(cn ? 'Classic 處理器礦池' : 'Classic processor pool')"))
+assert.ok(mainJs.includes("(cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')"))
 
 console.log('miner-start-error: ok')

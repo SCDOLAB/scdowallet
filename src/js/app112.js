@@ -554,7 +554,8 @@
       targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
       addresses: mineChainAddresses(),
       pools: st.poolStatus,
-      mineRows: st.mineRows || {}
+      mineRows: st.mineRows || {},
+      gpuFallback: !!st.gpuFallback
     }
   }
   function mineHomeCardHtml () {
@@ -2936,7 +2937,7 @@
     return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : ''
   }
   async function startOneHomeJob (job) {
-    if (job.chain === 'classic' && (job.gpuMiner === 'external' || job.gpuMiner === 'pool')) {
+    if (job.chain === 'classic' && job.gpuMiner === 'external') {
       const gpu = gpuParams()
       let r
       try {
@@ -3176,6 +3177,7 @@
       skipShard0: !!opts.skipShard0
     })
     rememberMineRows(device, built)
+    if (device === 'gpu') st.gpuFallback = built.cpuFallback === true
     for (const key of built.notices || []) toast(T(key), 7000)
     if (!built.jobs.length) return false
     if (built.jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
@@ -3215,6 +3217,18 @@
     }
     localStorage.setItem('minerRunClassicCpu', '1')
     localStorage.setItem('minerClassicCpu', address)
+    refreshDash()
+  }
+  async function startCpuInstead () {
+    try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    const pick = readChainPick()
+    const classics = (pick.gpu || []).map(Number).filter(n => n >= 1 && n <= 4)
+    const addresses = mineChainAddresses()
+    const n = classics[0]
+    if (!(n >= 1)) return
+    if (classics.length > 1) toast(T('shellOneClassic'), 7000)
+    await startCpuPool(n, addresses[n] || addresses[String(n)] || '')
+    st.gpuFallback = false
     refreshDash()
   }
   async function homeMineToggleDevice (device) {
@@ -3281,6 +3295,7 @@
   }
   function onMinerStatus (m) {
     const prev0 = st.miners && st.miners.shard0
+    if (m && m.chain === 'classic' && m.mode !== 'cpu' && (m.code === 'NO_NVIDIA' || m.cudaFailed)) st.gpuFallback = true
     storeMiner(m)
     st.miner = viewMiner()
     noteEarn()
@@ -3403,6 +3418,7 @@
       case 'homeMine': homeMineToggle(); break
       case 'homeMineDev': homeMineToggleDevice(el.getAttribute('data-dev')); break
       case 'mineCpuFirst': startCpuPool(el.getAttribute('data-shard'), el.getAttribute('data-addr')); break
+      case 'mineCpuInstead': startCpuInstead(); break
       case 'mineChain': {
         const device = el.getAttribute('data-dev') === 'gpu' ? 'gpu' : 'cpu'
         const raw = el.getAttribute('data-v')
@@ -3836,9 +3852,11 @@
       const threads = backend === 'cpu' ? threadCount() : gpu.threads
       let r
       try {
+        const gpuMiner = backend === 'gpu' ? (job.gpuMiner === 'classic-node' || job.gpuMiner === 'external' ? job.gpuMiner : 'zminer-gpu') : undefined
         r = await api.invoke('miner:start', job.address, {
-          chain: 'classic', backend: backend, gpuMiner: 'classic-node', shard: job.shard,
-          threads: threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+          chain: 'classic', backend: backend, gpuMiner: gpuMiner, shard: job.shard,
+          threads: threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads,
+          mineLabel: job.mineLabel || ''
         })
       } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
       if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }

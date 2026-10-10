@@ -4,16 +4,29 @@
 const fs = require('fs')
 const path = require('path')
 
-const WIN32_FILES = ['zminer.exe', 'geth.exe', 'scdo-stratum.exe', 'classic/node.exe']
+const WIN32_FILES = [
+  'zminer.exe',
+  'geth.exe',
+  'scdo-stratum.exe',
+  'classic/node.exe',
+  'zminer-gpu/zminer-gpu.exe',
+  'zminer-gpu/zpowdet.dll',
+  'zminer-gpu/cudart64_12.dll'
+]
 
 function referencedMinerFiles (platform) {
   if (platform === 'win32') return WIN32_FILES.slice()
   return []
 }
 
-function missingMinerBins (binDir, platform) {
+function missingMinerBins (binDir, platform, gpuDir) {
   const missing = []
+  const gpu = gpuDir || path.join(binDir, 'zminer-gpu')
   for (const rel of referencedMinerFiles(platform)) {
+    if (rel.startsWith('zminer-gpu/')) {
+      if (!fs.existsSync(path.join(gpu, rel.slice('zminer-gpu/'.length)))) missing.push(rel)
+      continue
+    }
     if (!fs.existsSync(path.join(binDir, ...rel.split('/')))) missing.push(rel)
   }
   if (platform === 'win32') {
@@ -24,8 +37,8 @@ function missingMinerBins (binDir, platform) {
   return missing
 }
 
-function assertMinerBinsPresent (binDir, platform) {
-  const missing = missingMinerBins(binDir, platform)
+function assertMinerBinsPresent (binDir, platform, gpuDir) {
+  const missing = missingMinerBins(binDir, platform, gpuDir)
   if (!missing.length) return missing
   const err = new Error('miner bundle is missing ' + missing.join(', ') + ' under ' + binDir)
   err.code = 'MINER_BIN_MISSING'
