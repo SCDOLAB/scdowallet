@@ -101,13 +101,26 @@ function spawnMiner (spec) {
   return proc
 }
 
-function killTree (pid, platform) {
+// signal 0 checks the pid. A dead miner must not wait on taskkill.
+function pidAlive (pid) {
+  const n = Number(pid)
+  if (!n) return false
+  try {
+    process.kill(n, 0)
+    return true
+  } catch (e) {
+    return !!(e && e.code === 'EPERM')
+  }
+}
+
+function killTree (pid, platform, exec) {
   return new Promise(resolve => {
-    if (!pid) return resolve()
+    if (!pid || !pidAlive(pid)) return resolve()
     const cap = setTimeout(resolve, 1500)
     const done = () => { clearTimeout(cap); resolve() }
+    const run = exec || execFile
     if (platform === 'win32') {
-      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 1800 }, () => done())
+      run('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 1800 }, () => done())
     } else {
       try { process.kill(pid, 'SIGKILL') } catch (e) {}
       done()
@@ -115,13 +128,14 @@ function killTree (pid, platform) {
   })
 }
 
-// Kill now. Nothing running settles at once. A live process is killed and the
-// promise always settles within 2 seconds, even if taskkill never returns.
+// Kill now. No live child settles at once, without taskkill. A live process is
+// killed and the promise always settles within 2 seconds, even if taskkill never returns.
 function stopMiner (proc, opts) {
   opts = opts || {}
   const platform = opts.platform || process.platform
   return new Promise(resolve => {
-    if (!proc || proc.exitCode != null || proc.signalCode != null) return resolve('gone')
+    const pid = proc && proc.pid
+    if (!proc || !pid || proc.exitCode != null || proc.signalCode != null || !pidAlive(pid)) return resolve('gone')
     let finished = false
     let extra = null
     const cap = setTimeout(() => finish('forced'), 2000)
@@ -132,10 +146,9 @@ function stopMiner (proc, opts) {
       clearTimeout(extra)
       resolve(how)
     }
-    const pid = proc.pid
     proc.once('exit', () => finish('graceful'))
     try { proc.kill('SIGKILL') } catch (e) {}
-    killTree(pid, platform).then(() => {
+    killTree(pid, platform, opts.execFile).then(() => {
       if (!finished) extra = setTimeout(() => finish('forced'), 200)
     })
   })
@@ -158,5 +171,6 @@ module.exports = {
   spawnMiner,
   stopMiner,
   killTree,
+  pidAlive,
   ctrlCScript
 }

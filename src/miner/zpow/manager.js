@@ -30,7 +30,7 @@ function formatExitMessage (code, logTail) {
   return msg
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, killTree } = require('./launch')
+const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, pidAlive } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -113,7 +113,7 @@ class ZpowManager extends EventEmitter {
     return Object.assign({}, this.state, {
       running: this.wantRunning,
       blockRatePerHour: rate,
-      procs: this.proc ? [this.state.backend || 'zpow'] : []
+      procs: this.childAlive() ? [this.state.backend || 'zpow'] : []
     })
   }
 
@@ -223,9 +223,14 @@ class ZpowManager extends EventEmitter {
     }
   }
 
+  childAlive () {
+    const proc = this.proc
+    if (!proc || proc.exitCode != null || proc.signalCode != null) return false
+    return pidAlive(proc.pid)
+  }
+
   childPids () {
-    const pid = (this.proc && this.proc.pid) || this.livePid
-    return pid ? [pid] : []
+    return this.childAlive() ? [this.proc.pid] : []
   }
 
   pushSyncSample (h, now) {
@@ -536,12 +541,12 @@ class ZpowManager extends EventEmitter {
     if (this.poller) { clearInterval(this.poller); this.poller = null }
     if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null }
     const proc = this.proc
-    const pid = (proc && proc.pid) || this.livePid || 0
     this.proc = null
     this.livePid = 0
-    const platform = this.o.platform || process.platform
-    if (proc && proc.exitCode == null && proc.signalCode == null) await stopMiner(proc, { platform: platform })
-    else if (pid) await killTree(pid, platform)
+    // A wanted session with no OS process is already stopped. Do not taskkill.
+    if (proc && proc.exitCode == null && proc.signalCode == null && pidAlive(proc.pid)) {
+      await stopMiner(proc, { platform: this.o.platform || process.platform, execFile: this.o.execFile })
+    }
     if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())
   }
@@ -650,7 +655,8 @@ class GpuFleet extends EventEmitter {
 
   childUp (kid) {
     const proc = kid && kid.proc
-    return !!(proc && proc.pid && proc.exitCode == null && proc.signalCode == null)
+    if (!proc || proc.exitCode != null || proc.signalCode != null) return false
+    return pidAlive(proc.pid)
   }
 
   async start (address, opts) {

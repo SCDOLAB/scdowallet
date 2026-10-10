@@ -3007,7 +3007,7 @@
   // so the next Start mining restores that session instead of falling back to the processor.
   async function stopAllNow () {
     rememberMineChoice()
-    try { await clearMineRunningFlags() } catch (e) {}
+    clearMineRunningFlags()
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
@@ -3228,7 +3228,7 @@
   }
   async function stopDevice (device) {
     rememberMineChoice()
-    try { await clearMineRunningFlags() } catch (e) {}
+    clearMineRunningFlags()
     if (device === 'cpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     } else {
@@ -3383,6 +3383,11 @@
       const cur = st.homeMineDev && st.homeMineDev[device]
       if (cur !== 'starting' && cur !== 'stopping') return
       st.homeMineDev[device] = ''
+      if (cur === 'stopping') {
+        clearMineRunningFlags()
+        const backend = device === 'cpu' ? 'cpu' : 'gpu'
+        try { api.invoke('miner:stop', { chain: 'classic', backend: backend }) } catch (e) {}
+      }
       refreshDash()
     }, ms)
     return gen
@@ -3466,7 +3471,7 @@
     refreshDash()
   }
   async function minerStop (src) {
-    if (src !== 'node') { try { await clearMineRunningFlags() } catch (e) {} }
+    if (src !== 'node') clearMineRunningFlags()
     const classic = Number(st.mineShard) >= 1
     if (classic) {
       const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
