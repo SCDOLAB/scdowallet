@@ -3362,25 +3362,67 @@
     st.gpuFallback = false
     refreshDash()
   }
+  function devicePressStuck (device) {
+    const press = st.homeMineDev && st.homeMineDev[device]
+    if (press !== 'starting' && press !== 'stopping') return false
+    const until = st.homeMineDeadline && st.homeMineDeadline[device]
+    return !until || Date.now() >= until
+  }
+  function armDeviceDeadline (device, ms) {
+    if (!ms) return 0
+    if (!st.homeMineGen) st.homeMineGen = { cpu: 0, gpu: 0 }
+    if (!st.homeMineDeadline) st.homeMineDeadline = { cpu: 0, gpu: 0 }
+    const gen = (st.homeMineGen[device] || 0) + 1
+    st.homeMineGen[device] = gen
+    st.homeMineDeadline[device] = Date.now() + ms
+    setTimeout(() => {
+      if (!st.homeMineGen || st.homeMineGen[device] !== gen) return
+      const cur = st.homeMineDev && st.homeMineDev[device]
+      if (cur !== 'starting' && cur !== 'stopping') return
+      st.homeMineDev[device] = ''
+      refreshDash()
+    }, ms)
+    return gen
+  }
+  function releaseDevicePress (device, gen, next) {
+    if (gen && st.homeMineGen && st.homeMineGen[device] !== gen) return
+    st.homeMineDev[device] = next || ''
+    if (st.homeMineDeadline) st.homeMineDeadline[device] = 0
+  }
   async function homeMineToggleDevice (device) {
     if (device !== 'cpu' && device !== 'gpu') return
     if (!st.homeMineDev) st.homeMineDev = { cpu: '', gpu: '' }
-    if (st.homeMineDev[device] === 'starting' || st.homeMineDev[device] === 'stopping') return
-    const phase = deviceBusy(device) ? 'mining' : 'stopped'
-    const next = window.SCDOMineHome.reduceMinePhase(phase, 'click')
-    if (next === phase) return
-    st.homeMineDev[device] = next
+    const stuck = devicePressStuck(device)
+    if ((st.homeMineDev[device] === 'starting' || st.homeMineDev[device] === 'stopping') && !stuck) return
+    const alive = window.SCDOMineHome.deviceProcessAlive(st.miners, device)
+    const shown = stuck ? (alive ? 'mining' : 'stopped') : window.SCDOMineHome.devicePhase({ miners: st.miners, press: {} }, device)
+    const plan = window.SCDOMineHome.planDeviceClick({ phase: shown, alive: alive, stuck: stuck })
+    if (plan.op === 'ignore') return
+    if (plan.op === 'idle-stop') {
+      if (!st.homeMineGen) st.homeMineGen = { cpu: 0, gpu: 0 }
+      st.homeMineGen[device] = (st.homeMineGen[device] || 0) + 1
+      st.homeMineDev[device] = ''
+      if (st.homeMineDeadline) st.homeMineDeadline[device] = 0
+      refreshDash()
+      stopDevice(device).catch(() => {})
+      return
+    }
+    if (plan.op === 'kill') {
+      const ok = await confirmBox(T('shellStopAsk'), '', T('stopAllYes'), T('cancel'), true)
+      if (!ok) { refreshDash(); return }
+      st.homeMineDev[device] = 'stopping'
+      const gen = armDeviceDeadline(device, plan.deadlineMs)
+      refreshDash()
+      try { await stopDevice(device) } catch (e) {}
+      releaseDevicePress(device, gen, '')
+      refreshDash()
+      return
+    }
+    st.homeMineDev[device] = 'starting'
     refreshDash()
     try {
-      if (next === 'stopping') {
-        const ok = await confirmBox(T('shellStopAsk'), '', T('stopAllYes'), T('cancel'), true)
-        if (!ok) { st.homeMineDev[device] = ''; refreshDash(); return }
-        await stopDevice(device)
-        st.homeMineDev[device] = ''
-      } else {
-        const ok = await startDevice(device)
-        st.homeMineDev[device] = ok ? 'mining' : ''
-      }
+      const ok = await startDevice(device)
+      st.homeMineDev[device] = ok ? 'mining' : ''
     } catch (e) {
       st.homeMineDev[device] = ''
     }

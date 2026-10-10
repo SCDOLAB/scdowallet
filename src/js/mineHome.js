@@ -362,7 +362,49 @@ function reduceMinePhase (phase, event) {
     if (p === 'stopping') return 'mining'
     return p
   }
+  // A hung start or stop must leave the button. The deadline always wins.
+  if (event === 'timeout') {
+    if (p === 'starting' || p === 'stopping') return 'stopped'
+    return p
+  }
   return p
+}
+
+// Stop is allowed to show 「正在停止」 only while a kill is in flight.
+const STOP_DEADLINE_MS = 2000
+
+function processAlive (m) {
+  if (!m) return false
+  if (procsAlive(m)) return true
+  if (Array.isArray(m.shards) && m.shards.some(processAlive)) return true
+  return false
+}
+
+function deviceProcessAlive (miners, device) {
+  miners = miners || {}
+  if (device === 'cpu') return processAlive(miners.classicCpu)
+  if (processAlive(miners.classicGpu)) return true
+  const s0 = miners.shard0
+  if (!s0 || s0.mode === 'node' || s0.chain === 'classic') return false
+  return processAlive(s0)
+}
+
+// One click on a device button.
+// phase is what that button is showing. alive means a child process exists.
+// stuck means starting/stopping has already passed its deadline, so the click
+// is not swallowed. No child means stop is already finished.
+function planDeviceClick (input) {
+  input = input || {}
+  const known = input.phase === 'starting' || input.phase === 'stopping' || input.phase === 'mining' || input.phase === 'waiting'
+  const phase = known ? input.phase : 'stopped'
+  const alive = input.alive === true
+  const stuck = input.stuck === true
+  if ((phase === 'starting' || phase === 'stopping') && !stuck) return { next: phase, op: 'ignore', deadlineMs: 0 }
+  if (stuck && !alive) return { next: 'stopped', op: 'idle-stop', deadlineMs: 0 }
+  const wantStop = phase === 'mining' || phase === 'waiting' || (stuck && phase === 'stopping')
+  if (!wantStop) return { next: 'starting', op: 'start', deadlineMs: 0 }
+  if (!alive) return { next: 'stopped', op: 'idle-stop', deadlineMs: 0 }
+  return { next: 'stopping', op: 'kill', deadlineMs: STOP_DEADLINE_MS }
 }
 
 // Stop does not change the saved choice. Graphics card stays graphics card.
@@ -1046,7 +1088,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, STOP_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

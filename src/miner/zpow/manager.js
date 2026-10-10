@@ -30,7 +30,7 @@ function formatExitMessage (code, logTail) {
   return msg
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner } = require('./launch')
+const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, killTree } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -536,11 +536,12 @@ class ZpowManager extends EventEmitter {
     if (this.poller) { clearInterval(this.poller); this.poller = null }
     if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null }
     const proc = this.proc
+    const pid = (proc && proc.pid) || this.livePid || 0
     this.proc = null
-    if (proc) {
-      await stopMiner(proc, { platform: this.o.platform || process.platform })
-      if (this.livePid === proc.pid) this.livePid = 0
-    }
+    this.livePid = 0
+    const platform = this.o.platform || process.platform
+    if (proc && proc.exitCode == null && proc.signalCode == null) await stopMiner(proc, { platform: platform })
+    else if (pid) await killTree(pid, platform)
     if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())
   }

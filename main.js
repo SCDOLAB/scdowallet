@@ -305,11 +305,36 @@ function classicSnapshot () {
     classicGpu: zpowGpu ? zpowGpu.status() : idleClassic('gpu')
   }
 }
+function withinMs (work, ms) {
+  return new Promise(resolve => {
+    let done = false
+    const t = setTimeout(() => { if (!done) { done = true; resolve('timeout') } }, ms)
+    Promise.resolve().then(work).then(v => {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      resolve(v)
+    }, () => {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      resolve('timeout')
+    })
+  })
+}
+function classicBusy (mgr) {
+  if (!mgr) return false
+  if (mgr.wantRunning) return true
+  try { return mgr.childPids().length > 0 } catch (e) { return false }
+}
+// No child: return at once. A live child is killed, and this promise settles
+// within 2s even when the kill itself does not.
 async function stopClassic (backend) {
   const jobs = []
-  if ((!backend || backend === 'cpu') && zpowCpu && zpowCpu.wantRunning) jobs.push(zpowCpu.stop())
-  if ((!backend || backend === 'gpu') && zpowGpu && zpowGpu.wantRunning) jobs.push(zpowGpu.stop())
-  await Promise.all(jobs)
+  if ((!backend || backend === 'cpu') && classicBusy(zpowCpu)) jobs.push(zpowCpu.stop())
+  if ((!backend || backend === 'gpu') && classicBusy(zpowGpu)) jobs.push(zpowGpu.stop())
+  if (!jobs.length) return
+  await withinMs(() => Promise.all(jobs), 2000)
 }
 function getMiner () {
   if (!miner) {

@@ -104,10 +104,10 @@ function spawnMiner (spec) {
 function killTree (pid, platform) {
   return new Promise(resolve => {
     if (!pid) return resolve()
-    const cap = setTimeout(resolve, 3000)
+    const cap = setTimeout(resolve, 1500)
     const done = () => { clearTimeout(cap); resolve() }
     if (platform === 'win32') {
-      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 4000 }, () => done())
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 1800 }, () => done())
     } else {
       try { process.kill(pid, 'SIGKILL') } catch (e) {}
       done()
@@ -115,8 +115,8 @@ function killTree (pid, platform) {
   })
 }
 
-// Kill now. A grace period only delays the button; these processes ignore a
-// polite stop. The promise always settles within a few seconds.
+// Kill now. Nothing running settles at once. A live process is killed and the
+// promise always settles within 2 seconds, even if taskkill never returns.
 function stopMiner (proc, opts) {
   opts = opts || {}
   const platform = opts.platform || process.platform
@@ -124,7 +124,7 @@ function stopMiner (proc, opts) {
     if (!proc || proc.exitCode != null || proc.signalCode != null) return resolve('gone')
     let finished = false
     let extra = null
-    const cap = setTimeout(() => finish('forced'), 4000)
+    const cap = setTimeout(() => finish('forced'), 2000)
     const finish = (how) => {
       if (finished) return
       finished = true
@@ -157,5 +157,6 @@ module.exports = {
   CLASSIC_NODE_ARGS,
   spawnMiner,
   stopMiner,
+  killTree,
   ctrlCScript
 }
