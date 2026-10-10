@@ -80,9 +80,14 @@
     return sorted.find(e => e.units != null) || sorted[0] || null
   }
 
+  function scdoText (text) {
+    if (text == null || text === DASH || text === '…') return DASH
+    return text + ' SCDO'
+  }
+
   function optionLabel (e) {
     const bal = e.units == null ? DASH : showUnits(e.units, e.decimals)
-    return (e.name || DASH) + ' · ' + shortAddr(e.address) + ' · ' + bal + ' SCDO'
+    return (e.name || DASH) + ' · ' + shortAddr(e.address) + ' · ' + scdoText(bal)
   }
 
   function selectHtml (id, entries, selected, esc) {
@@ -117,7 +122,7 @@
     const rows = list.map(e => {
       const bal = e.failed || e.units == null ? DASH : showUnits(e.units, e.decimals)
       const addr = e.address || ''
-      return '<div class="addr-line" data-addr="' + esc(addr) + '"><div class="addr-main"><b>' + esc(e.name || DASH) + '</b><span class="mono">' + esc(shortAddr(addr)) + '</span><button type="button" class="link" data-act="copy" data-v="' + esc(addr) + '">' + esc(T('copy')) + '</button></div><div class="addr-bal">' + esc(bal) + ' SCDO</div><div class="addr-go"><button type="button" class="link" data-act="recvAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellRecvShort')) + '</button><button type="button" class="link" data-act="remitAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellSendShort')) + '</button></div></div>'
+      return '<div class="addr-line" data-addr="' + esc(addr) + '"><div class="addr-main"><b>' + esc(e.name || DASH) + '</b><span class="mono">' + esc(shortAddr(addr)) + '</span><button type="button" class="link" data-act="copy" data-v="' + esc(addr) + '">' + esc(T('copy')) + '</button></div><div class="addr-bal">' + esc(scdoText(bal)) + '</div><div class="addr-go"><button type="button" class="link" data-act="recvAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellRecvShort')) + '</button><button type="button" class="link" data-act="remitAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellSendShort')) + '</button></div></div>'
     }).join('')
     return '<div class="addr-list' + scroll + '">' + rows + '</div>'
   }
@@ -154,7 +159,7 @@
       const open = !!(chain && chain.open)
       const partial = sum.partial ? '<div class="chain-partial">' + esc(T('shellPartial')) + '</div>' : ''
       const body = open ? (addrBlock(chain, sum, T, esc) + historyHtml(Object.assign({}, chain, { n: sum.n, entries: sum.entries }), T, esc)) : ''
-      return '<details class="shell-fold chain-card" data-chain-row="' + sum.n + '"' + (open ? ' open' : '') + '><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> <span class="chain-name">' + esc(sum.title) + '</span><b class="chain-bal">' + esc(sum.text) + ' SCDO</b></summary>' + partial + body + '</details>'
+      return '<details class="shell-fold chain-card" data-chain-row="' + sum.n + '"' + (open ? ' open' : '') + '><summary><span class="chain-id"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span><span class="chain-name">' + esc(sum.title) + '</span></span><b class="chain-bal">' + esc(scdoText(sum.text)) + '</b></summary>' + partial + body + '</details>'
     }).join('')
   }
 

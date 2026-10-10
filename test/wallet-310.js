@@ -99,6 +99,8 @@ const other = chainHome.summarize({ n: 2, entries: [{ name: 'z', address: '2S02'
 assert.notStrictEqual(sum.text, other.text)
 const unknown = chainHome.summarize({ n: 0, entries: [{ name: 'w', address: '0x' + '11'.repeat(20), units: null, decimals: 18 }] })
 assert.strictEqual(unknown.text, '\u2014')
+const dashRow = chainHome.rowsHtml([{ n: 0, open: true, entries: unknown.entries, txs: [] }], T, esc)
+assert.ok(dashRow.includes('\u2014') && !dashRow.includes('\u2014 SCDO'))
 const rows = chainHome.rowsHtml([{ n: 1, open: false, entries: sum.entries, txs: [] }], T, esc)
 assert.ok(rows.includes('Shard1 Classic') && rows.includes('0.000006 SCDO'))
 assert.ok(!rows.includes('總餘額') && !/<details\b[^>]*\sopen/.test(rows))

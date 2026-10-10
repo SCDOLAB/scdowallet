@@ -145,8 +145,9 @@ function footerHtml (totals, T, esc) {
   const per = (totals && totals.per) || []
   const bits = per.map((t, i) => {
     const name = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
-    const shown = t == null || t === '…' ? '\u2014' : t
-    return `<span class="foot-h">${esc(name)}</span><b>${esc(shown)} SCDO</b>`
+    const missing = t == null || t === '…' || t === '\u2014'
+    const shown = missing ? '\u2014' : String(t) + ' SCDO'
+    return `<span class="foot-h">${esc(name)}</span><b>${esc(shown)}</b>`
   }).join('')
   return `<div class="foot-line" id="footLine">${bits}</div>`
 }

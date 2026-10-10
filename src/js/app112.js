@@ -787,7 +787,7 @@
       const dec = hit && hit.decimals != null ? hit.decimals : (Number(n) === 0 ? 18 : 8)
       const bal = hit && !hit.failed && hit.units != null ? AMT.fmtUnits(hit.units, dec) : '\u2014'
       const short = window.SCDOChainHome ? window.SCDOChainHome.shortAddr(o.v) : String(o.v || '')
-      return Object.assign({}, o, { show: (o.l || '') + ' · ' + short + ' · ' + bal + ' SCDO' })
+      return Object.assign({}, o, { show: (o.l || '') + ' · ' + short + ' · ' + (bal === '\u2014' ? '\u2014' : bal + ' SCDO') })
     })
   }
   function mineAddrDefault (n, saved, opts) {
@@ -2184,7 +2184,10 @@
       }
       if (picked && picked.file) s.payerFile = picked.file
       const bal = $('payFromBal')
-      if (bal) bal.textContent = picked ? (window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text + ' SCDO') : '\u2014'
+      if (bal) {
+        const text = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text : '\u2014'
+        bal.textContent = text === '\u2014' ? '\u2014' : text + ' SCDO'
+      }
     }
     paintFromPick()
     const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
@@ -3475,7 +3478,8 @@
     if (!window.SCDOChainHome) return []
     return chainRowModel({}).map(c => {
       const s = window.SCDOChainHome.summarize(c)
-      return { label: s.title, text: (s.text || '\u2014') + ' SCDO' }
+      const text = s.text || '\u2014'
+      return { label: s.title, text: text === '\u2014' ? '\u2014' : text + ' SCDO' }
     })
   }
   function catCtx (extra) {
