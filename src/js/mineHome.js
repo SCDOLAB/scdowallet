@@ -371,7 +371,9 @@ function reduceMinePhase (phase, event) {
 }
 
 // Stop is allowed to show 「正在停止」 only while a kill is in flight.
+// Start has its own cap so a click cannot sit on 「正在啟動」 either.
 const STOP_DEADLINE_MS = 2000
+const START_DEADLINE_MS = 8000
 
 function processAlive (m) {
   if (!m) return false
@@ -402,7 +404,10 @@ function planDeviceClick (input) {
   if ((phase === 'starting' || phase === 'stopping') && !stuck) return { next: phase, op: 'ignore', deadlineMs: 0 }
   if (stuck && !alive) return { next: 'stopped', op: 'idle-stop', deadlineMs: 0 }
   const wantStop = phase === 'mining' || phase === 'waiting' || (stuck && phase === 'stopping')
-  if (!wantStop) return { next: 'starting', op: 'start', deadlineMs: 0 }
+  if (!wantStop) {
+    if (Array.isArray(input.chains) && input.chains.length === 0) return { next: 'stopped', op: 'need-chain', deadlineMs: 0 }
+    return { next: 'starting', op: 'start', deadlineMs: START_DEADLINE_MS }
+  }
   if (!alive) return { next: 'stopped', op: 'idle-stop', deadlineMs: 0 }
   return { next: 'stopping', op: 'kill', deadlineMs: STOP_DEADLINE_MS }
 }
@@ -860,7 +865,8 @@ function deviceModel (input, device, T) {
     status = gpuWaitText(g.shard, pct != null ? pct : g.syncPct, zhUi(T))
     view.statusTone = 'wait'
   }
-  if (device === 'gpu' && view.phase === 'stopped' && input && input.gpuBusy) status = tr(T, 'homeMineGpuBusy')
+  if (input && input.needChain && input.needChain[device] && view.phase === 'stopped') status = tr(T, 'shellNeedChain')
+  else if (device === 'gpu' && view.phase === 'stopped' && input && input.gpuBusy) status = tr(T, 'homeMineGpuBusy')
   else if (device === 'gpu' && view.phase === 'stopped' && known && input.caps.gpu && input.caps.gpu.available === false) {
     status = tr(T, 'shellNoGpu')
     view.buttonDisabled = true
@@ -1088,7 +1094,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, STOP_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

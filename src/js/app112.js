@@ -574,6 +574,7 @@
       gpuBusy: !!(st.otherRigels && st.otherRigels.length),
       press: { cpu: st.homeMineDev && st.homeMineDev.cpu, gpu: st.homeMineDev && st.homeMineDev.gpu },
       chains: readChainPick(),
+      needChain: st.mineHint || {},
       caps: st.caps,
       saved: savedMineChoice(),
       targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
@@ -3275,6 +3276,8 @@
   }
   async function startDevice (device, opts) {
     opts = opts || {}
+    const chosen = readChainPick()
+    if (!(chosen[device] || []).length) return false
     try { await ensureCaps() } catch (e) {}
     try { await ensureGpu(true) } catch (e) {}
     try { await refreshPools() } catch (e) {}
@@ -3396,8 +3399,17 @@
     if ((st.homeMineDev[device] === 'starting' || st.homeMineDev[device] === 'stopping') && !stuck) return
     const alive = window.SCDOMineHome.deviceProcessAlive(st.miners, device)
     const shown = stuck ? (alive ? 'mining' : 'stopped') : window.SCDOMineHome.devicePhase({ miners: st.miners, press: {} }, device)
-    const plan = window.SCDOMineHome.planDeviceClick({ phase: shown, alive: alive, stuck: stuck })
+    const plan = window.SCDOMineHome.planDeviceClick({ phase: shown, alive: alive, stuck: stuck, chains: (readChainPick()[device]) || [] })
     if (plan.op === 'ignore') return
+    if (plan.op === 'need-chain') {
+      if (!st.mineHint) st.mineHint = {}
+      st.mineHint[device] = true
+      st.homeMineDev[device] = ''
+      if (st.homeMineDeadline) st.homeMineDeadline[device] = 0
+      refreshDash()
+      return
+    }
+    if (st.mineHint) st.mineHint[device] = false
     if (plan.op === 'idle-stop') {
       if (!st.homeMineGen) st.homeMineGen = { cpu: 0, gpu: 0 }
       st.homeMineGen[device] = (st.homeMineGen[device] || 0) + 1
@@ -3419,12 +3431,14 @@
       return
     }
     st.homeMineDev[device] = 'starting'
+    const gen = armDeviceDeadline(device, plan.deadlineMs)
     refreshDash()
     try {
       const ok = await startDevice(device)
+      if (gen && st.homeMineGen && st.homeMineGen[device] !== gen) return
       st.homeMineDev[device] = ok ? 'mining' : ''
     } catch (e) {
-      st.homeMineDev[device] = ''
+      if (!gen || !st.homeMineGen || st.homeMineGen[device] === gen) st.homeMineDev[device] = ''
     }
     refreshDash()
   }
@@ -3612,6 +3626,7 @@
           pick[device] = cur.indexOf(n) >= 0 ? cur.filter(x => x !== n) : cur.concat(n)
         }
         writeChainPick(device, pick[device])
+        if (st.mineHint) st.mineHint[device] = false
         render()
         break
       }
