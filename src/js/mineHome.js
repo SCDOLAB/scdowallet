@@ -148,6 +148,17 @@ function stillSyncing (m) {
   return network - local > BEHIND_BLOCKS
 }
 
+// Local height and network height → synced (within 8 blocks) and a whole-number percent.
+// Missing heights are not synced. The percent stays empty until both heights exist.
+function nodeSyncOf (input) {
+  input = input || {}
+  const local = knownHeight(input.local)
+  const network = knownHeight(input.network)
+  if (local == null || network == null) return { synced: false, pct: null }
+  const pct = Math.max(0, Math.min(100, Math.round((local / network) * 100)))
+  return { synced: network - local <= BEHIND_BLOCKS, pct: pct }
+}
+
 function waitingSync (m, kind) {
   if (!m || liveMiner(m, kind) || m.mode === 'node' || m.mode === 'cpu') return false
   if (!(m.running || procsAlive(m))) return false
@@ -365,6 +376,39 @@ function pushClassic (jobs, mode, target, caps) {
     shard: shard,
     address: String(target.address)
   })
+}
+
+// Start path for one Shard1–Shard4 Classic chain.
+// Pool when the pool is up, including while the local node is still syncing.
+// Solo only when 進階 saved solo AND the node is already synced.
+// Otherwise a plain reason, never a silent skip.
+function chooseMinePath (input) {
+  input = input || {}
+  const n = Number(input.shard)
+  const zh = input.zh !== false
+  const explicitSolo = input.explicitSolo === true
+  const synced = input.nodeSynced === true
+  const poolUp = input.poolOnline === true
+  const pct = input.syncPct
+  const pctOk = pct != null && pct !== '' && Number.isFinite(Number(pct))
+  const pctText = pctOk ? String(Math.round(Number(pct))) : ''
+  if (explicitSolo && synced) return { action: 'solo', reason: '', label: zh ? '本機節點' : 'Local node' }
+  if (poolUp) {
+    const label = zh
+      ? (pctOk && !synced ? ('經礦池挖（本機節點同步 ' + pctText + '%）') : '經礦池挖')
+      : (pctOk && !synced ? ('Mining through the pool (local node sync ' + pctText + '%)') : 'Mining through the pool')
+    return { action: 'pool', reason: '', label: label }
+  }
+  const reasons = []
+  if (input.poolOnline !== true) {
+    reasons.push(zh ? ('Shard' + n + ' 礦池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now'))
+  }
+  if (!synced) {
+    reasons.push(zh
+      ? ('本機節點同步中' + (pctOk ? (' ' + pctText + '%') : ''))
+      : ('Local node syncing' + (pctOk ? (' ' + pctText + '%') : '')))
+  }
+  return { action: 'blocked', reason: reasons.join(zh ? '；' : '; '), label: '' }
 }
 
 // Which miners a Home click should start. The saved choice wins over the settings
@@ -606,32 +650,53 @@ function jobsForDevice (input) {
   const jobs = []
   if (device === 'gpu' && input.hot) {
     notices.push('homeMineHot')
-    return { jobs: jobs, notices: notices }
+    return { jobs: jobs, notices: notices, blocked: classics.map(n => ({ shard: n, reasonKey: 'homeMineHot' })) }
   }
   if (classics.length > 1) notices.push('shellOneClassic')
   const addresses = input.addresses || {}
-  const first = classics[0]
-  if (first) {
-    const address = addresses[first] || addresses[String(first)] || ''
-    if (!address) notices.push('pickAddr')
-    else {
-      const external = device === 'gpu' && input.saved && input.saved.classic === 'external'
-      jobs.push({
-        chain: 'classic',
-        backend: device,
-        gpuMiner: external ? 'external' : 'classic-node',
-        shard: first,
-        address: String(address)
-      })
+  const blocked = []
+  let startedClassic = false
+  for (const n of classics) {
+    const address = addresses[n] || addresses[String(n)] || ''
+    if (!address) { notices.push('pickAddr'); blocked.push({ shard: n, reasonKey: 'pickAddr' }); continue }
+    if (device === 'cpu') {
+      if (startedClassic) { notices.push('shellOneClassic'); blocked.push({ shard: n, reasonKey: 'shellOneClassic' }); continue }
+      startedClassic = true
+      jobs.push({ chain: 'classic', backend: 'cpu', gpuMiner: 'classic-node', shard: n, address: String(address) })
+      continue
     }
+    const node = (input.nodes && (input.nodes[n] || input.nodes[String(n)])) || {}
+    const pool = input.pools && (input.pools[n] || input.pools[String(n)])
+    const poolOnline = pool && pool.online === true ? true : (pool && pool.online === false ? false : null)
+    const path = chooseMinePath({
+      shard: n,
+      explicitSolo: input.explicitSolo === true,
+      nodeSynced: node.synced === true,
+      syncPct: node.pct,
+      poolOnline: poolOnline,
+      zh: input.zh !== false
+    })
+    if (path.action === 'blocked') { blocked.push({ shard: n, reason: path.reason }); continue }
+    if (startedClassic) { notices.push('shellOneClassic'); blocked.push({ shard: n, reasonKey: 'shellOneClassic' }); continue }
+    startedClassic = true
+    const external = input.saved && input.saved.classic === 'external'
+    jobs.push({
+      chain: 'classic',
+      backend: 'gpu',
+      gpuMiner: path.action === 'pool' ? (external ? 'external' : 'pool') : 'classic-node',
+      shard: n,
+      address: String(address),
+      syncPct: node.pct,
+      mineLabel: path.label
+    })
   }
-  if (device === 'gpu' && supported.indexOf(0) >= 0) {
+  if (!input.skipShard0 && device === 'gpu' && supported.indexOf(0) >= 0) {
     const reward = String(input.reward || addresses[0] || '')
     if (input.gpuBusy) notices.push('homeMineGpuBusy')
     else if (!input.nvidia || !shard0PreflightOk(input.preflight) || !/^0x[0-9a-fA-F]{40}$/.test(reward)) notices.push('shellShard0Wait')
     else jobs.push({ chain: 'shard0', backend: 'gpu', mode: 'mine', address: reward })
   }
-  return { jobs: jobs, notices: notices }
+  return { jobs: jobs, notices: notices, blocked: blocked }
 }
 
 function minersForDevice (miners, device) {
@@ -767,8 +832,14 @@ function chainDetailHtml (input, device, n, T, esc) {
   const session = chainSession(input, device, n)
   const live = session && ((n === 0 && liveMiner(session, 'shard0')) || (n >= 1 && liveMiner(session, 'classic')))
   const waiting = session && ((n === 0 && waitingSync(session, 'shard0')) || (n >= 1 && waitingSync(session, 'classic')))
+  const held = input && input.mineRows && (input.mineRows[n] || input.mineRows[String(n)])
   let state = tr(T, 'shellMineOff')
-  if (live) state = tr(T, 'shellMineOn')
+  const runningLabel = session && session.mineLabel && (session.running || procsAlive(session))
+  if (runningLabel) state = session.mineLabel
+  else if (live) state = tr(T, 'shellMineOn')
+  else if (held && held.label && (held.action === 'pool' || held.action === 'solo')) state = held.label
+  else if (held && held.reason) state = held.reason
+  else if (held && held.reasonKey) state = tr(T, held.reasonKey)
   else if (waiting) {
     const pct = syncPctOf(session)
     state = pct == null ? tr(T, 'shellMineWaitPlain') : tr(T, 'shellMineWait', { detail: chainLabel(n) + ' ' + pct + '%' })
@@ -782,7 +853,8 @@ function chainDetailHtml (input, device, n, T, esc) {
     today = scdoCount(earn.todayScdo) + ' SCDO'
     if (earn.last != null) last = tr(T, 'homeMineLastVal', { t: clockText(earn.last), ago: tr(T, 'homeMineAgo', { n: minutesAgo(earn.last, input.now == null ? Date.now() : input.now) }) })
   }
-  const pct = session ? syncPctOf(session) : null
+  let pct = session ? syncPctOf(session) : null
+  if (pct == null && session && session.running && session.syncPct != null && Number.isFinite(Number(session.syncPct))) pct = Math.round(Number(session.syncPct))
   const sync = pct == null ? DASH : (pct + '%')
   const pool = input && input.pools && (input.pools[n] || input.pools[String(n)])
   const height = !pool || pool.online == null ? DASH : (pool.online && pool.chain_height != null ? String(pool.chain_height) : (zhUi(T) ? '未連接' : 'Not connected'))
@@ -790,10 +862,11 @@ function chainDetailHtml (input, device, n, T, esc) {
   const addr = address || DASH
   let mode = DASH
   if (n >= 1 && device === 'cpu') mode = tr(T, 'poolEndpoint')
-  else if (n >= 1 && device === 'gpu') mode = tr(T, 'poolLocal')
+  else if (n >= 1 && device === 'gpu') mode = (session && (session.backend === 'pool' || session.backend === 'external' || session.mineLabel)) || (held && held.action === 'pool') ? (held && held.label ? held.label : (session && session.mineLabel ? session.mineLabel : tr(T, 'poolEndpoint'))) : tr(T, 'poolLocal')
   else if (n === 0) mode = session && session.mode === 'pool' ? tr(T, 'poolEndpoint') : tr(T, 'poolLocal')
   const row = (k, v) => `<div class="mine-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
-  return `<details class="shell-fold" id="mineChain-${device}-${n}">${foldSummary(esc(chainLabel(n)))}
+  const title = state === tr(T, 'shellMineOff') ? chainLabel(n) : (chainLabel(n) + ' · ' + state)
+  return `<details class="shell-fold" id="mineChain-${device}-${n}">${foldSummary(esc(title))}
       ${row(tr(T, 'shellStat'), state)}
       ${row(tr(T, 'homeMineSpeedLbl'), speed)}
       ${row(tr(T, 'homeMineTodayLbl'), today)}
@@ -847,7 +920,7 @@ function minePageHtml (input, T, esc) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, nodeSyncOf, syncPctOf, stillSyncing, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

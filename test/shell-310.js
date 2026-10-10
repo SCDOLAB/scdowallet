@@ -164,12 +164,16 @@ const reward = '0x' + 'ab'.repeat(20)
 const gpuJobs = mine.jobsForDevice({
   device: 'gpu', chains: [0, 1, 3],
   addresses: { 0: reward, 1: '1S01' + 'b'.repeat(36) },
-  nvidia: true, preflight: { ok: true, gpus: [{ status: 'ready' }] }, reward: reward
+  nvidia: true, preflight: { ok: true, gpus: [{ status: 'ready' }] }, reward: reward,
+  pools: { 1: { online: true } },
+  nodes: { 1: { synced: false, pct: 52 } },
+  explicitSolo: true
 })
 assert.ok(gpuJobs.jobs.some(j => j.chain === 'shard0' && j.backend === 'gpu'))
-assert.ok(gpuJobs.jobs.some(j => j.chain === 'classic' && j.shard === 1))
+assert.ok(gpuJobs.jobs.some(j => j.chain === 'classic' && j.shard === 1 && j.gpuMiner === 'pool'))
 assert.ok(!gpuJobs.jobs.some(j => j.shard === 3))
 assert.ok(gpuJobs.notices.indexOf('shellOneClassic') >= 0)
+assert.ok((gpuJobs.blocked || []).some(b => b.shard === 3))
 assert.deepStrictEqual(mine.selectionAfterStop({ cpu: [1], gpu: [0, 1] }), { cpu: [1], gpu: [0, 1] })
 assert.strictEqual(mine.reduceMinePhase('starting', 'click'), 'starting')
 assert.strictEqual(mine.reduceMinePhase('stopping', 'click'), 'stopping')

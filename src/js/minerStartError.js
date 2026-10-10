@@ -48,6 +48,10 @@
       CN: '找不到 Classic 的顯示卡挖礦程式。請重新安裝 SCDO Wallet。',
       EN: 'The Classic graphics-card mining program was not found. Please reinstall SCDO Wallet.'
     },
+    NO_POOL_GPU: {
+      CN: '找不到顯卡連去礦池的程式，所以這條鏈沒有開始。請重新安裝 SCDO Wallet。',
+      EN: 'The program that connects the graphics card to the pool was not found, so this chain did not start. Please reinstall SCDO Wallet.'
+    },
     NO_CUDART: {
       CN: '顯示卡挖礦需要的檔案不見了，所以沒有開始挖礦。請重新安裝 SCDO Wallet。',
       EN: 'A file the graphics-card miner needs is missing, so mining did not start. Please reinstall SCDO Wallet.'
@@ -85,7 +89,7 @@
       EN: 'The miner did not start. Try again. If it keeps failing, open the Mining page, press "Export mining logs (sanitized)" under Logs, and send the file to support.'
     }
   }
-  const CLASSIC_CODES = ['NO_ZMINER', 'NO_CLASSIC_NODE', 'NO_CUDART', 'SHA256_MISSING', 'SHA256_MISMATCH', 'BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NETWORK']
+  const CLASSIC_CODES = ['NO_ZMINER', 'NO_CLASSIC_NODE', 'NO_POOL_GPU', 'NO_CUDART', 'SHA256_MISSING', 'SHA256_MISMATCH', 'BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NETWORK']
   const SHORT = {
     NO_NVIDIA: { CN: '沒有找到顯示卡', EN: 'no graphics card found' },
     DEFENDER: { CN: '被防毒軟體刪掉', EN: 'removed by antivirus' },
@@ -98,6 +102,7 @@
     EXTERNAL_DOWN: { CN: '另一個節點沒有回應', EN: 'the other node is not answering' },
     NO_ZMINER: { CN: '找不到處理器挖礦程式', EN: 'processor mining program not found' },
     NO_CLASSIC_NODE: { CN: '找不到顯示卡挖礦程式', EN: 'graphics-card mining program not found' },
+    NO_POOL_GPU: { CN: '找不到礦池用的顯卡程式', EN: 'graphics-card pool program was not found' },
     NO_CUDART: { CN: '顯示卡挖礦檔案不見了', EN: 'a graphics-card mining file is missing' },
     SHA256_MISSING: { CN: '沒辦法確認是官方版本', EN: 'could not check the official version' },
     SHA256_MISMATCH: { CN: '跟官方版本對不上', EN: 'does not match the official version' },

@@ -174,6 +174,10 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .site-bar .site-fold > summary { cursor: pointer; list-style: none; }
 .site-bar .site-fold > :not(summary) { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 
+/* The cat is fixed over the window. The shell hides the old footer, so the scroll
+   area itself stops above the cat. Address pills on the last rows stay clear. */
+body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--cat-res, 92px); }
+
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }

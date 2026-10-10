@@ -478,6 +478,85 @@ assert.ok(menu.includes("label: L.mining"))
 assert.ok(menu.includes("act('mineHome')"))
 assert.ok(!menu.includes("act('mine')"))
 assert.ok(!ui.includes('id="btnMine"'))
+assert.deepStrictEqual(mine.nodeSyncOf({ local: 52, network: 100 }), { synced: false, pct: 52 })
+assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: true, pct: 93 })
+assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
+}).label, '經礦池挖（本機節點同步 52%）')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
+}).action, 'pool')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: true, syncPct: 100, poolOnline: true, zh: true
+}).action, 'solo')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: false, nodeSynced: true, syncPct: 100, poolOnline: true, zh: true
+}).label, '經礦池挖')
+{
+  const blocked = mine.chooseMinePath({ shard: 2, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: false, zh: true })
+  assert.strictEqual(blocked.action, 'blocked')
+  assert.ok(blocked.reason.includes('Shard2 礦池暫時連不上'))
+  assert.ok(blocked.reason.includes('本機節點同步中 52%'))
+  const en = mine.chooseMinePath({ shard: 2, explicitSolo: false, nodeSynced: false, syncPct: 52, poolOnline: false, zh: false })
+  assert.ok(en.reason.includes('Shard2 pool cannot be reached right now'))
+  assert.ok(en.reason.includes('Local node syncing 52%'))
+}
+{
+  const addr = (n) => n + 'S0' + n + 'a'.repeat(37)
+  const built = mine.jobsForDevice({
+    device: 'gpu',
+    chains: [1, 2, 3, 4],
+    addresses: { 1: addr(1), 2: addr(2), 3: addr(3), 4: addr(4) },
+    caps: { gpu: { available: true } },
+    pools: { 1: { online: true }, 2: { online: true }, 3: { online: false }, 4: { online: true } },
+    nodes: {
+      1: { synced: false, pct: 52 },
+      2: { synced: false, pct: 52 },
+      3: { synced: false, pct: 52 },
+      4: { synced: true, pct: 100 }
+    },
+    explicitSolo: true,
+    zh: true
+  })
+  assert.strictEqual(built.jobs.length, 1)
+  assert.strictEqual(built.jobs[0].shard, 1)
+  assert.strictEqual(built.jobs[0].gpuMiner, 'pool')
+  assert.strictEqual(built.jobs[0].address, addr(1))
+  assert.strictEqual(built.jobs[0].mineLabel, '經礦池挖（本機節點同步 52%）')
+  const by = {}
+  for (const b of built.blocked) by[b.shard] = b
+  assert.strictEqual(by[2].reasonKey, 'shellOneClassic')
+  assert.ok(by[3].reason.includes('Shard3 礦池暫時連不上'))
+  assert.ok(by[3].reason.includes('本機節點同步中 52%'))
+  assert.strictEqual(by[4].reasonKey, 'shellOneClassic')
+  const later = mine.jobsForDevice({
+    device: 'gpu',
+    chains: [1, 2],
+    addresses: { 1: addr(1), 2: addr(2) },
+    caps: { gpu: { available: true } },
+    pools: { 1: { online: false }, 2: { online: true } },
+    nodes: { 1: { synced: false, pct: 52 }, 2: { synced: false, pct: 10 } },
+    explicitSolo: true,
+    zh: true
+  })
+  assert.strictEqual(later.jobs.length, 1)
+  assert.strictEqual(later.jobs[0].shard, 2)
+  assert.strictEqual(later.jobs[0].gpuMiner, 'pool')
+  assert.ok(later.blocked.some(b => b.shard === 1 && b.reason.includes('Shard1 礦池暫時連不上') && b.reason.includes('本機節點同步中 52%')))
+  const shown = mine.minePageHtml({
+    miners: {},
+    chains: { cpu: [], gpu: [1, 2] },
+    caps: { gpu: { available: true } },
+    addresses: { 1: addr(1), 2: addr(2) },
+    mineRows: {
+      1: { action: 'pool', label: '經礦池挖（本機節點同步 52%）' },
+      2: { reason: 'Shard2 礦池暫時連不上；本機節點同步中 52%' }
+    }
+  }, CN, esc)
+  assert.ok(shown.includes('經礦池挖（本機節點同步 52%）'))
+  assert.ok(shown.includes('Shard2 礦池暫時連不上；本機節點同步中 52%'))
+}
 assert.ok(!read('src/js/mineHome.js').includes('主鏈'))
 assert.ok(!read('src/js/mineHome.js').includes('Shard1 EVM'))
 const stopAt = ui.indexOf('async function stopAllNow')

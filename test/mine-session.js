@@ -46,9 +46,11 @@ const jobs = mine.jobsForDevice({
   caps: { gpu: { available: true } },
   nvidia: true,
   preflight: { gpus: [{ status: 'ready' }] },
-  reward: '0x' + 'ab'.repeat(20)
+  reward: '0x' + 'ab'.repeat(20),
+  pools: { 1: { online: true } },
+  nodes: { 1: { synced: false, pct: 40 } }
 })
-assert.ok(jobs.jobs.some(j => j.chain === 'classic'))
+assert.ok(jobs.jobs.some(j => j.chain === 'classic' && j.gpuMiner === 'pool'))
 assert.ok(!jobs.jobs.some(j => j.chain === 'shard0'))
 
 // Launch with auto-resume off never starts, even when every running flag is still on.

@@ -482,6 +482,9 @@ ipcMain.handle('mining:setConfig', (e, cfg) => {
   return { ok: true, miningMode: mode, poolUrl }
 })
 ipcMain.handle('mining:setKeepMining', (e, on) => setKeepMining(!!on))
+ipcMain.handle('mining:localSync', async () => {
+  try { return await require('./src/miner/zpow/manager').localNodeHeights() } catch (e) { return {} }
+})
 ipcMain.handle('mining:poolStatus', async () => {
   const poolStatus = require('./src/js/poolStatus')
   const { poolForShard, poolsFromEnv } = require('./src/miner/zpow/pools')

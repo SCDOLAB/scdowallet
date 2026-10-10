@@ -553,7 +553,8 @@
       saved: savedMineChoice(),
       targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
       addresses: mineChainAddresses(),
-      pools: st.poolStatus
+      pools: st.poolStatus,
+      mineRows: st.mineRows || {}
     }
   }
   function mineHomeCardHtml () {
@@ -2120,27 +2121,74 @@
       showStep(3)
       sync()
     }
-    function fillMax () {
-      const route = currentRoute()
-      const payer = chosenPayer(route)
-      if (!payer) return
-      let bal = null
-      let dec = 18
-      let fee = 0n
-      if (route && route.shard === 0) {
-        const b = st.s0[payer.filename]
-        bal = b && b.nativeWei != null ? b.nativeWei : null
-        if (s.feeWei != null) { try { fee = BigInt(s.feeWei) } catch (e) { fee = 0n } }
-      } else if (route && route.shard >= 1) {
-        bal = oldRaw(payer.pubkey)
-        dec = 8
-        fee = BigInt(s.gas || 21000)
+    function maxShard (route) {
+      if (route && route.kind === 'chain' && (route.shard === 0 || route.shard >= 1)) return route.shard
+      const to = nhw($('payTo') ? $('payTo').value : s.to)
+      const n = inferShard(to)
+      if (n != null) return n
+      if ([0, 1, 2, 3, 4].includes(Number(s.shardPick))) return Number(s.shardPick)
+      return null
+    }
+    async function fillMax () {
+      const btn = $('payMax')
+      if (btn && btn.disabled) return
+      if (btn) btn.disabled = true
+      try {
+        const route = currentRoute()
+        const to = nhw($('payTo') ? $('payTo').value : s.to)
+        const payer = chosenPayer(route) || accByFile(s.payerFile)
+        const shard = maxShard(route)
+        if (!payer || shard == null) return
+        let bal = null
+        let dec = 18
+        let fee = null
+        if (shard === 0) {
+          const b = st.s0[payer.filename]
+          bal = b && b.nativeWei != null ? b.nativeWei : null
+          const dest = (route && route.to) || to
+          if (!/^0x[0-9a-fA-F]{40}$/.test(dest) || !payer.evm) return
+          if (s.feeWei != null && s.feeFor === 0) {
+            try { fee = BigInt(s.feeWei) } catch (e) { fee = null }
+          }
+          if (fee == null) {
+            try {
+              const est = await api.invoke('s0:estimate', payer.evm, dest, '0.00000001', 'SCDO')
+              if (est && est.estFeeWei != null) {
+                fee = BigInt(est.estFeeWei)
+                s.feeWei = est.estFeeWei
+                s.feeFor = 0
+                s.feeText = fmtWei(fee) + ' SCDO'
+                s.feeReady = true
+              }
+            } catch (e) { fee = null }
+          }
+        } else if (shard >= 1) {
+          bal = oldRaw(payer.pubkey)
+          dec = 8
+          const dest = (route && route.kind === 'chain' && route.to) || to
+          let gas = null
+          if (payer.pubkey && /^[1-4]S[0-9a-fA-F]{40}$/.test(dest)) {
+            try {
+              const g = await api.invoke('old:estimateGas', payer.pubkey, dest)
+              if (g && Number(g) > 0) gas = Number(g)
+            } catch (e) { gas = null }
+          }
+          fee = AMT.classicFeeUnits(gas)
+          s.gas = Number(fee)
+          s.feeFor = shard
+          s.feeText = AMT.fmtUnits(fee, 8) + ' SCDO'
+          s.feeReady = true
+        }
+        if (fee == null) return
+        const text = AMT.maxAmount(bal, fee, dec)
+        if (text == null) return
+        s.amount = text
+        if ($('payAmt')) $('payAmt').value = text
+        sync()
+      } finally {
+        const again = $('payMax')
+        if (again) again.disabled = false
       }
-      const text = AMT.maxAmount(bal, fee, dec)
-      if (text == null) return
-      s.amount = text
-      if ($('payAmt')) $('payAmt').value = text
-      sync()
     }
     if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
     if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
@@ -2888,28 +2936,40 @@
     return /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr : ''
   }
   async function startOneHomeJob (job) {
-    if (job.chain === 'classic' && job.gpuMiner === 'external') {
+    if (job.chain === 'classic' && (job.gpuMiner === 'external' || job.gpuMiner === 'pool')) {
       const gpu = gpuParams()
       let r
       try {
         r = await api.invoke('miner:start', job.address, {
-          chain: 'classic', backend: 'gpu', gpuMiner: 'external', shard: job.shard,
-          threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads
+          chain: 'classic', backend: 'gpu', gpuMiner: job.gpuMiner, shard: job.shard,
+          threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads,
+          mineLabel: job.mineLabel || '', syncPct: job.syncPct == null ? null : job.syncPct
         })
       } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
       if (!r || !r.ok) {
         const key = 'st_' + ((r && r.code) || '')
         const stText = r && r.code && r.code !== 'ERROR' && T(key) !== key ? T(key) : ''
-        toast(window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, stText), 8000)
+        const text = window.SCDOStartError.classicStartText(lang(), r && r.code, r && r.error, stText)
+        toast(text, 8000)
+        if (job.shard != null) {
+          st.mineRows = st.mineRows || {}
+          st.mineRows[job.shard] = { reason: text }
+        }
         return false
       }
-      localStorage.setItem('minerRunClassicGpu', 'external')
+      localStorage.setItem('minerRunClassicGpu', job.gpuMiner === 'external' ? 'external' : 'gpu')
       localStorage.setItem('minerClassicGpu', job.address)
       return true
     }
     const r = await startCatJob(job)
     if (r && r.ok) return true
-    if (r && r.fail) toast(r.fail, 7000)
+    if (r && r.fail) {
+      toast(r.fail, 7000)
+      if (job.shard != null) {
+        st.mineRows = st.mineRows || {}
+        st.mineRows[job.shard] = { reason: r.fail }
+      }
+    }
     return false
   }
   async function startHomeMining () {
@@ -3044,21 +3104,56 @@
         try { await api.invoke('miner:stop', 'mine') } catch (e) {}
       }
     }
+    const stoppedPick = readChainPick()
+    st.mineRows = st.mineRows || {}
+    for (const n of stoppedPick[device] || []) delete st.mineRows[n]
     clearMineRunningFlags()
     toast(T('stopped'))
   }
-  async function startDevice (device) {
+  function rememberMineRows (device, built) {
+    st.mineRows = st.mineRows || {}
+    const pick = readChainPick()
+    for (const n of pick[device] || []) delete st.mineRows[n]
+    for (const b of built.blocked || []) {
+      st.mineRows[b.shard] = { reason: b.reason || '', reasonKey: b.reason ? '' : (b.reasonKey || '') }
+    }
+    for (const j of built.jobs || []) {
+      if (j.shard == null) continue
+      const pool = j.gpuMiner === 'pool' || j.gpuMiner === 'external'
+      st.mineRows[j.shard] = { action: pool ? 'pool' : 'solo', label: j.mineLabel || '' }
+    }
+  }
+  async function nodeMapForStart () {
+    let heights = {}
+    try { heights = await api.invoke('mining:localSync') || {} } catch (e) { heights = {} }
+    const nodes = {}
+    for (const n of [1, 2, 3, 4]) {
+      const pool = st.poolStatus && (st.poolStatus[n] || st.poolStatus[String(n)])
+      const slot = [st.miners && st.miners.classicGpu, st.miners && st.miners.classicCpu].find(m => m && Number(m.shard) === n)
+      const probed = heights[n] || heights[String(n)] || {}
+      const local = probed.local != null ? probed.local : (slot && slot.localBlock)
+      const network = (pool && pool.online && pool.chain_height != null) ? pool.chain_height : (slot && slot.networkBlock)
+      nodes[n] = window.SCDOMineHome.nodeSyncOf({ local: local, network: network })
+    }
+    return nodes
+  }
+  async function startDevice (device, opts) {
+    opts = opts || {}
     try { await ensureCaps() } catch (e) {}
     try { await ensureGpu(true) } catch (e) {}
+    try { await refreshPools() } catch (e) {}
+    let intent = null
+    try { intent = await api.invoke('miner:intent') } catch (e) { intent = null }
     const pick = readChainPick()
     const chains = pick[device] || []
     const addresses = mineChainAddresses()
     let preflight = null
-    if (device === 'gpu' && chains.indexOf(0) >= 0) {
+    if (device === 'gpu' && chains.indexOf(0) >= 0 && !opts.skipShard0) {
       try { preflight = await api.invoke('mining:gpuPreflight') } catch (e) { preflight = { ok: false, gpus: [] } }
       try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) { st.otherRigels = st.otherRigels || [] }
     }
     const hot = catTemp() != null && catTemp() >= 85
+    const nodes = device === 'gpu' ? await nodeMapForStart() : {}
     const built = window.SCDOMineHome.jobsForDevice({
       device: device,
       chains: chains,
@@ -3070,8 +3165,13 @@
       preflight: preflight,
       hot: device === 'gpu' && hot,
       reward: addresses[0],
-      pools: st.poolStatus
+      pools: st.poolStatus,
+      nodes: nodes,
+      explicitSolo: !!(intent && intent.miningMode === 'solo'),
+      zh: lang() !== 'EN',
+      skipShard0: !!opts.skipShard0
     })
+    rememberMineRows(device, built)
     for (const key of built.notices || []) toast(T(key), 7000)
     if (!built.jobs.length) return false
     if (built.jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
@@ -3888,12 +3988,8 @@
         if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
       }
       if (plan.start.indexOf('classicGpu') >= 0 && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
-        const p = classicTargetForHome('gpu')
         const gpuOk = caps.gpu && caps.gpu.available
-        if (p && gpuOk) {
-          const gpu = gpuParams()
-          api.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
-        }
+        if (gpuOk) await startDevice('gpu', { skipShard0: true })
       }
       if (plan.start.indexOf('shard0') >= 0) {
         if (rc.mode === 'node') { nodeStart(); return }

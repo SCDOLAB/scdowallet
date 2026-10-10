@@ -1,7 +1,8 @@
 // Classic shard 1–4 mining. The main process keeps one instance for CPU and
 // one for GPU, so both can run next to Shard0.
 // CPU: zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// GPU: go-scdo node.exe CUDA zpow, one shard, coinbase = the user's address.
+// GPU solo: go-scdo node.exe CUDA zpow, one shard, coinbase = the user's address.
+// GPU pool: zminer-gpu to that shard's stratum, paid to the selected address.
 // A third binary can be dropped in with SCDO_ZPOW_GPU_BIN / SCDO_ZPOW_GPU_ARGS.
 'use strict'
 const fs = require('fs')
@@ -29,8 +30,8 @@ function formatExitMessage (code, logTail) {
   if (msg.length > 500) msg = msg.slice(0, 497) + '...'
   return msg
 }
-const { firstExisting, zminerCandidates, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
+const { firstExisting, zminerCandidates, classicNodeCandidates, gpuPoolCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
+const { renderArgs, externalProfile, ZMINER_ARGS, GPU_POOL_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -155,7 +156,7 @@ class ZpowManager extends EventEmitter {
       if (ev.rejected != null) patch.sharesRejected = ev.rejected
       if (ev.connected != null) patch.connected = ev.connected
       if (ev.blocks != null) patch.blocksFound = Math.max(this.state.blocksFound, ev.blocks)
-      if (this.state.mode === 'cpu') {
+      if (this.state.mode === 'cpu' || this.state.backend === 'pool' || this.state.backend === 'external') {
         patch.code = ev.connected ? 'CLASSIC_MINING' : 'POOL_CONNECTING'
         patch.phase = ev.connected ? 'mining' : 'starting'
         patch.message = ev.connected ? '' : 'connecting'
@@ -331,7 +332,7 @@ class ZpowManager extends EventEmitter {
       throw err
     }
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
-    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : 'classic-node'
+    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : (opts.gpuMiner === 'pool' ? 'pool' : 'classic-node')
     const env = this.o.env || process.env
     const caps = this.capabilities(env)
     const asInt = (v, fallback) => {
@@ -354,6 +355,27 @@ class ZpowManager extends EventEmitter {
       shaOpts = Object.assign({ required: true }, this.sumsFor(binary, env.SCDO_ZMINER_SHA256))
       args = renderArgs(ZMINER_ARGS, {
         pool: pool.stratum, user: parsed.address, worker: opts.worker || 'wallet', threads
+      })
+      cwd = path.dirname(binary)
+    } else if (gpuMiner === 'pool') {
+      const profile = externalProfile(env)
+      const discovered = firstExisting(gpuPoolCandidates({ binDir: this.o.binDir, root: this.o.root, platform: this.o.platform, env }))
+      const binaryPath = discovered || (profile && profile.binary && fs.existsSync(profile.binary) ? profile.binary : '')
+      if (!binaryPath) {
+        const err = new Error('graphics-card pool miner was not found (zminer-gpu or SCDO_ZPOW_GPU_BIN)')
+        err.code = 'NO_POOL_GPU'
+        throw err
+      }
+      binary = binaryPath
+      const custom = !!(profile && env.SCDO_ZPOW_GPU_ARGS && profile.binary === binaryPath)
+      shaOpts = Object.assign({ required: false }, custom && profile.sha256 ? { expected: profile.sha256 } : this.sumsFor(binary, env.SCDO_ZPOW_GPU_SHA256))
+      args = renderArgs(custom ? profile.args : GPU_POOL_ARGS, {
+        pool: pool.stratum,
+        user: parsed.address,
+        threads,
+        worker: opts.worker || 'wallet',
+        shard: String(parsed.shard),
+        device: '0'
       })
       cwd = path.dirname(binary)
     } else if (gpuMiner === 'external') {
@@ -405,8 +427,10 @@ class ZpowManager extends EventEmitter {
       backend: backend === 'cpu' ? 'zminer' : gpuMiner,
       pool: backend === 'gpu' && gpuMiner === 'classic-node' ? null : { stratum: pool.stratum, stats: minerStatsUrl(pool, parsed.address), live: pool.live },
       phase: 'starting',
-      code: backend === 'cpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
+      code: backend === 'cpu' || gpuMiner === 'pool' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
       message: '',
+      mineLabel: opts.mineLabel || '',
+      syncPct: opts.syncPct == null ? null : opts.syncPct,
       startedAt: Date.now()
     })
     this.restarts = []
@@ -514,9 +538,25 @@ class ZpowManager extends EventEmitter {
         ctrlCScript: ctrl ? ctrlCScript(path.join(this.o.dataRoot, 'tools')) : undefined
       })
     }
-    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '' })
+    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())
   }
 }
 
-module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage }
+async function localNodeHeights (call, timeoutMs) {
+  const rpc = call || rpcCall
+  const ms = timeoutMs || 800
+  const out = {}
+  await Promise.all([1, 2, 3, 4].map(async (n) => {
+    const port = SHARD_PORTS[n]
+    if (!port) return
+    try {
+      const info = await rpc('http://127.0.0.1:' + port.http, 'scdo_getInfo', [], ms)
+      const h = info && (info.CurrentBlockHeight != null ? info.CurrentBlockHeight : info.currentBlockHeight)
+      if (h != null && Number(h) > 0) out[n] = { local: Number(h) }
+    } catch (e) {}
+  }))
+  return out
+}
+
+module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage, localNodeHeights }

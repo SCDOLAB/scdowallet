@@ -61,6 +61,13 @@
     const cut = frac.slice(0, dp)
     return { value: m[1] + (m[2] || cut ? '.' + cut : ''), blocked: blocked }
   }
+  // Shard1–Shard4 Classic fee is gas × 1 unit. 21000 units is 0.00021 SCDO.
+  // A missing or zero estimate uses that known fee so Max never returns the full balance.
+  function classicFeeUnits (gas) {
+    const n = Number(gas)
+    if (Number.isFinite(n) && n > 0) return BigInt(Math.floor(n))
+    return 21000n
+  }
   // balance − fee, cut toward zero at 8 decimal places. Null when the balance is unknown.
   function maxAmount (balUnits, feeUnits, decimals) {
     if (balUnits == null) return null
@@ -74,7 +81,7 @@
     const cut = (bal - fee) / factor * factor
     return fmtUnits(cut, dec, dp).replace(/,/g, '')
   }
-  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, maxAmount }
+  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, classicFeeUnits, maxAmount }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOAmount = Object.freeze(api)
 })()

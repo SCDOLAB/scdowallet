@@ -73,6 +73,7 @@ function externalProfile (env) {
 }
 
 const ZMINER_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-threads', '{threads}']
+const GPU_POOL_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-device', '0']
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
 function relaxMinerPriority (proc) {
@@ -138,6 +139,7 @@ module.exports = {
   renderArgs,
   externalProfile,
   ZMINER_ARGS,
+  GPU_POOL_ARGS,
   CLASSIC_NODE_ARGS,
   spawnMiner,
   stopMiner,

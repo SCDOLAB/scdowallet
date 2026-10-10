@@ -39,6 +39,20 @@ function zminerCandidates (opts) {
   return list
 }
 
+function gpuPoolCandidates (opts) {
+  const env = opts.env || {}
+  const platform = opts.platform || process.platform
+  const name = platform === 'win32' ? 'zminer-gpu.exe' : 'zminer-gpu'
+  const list = []
+  if (env.SCDO_ZPOW_GPU_BIN) list.push(env.SCDO_ZPOW_GPU_BIN)
+  if (opts.binDir) {
+    list.push(path.join(opts.binDir, name))
+    list.push(path.join(opts.binDir, 'classic', name))
+  }
+  if (opts.root) list.push(path.join(opts.root, 'miner-zpow', 'dist', name))
+  return list
+}
+
 function classicNodeCandidates (opts) {
   const env = opts.env || {}
   const platform = opts.platform || process.platform
@@ -115,6 +129,7 @@ module.exports = {
   nodeName,
   zminerCandidates,
   classicNodeCandidates,
+  gpuPoolCandidates,
   findCudart,
   firstExisting,
   lookupSha,
