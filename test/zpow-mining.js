@@ -10,12 +10,13 @@ const { poolForShard, minerStatsUrl, defaultCpuThreads, poolsFromEnv, DEFAULT_PO
 const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase, ETA_WINDOW_MS } = require('../src/miner/zpow/status')
 const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
-const { renderArgs, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS } = require('../src/miner/zpow/launch')
+const { renderArgs, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, stopMiner } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
 const { missingMinerBins, assertMinerBinsPresent, referencedMinerFiles } = require('../scripts/require-miner-bins')
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
 const { ZpowManager, GpuFleet, formatExitMessage } = require('../src/miner/zpow/manager')
-const { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256 } = require('../scripts/stage-zminer-gpu')
+const { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256, packZip, readZipEntries } = require('../scripts/stage-zminer-gpu')
+const { sleeper: winSleeper, crash: winCrash } = require('./win-miner-stubs')
 const { formatMinePill } = require('../src/js/minePill')
 const { buildIsland, absorbBlocks, summarizeEarnings, syncOf, BLOCK_REWARD_SCDO } = require('../src/js/statusIsland')
 const { parseGpuTemp } = require('../src/main/miningService')
@@ -1174,10 +1175,27 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   assert.deepStrictEqual(await Promise.resolve(assertMinerBinsPresent(binRoot, 'win32')), [])
   fs.rmSync(binRoot, { recursive: true, force: true })
 
+  const hold = require('child_process').spawn(process.execPath, ['-e', 'setInterval(function(){}, 1000)'], { stdio: 'ignore' })
+  try {
+    const t0 = Date.now()
+    const how = await stopMiner(hold, { platform: process.platform })
+    const ms = Date.now() - t0
+    assert.ok(ms < 5000, 'stopMiner took ' + ms + 'ms')
+    assert.ok(how === 'graceful' || how === 'forced' || how === 'gone')
+    let alive = true
+    try { process.kill(hold.pid, 0) } catch (e) { alive = false }
+    assert.strictEqual(alive, false)
+  } finally {
+    try { hold.kill('SIGKILL') } catch (e) {}
+  }
+
   const poolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-pool-gpu-'))
   const poolBin = path.join(poolDir, 'zminer-gpu.exe')
-  fs.writeFileSync(poolBin, '#!/bin/sh\nsleep 30\n')
-  fs.chmodSync(poolBin, 0o755)
+  if (process.platform === 'win32') fs.writeFileSync(poolBin, winSleeper)
+  else {
+    fs.writeFileSync(poolBin, '#!/bin/sh\nexec sleep 30\n')
+    fs.chmodSync(poolBin, 0o755)
+  }
   fs.writeFileSync(path.join(poolDir, 'zpowdet.dll'), '')
   fs.writeFileSync(path.join(poolDir, 'cudart64_12.dll'), '')
   const poolRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-pool-root-'))
@@ -1202,7 +1220,10 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   assert.ok(kid2.launchSpec.args.includes(shard2))
   assert.ok(kid2.launchSpec.args.includes('-device') && kid2.launchSpec.args.includes('0'))
   assert.strictEqual(fleet.childPids().length, 2)
+  const tStop = Date.now()
   await fleet.stop()
+  const stopMs = Date.now() - tStop
+  assert.ok(stopMs < 6000, 'fleet.stop took ' + stopMs + 'ms')
   assert.strictEqual(fleet.wantRunning, false)
   assert.strictEqual(fleet.childPids().length, 0)
   fs.rmSync(poolDir, { recursive: true, force: true })
@@ -1213,8 +1234,13 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   fs.mkdirSync(srcDir)
   for (const name of ['zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll']) fs.writeFileSync(path.join(srcDir, name), name)
   const zipFile = path.join(zipDir, 'pack.zip')
-  const zipped = require('child_process').spawnSync('python3', ['-c', 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],"w");\n[z.write(sys.argv[2]+"/"+n, "zminer-gpu-0.1.3-win64/"+n) for n in sys.argv[3:]]', zipFile, srcDir, 'zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll'])
-  assert.strictEqual(zipped.status, 0, zipped.stderr && zipped.stderr.toString())
+  const packed = packZip([
+    { name: 'zminer-gpu-0.1.3-win64/zminer-gpu.exe', data: fs.readFileSync(path.join(srcDir, 'zminer-gpu.exe')) },
+    { name: 'zminer-gpu-0.1.3-win64/zpowdet.dll', data: fs.readFileSync(path.join(srcDir, 'zpowdet.dll')) },
+    { name: 'zminer-gpu-0.1.3-win64/cudart64_12.dll', data: fs.readFileSync(path.join(srcDir, 'cudart64_12.dll')) }
+  ])
+  assert.deepStrictEqual(readZipEntries(packed).map(e => e.name.split('/').pop()).sort(), ['cudart64_12.dll', 'zminer-gpu.exe', 'zpowdet.dll'])
+  fs.writeFileSync(zipFile, packed)
   const want = require('crypto').createHash('sha256').update(fs.readFileSync(zipFile)).digest('hex')
   const unpacked = path.join(zipDir, 'out')
   const stagedGpu = await stageZminerGpu({ sourceFile: zipFile, dest: unpacked, expected: want, force: true })
@@ -1244,9 +1270,12 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   fs.rmSync(dataRoot, { recursive: true, force: true })
 
   const crashDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-node-crash-'))
-  const nodeBin = path.join(crashDir, 'node')
-  fs.writeFileSync(nodeBin, '#!/bin/sh\necho "db open failed under .scdo prefix" >&2\nexit 0\n')
-  fs.chmodSync(nodeBin, 0o755)
+  const nodeBin = path.join(crashDir, process.platform === 'win32' ? 'node.exe' : 'node')
+  if (process.platform === 'win32') fs.writeFileSync(nodeBin, winCrash)
+  else {
+    fs.writeFileSync(nodeBin, '#!/bin/sh\necho "db open failed under .scdo prefix" >&2\nexit 0\n')
+    fs.chmodSync(nodeBin, 0o755)
+  }
   fs.writeFileSync(path.join(crashDir, 'libcudart.so.12'), '')
   const crashRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-crash-root-'))
   const crashing = new ZpowManager({

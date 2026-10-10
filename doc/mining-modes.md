@@ -8,7 +8,7 @@ The default is `zminer-gpu` 0.1.3. The Windows pack downloads
 
 `https://scdoscan.io/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip`
 
-and refuses the build unless the zip sha256 is `6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96`. It unpacks `zminer-gpu.exe`, `zpowdet.dll` and `cudart64_12.dll` into the same folder, `resources/miners/zminer-gpu/`. The program is Windows + NVIDIA only and needs a CUDA 12 driver (570 or newer). Shares are checked on the processor before they are sent. A 5060 Ti is about 175–210 kH/s.
+and refuses the build unless the zip sha256 is `6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96`. It unpacks `zminer-gpu.exe`, `zpowdet.dll` and `cudart64_12.dll` into the same folder, `resources/miners/zminer-gpu/`. The zip is read in plain JavaScript. If that fails, the pack tries `tar`, then PowerShell `Expand-Archive` on Windows, then `unzip`, then Python. The program is Windows + NVIDIA only and needs a CUDA 12 driver (570 or newer). Shares are checked on the processor before they are sent. A 5060 Ti is about 175–210 kH/s.
 
 Start runs one process per selected Shard1–Shard4 Classic chain. Every process uses device 0, so the speed is split across them. The local node does not have to be synced. The row says 「顯卡經礦池挖」. `N` is the shard, 1–4, and `-user` is that shard's Classic address.
 
@@ -22,7 +22,7 @@ Every 15 seconds the program prints a line like `hashrate 248000 H/s | batch 819
 
 If this computer has no NVIDIA graphics card, the driver is too old, or the program reports `CUDA driver version is insufficient`, `no CUDA device`, or a missing `zpowdet.dll`, the row shows 「這台電腦沒有可用的 NVIDIA 顯卡，已改用 CPU 經礦池挖」 and a 「改用 CPU」 button. The processor miner starts only when that button is pressed.
 
-Stop, and quitting the wallet, closes every `zminer-gpu` process. Keep-mining still decides whether the next launch starts them again.
+Stop, and quitting the wallet, closes every `zminer-gpu` process within a few seconds. The button is back on Start mining as soon as those processes are gone. Keep-mining still decides whether the next launch starts them again.
 
 ## Shard1–Shard4 Classic, graphics card, solo
 
@@ -34,7 +34,9 @@ node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthre
 
 The wallet writes `nodeN.json` under its own data directory (`classic/shardN/nodeN.json`). The payout address is `basic.coinbase`. Defaults are `--threads 1`, `--threadblocks 100`, `--blockthreads 100`.
 
-If solo is saved and the node is not synced, Start runs the same command so the node can catch up. The row is the amber line 「等待同步（Shard1 52%），同步完成後顯卡自動開始」. It has 「先用 CPU 經礦池挖」, which starts the processor miner on that shard's pool. Solo still starts only one of Shard1–Shard4 Classic at a time. Pool mode does not have that limit.
+When solo is saved and the node is still syncing, Start uses one `zminer-gpu` per selected chain, on that chain's pool, and the row says 「顯卡經礦池挖」. `node.exe` starts only when solo is saved and that node is already synced. When more than one selected chain is already synced, solo starts only one of them. Pool mode starts every selected chain. A classic node that is already running and still catching up keeps the amber line 「等待同步（Shard1 52%），同步完成後顯卡自動開始」 and the 「先用 CPU 經礦池挖」 button.
+
+Stop closes every `zminer-gpu` and every `node.exe` this wallet started. The button is back on 開始挖礦 within a few seconds.
 
 This node does not print a hashrate, so a solo row keeps a dash for speed. A syncing node shows neither a speed nor earnings.
 

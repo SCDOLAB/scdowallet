@@ -6,7 +6,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 #app.shell header.top { display: none; }
 #app.shell .foot-bar { display: none; }
 .shell-col { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; max-width: 100%; overflow-x: hidden; }
-#app.shell main { background: #F2F2F7; min-width: 0; max-width: 100%; overflow-x: hidden; }
+#app.shell main { background: #F2F2F7; min-width: 0; min-height: 0; max-width: 100%; overflow-x: hidden; overflow-y: auto; }
 
 .side-nav { width: 216px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 12px; background: #fff; border-right: 1px solid #e5e5ea; }
 .nav-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 12px 16px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 800; text-align: left; }

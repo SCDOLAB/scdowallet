@@ -173,10 +173,25 @@ const gpuJobs = mine.jobsForDevice({
   explicitSolo: true
 })
 assert.ok(gpuJobs.jobs.some(j => j.chain === 'shard0' && j.backend === 'gpu'))
-assert.ok(gpuJobs.jobs.some(j => j.chain === 'classic' && j.shard === 1 && j.gpuMiner === 'classic-node' && j.action === 'sync'))
+assert.ok(gpuJobs.jobs.some(j => j.chain === 'classic' && j.shard === 1 && j.gpuMiner === 'zminer-gpu' && j.action === 'pool'))
 assert.ok(!gpuJobs.jobs.some(j => j.shard === 3))
-assert.ok(gpuJobs.notices.indexOf('shellOneClassic') >= 0)
-assert.ok((gpuJobs.blocked || []).some(b => b.shard === 3))
+assert.ok(gpuJobs.notices.indexOf('shellOneClassic') < 0)
+assert.ok((gpuJobs.blocked || []).some(b => b.shard === 3 && b.reasonKey === 'pickAddr'))
+const gpuSoloSynced = mine.jobsForDevice({
+  device: 'gpu', chains: [1, 2],
+  addresses: { 1: '1S01' + 'b'.repeat(36), 2: '2S02' + 'c'.repeat(36) },
+  nodes: { 1: { synced: true }, 2: { synced: true } },
+  explicitSolo: true
+})
+assert.strictEqual(gpuSoloSynced.jobs.length, 1)
+assert.strictEqual(gpuSoloSynced.jobs[0].gpuMiner, 'classic-node')
+assert.strictEqual(gpuSoloSynced.jobs[0].action, 'mine')
+assert.ok(gpuSoloSynced.notices.indexOf('shellOneClassic') >= 0)
+assert.ok(gpuSoloSynced.blocked.some(b => b.shard === 2 && b.reasonKey === 'shellOneClassic'))
+assert.ok(ui.includes("const keepForm = !!$('miningSettings')"))
+assert.ok(ui.includes('!keepForm'))
+assert.ok(read('src/js/mining/miningPage.js').includes('onDraft'))
+assert.ok(read('src/js/mining/miningSettingsPanel.js').includes('handlers.onDraft'))
 assert.deepStrictEqual(mine.selectionAfterStop({ cpu: [1], gpu: [0, 1] }), { cpu: [1], gpu: [0, 1] })
 assert.strictEqual(mine.reduceMinePhase('starting', 'click'), 'starting')
 assert.strictEqual(mine.reduceMinePhase('stopping', 'click'), 'stopping')

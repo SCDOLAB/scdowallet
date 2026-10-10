@@ -483,10 +483,13 @@ assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: 
 assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).label, '等待同步（Shard1 52%），同步完成後顯卡自動開始')
+}).label, '顯卡經礦池挖')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).action, 'sync')
+}).action, 'pool')
+assert.strictEqual(mine.chooseMinePath({
+  shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
+}).gpuMiner, 'zminer-gpu')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: true, syncPct: 100, poolOnline: true, zh: true
 }).action, 'mine')
@@ -536,16 +539,34 @@ assert.strictEqual(mine.chooseMinePath({
     explicitSolo: true,
     zh: true
   })
-  assert.strictEqual(soloWait.jobs.length, 1)
-  assert.strictEqual(soloWait.jobs[0].shard, 1)
-  assert.strictEqual(soloWait.jobs[0].gpuMiner, 'classic-node')
-  assert.strictEqual(soloWait.jobs[0].action, 'sync')
-  assert.strictEqual(soloWait.jobs[0].mineLabel, '等待同步（Shard1 52%），同步完成後顯卡自動開始')
-  const by = {}
-  for (const b of soloWait.blocked) by[b.shard] = b
-  assert.strictEqual(by[2].reasonKey, 'shellOneClassic')
-  assert.strictEqual(by[3].reasonKey, 'shellOneClassic')
-  assert.strictEqual(by[4].reasonKey, 'shellOneClassic')
+  assert.strictEqual(soloWait.jobs.length, 4)
+  for (const shard of [1, 2, 3]) {
+    const job = soloWait.jobs.find(j => j.shard === shard)
+    assert.strictEqual(job.gpuMiner, 'zminer-gpu')
+    assert.strictEqual(job.action, 'pool')
+    assert.strictEqual(job.mineLabel, '顯卡經礦池挖')
+  }
+  const syncedSolo = soloWait.jobs.find(j => j.shard === 4)
+  assert.strictEqual(syncedSolo.gpuMiner, 'classic-node')
+  assert.strictEqual(syncedSolo.action, 'mine')
+  assert.strictEqual(syncedSolo.mineLabel, '顯卡挖礦中')
+  assert.ok(soloWait.notices.indexOf('shellOneClassic') < 0)
+  assert.strictEqual(soloWait.blocked.length, 0)
+  const twoSynced = mine.jobsForDevice({
+    device: 'gpu',
+    chains: [1, 2],
+    addresses: { 1: addr(1), 2: addr(2) },
+    caps: { gpu: { available: true } },
+    nodes: { 1: { synced: true, pct: 100 }, 2: { synced: true, pct: 100 } },
+    explicitSolo: true,
+    zh: true
+  })
+  assert.strictEqual(twoSynced.jobs.length, 1)
+  assert.strictEqual(twoSynced.jobs[0].shard, 1)
+  assert.strictEqual(twoSynced.jobs[0].gpuMiner, 'classic-node')
+  assert.strictEqual(twoSynced.jobs[0].action, 'mine')
+  assert.strictEqual(twoSynced.blocked[0].shard, 2)
+  assert.strictEqual(twoSynced.blocked[0].reasonKey, 'shellOneClassic')
   const synced = mine.jobsForDevice({
     device: 'gpu',
     chains: [2],

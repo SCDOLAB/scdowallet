@@ -1,8 +1,8 @@
 // Classic shard 1–4 mining.
 // CPU: one zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
 // GPU default: one zminer-gpu process per selected shard, all on device 0.
-// GPU solo: the Classic node (node.exe) only when solo was saved and the node is synced.
-// An unsynced solo start still runs the node so it can catch up. It does not submit pool shares.
+// GPU solo: the Classic node (node.exe) only when solo was saved and that node is synced.
+// An unsynced node, including a solo choice saved by an older wallet, starts zminer-gpu instead.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -30,7 +30,7 @@ function formatExitMessage (code, logTail) {
   return msg
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
+const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -223,7 +223,10 @@ class ZpowManager extends EventEmitter {
     }
   }
 
-  childPids () { return this.proc && this.proc.pid ? [this.proc.pid] : [] }
+  childPids () {
+    const pid = (this.proc && this.proc.pid) || this.livePid
+    return pid ? [pid] : []
+  }
 
   pushSyncSample (h, now) {
     if (h == null || !Number.isFinite(Number(h))) return
@@ -459,6 +462,7 @@ class ZpowManager extends EventEmitter {
     const spec = this.launchSpec
     const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
     this.proc = proc
+    this.livePid = proc.pid || 0
     proc.on('error', e => this.log('spawn error: ' + e.message))
     const onData = (buf) => {
       this.buf += buf.toString()
@@ -470,6 +474,7 @@ class ZpowManager extends EventEmitter {
     proc.stderr.on('data', onData)
     proc.on('exit', (code) => {
       if (this.proc === proc) this.proc = null
+      if (this.livePid === proc.pid) this.livePid = 0
       this.log('exited (code ' + code + ')')
       if (!this.wantRunning) return
       const message = formatExitMessage(code, this.state.logTail)
@@ -533,14 +538,8 @@ class ZpowManager extends EventEmitter {
     const proc = this.proc
     this.proc = null
     if (proc) {
-      const ctrl = this.state.backend === 'classic-node'
-      await stopMiner(proc, {
-        platform: this.o.platform,
-        graceMs: ctrl ? 60000 : 8000,
-        ctrlC: ctrl,
-        stdinStop: !ctrl,
-        ctrlCScript: ctrl ? ctrlCScript(path.join(this.o.dataRoot, 'tools')) : undefined
-      })
+      await stopMiner(proc, { platform: this.o.platform || process.platform })
+      if (this.livePid === proc.pid) this.livePid = 0
     }
     if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())

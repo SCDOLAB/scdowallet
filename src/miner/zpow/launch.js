@@ -1,7 +1,7 @@
 // Pluggable process launch: binary + argv template + stdout parser.
-// On Windows, windowsHide sets CREATE_NO_WINDOW. Stop closes stdin (zminer exits
-// on EOF or a "stop" line) and sends SIGTERM. The Classic node also gets Ctrl+C
-// so it can flush its database before a force-kill.
+// On Windows, windowsHide sets CREATE_NO_WINDOW. Stop kills the process tree
+// at once. These miners do not exit on stdin, and a Ctrl+C helper can sit for
+// a minute without the process dying.
 'use strict'
 const fs = require('fs')
 const os = require('os')
@@ -93,41 +93,51 @@ function spawnMiner (spec) {
   const proc = spawn(spec.binary, spec.args, {
     cwd,
     windowsHide: true, // CREATE_NO_WINDOW on Windows
-    stdio: ['pipe', 'pipe', 'pipe'],
+    // No stdin pipe. Ending it on stop can stall the main thread on Windows.
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: spec.env || process.env
   })
   relaxMinerPriority(proc)
   return proc
 }
 
+function killTree (pid, platform) {
+  return new Promise(resolve => {
+    if (!pid) return resolve()
+    const cap = setTimeout(resolve, 3000)
+    const done = () => { clearTimeout(cap); resolve() }
+    if (platform === 'win32') {
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 4000 }, () => done())
+    } else {
+      try { process.kill(pid, 'SIGKILL') } catch (e) {}
+      done()
+    }
+  })
+}
+
+// Kill now. A grace period only delays the button; these processes ignore a
+// polite stop. The promise always settles within a few seconds.
 function stopMiner (proc, opts) {
   opts = opts || {}
   const platform = opts.platform || process.platform
   return new Promise(resolve => {
     if (!proc || proc.exitCode != null || proc.signalCode != null) return resolve('gone')
     let finished = false
-    const finish = (how) => { if (finished) return; finished = true; clearTimeout(timer); resolve(how) }
-    const force = () => {
-      try {
-        if (platform === 'win32') execFile('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
-        else proc.kill('SIGKILL')
-      } catch (e) {}
-      setTimeout(() => finish('forced'), 2000)
+    let extra = null
+    const cap = setTimeout(() => finish('forced'), 4000)
+    const finish = (how) => {
+      if (finished) return
+      finished = true
+      clearTimeout(cap)
+      clearTimeout(extra)
+      resolve(how)
     }
-    const timer = setTimeout(force, opts.graceMs || 8000)
+    const pid = proc.pid
     proc.once('exit', () => finish('graceful'))
-    try {
-      if (opts.stdinStop !== false && proc.stdin && proc.stdin.writable) {
-        proc.stdin.write('stop\n')
-        proc.stdin.end()
-      }
-    } catch (e) {}
-    if (platform === 'win32' && opts.ctrlC && opts.ctrlCScript) {
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', opts.ctrlCScript, '-ProcessId', String(proc.pid)],
-        { windowsHide: true, timeout: 20000 }, (err) => { if (err) force() })
-    } else if (platform !== 'win32') {
-      try { proc.kill('SIGTERM') } catch (e) {}
-    }
+    try { proc.kill('SIGKILL') } catch (e) {}
+    killTree(pid, platform).then(() => {
+      if (!finished) extra = setTimeout(() => finish('forced'), 200)
+    })
   })
 }
 

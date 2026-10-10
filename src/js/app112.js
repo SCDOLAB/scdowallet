@@ -1716,7 +1716,10 @@
     const e = $('minerStatus')
     const sig = [!!m.running, m.mode, m.chain, m.phase === 'error', m.phase === 'external', m.code === 'EXTERNAL_DOWN', m.code].join('|')
     const focusKeep = ['mReward', 'nPayout', 'mReward-in', 'nPayout-in', 'poolUrl', 'mClassic', 'mClassic-in', 'mThreads', 'mGpuThreads', 'mThreadBlocks', 'mBlockThreads']
-    if (sig !== renderMinerLive.sig || (!e && !$('extOk'))) { renderMinerLive.sig = sig; if (!(document.activeElement && focusKeep.includes(document.activeElement.id))) render(); return }
+    // The mining-mode card has no status bar. Rebuilding it on every tick put the
+    // saved mode back over a choice the user had not applied yet.
+    const keepForm = !!$('miningSettings')
+    if (sig !== renderMinerLive.sig || (!e && !$('extOk') && !keepForm)) { renderMinerLive.sig = sig; if (!(document.activeElement && focusKeep.includes(document.activeElement.id))) render(); return }
     if (e) {
       const cls = 'statusbar ' + minerClass(m)
       if (e.className !== cls) e.className = cls
@@ -3865,18 +3868,38 @@
     size: CAT_SIZES[localStorage.getItem('aiCatSize')] ? localStorage.getItem('aiCatSize') : 's',
     h: 0, w: 0, dragAt: 0
   }
+  function catWatchBox (btn) {
+    if (!btn || btn.getAttribute('data-sized')) return
+    btn.setAttribute('data-sized', '1')
+    if (typeof ResizeObserver === 'function') new ResizeObserver(() => { try { catReserve() } catch (e) {} }).observe(btn)
+    btn.querySelectorAll('img').forEach(im => im.addEventListener('load', () => { try { catReserve() } catch (e) {} }))
+  }
   function catReserve () {
     const on = !!$('aiCatAnim'); const btn = $('aiCatBtn'); const root = document.documentElement
     document.body.classList.toggle('cat-reserve', on)
     if (!on) return
+    if (btn && !btn.hidden) catWatchBox(btn)
+    let top = null; let bottom = null; let width = 0
     if (btn && !btn.hidden && !btn.classList.contains('dragging')) {
-      const r = btn.getBoundingClientRect()
-      if (r.height > 0) { catPlace.h = r.height; catPlace.w = r.width; catPlace.hSize = catPlace.size }
+      const boxes = [btn.getBoundingClientRect()]
+      btn.querySelectorAll('img').forEach(im => boxes.push(im.getBoundingClientRect()))
+      for (const r of boxes) {
+        if (r.width < 1 || r.height < 1) continue
+        top = top == null ? r.top : Math.min(top, r.top)
+        bottom = bottom == null ? r.bottom : Math.max(bottom, r.bottom)
+        width = Math.max(width, r.width)
+      }
+      if (bottom != null && top != null) { catPlace.h = bottom - top; catPlace.w = width; catPlace.hSize = catPlace.size }
     }
     let h = catPlace.h; let w = catPlace.w
-    if (!h || catPlace.hSize !== catPlace.size) { const px = CAT_SIZES[catPlace.size]; h = px + 8; w = px + 4 + 84 } // estimate until the button is measured at this size
-    root.style.setProperty('--cat-res', Math.ceil(h + 20) + 'px')
-    root.style.setProperty('--cat-side', Math.ceil(w + 16 + 14) + 'px')
+    if (!h || catPlace.hSize !== catPlace.size) { const px = CAT_SIZES[catPlace.size]; h = px + 8; w = px + 4 + 84 }
+    // Distance from the viewport edge the cat actually occupies, so a scrolling
+    // row cannot pass through the cat. Height alone misses the offset and overflow.
+    const edge = catPlace.corner[0] === 'b'
+      ? (top == null ? h + 20 : Math.max(0, window.innerHeight - top))
+      : (bottom == null ? h + 20 : Math.max(0, bottom))
+    root.style.setProperty('--cat-res', Math.ceil(edge + 12) + 'px')
+    root.style.setProperty('--cat-side', Math.ceil((w || width) + 16 + 14) + 'px')
   }
   function catPlaceApply () {
     const b = document.body; const c = catPlace.corner

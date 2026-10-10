@@ -8,6 +8,7 @@ const path = require('path')
 const crypto = require('crypto')
 const https = require('https')
 const http = require('http')
+const zlib = require('zlib')
 const { spawnSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
@@ -43,24 +44,172 @@ function download (url, dest) {
   })
 }
 
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
+    t[n] = c >>> 0
+  }
+  return t
+})()
+
+function crc32 (buf) {
+  let c = 0xffffffff
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+
+function readZipEntries (buf) {
+  let eocd = -1
+  const min = Math.max(0, buf.length - (0xffff + 22))
+  for (let i = buf.length - 22; i >= min; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break }
+  }
+  if (eocd < 0) throw new Error('zip end record not found')
+  const count = buf.readUInt16LE(eocd + 10)
+  let p = buf.readUInt32LE(eocd + 16)
+  const out = []
+  for (let n = 0; n < count; n++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('zip directory is damaged')
+    const method = buf.readUInt16LE(p + 10)
+    const compSize = buf.readUInt32LE(p + 20)
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    const localOff = buf.readUInt32LE(p + 42)
+    const name = buf.slice(p + 46, p + 46 + nameLen).toString('utf8').replace(/\\/g, '/')
+    p += 46 + nameLen + extraLen + commentLen
+    if (!name || name.endsWith('/')) continue
+    if (buf.readUInt32LE(localOff) !== 0x04034b50) throw new Error('zip local header is damaged')
+    const localName = buf.readUInt16LE(localOff + 26)
+    const localExtra = buf.readUInt16LE(localOff + 28)
+    const dataOff = localOff + 30 + localName + localExtra
+    const comp = buf.slice(dataOff, dataOff + compSize)
+    let data
+    if (method === 0) data = Buffer.from(comp)
+    else if (method === 8) data = zlib.inflateRawSync(comp)
+    else throw new Error('zip method ' + method + ' is not supported')
+    out.push({ name: name, data: data })
+  }
+  return out
+}
+
+function packZip (entries) {
+  const parts = []
+  const centrals = []
+  let offset = 0
+  for (const ent of entries) {
+    const name = Buffer.from(String(ent.name).replace(/\\/g, '/'), 'utf8')
+    const raw = Buffer.isBuffer(ent.data) ? ent.data : Buffer.from(String(ent.data))
+    const comp = zlib.deflateRawSync(raw)
+    const local = Buffer.alloc(30 + name.length)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(8, 8)
+    local.writeUInt32LE(crc32(raw), 14)
+    local.writeUInt32LE(comp.length, 18)
+    local.writeUInt32LE(raw.length, 22)
+    local.writeUInt16LE(name.length, 26)
+    name.copy(local, 30)
+    parts.push(local, comp)
+    const central = Buffer.alloc(46 + name.length)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(8, 10)
+    central.writeUInt32LE(crc32(raw), 16)
+    central.writeUInt32LE(comp.length, 20)
+    central.writeUInt32LE(raw.length, 24)
+    central.writeUInt16LE(name.length, 28)
+    central.writeUInt32LE(offset, 42)
+    name.copy(central, 46)
+    centrals.push(central)
+    offset += local.length + comp.length
+  }
+  const centralBuf = Buffer.concat(centrals)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(entries.length, 8)
+  eocd.writeUInt16LE(entries.length, 10)
+  eocd.writeUInt32LE(centralBuf.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  return Buffer.concat(parts.concat([centralBuf, eocd]))
+}
+
+function wantedReady (dest) {
+  return FILES.every(n => fs.existsSync(path.join(dest, n)))
+}
+
+function placeWanted (dest, entries) {
+  const want = new Set(FILES)
+  for (const ent of entries) {
+    const base = String(ent.name).split('/').pop()
+    if (want.has(base)) fs.writeFileSync(path.join(dest, base), ent.data)
+  }
+}
+
+function flattenWanted (dir, dest) {
+  const walk = (d) => {
+    for (const name of fs.readdirSync(d)) {
+      const p = path.join(d, name)
+      if (fs.statSync(p).isDirectory()) walk(p)
+      else if (FILES.includes(name)) fs.copyFileSync(p, path.join(dest, name))
+    }
+  }
+  walk(dir)
+}
+
+function quotePs (p) {
+  return "'" + String(p).replace(/'/g, "''") + "'"
+}
+
 function unpack (zip, dest) {
   fs.mkdirSync(dest, { recursive: true })
-  const names = FILES.map(n => n).concat(FILES.map(n => '*/' + n))
-  const unzip = spawnSync('unzip', ['-o', '-j', zip, '-d', dest].concat(names), { encoding: 'utf8' })
-  if (unzip.status === 0 && FILES.every(n => fs.existsSync(path.join(dest, n)))) return
-  const py = spawnSync('python3', ['-c', [
-    'import zipfile,sys',
-    'z=zipfile.ZipFile(sys.argv[1])',
-    'want=set(sys.argv[3:])',
-    'dest=sys.argv[2]',
-    'for info in z.infolist():',
-    '    base=info.filename.replace("\\\\","/").split("/")[-1]',
-    '    if base in want and not info.is_dir():',
-    '        info.filename=base',
-    '        z.extract(info, dest)'
-  ].join('\n'), zip, dest].concat(FILES), { encoding: 'utf8' })
-  if (py.status !== 0) {
-    const err = new Error('could not unpack zminer-gpu zip: ' + ((unzip.stderr || py.stderr || '').trim()))
+  const errors = []
+  try {
+    placeWanted(dest, readZipEntries(fs.readFileSync(zip)))
+  } catch (e) { errors.push(e.message || String(e)) }
+  if (wantedReady(dest)) return
+  const sub = path.join(dest, '.unpack')
+  fs.mkdirSync(sub, { recursive: true })
+  const tar = spawnSync('tar', ['-xf', zip, '-C', sub], { encoding: 'utf8' })
+  if (tar.status === 0) {
+    try { flattenWanted(sub, dest) } catch (e) { errors.push(e.message || String(e)) }
+  } else errors.push((tar.stderr || tar.error && tar.error.message || 'tar failed').trim())
+  if (!wantedReady(dest) && process.platform === 'win32') {
+    const ps = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      'Expand-Archive -LiteralPath ' + quotePs(zip) + ' -DestinationPath ' + quotePs(sub) + ' -Force'], { encoding: 'utf8' })
+    if (ps.status === 0) {
+      try { flattenWanted(sub, dest) } catch (e) { errors.push(e.message || String(e)) }
+    } else errors.push((ps.stderr || 'Expand-Archive failed').trim())
+  }
+  if (!wantedReady(dest)) {
+    const names = FILES.concat(FILES.map(n => '*/' + n))
+    const unzip = spawnSync('unzip', ['-o', '-j', zip, '-d', dest].concat(names), { encoding: 'utf8' })
+    if (unzip.status !== 0) errors.push((unzip.stderr || 'unzip failed').trim())
+  }
+  if (!wantedReady(dest)) {
+    const pyCode = [
+      'import zipfile,sys',
+      'z=zipfile.ZipFile(sys.argv[1])',
+      'want=set(sys.argv[3:])',
+      'dest=sys.argv[2]',
+      'for info in z.infolist():',
+      '    base=info.filename.replace("\\\\","/").split("/")[-1]',
+      '    if base in want and not info.is_dir():',
+      '        info.filename=base',
+      '        z.extract(info, dest)'
+    ].join('\n')
+    for (const bin of ['python3', 'python']) {
+      const py = spawnSync(bin, ['-c', pyCode, zip, dest].concat(FILES), { encoding: 'utf8' })
+      if (py.status === 0) break
+      errors.push((py.stderr || py.error && py.error.message || bin + ' failed').trim())
+    }
+  }
+  try { fs.rmSync(sub, { recursive: true, force: true }) } catch (e) {}
+  if (!wantedReady(dest)) {
+    const err = new Error('could not unpack zminer-gpu zip: ' + errors.filter(Boolean).join(' | '))
     err.code = 'UNPACK_FAILED'
     throw err
   }
@@ -100,7 +249,7 @@ async function stageZminerGpu (opts) {
   return { dir: dest, sha256: got, cached: false }
 }
 
-module.exports = { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256, FILES, sha256File, DEST }
+module.exports = { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256, FILES, sha256File, DEST, packZip, readZipEntries }
 
 if (require.main === module) {
   stageZminerGpu().then(r => {

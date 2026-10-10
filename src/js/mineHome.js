@@ -436,15 +436,14 @@ function gpuPoolText (zh) {
   return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
 }
 
-// Default is the graphics-card pool miner, one chain at a time in the caller.
-// Solo node.exe only when solo was saved. An unsynced solo start waits.
+// Default is the graphics-card pool miner. Solo node.exe runs only when solo
+// was saved and that node is already synced. An unsynced node, including a
+// solo choice left over from an older wallet, mines through the pool instead.
 function chooseMinePath (input) {
   input = input || {}
-  const n = Number(input.shard)
   const zh = input.zh !== false
-  if (input.explicitSolo === true) {
-    if (input.nodeSynced === true) return { action: 'mine', gpuMiner: 'classic-node', reason: '', label: gpuMineText(zh), offerCpu: false }
-    return { action: 'sync', gpuMiner: 'classic-node', reason: '', label: gpuWaitText(n, input.syncPct, zh), offerCpu: true }
+  if (input.explicitSolo === true && input.nodeSynced === true) {
+    return { action: 'mine', gpuMiner: 'classic-node', reason: '', label: gpuMineText(zh), offerCpu: false }
   }
   return { action: 'pool', gpuMiner: 'zminer-gpu', reason: '', label: gpuPoolText(zh), offerCpu: false }
 }
@@ -693,7 +692,6 @@ function jobsForDevice (input) {
   const solo = device === 'gpu' && input.explicitSolo === true
   const noCard = device === 'gpu' && input.nvidia === false && classics.length > 0
   if (device === 'cpu' && classics.length > 1) notices.push('shellOneClassic')
-  if (solo && classics.length > 1) notices.push('shellOneClassic')
   if (noCard) notices.push('shellNoNvidiaCpu')
   const addresses = input.addresses || {}
   const blocked = []
