@@ -62,11 +62,11 @@ for (const L of ['CN', 'EN']) {
   }
   assert.strictEqual(T('d_noGpuUse'), L === 'CN' ? '沒有使用' : 'Not in use')
   assert.strictEqual(T('d_accHead'), L === 'CN' ? '帳戶（Shard0–Shard4）' : 'Accounts (Shard0–Shard4)')
-  // 3.0.3: the footer is ONE line with the grand total; per-shard totals live only on the cards
-  const foot = dash.footerHtml({ all: '15', per: ['1', '2', '3', '4', '5'] }, T, esc)
-  assert.ok(foot.includes('id="footAll">15 SCDO</b>') && foot.includes(esc(T('d_totalLine'))))
-  for (let i = 0; i < 5; i++) assert.ok(!foot.includes('id="foot' + i + '"'), 'footer repeats shard ' + i)
-  assert.strictEqual(T('d_totalLine'), L === 'CN' ? '總餘額（Shard0–Shard4 全部合計）' : 'Total balance (Shard0–Shard4 together)')
+  // 3.1.0: the footer lists each chain. It does not render one cross-chain total.
+  const foot = dash.footerHtml({ per: ['1', '2', '3', '4', '5'] }, T, esc)
+  assert.ok(!foot.includes('id="footAll"') && !foot.includes(esc(T('d_totalLine'))))
+  assert.ok(foot.includes('Shard0 EVM') && foot.includes('Shard4 Classic'))
+  assert.ok(foot.includes('>1 SCDO</b>') && foot.includes('>5 SCDO</b>'))
   // no duplicates: no mining/idle/syncing badges (the speed and sync fields say it), no lead line repeating the cat label
   const busy = dash.chainModels({ T, isl, miners: { shard0: { chain: 'shard0', running: true, code: 'MINING', mode: 'gpu', hashrate: 5e6, localBlock: 10, networkBlock: 10 } }, temps: [], gpuNames: ['RTX'], balances: ['1', '2', '3', '4', '5'], accounts: [{}, {}, {}, {}, {}], blocks: [0, 0, 0, 0, 0], net: {}, eta: s => s })
   for (const m of busy) for (const p of m.pills) assert.ok(![T('d_pillGpu', { chain: m.name }), T('d_pillCpu'), T('d_pillIdle'), T('d_pillSyncing')].includes(p.text), 'duplicate badge ' + p.text)

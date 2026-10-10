@@ -589,6 +589,9 @@ body.on-home #statusIsland { display: none; }
 .cat-pop.bubble .ios-foot { gap: 32px; margin: 0 0 8px; }
 .cat-pop.bubble .ios-foot button { color: #17652b; font-weight: 600; font-size: 15px; }
 .cat-pop.bubble .ios-note { font-size: 11px; color: #6b6b70; line-height: 1.35; margin: 0 4px 6px; }
+.cat-pop.bubble .ios-log { display: flex; flex-direction: column; gap: 12px; margin: 4px 8px 14px; }
+.cat-pop.bubble .ai-line { padding: 12px 14px; border-radius: 18px; background: rgba(255,255,255,.72); color: #1c1c1e; }
+.cat-pop.bubble .ai-line.me { background: rgba(232,248,238,.92); }
 .cat-pop.bubble .cat-help { margin: 0 2px 2px; font-size: 13px; color: #17652b; }
 .cat-pop.bubble .cat-help > summary { cursor: pointer; list-style: none; font-weight: 600; padding: 4px 2px; }
 .cat-pop.bubble .cat-help > summary::-webkit-details-marker { display: none; }

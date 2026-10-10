@@ -24,7 +24,7 @@ const INVOKE = Object.freeze([
   'miner:otherRigels', 'miner:resumeCheck', 'miner:clearRunning', 'miner:defender', 'miner:openLogs',
   'miner:caps', 'miner:classicStatus',
   // mining batch 1
-  'mining:gpuPreflight', 'mining:gpuTemp', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining',
+  'mining:gpuPreflight', 'mining:gpuTemp', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining', 'mining:poolStatus',
   // 2.0.7: mining notification toggles, pool payout card
   'notify:get', 'notify:set', 'pool:account',
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)

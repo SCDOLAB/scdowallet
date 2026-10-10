@@ -96,7 +96,7 @@ const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
-// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 繁體中文, 'EN')
+// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 華語繁體, 'EN')
 function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
@@ -482,6 +482,17 @@ ipcMain.handle('mining:setConfig', (e, cfg) => {
   return { ok: true, miningMode: mode, poolUrl }
 })
 ipcMain.handle('mining:setKeepMining', (e, on) => setKeepMining(!!on))
+ipcMain.handle('mining:poolStatus', async () => {
+  const poolStatus = require('./src/js/poolStatus')
+  const { poolForShard, poolsFromEnv } = require('./src/miner/zpow/pools')
+  let overrides = null
+  try { overrides = poolsFromEnv() } catch (e) { overrides = null }
+  return poolStatus.readAll(() => {
+    const out = {}
+    for (const n of [1, 2, 3, 4]) out[n] = poolForShard(n, overrides)
+    return out
+  })
+})
 function setKeepMining (on) {
   writeIntent({ keepMining: on, autoResume: on && !!(miner && miner.wantRunning) })
   if (tray) tray.rebuild()

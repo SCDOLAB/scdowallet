@@ -160,7 +160,11 @@
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
     catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', homeMineDev: { cpu: '', gpu: '' }, otherRigels: [],
     payReview: null,
-    homeChains: localStorage.getItem('homeChains310') === '1'
+    chainOpen: {},
+    txMore: {},
+    txFilter: {},
+    poolStatus: null,
+    oldErr: {}
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -223,9 +227,10 @@
       const to = setTimeout(() => { if (!answered) { answered = true; doneOne() } }, 20000)
       api.invoke('old:balance', a.pubkey, a.shard).then(v => {
         if (answered) return; answered = true; clearTimeout(to)
-        if (v != null) { st.old[a.pubkey] = v; anyOk = true }
+        if (v != null) { st.old[a.pubkey] = v; if (st.oldErr) delete st.oldErr[a.pubkey]; anyOk = true }
+        else if (st.oldErr) st.oldErr[a.pubkey] = 1
         doneOne()
-      }).catch(() => { if (!answered) { answered = true; clearTimeout(to); doneOne() } })
+      }).catch(() => { if (!answered) { answered = true; clearTimeout(to); if (st.oldErr) st.oldErr[a.pubkey] = 1; doneOne() } })
     })
     api.invoke('old:records').then(r => { st.oldRecords = r || [] }).catch(() => {})
     loadOldActivity()
@@ -251,10 +256,10 @@
     else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
     else if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
       st.tab = TABS.includes(v) ? v : 'home'
-      if (st.tab === 'acc') { st.homeChains = true; try { localStorage.setItem('homeChains310', '1') } catch (e) {} st.tab = 'home'; st.scrollTo = 'chainFold' }
+      if (st.tab === 'acc') { st.tab = 'home'; st.scrollTo = 'top' }
       else if (st.tab === 'home' || st.tab === 'mine' || st.tab === 'mineSet') st.scrollTo = 'top'
     }
-    if (st.tab === 'acc') { st.homeChains = true; try { localStorage.setItem('homeChains310', '1') } catch (e) {} st.tab = 'home'; st.scrollTo = 'chainFold' }
+    if (st.tab === 'acc') { st.tab = 'home'; st.scrollTo = 'top' }
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
   // The header switcher lists both kinds; the chain of the picked account decides balances, send and receive.
@@ -443,10 +448,8 @@
     const s0 = s0Total(visible('new').filter(a => a.evm))
     vals.push(s0.known ? s0.wei : null)
     for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length ? (t.known ? t.v * 10n ** 10n : null) : 0n) }
-    const text = vals.map(v => v == null ? '…' : AMT.fmtUnits(v, 18))
-    const known = vals.filter(v => v != null)
-    const all = known.length ? AMT.fmtUnits(known.reduce((x, y) => x + y, 0n), 18) + (known.length < 5 ? '…' : '') : '…'
-    return { text, all }
+    const text = vals.map(v => v == null ? '\u2014' : AMT.fmtUnits(v, 18))
+    return { text }
   }
   function blocksPerShard () {
     const out = [0, 0, 0, 0, 0]
@@ -549,7 +552,8 @@
       caps: st.caps,
       saved: savedMineChoice(),
       targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
-      addresses: mineChainAddresses()
+      addresses: mineChainAddresses(),
+      pools: st.poolStatus
     }
   }
   function mineHomeCardHtml () {
@@ -560,39 +564,63 @@
     if (!window.SCDOMineHome) return ''
     return window.SCDOMineHome.stripHtml(mineHomeInput(), T, esc)
   }
-  function totalBalanceText () {
-    const b = chainBalances()
-    const unknown = !b || b.text.some(t => t == null || t === '…' || String(t).includes('…')) || String(b.all).includes('…')
-    return unknown ? '\u2014' : b.all
+  function chainRowModel (openMap) {
+    const open = openMap || {}
+    const rows = []
+    for (const n of [0, 1, 2, 3, 4]) {
+      const entries = []
+      if (n === 0) {
+        for (const a of visible('new')) {
+          if (!a.evm) continue
+          const b = st.s0[a.filename]
+          entries.push({ name: accLabel(a), address: a.evm, file: a.filename, units: b && b.nativeWei != null ? b.nativeWei : null, decimals: 18, failed: !!(b && b.err && b.nativeWei == null) })
+        }
+      } else {
+        for (const a of classicOn(n)) {
+          const p = parseClassicAddress(a.pubkey)
+          entries.push({ name: accLabel(a), address: p ? p.address : '', file: a.filename, units: oldRaw(a.pubkey), decimals: 8, failed: !!(st.oldErr && st.oldErr[a.pubkey]) })
+        }
+      }
+      const txs = []
+      if (n === 0) {
+        for (const e of entries) for (const r of (st.activity[String(e.address).toLowerCase()] || [])) txs.push(Object.assign({}, r, { address: e.address }))
+      } else {
+        for (const e of entries) {
+          for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
+            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdoscan.io/tx/' + r.hash) : ''
+            txs.push(Object.assign({}, r, { address: e.address, href: href }))
+          }
+        }
+      }
+      rows.push({ n: n, open: !!(open[n] || open[String(n)]), entries: entries, txs: txs, txLimit: (st.txMore && st.txMore[n]) || 8, filter: (st.txFilter && st.txFilter[n]) || '' })
+    }
+    return rows
   }
-  function chainFoldRow (m) {
-    const name = m.n === 0 ? 'Shard0 EVM' : ('Shard' + m.n + ' Classic')
-    const raw = m.balance
-    const bal = raw == null || raw === '…' || String(raw).includes('…') ? '\u2014' : raw
-    return `<div class="chain-row" data-chain-row="${m.n}"><span>${esc(name)}</span><b>${esc(bal)} SCDO</b></div>`
+  function chainRowsHtml () {
+    if (!window.SCDOChainHome) return ''
+    const host = document.getElementById('chainRows')
+    const open = {}
+    if (host) host.querySelectorAll('details[data-chain-row]').forEach(d => { if (d.open) open[d.getAttribute('data-chain-row')] = true })
+    return window.SCDOChainHome.rowsHtml(chainRowModel(open), T, esc)
   }
   function pageHome () {
-    const open = !!st.homeChains
     return `<div class="page shell-home" id="homePage">
-      <section class="bal-hero"><div class="bal-k">${esc(T('shellTotal'))}</div><div class="bal-n" id="shellTotal"><b>${esc(totalBalanceText())}</b> <span>SCDO</span></div></section>
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
       <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
-      <button type="button" class="chain-fold" id="chainFoldBtn" data-act="toggleChains" aria-expanded="${open ? 'true' : 'false'}">${open ? '\u25BE' : '\u25B8'} ${esc(T('shellChains'))}</button>
-      <div id="chainFold"${open ? '' : ' hidden'}>${open ? dashModels().map(chainFoldRow).join('') : ''}</div>
-      ${shellFold('homeTx', T('d_recent'), `<div id="recentTxHost">${window.SCDODash ? window.SCDODash.txHtml(recentTx(), T, esc) : ''}</div>`)}
+      <div class="chain-rows" id="chainRows">${chainRowsHtml()}</div>
     </div>`
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
     const show = st.tab !== 'mineSet'
     f.hidden = !show
-    if (!show) return
-    const b = chainBalances()
-    const html = window.SCDODash.footerHtml({ all: b.all }, T, esc)
+    if (!show || !window.SCDOChainHome) return
+    const per = chainRowModel({}).map(c => window.SCDOChainHome.summarize(c).text)
+    const html = window.SCDODash.footerHtml({ per: per }, T, esc)
     if (renderFooter.last !== html) { renderFooter.last = html; SD.html(f, html) }
   }
   // repaint the read-only cards in place (no full page render) when the data changed
@@ -600,19 +628,10 @@
     renderFooter()
     if ($('md')) return
     if (st.tab === 'home') {
-      const tot = $('shellTotal')
-      if (tot) {
-        const text = totalBalanceText() + ' SCDO'
-        const b = tot.querySelector('b')
-        if (b && b.textContent !== totalBalanceText()) b.textContent = totalBalanceText()
-        if (!b && tot.textContent !== text) tot.textContent = text
-      }
       const mh = $('homeMineHost')
       if (mh) { const html = mineHomeStripHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
-      const fold = $('chainFold')
-      if (fold && !fold.hidden) { const html = dashModels().map(chainFoldRow).join(''); if (refreshDash.cards !== html) { refreshDash.cards = html; SD.html(fold, html) } }
-      const tx = $('recentTxHost')
-      if (tx && window.SCDODash) { const html = window.SCDODash.txHtml(recentTx(), T, esc); if (refreshDash.tx !== html) { refreshDash.tx = html; SD.html(tx, html) } }
+      const rows = $('chainRows')
+      if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
@@ -670,20 +689,25 @@
   }
   function pageRecv () {
     const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
-    const acc = (chainAccounts()[n]) || {}
-    const addr = acc.address || ''
+    const model = chainRowModel({})[n] || { entries: [] }
+    let last = ''
+    try { last = localStorage.getItem('recvAddr310-' + n) || '' } catch (e) {}
+    const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
+    const addr = (picked && picked.address) || ''
     const tabs = [0, 1, 2, 3, 4].map(i => {
       const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
+    const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
+    const locked = n === 0 ? visible('new').find(a => !a.evm) : null
     let body
     if (addr) {
       body = `<div class="qrwrap"><div id="qrBox" data-addr="${esc(addr)}"></div></div><div class="recv-line"><div class="recv-addr mono" id="rcvAddr">${esc(addr)}</div><button type="button" class="shell-copy" data-act="copy" data-v="${esc(addr)}">${esc(T('copy'))}</button></div>`
-    } else if (acc.locked && acc.file) {
-      body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(acc.file)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
+    } else if (locked) {
+      body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
     const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="recv-tabs">${tabs}</div><div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
   }
   function paintRecvQr () {
     const box = $('qrBox')
@@ -752,18 +776,34 @@
   function addrSelect (id, opts, cur, disabled, placeholder, otherLabel) {
     const has = !!cur && opts.some(o => o.v.toLowerCase() === String(cur).toLowerCase())
     const open = !!(st.otherOpen && st.otherOpen[id])
-    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.l)} — ${esc(o.v)}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
+    return `<select class="inp" id="${id}" ${disabled ? 'disabled' : ''}><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && o.v.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.show || (o.l + ' — ' + o.v))}</option>`).join('')}<option value="__other">${esc(otherLabel || T('rewardOther'))}</option></select>
       <div class="row" id="${id}-oth" style="display:${open && !disabled ? 'flex' : 'none'};margin-top:8px;gap:10px;flex-wrap:wrap"><input class="inp mono half" id="${id}-in" placeholder="${esc(placeholder || '0x…')}" style="flex:1;min-width:320px" autocomplete="off" spellcheck="false" inputmode="latin" autocapitalize="off" lang="en"><button class="btn sec" data-act="useOtherAddr" data-v="${id}">${esc(T('rewardOtherUse'))}</button></div>`
   }
   function nodeStateText (m) { return m.running ? (m.phase === 'external' ? T('nodeExternal') : minerClass(m) === 'good' ? '✔ ' + T('nodeRunning') : minerClass(m) === 'bad' ? '✖ ' + T('nodeError') : T('nodeStarting')) : T('notRunning') }
+  function mineAddrOpts (n, opts) {
+    const entries = (chainRowModel({})[n] || {}).entries || []
+    return (opts || []).map(o => {
+      const hit = entries.find(e => String(e.address || '').toLowerCase() === String(o.v || '').toLowerCase())
+      const dec = hit && hit.decimals != null ? hit.decimals : (Number(n) === 0 ? 18 : 8)
+      const bal = hit && !hit.failed && hit.units != null ? AMT.fmtUnits(hit.units, dec) : '\u2014'
+      const short = window.SCDOChainHome ? window.SCDOChainHome.shortAddr(o.v) : String(o.v || '')
+      return Object.assign({}, o, { show: (o.l || '') + ' · ' + short + ' · ' + bal + ' SCDO' })
+    })
+  }
+  function mineAddrDefault (n, saved, opts) {
+    const want = String(saved || '')
+    if (want && (opts || []).some(o => String(o.v).toLowerCase() === want.toLowerCase())) return want
+    if (!window.SCDOChainHome) return want
+    const picked = window.SCDOChainHome.pickDefault((chainRowModel({})[n] || {}).entries || [], '')
+    return (picked && picked.address) || want
+  }
   function payoutDefault () {
     const opts = rewardOptions(); const saved = localStorage.getItem('nodePayout') || ''
-    if (saved && opts.some(o => o.v.toLowerCase() === saved.toLowerCase())) return saved
-    const a = selected(); return a && a.evm ? a.evm : ''
+    return mineAddrDefault(0, saved, opts)
   }
   function payoutField (m, running) {
     if (running && m.mode === 'node') return m.payout ? `<div class="infobox" style="font-size:18px">${esc(T('payoutNow', { a: m.payout }))}</div>` : ''
-    const opts = rewardOptions(); const cur = payoutDefault()
+    const opts = mineAddrOpts(0, rewardOptions()); const cur = payoutDefault()
     return `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('payoutAddr'))}</div>${addrSelect('nPayout', opts, cur, running)}${opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('payoutNone'))}</div>`}</div>`
   }
   function miningInput (v) {
@@ -819,9 +859,10 @@
     const gpuOn = !!(caps.gpu && caps.gpu.available)
     const extOn = !!(caps.external && caps.external.available)
     const backend = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
-    const opts = classicOptions(shard)
+    const rawOpts = classicOptions(shard)
+    const opts = mineAddrOpts(shard, rawOpts)
     const saved = localStorage.getItem('minerClassic') || ''
-    const cur = (running && m.chain === 'classic' && m.wallet) || saved
+    const cur = (running && m.chain === 'classic' && m.wallet) || mineAddrDefault(shard, saved, rawOpts)
     const sel = addrSelect('mClassic', opts, cur, running, T('classicAddrPh', { n: shard, p: shard + 'S0' + shard }), T('rewardOtherClassic')) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noClassicAddr'))}</div>`)
     const pool = (caps.pools && caps.pools[shard]) || {}
     const buttons = [['cpu', T('classicCpu'), false], ['gpu', T('classicGpu'), !gpuOn]]
@@ -833,7 +874,6 @@
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
       h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
-      if (shard !== 1 && backend === 'cpu') h += `<div class="lbl">${esc(T('poolLater'))}</div>`
     }
     if (backend === 'cpu') {
       const threads = threadCount(); const max = cpuCount()
@@ -924,9 +964,10 @@
     const peerLine = peerText(m.peers)
     const blocks = statHtml('mPeers', T('peers'), peerLine, tipPack(T('peers'), peerLine, T('mineTipPeer')))
     if (g.nvidia) {
-      const opts = rewardOptions()
+      const rawOpts = rewardOptions()
+      const opts = mineAddrOpts(0, rawOpts)
       const saved = localStorage.getItem('minerReward') || ''
-      const cur = saved
+      const cur = saved || mineAddrDefault(0, '', rawOpts)
       const sel = addrSelect('mReward', opts, cur, running) + (opts.length ? '' : `<div class="lbl" style="margin-top:6px">${esc(T('noRewardAddr'))}</div>`)
       h += `<div class="tag" style="background:#e8f7ee;color:#146c2e;margin-top:12px">${esc(T('gpuYes'))}</div>
         <div style="font-size:21px;margin-top:10px">${esc(T('gpuName', { n: ((g.mineNames && g.mineNames.length) ? g.mineNames : (g.nvidiaNames || [])).join(', ') }))}</div>
@@ -1055,6 +1096,20 @@
     el.textContent = p === 'challenge' ? T('remitChallenge') : p === 'sign' ? T('remitSigning') : p === 'session' ? T('remitSession') : T('remitLedgerLoad')
   })
 
+  function renderSiteBar () {
+    const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
+    const cn = lang() !== 'EN'
+    const primary = window.SCDOSiteNav.GROUPS.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
+    const rest = window.SCDOSiteNav.GROUPS.filter(g => primary.indexOf(g) < 0)
+    const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
+    const group = (g) => {
+      if (!g.children || !g.children.length) return btn(g)
+      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary>${g.children.map(btn).join('')}</details>`
+    }
+    const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
+    const html = primary.map(group).join('') + more
+    if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
+  }
   function renderSideNav () {
     const nav = $('sideNav'); if (!nav) return
     const cur = st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab)
@@ -1073,6 +1128,7 @@
   function render () {
     loadAccounts()
     renderSideNav()
+    renderSiteBar()
     renderHeader()
     const main = $('main')
     const y = main ? main.scrollTop : 0
@@ -1826,6 +1882,9 @@
       feeFor: null,
       step: 1,
       gas: null,
+      feeWei: null,
+      shardPick: prefill && [0, 1, 2, 3, 4].includes(Number(prefill.shard)) ? Number(prefill.shard) : (prefill && /^[1-4]S/.test(String(prefill.to || '')) ? Number(String(prefill.to)[0]) : 0),
+      payAddr: prefill && prefill.from ? String(prefill.from) : '',
       payerFile: opened.filename
     }
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
@@ -1978,7 +2037,7 @@
         try {
           if (snap.shard === 0 && payer && payer.evm) {
             const est = await api.invoke('s0:estimate', payer.evm, snap.to, snap.amount, 'SCDO')
-            if (est && est.estFeeWei != null) text = fmtWei(BigInt(est.estFeeWei)) + ' SCDO'
+            if (est && est.estFeeWei != null) { text = fmtWei(BigInt(est.estFeeWei)) + ' SCDO'; s.feeWei = est.estFeeWei }
           } else if (snap.shard >= 1) {
             if (payer && payer.pubkey) {
               const g = await api.invoke('old:estimateGas', payer.pubkey, snap.to)
@@ -2003,13 +2062,14 @@
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
         <details class="shell-fold" id="wizPayees"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('shellPayees'))}</summary><div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></details>
-        <div id="payChain" class="wiz-chain" hidden><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
+        <div id="payChain" class="wiz-chain"><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
+        <div class="field"><div class="lbl">${esc(TC('shellPickAddr'))}</div><div id="payFromPick"></div><div class="lbl" id="payFromBal"></div></div>
         <div class="err" id="payErr1"></div>
         <div class="wiz-nav"><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
       </div>
       <div id="wizStep2" class="wiz-step" hidden>
         <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
-          <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"></div>
+          <input class="inp" id="payAmt" inputmode="decimal" placeholder="${esc(TC('payAmountPh'))}" value="${esc(s.amount)}" autocomplete="off" spellcheck="false" lang="en"><div class="lbl" id="payAmtHint"></div><button type="button" class="link" id="payMax">${esc(TC('shellMax'))}</button></div>
         <div class="err" id="payErr2"></div>
         <div class="wiz-nav"><button type="button" class="shell-back" id="wizBack2">${esc(TC('wizBack'))}</button><button type="button" class="shell-go" id="wizNext2">${esc(TC('wizNext'))}</button></div>
       </div>
@@ -2051,9 +2111,35 @@
     function next2 () {
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
       stepErr('payErr2', '')
-      const n = Number(String(s.amount).replace(/,/g, ''))
-      if (!(n > 0)) { stepErr('payErr2', TC('wizNeedAmt')); return }
+      const g = AMT.guardAmount(s.amount)
+      if (!g.ok) { stepErr('payErr2', g.code === 'TOO_MANY_DECIMALS' ? TC('shellAmtLimit') : TC('wizNeedAmt')); return }
+      s.amount = g.value
+      if ($('payAmt')) $('payAmt').value = g.value
+      const units = AMT.toUnits(s.amount, 18)
+      if (units == null || units <= 0n) { stepErr('payErr2', TC('wizNeedAmt')); return }
       showStep(3)
+      sync()
+    }
+    function fillMax () {
+      const route = currentRoute()
+      const payer = chosenPayer(route)
+      if (!payer) return
+      let bal = null
+      let dec = 18
+      let fee = 0n
+      if (route && route.shard === 0) {
+        const b = st.s0[payer.filename]
+        bal = b && b.nativeWei != null ? b.nativeWei : null
+        if (s.feeWei != null) { try { fee = BigInt(s.feeWei) } catch (e) { fee = 0n } }
+      } else if (route && route.shard >= 1) {
+        bal = oldRaw(payer.pubkey)
+        dec = 8
+        fee = BigInt(s.gas || 21000)
+      }
+      const text = AMT.maxAmount(bal, fee, dec)
+      if (text == null) return
+      s.amount = text
+      if ($('payAmt')) $('payAmt').value = text
       sync()
     }
     if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
@@ -2064,13 +2150,44 @@
     const n2 = $('wizNext2'); if (n2) n2.onclick = next2
     const b2 = $('wizBack2'); if (b2) b2.onclick = () => showStep(1)
     const b3 = $('wizBack3'); if (b3) b3.onclick = () => showStep(2)
+    s.shardPick = [0, 1, 2, 3, 4].includes(Number(s.shardPick)) ? Number(s.shardPick) : (inferShard(s.to) == null ? 0 : inferShard(s.to))
     document.querySelectorAll('[data-wiz-chain]').forEach(b => {
+      b.classList.toggle('on', Number(b.getAttribute('data-wiz-chain')) === s.shardPick)
       b.onclick = (e) => {
         e.preventDefault(); e.stopPropagation()
+        s.shardPick = Number(b.getAttribute('data-wiz-chain'))
+        s.payAddr = ''
         document.querySelectorAll('[data-wiz-chain]').forEach(x => x.classList.toggle('on', x === b))
-        stepErr('payErr1', TC('wizNeedFull'))
+        paintFromPick()
       }
     })
+    function paintFromPick () {
+      const n = s.shardPick
+      const box = $('payFromPick')
+      if (!box || !window.SCDOChainHome) return
+      const entries = (chainRowModel({})[n] || {}).entries || []
+      let last = s.payAddr || ''
+      try { if (!last) last = localStorage.getItem('payAddr310-' + n) || '' } catch (e) {}
+      const picked = window.SCDOChainHome.pickDefault(entries, last)
+      const html = window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
+      if (box.getAttribute('data-html') !== html) {
+        box.setAttribute('data-html', html)
+        SD.html(box, html)
+        const sel = $('payAddr')
+        if (sel) sel.onchange = () => {
+          s.payAddr = sel.value
+          try { localStorage.setItem('payAddr310-' + n, sel.value) } catch (e) {}
+          const hit = entries.find(e => String(e.address).toLowerCase() === String(sel.value).toLowerCase())
+          if (hit && hit.file) s.payerFile = hit.file
+          sync()
+        }
+      }
+      if (picked && picked.file) s.payerFile = picked.file
+      const bal = $('payFromBal')
+      if (bal) bal.textContent = picked ? (window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text + ' SCDO') : '\u2014'
+    }
+    paintFromPick()
+    const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
     showStep(1)
     sync()
     function showDone (text, hash) {
@@ -2092,6 +2209,9 @@
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      const guarded = AMT.guardAmount(s.amount)
+      if (!guarded.ok) { if (err) paintSendErr(err, guarded.code); return }
+      s.amount = guarded.value
       const route = paint()
       if (route.kind !== 'chain' && route.kind !== 'gateway') {
         if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
@@ -2146,7 +2266,11 @@
       if (rev.check && !rev.check.ok) { if (btn) btn.disabled = false; if (err) err.textContent = TC(ADDR_ERR[rev.check.errors[0]] || 'errAddr'); if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); return }
       if (!rev.ok) {
         if (btn) btn.disabled = false
-        if (err) err.textContent = rev.errors && rev.errors.length ? TC(SEND_ERR[rev.errors[0]] || 'errAmount') : (SEND_ERR[rev.error] ? TC(SEND_ERR[rev.error]) : TC('errReview', { e: rev.error || '?' }))
+        if (err) {
+          if (rev.errors && rev.errors.length && SEND_ERR[rev.errors[0]]) err.textContent = TC(SEND_ERR[rev.errors[0]])
+          else if (SEND_ERR[rev.error]) err.textContent = TC(SEND_ERR[rev.error])
+          else paintSendErr(err, rev.error || 'BAD_AMOUNT')
+        }
         return
       }
       const warns = ((rev.check && rev.check.warnings) || []).filter(w => ADDR_WARN[w])
@@ -2186,7 +2310,10 @@
     function finishShard0 (res, route, payer, err, btn) {
       if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || ''), res.hash); loadActivity(payer.evm); refreshS0(); return }
       if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash, res.hash); loadActivity(payer.evm); return }
-      if (err) err.textContent = TC('sendFailedPrefix') + ' ' + (SEND_ERR[res && res.error] ? TC(SEND_ERR[res.error]) : String((res && res.error) || 'error'))
+      if (err) {
+        if (SEND_ERR[res && res.error]) err.textContent = TC('sendFailedPrefix') + ' ' + TC(SEND_ERR[res.error])
+        else paintSendErr(err, (res && res.error) || 'error')
+      }
       if (btn) btn.disabled = false
       loadActivity(payer.evm)
     }
@@ -2227,13 +2354,18 @@
       if (!$('payRoute')) return
       if (!res || !res.ok) {
         const em = String((res && res.error) || 'error')
-        if (err) err.textContent = em === 'WRONG_PASSWORD' ? TC('wrongPw') : em
+        if (err) { if (em === 'WRONG_PASSWORD') err.textContent = TC('wrongPw'); else paintSendErr(err, em) }
         if (btn) btn.disabled = false
         return
       }
       showDone(TC('sentOld') + ' ' + (res.hash || ''), res.hash)
       refreshOld(); loadOldActivity(true)
     }
+  }
+  function paintSendErr (el, raw) {
+    if (!el) return
+    if (window.SCDOSendError) SD.html(el, window.SCDOSendError.html(raw, lang(), esc))
+    else el.textContent = String(raw || '')
   }
   function payShowLedger () {
     const box = $('payExtra')
@@ -2448,10 +2580,10 @@
     const notifyInner = nt && nt.config ? `<div class="lbl">${esc(T('notifyHint'))}</div>
       ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}` : ''
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
-    const langNow = lang() === 'CN' ? '繁體中文' : 'English'
+    const langNow = lang() === 'CN' ? '華語繁體' : 'English'
     const setHtml = `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
       ${shellFold('setLang', T('setLang') + ' · ' + langNow, `<div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div>`)}
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div>`)}
       ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
       ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
@@ -2848,7 +2980,7 @@
         if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
       } catch (e) {}
     }
-    return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps)
+    return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps, st.poolStatus)
   }
   function writeChainPick (device, list) {
     const key = device === 'cpu' ? 'mineChainsCpu310' : 'mineChainsGpu310'
@@ -2903,7 +3035,8 @@
       nvidia: !!(st.gpu && st.gpu.nvidia),
       preflight: preflight,
       hot: device === 'gpu' && hot,
-      reward: addresses[0]
+      reward: addresses[0],
+      pools: st.poolStatus
     })
     for (const key of built.notices || []) toast(T(key), 7000)
     if (!built.jobs.length) return false
@@ -3043,8 +3176,26 @@
         if (v === 'home' || v === 'recv' || v === 'acc') { refreshOld(); refreshS0() }
         break
       }
-      case 'toggleChains': st.homeChains = !st.homeChains; try { localStorage.setItem('homeChains310', st.homeChains ? '1' : '0') } catch (e) {} render(); break
       case 'recvShard': st.recvShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; render(); break
+      case 'recvAddr': {
+        const n = Number(el.getAttribute('data-shard'))
+        st.recvShard = [0, 1, 2, 3, 4].includes(n) ? n : 0
+        try { localStorage.setItem('recvAddr310-' + st.recvShard, v) } catch (e) {}
+        goPage('recv'); break
+      }
+      case 'remitAddr': {
+        const n = Number(el.getAttribute('data-shard'))
+        st.payPrefill = { from: v || '', shard: [0, 1, 2, 3, 4].includes(n) ? n : 0, to: '', amount: '' }
+        goPage('remit'); break
+      }
+      case 'chainTxMore': { const n = Number(v); st.txMore[n] = ((st.txMore && st.txMore[n]) || 8) + 8; render(); break }
+      case 'openExplorer': if (/^https:\/\/scdoscan\.io\//.test(String(v || ''))) openExternal(v); break
+      case 'site': {
+        const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
+        if (hit && hit.action) menuAction(hit.action)
+        else if (hit && hit.href && window.SCDOSiteNav) openExternal(window.SCDOSiteNav.url(hit.href))
+        break
+      }
       case 'backup': backupPickModal(); break
       case 'manage': manageModal(); break
       case 'accMenu':
@@ -3151,6 +3302,16 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
+    if (t.id === 'recvPick') {
+      const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
+      try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
+      render(); return
+    }
+    if (t.id && String(t.id).indexOf('chainFilter-') === 0) {
+      const n = Number(String(t.id).slice('chainFilter-'.length))
+      st.txFilter[n] = t.value
+      render(); return
+    }
     if (t.id === 'mThreads') {
       const lab = $('mThreadsLab')
       const cores = T('cpuCoresLine', { n: t.value, max: t.max })
@@ -3160,7 +3321,13 @@
     }
     const half = t.id === 'mClassic-in' || t.id === 'mReward-in' || t.id === 'nPayout-in' || t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'mGpuThreads' || t.id === 'mThreadBlocks' || t.id === 'mBlockThreads' || t.id === 'cPriv'
     if (!half) return
-    const next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    let next = (t.id === 'sTo' || t.id === 'sAmt' || t.id === 'payTo' || t.id === 'payAmt' || t.id === 'cPriv') ? nhw(t.value) : miningInput(t.value)
+    if (t.id === 'payAmt' || t.id === 'sAmt') {
+      const clip = AMT.clipDecimals(next, 8)
+      next = clip.value
+      const hint = $('payAmtHint')
+      if (hint) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+    }
     if (next !== t.value) {
       const pos = t.selectionStart
       t.value = next
@@ -3242,6 +3409,10 @@
     if (!p || !p.ok) { toast(T(p && p.errorKind === 'network' ? 'updDlNet' : 'updDlFail') + (p && p.error ? PU.c() + p.error : ''), 8000); closeModal() }
   })
 
+  async function refreshPools () {
+    try { st.poolStatus = await api.invoke('mining:poolStatus') } catch (e) { st.poolStatus = st.poolStatus || null }
+    refreshDash()
+  }
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
     try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) {}
@@ -3270,15 +3441,11 @@
     } else st.catH.peersAt = 0
   }
   function catBalances () {
-    const a = headerAccount()
-    if (!a) return []
-    if (headerChain() === 'old') {
-      const v = fmtOld(a.pubkey)
-      return [{ label: accLabel(a), text: (v != null ? v : '…') + ' SCDO' }]
-    }
-    if (!a.evm) return [{ label: accLabel(a), text: '尚未解鎖' }]
-    const b = st.s0[a.filename]
-    return [{ label: accLabel(a), text: (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO' }]
+    if (!window.SCDOChainHome) return []
+    return chainRowModel({}).map(c => {
+      const s = window.SCDOChainHome.summarize(c)
+      return { label: s.title, text: (s.text || '\u2014') + ' SCDO' }
+    })
   }
   function catCtx (extra) {
     const caps = st.caps || {}
@@ -3471,6 +3638,7 @@
           <div class="ios-foot"><button type="button" data-act="catLater" id="catLater">${esc(T('catLater'))}</button><button type="button" data-act="catHide" id="catHide">${esc(T('catHide'))}</button></div>
           <div class="cat-place" id="catPlace" role="group" aria-label="${esc(T('catSizeLbl'))}"><span class="cat-place-l">${esc(T('catSizeLbl'))}</span><span class="cat-seg">${['s', 'm', 'l'].map(k => `<button type="button" data-act="catSize" data-v="${k}" id="catSize-${k}" aria-pressed="false">${esc(T('catSize_' + k))}</button>`).join('')}</span><button type="button" class="cat-reset" data-act="catCorner" data-v="br" id="catCornerReset">${esc(T('catCornerReset'))}</button></div>
           <div class="ios-note">${esc(T('catNote'))}</div>
+          <details class="cat-help" id="catSites"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('shellSites'))}</summary><div class="cat-sites">${window.SCDOSiteNav ? window.SCDOSiteNav.flat().map(it => `<button type="button" class="link" data-act="site" data-v="${esc(it.id)}">${esc(lang() === 'EN' ? it.en : it.cn)}</button>`).join('') : ''}</div></details>
           <details class="cat-help"><summary>${esc(T('help_title'))}</summary>${contactHtml('catContact')}</details>
         </div>`)
     }
@@ -3543,6 +3711,12 @@
       if (!action.file) return { fail: '請先選擇帳戶。' }
       st.payPrefill = { to: action.to || '', amount: action.amount || '' }
       openRemitFor(action.file)
+      return { ok: true }
+    }
+    if (action.type === 'openSite') {
+      const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
+      if (hit && hit.action) menuAction(hit.action)
+      else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
       return { ok: true }
     }
     if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }
@@ -3648,8 +3822,8 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld(); refreshGpuTemp(); renderCat()
-    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000)
+    refreshS0(); refreshOld(); refreshGpuTemp(); refreshPools(); renderCat()
+    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000); setInterval(refreshPools, 60000)
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}

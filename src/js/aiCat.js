@@ -42,9 +42,9 @@ function liveShardSet (ctx) {
   if (pools && typeof pools === 'object') {
     for (const n of [1, 2, 3, 4]) {
       const p = pools[n] || pools[String(n)]
-      if (p && p.live) live.add(n)
+      if (p && (p.online === true || p.live === true)) live.add(n)
     }
-  } else live.add(1)
+  }
   const gpu = ctx && ctx.classicGpu
   if (gpu && gpu.running) {
     const shard = Number(gpu.shard)
@@ -329,7 +329,33 @@ function reply (text, ctx) {
   if (wantsMine(q) || /^開始[／/]停止挖礦$/.test(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
     return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|EVM|主鏈|main chain/i.test(q)) }))
   }
+  const site = planSite(q)
+  if (site) return site
   return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
+}
+
+function siteApi () {
+  if (typeof window !== 'undefined' && window.SCDOSiteNav) return window.SCDOSiteNav
+  if (typeof require === 'function') {
+    try { return require('./siteNavMap') } catch (e) { return null }
+  }
+  return null
+}
+
+function planSite (q) {
+  const nav = siteApi()
+  if (!nav) return null
+  const hit = nav.match(q)
+  if (!hit) return null
+  if (hit.children && hit.children.length && !hit.action && !hit.href) {
+    return { say: hit.cn + '：' + hit.children.map(c => c.cn).join('、') + '。', actions: [] }
+  }
+  return { say: '已開啟「' + hit.cn + '」。', actions: [{ type: 'openSite', id: hit.id }] }
+}
+
+function suggestions () {
+  const nav = siteApi()
+  return nav ? nav.flat() : []
 }
 
 function safePlan (plan) {
@@ -349,7 +375,8 @@ const api = {
   planOpen: function (text, ctx) { const p = planOpen(clean(text), ctx); return p ? safePlan(p) : null },
   looksLikeSecret: looksLikeSecret,
   startFail: startFail,
-  diagnose: diagnose
+  diagnose: diagnose,
+  suggestions: suggestions
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOCat = Object.freeze(api)

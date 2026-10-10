@@ -151,9 +151,9 @@ assert.strictEqual(CN.remitDown, '現在連不上匯款服務，請稍後再試�
 assert.strictEqual(EN.remitDown, "The remittance service can't be reached right now. Please try again later. If it keeps failing, contact support.")
 const pageRemit = ui.slice(ui.indexOf('function pageRemit'), ui.indexOf('function remitErrText'))
 assert.ok(pageRemit.length > 0 && !pageRemit.includes('SCDO_'))
-// English release notes: no Chinese except the deliberate names (AI小貓, the 華語 button label,
-// the 繁體中文 option name, the Documents\ScdoWallet\備份 folder)
-const DELIBERATE = ['AI小貓', '華語', '繁體中文', '備份']
+// English release notes: no Chinese except the deliberate names (AI小貓, the 華語繁體 button label,
+// and the Documents\ScdoWallet\備份 folder). 華語繁體 is removed before the shorter 華語 token.
+const DELIBERATE = ['AI小貓', '華語繁體', '華語', '備份']
 for (const note of EN.relNotes) {
   for (const item of note.items) {
     let rest = item

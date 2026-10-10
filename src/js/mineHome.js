@@ -514,8 +514,8 @@ function cardHtml (input, T, esc) {
 }
 
 // 3.1.0 mining page: two devices, one Classic chain each.
-// The processor (zminer) can mine Shard1 Classic only. Shard0 EVM is the graphics-card
-// program (rigel). Shard2–Shard4 Classic pools are not live, so those ticks stay off.
+// The processor (zminer) can mine Shard1–Shard4 Classic. Shard0 EVM is the graphics-card
+// program (rigel). A pool tick stays off only when that shard's live stats say it is down.
 // The graphics card can mine Shard0 EVM and one of Shard1–Shard4 Classic (solo node).
 // The same Classic chain may run on both devices: the processor uses the pool and the
 // graphics card uses its own node. Extra Classic ticks are saved but not started.
@@ -524,14 +524,21 @@ function chainLabel (n) {
   return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
 }
 
-function chainSupport (device, n, caps) {
+function poolKnownDown (pools, n) {
+  if (!pools || typeof pools !== 'object') return false
+  const p = pools[n] || pools[String(n)]
+  if (!p || p.online == null) return false
+  return p.online === false
+}
+
+function chainSupport (device, n, caps, pools) {
   n = Number(n)
   const known = !!(caps && (caps.gpu || caps.cpu))
   if (device === 'cpu') {
     if (n === 0) return { ok: false, reasonKey: 'shellOnlyGpu' }
-    if (n >= 2 && n <= 4) return { ok: false, reasonKey: 'shellPoolOff' }
-    if (n === 1) {
+    if (n >= 1 && n <= 4) {
       if (known && caps.cpu && caps.cpu.available === false) return { ok: false, reasonKey: 'shellNoCpu' }
+      if (poolKnownDown(pools, n)) return { ok: false, reasonKey: '', poolDown: true }
       return { ok: true, reasonKey: '' }
     }
     return { ok: false, reasonKey: '' }
@@ -541,13 +548,13 @@ function chainSupport (device, n, caps) {
   return { ok: false, reasonKey: '' }
 }
 
-function sanitizeChainPick (pick, caps) {
+function sanitizeChainPick (pick, caps, pools) {
   pick = pick || {}
   const keep = (device, list) => {
     const out = []
     for (const n of list || []) {
       const x = Number(n)
-      if (!chainSupport(device, x, caps).ok) continue
+      if (!chainSupport(device, x, caps, pools).ok) continue
       if (out.indexOf(x) < 0) out.push(x)
     }
     out.sort((a, b) => a - b)
@@ -593,7 +600,7 @@ function jobsForDevice (input) {
   const device = input.device === 'gpu' ? 'gpu' : 'cpu'
   const caps = input.caps
   const chains = Array.isArray(input.chains) ? input.chains.map(Number) : []
-  const supported = chains.filter(n => chainSupport(device, n, caps).ok)
+  const supported = chains.filter(n => chainSupport(device, n, caps, input.pools).ok)
   const classics = supported.filter(n => n >= 1 && n <= 4)
   const notices = []
   const jobs = []
@@ -654,7 +661,7 @@ function deviceTitle (device, T) {
 
 function viewChains (input) {
   if (input && input.chains && Array.isArray(input.chains.cpu) && Array.isArray(input.chains.gpu)) {
-    return sanitizeChainPick(input.chains, input.caps)
+    return sanitizeChainPick(input.chains, input.caps, input && input.pools)
   }
   const miners = input && input.miners
   const saved = input && input.saved
@@ -735,13 +742,14 @@ function foldSummary (title) {
   return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${title}</summary>`
 }
 
-function chainPickHtml (device, picked, other, caps, T, esc) {
-  const supported = [0, 1, 2, 3, 4].filter(n => chainSupport(device, n, caps).ok)
+function chainPickHtml (device, picked, other, caps, T, esc, pools) {
+  const supported = [0, 1, 2, 3, 4].filter(n => chainSupport(device, n, caps, pools).ok)
   const allOn = supported.length > 0 && supported.every(n => picked.indexOf(n) >= 0)
   const boxes = [0, 1, 2, 3, 4].map(n => {
-    const sup = chainSupport(device, n, caps)
+    const sup = chainSupport(device, n, caps, pools)
     const on = sup.ok && picked.indexOf(n) >= 0
-    const why = sup.ok ? '' : ` <span class="mine-why">${esc(tr(T, sup.reasonKey))}</span>`
+    const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 礦池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
+    const why = sup.ok ? '' : ` <span class="mine-why">${esc(down || tr(T, sup.reasonKey))}</span>`
     return `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
   }).join('')
   const shared = picked.filter(n => n >= 1 && other.indexOf(n) >= 0)
@@ -776,6 +784,9 @@ function chainDetailHtml (input, device, n, T, esc) {
   }
   const pct = session ? syncPctOf(session) : null
   const sync = pct == null ? DASH : (pct + '%')
+  const pool = input && input.pools && (input.pools[n] || input.pools[String(n)])
+  const height = !pool || pool.online == null ? DASH : (pool.online && pool.chain_height != null ? String(pool.chain_height) : (zhUi(T) ? '未連接' : 'Not connected'))
+  const links = !pool || pool.online == null ? DASH : (pool.online && pool.connections != null ? String(pool.connections) : (zhUi(T) ? '未連接' : 'Not connected'))
   const addr = address || DASH
   let mode = DASH
   if (n >= 1 && device === 'cpu') mode = tr(T, 'poolEndpoint')
@@ -789,6 +800,8 @@ function chainDetailHtml (input, device, n, T, esc) {
       ${row(tr(T, 'shellLast'), last)}
       ${row(tr(T, 'd_sync'), sync)}
       ${row(tr(T, 'd_addr'), addr)}
+      ${n >= 1 ? row(tr(T, 'shellHeight'), height) : ''}
+      ${n >= 1 ? row(tr(T, 'shellLinks'), links) : ''}
       ${row(tr(T, 'poolEndpoint'), mode)}
     </details>`
 }
@@ -803,7 +816,7 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
       <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
       <div class="mh-status ${model.view.statusTone}" data-dev-status="${device}">${esc(model.status)}</div>
       ${temp}
-      ${chainPickHtml(device, picked, other, input && input.caps, T, esc)}
+      ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools)}
       ${rows}
     </section>`
 }

@@ -1,7 +1,9 @@
-// SCDO Wallet 2.0.12: application menu follows wallet language (EN / CN=繁體中文).
+// SCDO Wallet: application menu follows wallet language (EN / CN = 華語繁體).
 // Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
-const { Menu, app } = require('electron')
+// The site list is src/js/siteNavMap.js, shared with the in-app bar and AI小貓.
+const { Menu, app, shell } = require('electron')
 const { menuLang } = require('./uiLang')
+const siteNav = require('./siteNavMap')
 
 const LABELS = {
   EN: {
@@ -66,7 +68,7 @@ const LABELS = {
     receive: '收款',
     remit: '匯款',
     accounts: '帳戶',
-    mining: '挖礦',
+    mining: '運算服務',
     navSettings: '設定',
     miningHome: '挖礦狀態',
     settingsCat: '設定（語言・通知・更新）',
@@ -78,62 +80,53 @@ const LABELS = {
 
 function buildTemplate (mainWindow, lang) {
   const L = LABELS[menuLang(lang)]
+  const cn = menuLang(lang) !== 'EN'
   const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
   // Remittance stays on the allowlisted menu:action channel. The page opens the tab in openRemittance().
   function openRemittance () { act('remit')() }
-  return [
-    {
-      label: L.app,
-      submenu: [
-        { label: L.toggleDevTools, accelerator: 'CmdOrCtrl+Shift+I', role: 'toggleDevTools' },
-        { label: L.version(app.getVersion()), enabled: false },
-        { type: 'separator' },
-        { label: L.minimize, accelerator: 'CmdOrCtrl+M', role: 'minimize' },
-        { label: L.fullscreen, accelerator: 'CmdOrCtrl+Shift+F', role: 'togglefullscreen' },
-        // 2.0.6: closing the window hides the wallet to the tray (mining keeps running); quitting is done from the tray menu
-        { label: L.close, accelerator: 'CmdOrCtrl+W', role: 'close' }
-      ]
-    },
-    {
-      label: L.edit,
-      submenu: [
-        { label: L.copy, accelerator: 'CmdOrCtrl+C', role: 'copy' },
-        { label: L.paste, accelerator: 'CmdOrCtrl+V', role: 'paste' },
-        { label: L.selectAll, accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
-        { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
-      ]
-    },
-    {
-      label: L.home,
-      submenu: [
-        { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
-      ]
-    },
-    {
-      label: L.receive,
-      submenu: [
-        { label: L.receive, accelerator: 'CmdOrCtrl+2', click: act('recv') }
-      ]
-    },
-    {
-      label: L.remit,
-      submenu: [
-        { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
-      ]
-    },
-    {
-      label: L.mining,
-      submenu: [
-        { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mineHome') }
-      ]
-    },
-    {
-      label: L.navSettings,
-      submenu: [
-        { label: L.navSettings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
-      ]
-    }
-  ]
+  function openExternal (href) {
+    const target = siteNav.url(href)
+    if (shell && shell.openExternal) shell.openExternal(target)
+  }
+  function leaf (it) {
+    if (it.action === 'home') return { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
+    if (it.action === 'recv') return { label: L.receive, accelerator: 'CmdOrCtrl+2', click: act('recv') }
+    if (it.action === 'remit') return { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
+    if (it.action === 'mineHome') return { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mineHome') }
+    if (it.action === 'settings') return { label: L.navSettings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
+    if (it.action === 'create') return { label: L.create, click: act('create') }
+    if (it.action === 'import') return { label: L.import, click: act('import') }
+    if (it.action) return { label: cn ? it.cn : it.en, click: act(it.action) }
+    if (it.href) return { label: cn ? it.cn : it.en, click: () => openExternal(it.href) }
+    return { label: cn ? it.cn : it.en, enabled: false }
+  }
+  function group (g) {
+    const label = cn ? g.cn : g.en
+    if (g.children && g.children.length) return { label: label, submenu: g.children.map(leaf) }
+    return { label: label, submenu: [leaf(g)] }
+  }
+  const appMenu = {
+    label: L.app,
+    submenu: [
+      { label: L.toggleDevTools, accelerator: 'CmdOrCtrl+Shift+I', role: 'toggleDevTools' },
+      { label: L.version(app.getVersion()), enabled: false },
+      { type: 'separator' },
+      { label: L.minimize, accelerator: 'CmdOrCtrl+M', role: 'minimize' },
+      { label: L.fullscreen, accelerator: 'CmdOrCtrl+Shift+F', role: 'togglefullscreen' },
+      // 2.0.6: closing the window hides the wallet to the tray (mining keeps running); quitting is done from the tray menu
+      { label: L.close, accelerator: 'CmdOrCtrl+W', role: 'close' }
+    ]
+  }
+  const editMenu = {
+    label: L.edit,
+    submenu: [
+      { label: L.copy, accelerator: 'CmdOrCtrl+C', role: 'copy' },
+      { label: L.paste, accelerator: 'CmdOrCtrl+V', role: 'paste' },
+      { label: L.selectAll, accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
+      { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
+    ]
+  }
+  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group))
 }
 
 function createMenu (mainWindow, lang) {

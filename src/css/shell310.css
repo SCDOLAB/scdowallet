@@ -1,4 +1,4 @@
-/* 3.1.0 shell layout. Colours are the 3.0.10 palette: light grey page, white cards, green actions. */
+/* 3.1.0 shell layout. Colours stay the 3.0.10 palette. Spacing, 28px grouping and type scale follow the prototype layout only. */
 body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 #app.shell { flex-direction: row; background: #F2F2F7; color: #1c1c1e; }
 #app.shell header.top { display: none; }
@@ -12,8 +12,12 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .nav-item:hover { background: #E8F5E9; color: #1d7a34; }
 .nav-item.on, .nav-item.on:hover { background: #1d7a34; color: #fff; }
 
-.shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 980px; margin: 0 auto; padding: 28px 28px 120px; }
-.shell-h { font-size: 32px; font-weight: 800; margin: 0 0 16px; color: #1c1c1e; }
+.shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; margin: 0 auto; padding: 36px 32px 140px; }
+.shell-h { font-size: 40px; font-weight: 800; margin: 0 0 22px; letter-spacing: -0.4px; color: #1c1c1e; }
+.site-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 18px 28px 0; }
+.site-link { border: 0; border-radius: 999px; background: #fff; color: #1c1c1e; font-weight: 800; padding: 10px 16px; }
+.site-fold { margin: 0; border-radius: 28px; }
+.site-fold > :not(summary) { display: inline-block; margin: 0 8px 10px; }
 
 .bal-hero { border-radius: 24px; padding: 28px 32px 32px; color: #1c1c1e;
   background: linear-gradient(135deg, rgba(232,248,238,.92) 0%, rgba(206,240,220,.92) 55%, rgba(196,236,214,.92) 100%);
@@ -29,7 +33,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-go { width: 100%; padding: 16px 20px; }
 .shell-back { border: 0; background: transparent; color: #43A047; font-size: 18px; font-weight: 800; padding: 12px 8px; }
 
-.mine-strip { background: #fff; border-radius: 24px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.mine-strip { background: #fff; border-radius: 28px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
 .mine-strip-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .mine-strip-two { flex-direction: column; align-items: stretch; }
 .mine-dev { display: flex; align-items: center; gap: 12px; }
@@ -59,7 +63,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .recv-empty { margin: 24px 0; font-size: 18px; color: #3c3c43; }
 .shell-copy { width: auto; padding: 10px 18px; }
 
-.shell-remit .wiz, #remitHost .wiz { background: #fff; color: #1b1d33; border-radius: 24px; padding: 22px 22px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.shell-remit .wiz, #remitHost .wiz { background: #fff; color: #1b1d33; border-radius: 28px; padding: 28px 28px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
 .wiz-dots { display: flex; gap: 14px; color: #6b6b70; font-weight: 800; margin-bottom: 18px; }
 #payWiz[data-step="1"] [data-wiz-dot="1"], #payWiz[data-step="2"] [data-wiz-dot="2"], #payWiz[data-step="3"] [data-wiz-dot="3"], #payWiz[data-step="4"] [data-wiz-dot="3"] { color: #1d7a34; }
 .wiz-sum { display: grid; gap: 10px; margin-bottom: 12px; }
@@ -74,9 +78,9 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-remit .inp, .shell-set .inp, .shell-recv .inp { background: #fff; color: #1b1d33; }
 
 .shell-mine-page { background: transparent; color: #1b1d33; border-radius: 0; padding: 28px 22px 22px; box-shadow: none; }
-.mine-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-.mine-panel { background: #fff; color: #1b1d33; border-radius: 24px; padding: 18px 16px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
-.mine-panel h2 { margin: 0 0 12px; font-size: 22px; color: #1c1c1e; }
+.mine-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+.mine-panel { background: #fff; color: #1b1d33; border-radius: 28px; padding: 26px 22px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.mine-panel h2 { margin: 0 0 16px; font-size: 28px; color: #1c1c1e; }
 .mine-temp { margin-top: 8px; text-align: center; color: #6b6b70; font-weight: 700; }
 .mine-chain { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-weight: 700; color: #1c1c1e; }
 .mine-chain.off { color: #6b6b70; font-weight: 600; }
@@ -99,7 +103,17 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-temp.temp-hot { color: #d93025; }
 .shell-adv { display: block; margin: 8px 16px 14px auto; border: 0; background: transparent; color: #43A047; font-weight: 800; font-size: 16px; }
 
-.shell-fold { margin-top: 14px; border-radius: 20px; background: #fff; border: 1px solid #e5e5ea; color: #1c1c1e; }
+.shell-fold { margin-top: 16px; border-radius: 28px; background: #fff; border: 1px solid #e5e5ea; color: #1c1c1e; }
+.chain-rows { display: flex; flex-direction: column; gap: 16px; margin-top: 22px; }
+.chain-card > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.chain-name { font-size: 20px; font-weight: 800; }
+.chain-bal { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.chain-partial { margin: 0 16px 8px; font-weight: 800; color: #8a4b00; }
+.addr-scroll { max-height: 420px; overflow: auto; }
+.addr-line { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e5ea; }
+.addr-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tx-line { display: flex; flex-wrap: wrap; gap: 10px 16px; padding: 10px 0; border-bottom: 1px solid #e5e5ea; font-size: 16px; }
+.cat-sites { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .shell-fold > summary { cursor: pointer; list-style: none; font-size: 18px; font-weight: 700; color: #1c1c1e; padding: 14px 16px; }
 .shell-fold > summary::-webkit-details-marker { display: none; }
 .shell-fold > summary .fold-open { display: none; }

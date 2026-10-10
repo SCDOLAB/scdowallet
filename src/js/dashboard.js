@@ -142,7 +142,13 @@ function txHtml (rows, T, esc) {
 // totals: { all: text, per: [5 x text] }
 // 3.0.3: one line only. Each shard's balance is already on its own card, so the footer no longer repeats them.
 function footerHtml (totals, T, esc) {
-  return `<div class="foot-line" id="footLine"><span class="foot-h">${esc(T('d_totalLine'))}</span><b id="footAll">${esc(totals.all)} SCDO</b></div>`
+  const per = (totals && totals.per) || []
+  const bits = per.map((t, i) => {
+    const name = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
+    const shown = t == null || t === '…' ? '\u2014' : t
+    return `<span class="foot-h">${esc(name)}</span><b>${esc(shown)} SCDO</b>`
+  }).join('')
+  return `<div class="foot-line" id="footLine">${bits}</div>`
 }
 
 function homeHtml (models, txRows, T, esc, earn, mineHtml) {

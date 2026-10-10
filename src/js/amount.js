@@ -40,7 +40,41 @@
   }
   // plain decimal string without separators, for inputs and comparisons ("1234.5")
   function plainUnits (raw, decimals) { return fmtUnits(raw, decimals, decimals).replace(/,/g, '') }
-  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits }
+  // Send amounts stop at 8 decimal places before any parseUnits / fromString call.
+  function guardAmount (text, maxDp) {
+    const dp = maxDp == null ? MAX_DP : Math.max(0, Number(maxDp) || 0)
+    let s = String(text == null ? '' : text).trim().replace(/,/g, '').replace(/\u2212/g, '-')
+    if (s[0] === '+') s = s.slice(1)
+    if (!/^\d+(\.\d+)?$/.test(s)) return { ok: false, code: 'BAD_AMOUNT', value: s }
+    const frac = s.split('.')[1] || ''
+    if (frac.length > dp) return { ok: false, code: 'TOO_MANY_DECIMALS', value: s }
+    return { ok: true, code: '', value: s }
+  }
+  // Typing: drop a 9th decimal instead of letting it reach the signer.
+  function clipDecimals (text, maxDp) {
+    const dp = maxDp == null ? MAX_DP : Math.max(0, Number(maxDp) || 0)
+    const raw = String(text == null ? '' : text).replace(/,/g, '')
+    const m = /^(\d*)(\.?)(\d*)(.*)$/.exec(raw)
+    if (!m) return { value: '', blocked: false }
+    const frac = m[3] || ''
+    const blocked = frac.length > dp || (m[4] && /\d/.test(m[4]))
+    const cut = frac.slice(0, dp)
+    return { value: m[1] + (m[2] || cut ? '.' + cut : ''), blocked: blocked }
+  }
+  // balance − fee, cut toward zero at 8 decimal places. Null when the balance is unknown.
+  function maxAmount (balUnits, feeUnits, decimals) {
+    if (balUnits == null) return null
+    let bal
+    let fee
+    try { bal = BigInt(balUnits); fee = BigInt(feeUnits || 0) } catch (e) { return null }
+    if (bal <= fee) return '0'
+    const dec = Math.max(0, Number(decimals) || 0)
+    const dp = Math.min(dec, MAX_DP)
+    const factor = dec > dp ? 10n ** BigInt(dec - dp) : 1n
+    const cut = (bal - fee) / factor * factor
+    return fmtUnits(cut, dec, dp).replace(/,/g, '')
+  }
+  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, maxAmount }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOAmount = Object.freeze(api)
 })()
