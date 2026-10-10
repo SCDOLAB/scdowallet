@@ -93,6 +93,31 @@
   }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
   function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
+  async function shareReferral (url) {
+    const link = url || referralLink()
+    const text = T('homeInviteLine')
+    if (navigator.share) {
+      try { await navigator.share({ title: T('homeInviteTitle'), text: text, url: link }); return } catch (e) { if (e && e.name === 'AbortError') return }
+    }
+    copyText(link)
+  }
+  async function setMineMode (v) {
+    const solo = v === 'solo'
+    st.miningMode = solo ? 'solo' : 'pool'
+    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://82.223.19.88:3333'
+    try {
+      const r = await api.invoke('mining:setConfig', { miningMode: st.miningMode, poolUrl: poolUrl })
+      if (r && r.ok) st.miningMode = r.miningMode === 'solo' ? 'solo' : 'pool'
+    } catch (e) {}
+    render()
+  }
+  async function setKeepMiningUi (el) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { await api.invoke('mining:setKeepMining', on) } catch (e) {}
+    st.keepMining = on
+    settingsModal()
+  }
   function avatar (name) {
     let h = 0; for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) >>> 0
     const hue = h % 360
@@ -624,16 +649,28 @@
     const pills = `<div class="home-buy-row"><button type="button" class="home-buy-pill" data-act="buySite" data-v="membership">${esc(T('homeBuyMember'))}</button><button type="button" class="home-buy-pill" data-act="buySite" data-v="otc">${esc(T('homeBuyOtc'))}</button></div>`
     return `<details class="shell-fold home-buy" id="homeBuy">${shellFoldSummary(T('homeBuyTitle'))}${pills}</details>`
   }
+  function referralLink () {
+    const nav = window.SCDOSiteNav
+    if (!nav || !nav.referral) return ''
+    return nav.referral(selectedShard1())
+  }
+  function homeMineLine () {
+    if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
+    return window.SCDOMineHome.homeLine(mineHomeInput(), T)
+  }
   function pageHome () {
+    const link = referralLink()
     return `<div class="page shell-home" id="homePage">
+      <p class="home-lead">${esc(T('homeLead'))}</p>
+      <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
+      <details class="shell-fold home-chains" id="homeChains">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details>
       ${homeBuyHtml()}
-      <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
-      <div class="chain-rows" id="chainRows">${chainRowsHtml()}</div>
+      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
   }
   function renderFooter () {
@@ -650,15 +687,35 @@
     renderFooter()
     if ($('md')) return
     if (st.tab === 'home') {
-      const mh = $('homeMineHost')
-      if (mh) { const html = mineHomeStripHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
+      const line = $('homeMineState')
+      if (line) {
+        const text = homeMineLine()
+        if (line.textContent !== text) line.textContent = text
+      }
+      const ref = $('homeRefLink')
+      if (ref) {
+        const link = referralLink()
+        if (ref.textContent !== link) {
+          ref.textContent = link
+          document.querySelectorAll('[data-act="shareRef"], #homeInvite [data-act="copy"]').forEach(b => b.setAttribute('data-v', link))
+        }
+      }
       const rows = $('chainRows')
       if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
       const host = $('mineSimple')
-      if (host && window.SCDOMineHome) { const html = window.SCDOMineHome.minePageHtml(mineHomeInput(), T, esc); if (refreshDash.mine !== html) { refreshDash.mine = html; SD.html(host, html) } }
+      if (host && window.SCDOMineHome) {
+        const open = {}
+        host.querySelectorAll('details[id]').forEach(d => { if (d.open) open[d.id] = true })
+        const html = mineShellHtml()
+        if (refreshDash.mine !== html) {
+          refreshDash.mine = html
+          SD.html(host, html)
+          host.querySelectorAll('details[id]').forEach(d => { if (open[d.id]) d.open = true })
+        }
+      }
     } else if (st.tab === 'recv') paintRecvQr()
   }
   function backHome () {
@@ -705,9 +762,43 @@
         <div class="kv">${rows.map(([l, v]) => `<div class="kv-item"><span class="lbl">${esc(l)}</span><b class="wrap">${esc(v)}</b></div>`).join('')}</div></div>`
     }).join('')
   }
+  function mineAdvControlsHtml () {
+    const mode = st.miningMode === 'solo' ? 'solo' : 'pool'
+    const threads = threadCount()
+    const max = cpuCount()
+    const g = gpuParams()
+    const chip = (id, on) => `<button type="button" class="${on ? 'on' : ''}" data-act="setMineMode" data-v="${id}">${esc(T(id === 'solo' ? 'mineModeSolo' : 'mineModePool'))}</button>`
+    const cores = T('cpuCoresLine', { n: threads, max: max })
+    const raw0 = rewardOptions()
+    const shard0 = addrSelect('mReward', mineAddrOpts(0, raw0), mineAddrDefault(0, localStorage.getItem('minerReward') || '', raw0), false)
+    let classic = ''
+    for (const n of [1, 2, 3, 4]) {
+      const raw = classicOptions(n)
+      const opts = mineAddrOpts(n, raw)
+      const saved = localStorage.getItem('minerPayout310-' + n) || ''
+      const cur = mineAddrDefault(n, saved, raw)
+      const has = !!cur && opts.some(o => String(o.v).toLowerCase() === String(cur).toLowerCase())
+      classic += `<div class="field"><div class="lbl">Shard${n} Classic</div><select class="inp" id="payShard${n}"><option value="" ${has ? '' : 'selected'} disabled>${esc(T('pickAddr'))}</option>${opts.map(o => `<option value="${esc(o.v)}" ${has && String(o.v).toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(o.show || o.l)}</option>`).join('')}</select></div>`
+    }
+    return `<div class="mine-adv-controls">
+      <div class="shardchips">${chip('pool', mode !== 'solo')}${chip('solo', mode === 'solo')}</div>
+      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}"></div>
+      <div class="lbl" style="margin-top:8px">${esc(T('mineAdvBatch'))}</div>
+      <div class="row" style="gap:12px;flex-wrap:wrap;margin-top:8px">
+        <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}"></label>
+        <label class="lbl">${esc(T('gpuBlocks'))}<br><input class="inp half" id="mThreadBlocks" inputmode="numeric" value="${g.threadblocks}"></label>
+        <label class="lbl">${esc(T('gpuBlockThreads'))}<br><input class="inp half" id="mBlockThreads" inputmode="numeric" value="${g.blockthreads}"></label>
+      </div>
+      <div class="field" style="margin-top:14px"><div class="lbl">${esc(T('rewardAddr'))}</div>${shard0}</div>
+      <div class="field" style="margin-top:8px"><div class="lbl">${esc(T('classicAddr'))}</div>${classic}</div>
+    </div>`
+  }
+  function mineShellHtml () {
+    if (!window.SCDOMineHome) return ''
+    return window.SCDOMineHome.minePageHtml(mineHomeInput(), T, esc, mineAdvControlsHtml())
+  }
   function pageMine () {
-    const inner = window.SCDOMineHome ? window.SCDOMineHome.minePageHtml(mineHomeInput(), T, esc) : ''
-    return `<div id="mineSimple">${inner}</div>`
+    return `<div id="mineSimple">${mineShellHtml()}</div>`
   }
   function pageRecv () {
     const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
@@ -2683,12 +2774,14 @@
     const notifyInner = nt && nt.config ? `<div class="lbl">${esc(T('notifyHint'))}</div>
       ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}` : ''
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
+    let mineCfg = { keepMining: !!st.keepMining }
+    try { mineCfg = Object.assign(mineCfg, await api.invoke('mining:getConfig') || {}) } catch (e) {}
+    const resumeOn = !!mineCfg.keepMining
     const langNow = lang() === 'CN' ? '華語繁體' : 'English'
-    const setHtml = `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      ${shellFold('setLang', T('setLang') + ' · ' + langNow, `<div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div>`)}
-      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
-      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+    const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
+    const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
+    const advancedInner = `${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
           <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
@@ -2696,6 +2789,11 @@
           <button class="btn sec" data-act="openBackups">${esc(T('setOpenBackups'))}</button>
         </div>
         <div class="lbl">${esc(T('backupHint'))}</div>`)}
+      <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
+      <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
+      <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
+      <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>
+      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
       ${shellFold('setUpdate', T('updTitle') + ' · ' + APPVER, `<div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
         <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
@@ -2705,11 +2803,11 @@
           <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
       ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-10</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
       ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
-        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}
-      ${shellFold('setAdvanced', T('advanced'), `<div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
-        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
-        <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
-        <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>`)}`
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}`
+    const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
+      ${langRow}
+      ${resumeRow}
+      ${shellFold('setAdvanced', T('advanced'), advancedInner)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
     else modal(setHtml, { width: 820, noFocus: true })
@@ -3043,6 +3141,8 @@
   function mineChainAddresses () {
     const out = { 0: rewardForHome() }
     for (const n of [1, 2, 3, 4]) {
+      const saved = parseClassicAddress(localStorage.getItem('minerPayout310-' + n) || '')
+      if (saved && saved.shard === n) { out[n] = saved.address; continue }
       let addr = ''
       for (const a of st.accounts || []) {
         const p = parseClassicAddress(a.pubkey)
@@ -3392,6 +3492,9 @@
       case 'chainTxMore': { const n = Number(v); st.txMore[n] = ((st.txMore && st.txMore[n]) || 8) + 8; render(); break }
       case 'openExplorer': if (/^https:\/\/scdoscan\.io\//.test(String(v || ''))) openExternal(v); break
       case 'buySite': openAccountSite(v); break
+      case 'shareRef': shareReferral(v); break
+      case 'setMineMode': setMineMode(v); break
+      case 'keepMining': setKeepMiningUi(el); break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)
@@ -3486,6 +3589,12 @@
   })
   document.addEventListener('change', (ev) => {
     const t = ev.target; if (!t) return
+    if (t.id && t.id.indexOf('payShard') === 0) {
+      const n = Number(t.id.slice('payShard'.length))
+      const p = parseClassicAddress(t.value)
+      if (p && p.shard === n) localStorage.setItem('minerPayout310-' + n, p.address)
+      return
+    }
     if (t.id === 'mClassic') {
       st.otherOpen = st.otherOpen || {}
       const row = $(t.id + '-oth')
@@ -3926,7 +4035,8 @@
     }
     if (action.type === 'openSite') {
       const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
-      if (hit && hit.withAddress) openAccountSite(hit.id)
+      if (hit && hit.referral && window.SCDOSiteNav.referral) openExternal(window.SCDOSiteNav.referral(selectedShard1()))
+      else if (hit && hit.withAddress) openAccountSite(hit.id)
       else if (hit && hit.action) menuAction(hit.action)
       else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
       return { ok: true }
@@ -4037,6 +4147,12 @@
     refreshS0(); refreshOld(); refreshGpuTemp(); refreshPools(); renderCat()
     setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000); setInterval(refreshPools, 60000)
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
+    try {
+      const it = await api.invoke('miner:intent')
+      st.miningMode = it && it.miningMode === 'solo' ? 'solo' : 'pool'
+      st.keepMining = !!(it && it.keepMining)
+      st.mineCfg = { poolUrl: (it && it.poolUrl) || '' }
+    } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
     ensureCaps().catch(() => {})

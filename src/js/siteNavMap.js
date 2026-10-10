@@ -8,6 +8,8 @@
   // Temporary pages. Each address lives only here.
   const MEMBERSHIP_URL = 'https://scdoscan.io/membership/'
   const OTC_URL = 'https://scdoscan.io/otc/'
+  // Temporary invite link. The address is the selected Shard1 Classic address.
+  const REFERRAL_URL = 'https://scdoscan.io/r/'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
@@ -73,6 +75,11 @@
     }
   ]
 
+  // Known to the cat, not shown in the window menu or the top function bar.
+  const EXTRAS = [
+    { id: 'referral', cn: '邀請好友', en: 'Invite a friend', href: REFERRAL_URL, referral: true, ask: ['邀請好友'] }
+  ]
+
   function url (href) {
     const h = String(href || '')
     if (/^https?:\/\//i.test(h)) return h
@@ -88,18 +95,29 @@
     return out
   }
 
+  function listed () {
+    return flat().concat(EXTRAS)
+  }
+
   function byId (id) {
-    return flat().find(it => it.id === id) || null
+    return listed().find(it => it.id === id) || null
   }
 
   function match (text) {
     const q = String(text == null ? '' : text).replace(/\s+/g, ' ').trim()
     if (!q) return null
     const lower = q.toLowerCase()
-    return flat().find(it => {
+    return listed().find(it => {
       if (it.cn === q || String(it.en).toLowerCase() === lower) return true
       return (it.ask || []).some(a => a === q || String(a).toLowerCase() === lower)
     }) || null
+  }
+
+  function referral (address) {
+    const u = new URL(REFERRAL_URL)
+    const addr = String(address || '').trim()
+    if (addr) u.searchParams.set('ref', addr)
+    return u.toString()
   }
 
   // Membership and buying SCDO add the wallet language and the selected Shard1 Classic address.
@@ -117,7 +135,7 @@
     return u.toString()
   }
 
-  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, GROUPS: GROUPS, url: url, visit: visit, flat: flat, byId: byId, match: match }
+  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, REFERRAL_URL: REFERRAL_URL, GROUPS: GROUPS, url: url, visit: visit, referral: referral, flat: flat, byId: byId, match: match }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOSiteNav = Object.freeze(api)
 })()

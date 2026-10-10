@@ -977,6 +977,28 @@ function chainDetailHtml (input, device, n, T, esc) {
     </details>`
 }
 
+function homeLine (input, T) {
+  input = input || {}
+  const miners = input.miners || {}
+  const gpu = miners.classicGpu
+  const cpu = miners.classicCpu
+  const s0 = miners.shard0
+  const press = input.press || {}
+  if (press.gpu === 'starting' || press.cpu === 'starting' || input.phase === 'starting') return tr(T, 'homeLineStarting')
+  if (press.gpu === 'stopping' || press.cpu === 'stopping' || input.phase === 'stopping') return tr(T, 'homeLineStopping')
+  if (gpuPoolUp(gpu)) return tr(T, 'homeLineGpuPool')
+  const gpuOn = gpu && gpu.mode !== 'node' && gpu.mode !== 'cpu' && (gpu.running || procsAlive(gpu))
+  if (gpuOn && waitingSync(gpu, 'classic') && !(gpu.gpuActive || gpu.code === 'CLASSIC_GPU')) {
+    const pct = syncPctOf(gpu)
+    return gpuWaitText(gpu.shard, pct != null ? pct : gpu.syncPct, zhUi(T))
+  }
+  if (gpuOn && (gpu.gpuActive || gpu.code === 'CLASSIC_GPU' || gpu.phase === 'mining')) return tr(T, 'homeLineGpuMine')
+  if (input.gpuBusy && !gpuOn) return tr(T, 'homeMineGpuBusy')
+  if (cpu && cpu.mode !== 'node' && (cpu.running || procsAlive(cpu))) return tr(T, 'homeLineCpuPool')
+  if (s0 && s0.mode !== 'node' && (s0.running || procsAlive(s0))) return tr(T, 'homeLineShard0')
+  return tr(T, 'homeLineIdle')
+}
+
 function devicePanel (input, device, picked, other, T, esc, huge) {
   const model = deviceModel(input, device, T)
   const tempCls = model.view.tempBand ? ' temp-' + model.view.tempBand : ''
@@ -985,15 +1007,14 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
   const fallback = device === 'gpu' && input && input.gpuFallback
     ? `<p class="mine-note">${esc(tr(T, 'shellNoNvidiaCpu'))}</p><button type="button" class="shell-hint" data-act="mineCpuInstead">${esc(tr(T, 'shellUseCpu'))}</button>`
     : ''
-  return `<section class="mine-panel" data-dev="${device}">
+  const html = `<section class="mine-panel" data-dev="${device}">
       <h2>${esc(deviceTitle(device, T))}</h2>
       <div class="mine-glance mh-status ${model.view.statusTone}" data-dev-status="${device}"><span class="mine-dot" aria-hidden="true"></span><span class="mine-glance-t">${esc(model.status)}</span></div>
       <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
       ${fallback}
-      ${temp}
       ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools)}
-      ${rows}
     </section>`
+  return { html: html, rows: rows, temp: temp }
 }
 
 function stripHtml (input, T, esc) {
@@ -1006,23 +1027,28 @@ function stripHtml (input, T, esc) {
   return `<div class="mine-strip-in mine-strip-two" id="homeMineCard">${row('cpu')}${row('gpu')}</div>`
 }
 
-function minePageHtml (input, T, esc) {
+function minePageHtml (input, T, esc, extra) {
   T = T || function (k) { return k }
   esc = esc || function (s) { return String(s == null ? '' : s) }
   const pick = viewChains(input)
+  const cpu = devicePanel(input, 'cpu', pick.cpu, pick.gpu, T, esc, true)
+  const gpu = devicePanel(input, 'gpu', pick.gpu, pick.cpu, T, esc, true)
   return `<div class="page shell-mine-page" id="minePage">
     <h1 class="shell-h">${esc(tr(T, 'navMine'))}</h1>
     <div class="mine-panels">
-      ${devicePanel(input, 'cpu', pick.cpu, pick.gpu, T, esc, true)}
-      ${devicePanel(input, 'gpu', pick.gpu, pick.cpu, T, esc, true)}
+      ${cpu.html}
+      ${gpu.html}
     </div>
     <details class="shell-fold" id="mineAdvFold">${foldSummary(esc(tr(T, 'shellAdvanced')))}
-      <button type="button" class="shell-adv" data-act="nav" data-v="mineSet">${esc(tr(T, 'shellAdvanced'))}</button>
+      ${extra || ''}
+      ${gpu.temp}
+      ${cpu.rows}
+      ${gpu.rows}
     </details>
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

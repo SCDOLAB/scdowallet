@@ -27,6 +27,13 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .bal-n span { font-size: 28px; margin-left: 8px; color: #17693a; }
 
 .shell-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
+.home-lead { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -0.3px; color: #1c1c1e; }
+.home-state { font-size: 16px; color: #3a3a3c; margin: 6px 0 4px; }
+.home-chains .chain-rows { margin-top: 8px; }
+.home-invite-line { margin: 8px 14px; }
+.home-invite-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 14px 12px; }
+.home-invite-link { flex: 1 1 180px; min-width: 0; word-break: break-all; font-size: 14px; }
+.set-open { margin: 0 0 16px; }
 .home-buy { margin: 0 0 16px; }
 .home-buy > summary { padding: 8px 14px; font-size: 16px; font-weight: 600; }
 .home-buy-row { display: flex; flex-wrap: wrap; gap: 8px; }
