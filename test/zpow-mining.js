@@ -1049,7 +1049,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.0.10')
+  assert.strictEqual(pkg.version, '3.0.11')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')

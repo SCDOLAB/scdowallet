@@ -1,6 +1,6 @@
 {
     "name": "ScdoWallet",
-    "version": "3.0.10",
+    "version": "3.0.11",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",

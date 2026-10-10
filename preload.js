@@ -21,7 +21,7 @@ const INVOKE = Object.freeze([
   'update:check', 'update:download', 'update:install', 'update:skip', 'update:getChannel', 'update:setChannel', 'about:buildHash',
   // miner
   'miner:start', 'miner:stop', 'miner:confirmStop', 'miner:status', 'miner:gpu', 'miner:intent', 'miner:intentClear', 'miner:intentMigrate',
-  'miner:otherRigels', 'miner:resumeCheck', 'miner:defender', 'miner:openLogs',
+  'miner:otherRigels', 'miner:resumeCheck', 'miner:clearRunning', 'miner:defender', 'miner:openLogs',
   'miner:caps', 'miner:classicStatus',
   // mining batch 1
   'mining:gpuPreflight', 'mining:gpuTemp', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining',
