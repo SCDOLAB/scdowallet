@@ -12,7 +12,7 @@ const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
-const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase } = require('./status')
+const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
@@ -351,7 +351,8 @@ class ZpowManager extends EventEmitter {
       throw err
     }
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
-    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : (opts.gpuMiner === 'classic-node' || opts.solo ? 'classic-node' : 'zminer-gpu')
+    const gpuMiner = resolveGpuMiner(opts)
+    const mineLabel = poolFallbackLabel(opts, gpuMiner)
     const env = this.o.env || process.env
     const caps = this.capabilities(env)
     const asInt = (v, fallback) => {
@@ -441,7 +442,7 @@ class ZpowManager extends EventEmitter {
       phase: 'starting',
       code: backend === 'cpu' || gpuMiner === 'zminer-gpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
       message: '',
-      mineLabel: opts.mineLabel || '',
+      mineLabel: mineLabel,
       syncPct: opts.syncPct == null ? null : opts.syncPct,
       startedAt: Date.now()
     })
@@ -667,7 +668,7 @@ class GpuFleet extends EventEmitter {
       err.code = 'BAD_ADDRESS'
       throw err
     }
-    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : (opts.gpuMiner === 'classic-node' || opts.solo ? 'classic-node' : 'zminer-gpu')
+    const gpuMiner = resolveGpuMiner(opts)
     if (gpuMiner === 'zminer-gpu') await this.stopWhere((shard, kid) => kid.state.backend && kid.state.backend !== 'zminer-gpu')
     else await this.stopWhere(shard => shard !== parsed.shard)
     let kid = this.kids.get(parsed.shard)
@@ -695,6 +696,98 @@ class GpuFleet extends EventEmitter {
   }
 }
 
+function finitePct (v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return Math.round(n)
+}
+
+// Solo (a saved 進階 choice, or an explicit classic-node request that already
+// carries a sync result) runs node.exe only when that shard is caught up.
+// A bare classic-node request with no sync decision still launches the node.
+// Anything still behind, including a saved solo choice, uses zminer-gpu.
+function resolveGpuMiner (opts) {
+  opts = opts || {}
+  if (opts.gpuMiner === 'external') return 'external'
+  const namedNode = opts.gpuMiner === 'classic-node'
+  const soloIntent = opts.solo === true || opts.miningMode === 'solo'
+  const pct = finitePct(opts.syncPct)
+  const lowPct = pct != null && pct < 100
+  if (soloIntent || opts.nodeSynced === false || lowPct) {
+    const caughtUp = opts.nodeSynced === true && !lowPct
+    return caughtUp ? 'classic-node' : 'zminer-gpu'
+  }
+  return namedNode ? 'classic-node' : 'zminer-gpu'
+}
+
+function poolFallbackLabel (opts, gpuMiner) {
+  opts = opts || {}
+  const asked = opts.gpuMiner === 'classic-node' || opts.solo === true || opts.miningMode === 'solo'
+  const current = opts.mineLabel || ''
+  if (gpuMiner !== 'zminer-gpu' || !asked) return current
+  const pct = finitePct(opts.syncPct)
+  const zh = opts.zh !== false
+  if (pct != null && pct < 100) {
+    return zh ? ('顯卡經礦池挖（本機節點同步 ' + pct + '%）') : ('Graphics card mining through the pool (local node sync ' + pct + '%)')
+  }
+  if (!current || current === '顯卡挖礦中' || current === 'Graphics card mining') {
+    return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
+  }
+  return current
+}
+
+function positiveHeight (info) {
+  if (!info || typeof info !== 'object') return null
+  const raw = info.CurrentBlockHeight != null ? info.CurrentBlockHeight : info.currentBlockHeight
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function higherHeight (a, b) {
+  if (a == null) return b == null ? null : b
+  if (b == null) return a
+  return a > b ? a : b
+}
+
+// Local getInfo against the public tip and the peer download target.
+// Pool chain_height is not used: it can sit next to the local height while
+// the public tip is still about twice as far (the 52% case).
+function syncFromHeights (local, network) {
+  if (local == null || network == null || !(network > 0)) return { synced: false, pct: null, local: local, network: network }
+  const pct = Math.max(0, Math.min(100, Math.round((local / network) * 100)))
+  const gap = network - local
+  return { synced: gap >= 0 && gap <= BEHIND_BLOCKS, pct: pct, local: local, network: network }
+}
+
+async function measureShardSync (shard, call, timeoutMs) {
+  const all = await measureAllShardSync(call, timeoutMs, shard)
+  return all[Number(shard)] || { synced: false, pct: null, local: null, network: null }
+}
+
+async function measureAllShardSync (call, timeoutMs, onlyShard) {
+  const rpc = call || rpcCall
+  const ms = timeoutMs || 1200
+  const wanted = onlyShard != null ? [Number(onlyShard)] : [1, 2, 3, 4]
+  const out = {}
+  await Promise.all(wanted.map(async (n) => {
+    const port = SHARD_PORTS[n]
+    out[n] = { synced: false, pct: null, local: null, network: null }
+    if (!port) return
+    const localUrl = 'http://127.0.0.1:' + port.http
+    let info = null
+    let dl = null
+    let pub = null
+    try { info = await rpc(localUrl, 'scdo_getInfo', [], ms) } catch (e) {}
+    try { dl = await rpc(localUrl, 'download_getStatus', [], ms) } catch (e) {}
+    try { pub = await rpc('https://scdoscan.io/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
+    const local = positiveHeight(info)
+    const network = higherHeight(peerTargetOf(dl), positiveHeight(pub))
+    out[n] = syncFromHeights(local, network)
+  }))
+  return out
+}
+
 async function localNodeHeights (call, timeoutMs) {
   const rpc = call || rpcCall
   const ms = timeoutMs || 800
@@ -711,4 +804,4 @@ async function localNodeHeights (call, timeoutMs) {
   return out
 }
 
-module.exports = { ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName }
+module.exports = { ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }

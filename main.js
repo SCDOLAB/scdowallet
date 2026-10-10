@@ -430,7 +430,22 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
   if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
     try {
-      await getZpow(backend).start(wallet, Object.assign({}, opts, { chain: 'classic', backend }))
+      let startOpts = Object.assign({}, opts, { chain: 'classic', backend })
+      if (backend === 'gpu' && startOpts.gpuMiner !== 'external') {
+        const intent = readIntent() || {}
+        const askedSolo = startOpts.gpuMiner === 'classic-node' || startOpts.solo === true || startOpts.miningMode === 'solo' || intent.miningMode === 'solo'
+        if (askedSolo) {
+          if (!startOpts.miningMode && intent.miningMode) startOpts.miningMode = intent.miningMode
+          try {
+            const measured = await require('./src/miner/zpow/manager').measureShardSync(startOpts.shard)
+            startOpts.nodeSynced = !!(measured && measured.synced)
+            if (measured && measured.pct != null) startOpts.syncPct = measured.pct
+          } catch (err) {
+            startOpts.nodeSynced = false
+          }
+        }
+      }
+      await getZpow(backend).start(wallet, startOpts)
       const cfgNow = readIntent() || {}
       const runPatch = backend === 'cpu' ? { runningCpu: true } : { runningClassicGpu: true }
       if (cfgNow.keepMining) runPatch.autoResume = true
@@ -538,6 +553,9 @@ ipcMain.handle('mining:setConfig', (e, cfg) => {
 ipcMain.handle('mining:setKeepMining', (e, on) => setKeepMining(!!on))
 ipcMain.handle('mining:localSync', async () => {
   try { return await require('./src/miner/zpow/manager').localNodeHeights() } catch (e) { return {} }
+})
+ipcMain.handle('mining:shardSync', async () => {
+  try { return await require('./src/miner/zpow/manager').measureAllShardSync() } catch (e) { return {} }
 })
 ipcMain.handle('mining:poolStatus', async () => {
   const poolStatus = require('./src/js/poolStatus')

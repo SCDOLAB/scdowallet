@@ -14,7 +14,7 @@ const { renderArgs, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, stopMiner }
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
 const { missingMinerBins, assertMinerBinsPresent, referencedMinerFiles } = require('../scripts/require-miner-bins')
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
-const { ZpowManager, GpuFleet, formatExitMessage } = require('../src/miner/zpow/manager')
+const { ZpowManager, GpuFleet, formatExitMessage, resolveGpuMiner, measureShardSync } = require('../src/miner/zpow/manager')
 const { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256, packZip, readZipEntries } = require('../scripts/stage-zminer-gpu')
 const { sleeper: winSleeper, crash: winCrash } = require('./win-miner-stubs')
 const { formatMinePill } = require('../src/js/minePill')
@@ -1230,6 +1230,40 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   assert.strictEqual(again.backend, 'zminer-gpu')
   assert.strictEqual(fleet.childUp(fleet.kids.get(1)), true)
   assert.ok(fleet.childPids().length >= 2)
+  assert.strictEqual(resolveGpuMiner({ gpuMiner: 'classic-node' }), 'classic-node')
+  assert.strictEqual(resolveGpuMiner({ gpuMiner: 'classic-node', miningMode: 'solo', nodeSynced: true, syncPct: 100 }), 'classic-node')
+  assert.strictEqual(resolveGpuMiner({ gpuMiner: 'classic-node', miningMode: 'solo', nodeSynced: true, syncPct: 52 }), 'zminer-gpu')
+  assert.strictEqual(resolveGpuMiner({ gpuMiner: 'classic-node', miningMode: 'solo', nodeSynced: false, syncPct: 52 }), 'zminer-gpu')
+  const half = await measureShardSync(1, async (url, method) => {
+    if (String(url).indexOf('127.0.0.1') >= 0 && method === 'scdo_getInfo') return { CurrentBlockHeight: 520000 }
+    if (String(url).indexOf('127.0.0.1') >= 0 && method === 'download_getStatus') return null
+    if (String(url).indexOf('scdoscan.io') >= 0) return { CurrentBlockHeight: 1000000 }
+    return null
+  }, 50)
+  assert.strictEqual(half.synced, false)
+  assert.strictEqual(half.pct, 52)
+  const caught = await measureShardSync(1, async (url, method) => {
+    if (method === 'scdo_getInfo') return { CurrentBlockHeight: 100 }
+    return null
+  }, 50)
+  assert.strictEqual(caught.synced, true)
+  assert.strictEqual(caught.pct, 100)
+  const soloRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-solo-pool-'))
+  const soloFleet = new GpuFleet({
+    platform: 'linux',
+    root,
+    dataRoot: soloRoot,
+    env: { SCDO_ZMINER_GPU_EXE: poolBin, COMPUTERNAME: 'SCDO-4060' }
+  })
+  const savedSolo = await soloFleet.start(REAL, {
+    backend: 'gpu', gpuMiner: 'classic-node', miningMode: 'solo', nodeSynced: false, syncPct: 52, shard: 1, zh: true
+  })
+  assert.strictEqual(savedSolo.backend, 'zminer-gpu')
+  assert.strictEqual(soloFleet.childUp(soloFleet.kids.get(1)), true)
+  assert.deepStrictEqual(soloFleet.kids.get(1).launchSpec.args, ['-pool', '82.223.19.88:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
+  assert.strictEqual(soloFleet.kids.get(1).state.mineLabel, '顯卡經礦池挖（本機節點同步 52%）')
+  await soloFleet.stop()
+  fs.rmSync(soloRoot, { recursive: true, force: true })
   const tStop = Date.now()
   await fleet.stop()
   const stopMs = Date.now() - tStop

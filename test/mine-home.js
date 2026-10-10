@@ -221,13 +221,17 @@ assert.strictEqual(step('stopped', 'timeout'), 'stopped')
   assert.strictEqual(mine.planDeviceClick({ phase: 'mining', alive: true, chains: [] }).op, 'kill')
   assert.strictEqual(mine.START_DEADLINE_MS > 0, true)
   const hinted = mine.minePageHtml({ miners: {}, chains: { cpu: [], gpu: [1] }, needChain: { cpu: true } }, CN, esc)
-  assert.ok(hinted.includes('請先選擇要挖的鏈'))
+  assert.ok(hinted.includes('請先勾選要挖的鏈'))
+  assert.ok(hinted.includes('id="mineNeed-cpu"'))
+  assert.ok(/id="minePick-cpu"[^>]*\sopen/.test(hinted))
+  assert.ok(!/id="minePick-gpu"[^>]*\sopen/.test(hinted))
   assert.ok(hinted.includes('開始挖礦'))
   assert.ok(!hinted.includes('正在停止'))
   const hintedEn = mine.minePageHtml({ miners: {}, chains: { cpu: [], gpu: [1] }, needChain: { cpu: true } }, EN, esc)
-  assert.ok(hintedEn.includes('Choose a chain to mine first'))
+  assert.ok(hintedEn.includes('Tick a chain to mine first'))
+  assert.ok(/id="minePick-cpu"[^>]*\sopen/.test(hintedEn))
   assert.ok(!/[\u4e00-\u9fff]/.test(hintedEn.slice(hintedEn.indexOf('data-dev="cpu"'), hintedEn.indexOf('data-dev="gpu"'))))
-  assert.strictEqual(I.CN.shellNeedChain, '請先選擇要挖的鏈')
+  assert.strictEqual(I.CN.shellNeedChain, '請先勾選要挖的鏈')
   assert.ok(read('src/js/app112.js').includes("plan.op === 'need-chain'"))
   const ghost = { running: true, mode: 'gpu', chain: 'classic', phase: 'syncing', code: 'CLASSIC_SYNCING', procs: [] }
   assert.strictEqual(mine.deviceProcessAlive({ classicGpu: ghost }, 'gpu'), false)
@@ -537,7 +541,7 @@ assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: 
 assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).label, '顯卡經礦池挖')
+}).label, '顯卡經礦池挖（本機節點同步 52%）')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
 }).action, 'pool')
@@ -598,12 +602,21 @@ assert.strictEqual(mine.chooseMinePath({
     const job = soloWait.jobs.find(j => j.shard === shard)
     assert.strictEqual(job.gpuMiner, 'zminer-gpu')
     assert.strictEqual(job.action, 'pool')
-    assert.strictEqual(job.mineLabel, '顯卡經礦池挖')
+    assert.strictEqual(job.mineLabel, '顯卡經礦池挖（本機節點同步 52%）')
+    assert.strictEqual(job.nodeSynced, false)
+    assert.strictEqual(job.miningMode, 'solo')
   }
   const syncedSolo = soloWait.jobs.find(j => j.shard === 4)
   assert.strictEqual(syncedSolo.gpuMiner, 'classic-node')
   assert.strictEqual(syncedSolo.action, 'mine')
   assert.strictEqual(syncedSolo.mineLabel, '顯卡挖礦中')
+  const row = mine.minePageHtml({
+    miners: {},
+    chains: { cpu: [], gpu: [1] },
+    addresses: { 1: addr(1) },
+    mineRows: { 1: { action: 'pool', label: soloWait.jobs[0].mineLabel, syncPct: 52 } }
+  }, CN, esc)
+  assert.ok(row.includes('Shard1 Classic · 顯卡經礦池挖（本機節點同步 52%）'))
   assert.ok(soloWait.notices.indexOf('shellOneClassic') < 0)
   assert.strictEqual(soloWait.blocked.length, 0)
   const twoSynced = mine.jobsForDevice({

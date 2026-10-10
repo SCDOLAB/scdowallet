@@ -3261,17 +3261,19 @@
     }
   }
   async function nodeMapForStart () {
-    let heights = {}
-    try { heights = await api.invoke('mining:localSync') || {} } catch (e) { heights = {} }
+    // Public tip and the local download target. A pool chain_height can sit
+    // next to the local height while the real tip is still about twice as far.
+    let measured = null
+    try { measured = await api.invoke('mining:shardSync') } catch (e) { measured = null }
     const nodes = {}
-    for (const n of [1, 2, 3, 4]) {
-      const pool = st.poolStatus && (st.poolStatus[n] || st.poolStatus[String(n)])
-      const slot = [st.miners && st.miners.classicGpu, st.miners && st.miners.classicCpu].find(m => m && Number(m.shard) === n)
-      const probed = heights[n] || heights[String(n)] || {}
-      const local = probed.local != null ? probed.local : (slot && slot.localBlock)
-      const network = (pool && pool.online && pool.chain_height != null) ? pool.chain_height : (slot && slot.networkBlock)
-      nodes[n] = window.SCDOMineHome.nodeSyncOf({ local: local, network: network })
+    if (measured && typeof measured === 'object') {
+      for (const n of [1, 2, 3, 4]) {
+        const row = measured[n] || measured[String(n)] || {}
+        nodes[n] = { synced: row.synced === true, pct: row.pct == null ? null : row.pct }
+      }
+      return nodes
     }
+    for (const n of [1, 2, 3, 4]) nodes[n] = { synced: false, pct: null }
     return nodes
   }
   async function startDevice (device, opts) {
@@ -4080,11 +4082,18 @@
       let r
       try {
         const gpuMiner = backend === 'gpu' ? (job.gpuMiner === 'classic-node' || job.gpuMiner === 'external' ? job.gpuMiner : 'zminer-gpu') : undefined
-        r = await api.invoke('miner:start', job.address, {
+        const startOpts = {
           chain: 'classic', backend: backend, gpuMiner: gpuMiner, shard: job.shard,
           threads: threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads,
           mineLabel: job.mineLabel || ''
-        })
+        }
+        if (backend === 'gpu') {
+          if (job.miningMode === 'solo' || job.miningMode === 'pool') startOpts.miningMode = job.miningMode
+          if (job.nodeSynced === true || job.nodeSynced === false) startOpts.nodeSynced = job.nodeSynced === true
+          if (job.syncPct != null && job.syncPct !== '') startOpts.syncPct = job.syncPct
+          if (job.zh === true || job.zh === false) startOpts.zh = job.zh
+        }
+        r = await api.invoke('miner:start', job.address, startOpts)
       } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
       if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
       localStorage.setItem(backend === 'cpu' ? 'minerRunClassicCpu' : 'minerRunClassicGpu', backend === 'cpu' ? '1' : 'gpu')

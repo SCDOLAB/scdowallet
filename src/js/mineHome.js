@@ -488,16 +488,40 @@ function gpuPoolText (zh) {
   return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
 }
 
+function gpuPoolSyncText (zh, pct) {
+  const n = Math.round(Number(pct))
+  if (zh) return '顯卡經礦池挖（本機節點同步 ' + n + '%）'
+  return 'Graphics card mining through the pool (local node sync ' + n + '%)'
+}
+
+function shownPoolLabel (zh, held, session) {
+  const candidates = [(held && held.label) || '', (session && session.mineLabel) || '']
+  for (let i = 0; i < candidates.length; i++) {
+    const label = candidates[i]
+    if (label.indexOf('（本機節點同步') >= 0 || label.indexOf('(local node sync') >= 0) return label
+  }
+  for (let i = 0; i < candidates.length; i++) {
+    const label = candidates[i]
+    if (label.indexOf('顯卡經礦池挖') === 0 || label.indexOf('Graphics card mining through the pool') === 0) return label
+  }
+  return gpuPoolText(zh)
+}
+
 // Default is the graphics-card pool miner. Solo node.exe runs only when solo
 // was saved and that node is already synced. An unsynced node, including a
 // solo choice left over from an older wallet, mines through the pool instead.
+// A known percent under 100 is not caught up, even if a pool height looked close.
 function chooseMinePath (input) {
   input = input || {}
   const zh = input.zh !== false
-  if (input.explicitSolo === true && input.nodeSynced === true) {
+  const pct = input.syncPct
+  const pctOk = pct != null && pct !== '' && Number.isFinite(Number(pct))
+  const low = pctOk && Math.round(Number(pct)) < 100
+  if (input.explicitSolo === true && input.nodeSynced === true && !low) {
     return { action: 'mine', gpuMiner: 'classic-node', reason: '', label: gpuMineText(zh), offerCpu: false }
   }
-  return { action: 'pool', gpuMiner: 'zminer-gpu', reason: '', label: gpuPoolText(zh), offerCpu: false }
+  const label = input.explicitSolo === true && low ? gpuPoolSyncText(zh, pct) : gpuPoolText(zh)
+  return { action: 'pool', gpuMiner: 'zminer-gpu', reason: '', label: label, offerCpu: false }
 }
 
 // Which miners a Home click should start. The saved choice wins over the settings
@@ -781,6 +805,9 @@ function jobsForDevice (input) {
       shard: n,
       address: String(address),
       syncPct: node.pct,
+      nodeSynced: node.synced === true,
+      miningMode: solo ? 'solo' : 'pool',
+      zh: input.zh !== false,
       mineLabel: path.label,
       action: path.action,
       offerCpu: path.offerCpu === true
@@ -935,7 +962,7 @@ function foldSummary (title) {
   return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${title}</summary>`
 }
 
-function chainPickHtml (device, picked, other, caps, T, esc, pools) {
+function chainPickHtml (device, picked, other, caps, T, esc, pools, open) {
   const supported = [0, 1, 2, 3, 4].filter(n => chainSupport(device, n, caps, pools).ok)
   const allOn = supported.length > 0 && supported.every(n => picked.indexOf(n) >= 0)
   const boxes = [0, 1, 2, 3, 4].map(n => {
@@ -948,7 +975,8 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools) {
   const shared = picked.filter(n => n >= 1 && other.indexOf(n) >= 0)
   const note = shared.length ? `<div class="mine-note">${esc(tr(T, 'shellBothMine'))}</div>` : ''
   const many = device === 'cpu' && picked.filter(n => n >= 1).length > 1 ? `<div class="mine-note">${esc(tr(T, 'shellOneClassic'))}</div>` : ''
-  return `<details class="shell-fold" id="minePick-${device}">${foldSummary(esc(tr(T, 'shellPickChains')))}
+  const pickOpen = open ? ' open' : ''
+  return `<details class="shell-fold" id="minePick-${device}"${pickOpen}>${foldSummary(esc(tr(T, 'shellPickChains')))}
       <label class="mine-chain"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="all"${allOn ? ' checked' : ''}${supported.length ? '' : ' disabled'}> ${esc(tr(T, 'shellPickAll'))}</label>
       ${boxes}${note}${many}
     </details>`
@@ -969,7 +997,7 @@ function chainDetailHtml (input, device, n, T, esc) {
   if (device === 'cpu' && n >= 1 && session && session.mode !== 'node' && (session.running || procsAlive(session))) {
     state = cpuPoolText(zh)
   } else if (poolGpu || (!gpuRunning && held && held.action === 'pool' && device === 'gpu')) {
-    state = gpuPoolText(zh)
+    state = shownPoolLabel(zh, held, session)
   } else if (miningNow || (gpuRunning && behind === false && (held && held.action === 'mine'))) {
     state = gpuMineText(zh)
   } else if (gpuRunning && (behind === true || session.phase === 'syncing' || session.paused || session.code === 'CLASSIC_SYNCING' || session.code === 'CLASSIC_PAUSED' || (held && held.action === 'sync' && behind !== false))) {
@@ -984,7 +1012,7 @@ function chainDetailHtml (input, device, n, T, esc) {
     state = held.label || gpuMineText(zh)
   } else if (held && held.action === 'cpu') {
     state = held.label || cpuPoolText(zh)
-  } else if (held && held.action === 'pool') state = gpuPoolText(zh)
+  } else if (held && held.action === 'pool') state = shownPoolLabel(zh, held, session)
   else if (held && held.label && held.action === 'solo') state = held.label
   else if (held && held.reason) state = held.reason
   else if (held && held.reasonKey) state = tr(T, held.reasonKey)
@@ -1014,7 +1042,7 @@ function chainDetailHtml (input, device, n, T, esc) {
   const addr = address || DASH
   let mode = DASH
   if (n >= 1 && device === 'cpu') mode = cpuPoolText(zh)
-  else if (n >= 1 && device === 'gpu') mode = waitingRow ? state : (poolGpu || (held && held.action === 'pool') ? gpuPoolText(zh) : (gpuRunning || (held && held.action === 'mine') ? gpuMineText(zh) : tr(T, 'poolLocal')))
+  else if (n >= 1 && device === 'gpu') mode = waitingRow ? state : (poolGpu || (held && held.action === 'pool') ? shownPoolLabel(zh, held, session) : (gpuRunning || (held && held.action === 'mine') ? gpuMineText(zh) : tr(T, 'poolLocal')))
   else if (n === 0) mode = session && session.mode === 'pool' ? tr(T, 'poolEndpoint') : tr(T, 'poolLocal')
   const row = (k, v, cls) => `<div class="mine-kv"><span>${esc(k)}</span><b${cls ? ' class="' + cls + '"' : ''}>${esc(v)}</b></div>`
   const title = state === tr(T, 'shellMineOff') ? chainLabel(n) : (chainLabel(n) + ' · ' + state)
@@ -1067,12 +1095,15 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
   const fallback = device === 'gpu' && input && input.gpuFallback
     ? `<p class="mine-note">${esc(tr(T, 'shellNoNvidiaCpu'))}</p><button type="button" class="shell-hint" data-act="mineCpuInstead">${esc(tr(T, 'shellUseCpu'))}</button>`
     : ''
+  const needPick = !!(input && input.needChain && input.needChain[device] && model.phase === 'stopped')
+  const needNote = needPick ? `<p class="mine-note" id="mineNeed-${device}">${esc(tr(T, 'shellNeedChain'))}</p>` : ''
   const html = `<section class="mine-panel" data-dev="${device}">
       <h2>${esc(deviceTitle(device, T))}</h2>
       <div class="mine-glance mh-status ${model.view.statusTone}" data-dev-status="${device}"><span class="mine-dot" aria-hidden="true"></span><span class="mine-glance-t">${esc(model.status)}</span></div>
       <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
       ${fallback}
-      ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools)}
+      ${needNote}
+      ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools, needPick)}
     </section>`
   return { html: html, rows: rows, temp: temp }
 }
