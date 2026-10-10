@@ -98,11 +98,11 @@ for (const L of ['CN', 'EN']) {
 // ---- menu: every action by hand, with the v8 shortcuts ------------------------
 const menu = read('src/js/menu.js')
 assert.ok(menu.includes("建立新地址（Shard0–Shard4 任選）…"))
-for (const [act, key] of [['create', 'CmdOrCtrl+N'], ['import', 'CmdOrCtrl+I'], ['backup', 'CmdOrCtrl+B'], ['remitItem', 'CmdOrCtrl+T']]) {
+for (const [act, key] of [['home', 'CmdOrCtrl+1'], ['receive', 'CmdOrCtrl+2'], ['mining', 'CmdOrCtrl+3'], ['remitItem', 'CmdOrCtrl+T'], ['navSettings', 'CmdOrCtrl+E']]) {
   const line = menu.split('\n').find(l => l.includes('L.' + act + ',') && l.includes('accelerator'))
   assert.ok(line && line.includes("'" + key + "'"), 'menu ' + act + ' ' + key)
 }
-assert.ok(menu.includes("act('catShow')"))
+assert.ok(read('src/js/app112.js').includes("case 'catShow'"))
 const ui = read('src/js/app112.js')
 for (const c of ['create', 'import', 'backup', 'manage', 'mineStart', 'mineStop', 'reward', 'send', 'remit', 'catShow']) assert.ok(new RegExp("case '" + c + "'").test(ui.slice(ui.indexOf('function menuAction'))), 'menuAction ' + c)
 assert.ok(!/class="tabs"|id="tabBar"|id="actBar"/.test(read('index.html') + ui.slice(ui.indexOf('function renderHeader'), ui.indexOf('function renderHeader') + 1500)))

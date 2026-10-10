@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types scdo-parse scdo-html default">
   <title>SCDO Wallet</title>
   <link href="./src/css/app112.css" rel="stylesheet" />
+  <link href="./src/css/shell310.css" rel="stylesheet" />
   <link href="./src/css/mining201.css" rel="stylesheet" />
 </head>
 <body>
@@ -18,10 +19,13 @@
     <div class="bm" id="bootMine"></div>
     <div class="bslow" id="bootSlow"></div>
   </div>
-  <div id="app">
-    <header class="top" id="hdr"></header>
-    <main id="main"></main>
-    <footer class="foot-bar" id="footBar" hidden></footer>
+  <div id="app" class="shell">
+    <nav id="sideNav" class="side-nav"></nav>
+    <div class="shell-col">
+      <header class="top" id="hdr"></header>
+      <main id="main"></main>
+      <footer class="foot-bar" id="footBar" hidden></footer>
+    </div>
   </div>
   <div id="ddRoot"></div>
   <div id="modalRoot"></div>

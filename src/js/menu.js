@@ -1,6 +1,6 @@
 // SCDO Wallet 2.0.12: application menu follows wallet language (EN / CN=繁體中文).
 // Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
-const { Menu, app, shell } = require('electron')
+const { Menu, app } = require('electron')
 const { menuLang } = require('./uiLang')
 
 const LABELS = {
@@ -28,8 +28,11 @@ const LABELS = {
     selectAll: 'Select All',
     refresh: 'Refresh',
     home: 'Home',
+    receive: 'Receive',
+    remit: 'Send',
     accounts: 'Accounts',
     mining: 'Mining',
+    navSettings: 'Settings',
     miningHome: 'Mining status',
     settingsCat: 'Settings (language, notifications, updates)',
     settings: 'Language, notifications and updates…',
@@ -60,8 +63,11 @@ const LABELS = {
     selectAll: '全選',
     refresh: '重新整理',
     home: '首頁',
+    receive: '收款',
+    remit: '匯款',
     accounts: '帳戶',
     mining: '挖礦',
+    navSettings: '設定',
     miningHome: '挖礦狀態',
     settingsCat: '設定（語言・通知・更新）',
     settings: '語言、通知與更新…',
@@ -98,45 +104,33 @@ function buildTemplate (mainWindow, lang) {
       ]
     },
     {
-      label: L.wallet,
+      label: L.home,
       submenu: [
-        { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') },
-        { label: L.accounts, accelerator: 'CmdOrCtrl+2', click: act('acc') },
-        { label: L.create, accelerator: 'CmdOrCtrl+N', click: act('create') },
-        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') },
-        { type: 'separator' },
-        { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() },
-        { label: L.remitLogout, click: act('remitLogout') }
+        { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
+      ]
+    },
+    {
+      label: L.receive,
+      submenu: [
+        { label: L.receive, accelerator: 'CmdOrCtrl+2', click: act('recv') }
+      ]
+    },
+    {
+      label: L.remit,
+      submenu: [
+        { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
       ]
     },
     {
       label: L.mining,
       submenu: [
-        { label: L.miningHome, accelerator: 'CmdOrCtrl+3', click: act('mineHome') },
-        { label: L.mineSettings, click: act('mineSettings') }
+        { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mineHome') }
       ]
     },
     {
-      label: L.backupSec,
+      label: L.navSettings,
       submenu: [
-        { label: L.backup, accelerator: 'CmdOrCtrl+B', click: act('backup') },
-        { label: L.openBackups, click: act('openBackups') },
-        { label: L.manage, click: act('manage') }
-      ]
-    },
-    {
-      label: L.settingsCat,
-      submenu: [
-        { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
-      ]
-    },
-    {
-      label: L.help,
-      role: 'help',
-      submenu: [
-        { label: L.catShow, click: act('catShow') },
-        { type: 'separator' },
-        { label: L.learnMore, click: () => shell.openExternal('https://scdoscan.io/downloads/wallet/') }
+        { label: L.navSettings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
       ]
     }
   ]

@@ -456,6 +456,7 @@ function formatMineHome (input, T) {
   const chainsText = names.length ? tr(T, 'homeMineChains', { list: names.join(sep) }) : tr(T, 'homeMineChainsNone')
   const reasons = noteLines(miners, input, T)
   const noteText = reasons.join(' ')
+  const waitText = waits.length ? waitDetail(waits, T) : ''
   const buttonKey = press === 'starting' ? 'homeMineBtnStarting' : press === 'stopping' ? 'homeMineBtnStopping' : press === 'mining' ? 'homeMineStop' : 'homeMineStart'
   return {
     phase: phase,
@@ -476,6 +477,7 @@ function formatMineHome (input, T) {
     chainsValue: chainsValue,
     chains: names,
     noteText: noteText,
+    waitText: waitText,
     reasons: reasons,
     buttonText: tr(T, buttonKey),
     buttonDisabled: press === 'starting' || press === 'stopping',
@@ -511,7 +513,48 @@ function cardHtml (input, T, esc) {
   </section>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, clockText, minutesAgo, earnOf, confirmedEarnLog }
+// One plain line for the 3.1.0 home strip and mining page.
+// Waiting keeps the chain and percent. A busy graphics card replaces 「已停止」.
+function plainStatus (m, T) {
+  if (m.phase === 'starting') return tr(T, 'shellMineStarting')
+  if (m.phase === 'stopping') return tr(T, 'shellMineStopping')
+  if (m.phase === 'mining') return tr(T, 'shellMineOn')
+  if (m.phase === 'waiting') return m.waitText ? tr(T, 'shellMineWait', { detail: m.waitText }) : tr(T, 'shellMineWaitPlain')
+  if (m.noteText) return m.noteText
+  return tr(T, 'shellMineOff')
+}
+
+function mineButton (m, esc) {
+  const kind = m.buttonKind === 'stop' ? 'stop' : 'start'
+  const dis = m.buttonDisabled ? ' disabled' : ''
+  return `<button type="button" class="shell-mine ${kind}" data-act="homeMine" id="homeMineBtn"${dis}>${esc(m.buttonText)}</button>`
+}
+
+function stripHtml (input, T, esc) {
+  T = T || function (k) { return k }
+  esc = esc || function (s) { return String(s == null ? '' : s) }
+  const m = formatMineHome(input, T)
+  return `<div class="mine-strip-in" id="homeMineCard"><div class="mh-status ${m.statusTone}" id="homeMineStatus">${esc(plainStatus(m, T))}</div>${mineButton(m, esc)}</div>`
+}
+
+function minePageHtml (input, T, esc) {
+  T = T || function (k) { return k }
+  esc = esc || function (s) { return String(s == null ? '' : s) }
+  const m = formatMineHome(input, T)
+  const tempCls = m.tempBand ? ' temp-' + m.tempBand : ''
+  return `<div class="page shell-mine-page" id="minePage">
+    <h1 class="shell-h">${esc(tr(T, 'navMine'))}</h1>
+    <div class="shell-huge-wrap">${mineButton(m, esc).replace('shell-mine', 'shell-mine shell-huge')}</div>
+    <div class="mh-status ${m.statusTone}" id="homeMineStatus">${esc(plainStatus(m, T))}</div>
+    <div class="shell-sub">
+      <div><span>${esc(tr(T, 'shellToday'))}</span><b>${esc(m.todayValue)}</b></div>
+      <div><span>${esc(tr(T, 'shellTemp'))}</span><b class="shell-temp${tempCls}">${esc(m.tempValue)}</b></div>
+    </div>
+    <button type="button" class="shell-adv" data-act="nav" data-v="mineSet">${esc(tr(T, 'shellAdvanced'))}</button>
+  </div>`
+}
+
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

@@ -1,0 +1,90 @@
+// 3.1.0: five-item nav, send wizard, and the one mining button.
+'use strict'
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const vm = require('vm')
+const root = path.join(__dirname, '..')
+const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
+const mine = require('../src/js/mineHome.js')
+const box = { window: {} }
+vm.runInNewContext(read('src/js/i18n112.js'), box)
+const I = box.window.I18N112
+const CN = (k, p) => {
+  let s = I.CN[k]
+  if (s == null) s = k
+  if (p) s = String(s).replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
+  return s
+}
+const esc = (s) => String(s == null ? '' : s)
+const ui = read('src/js/app112.js')
+const menu = read('src/js/menu.js')
+const html = read('index.html')
+
+assert.ok(html.includes('id="sideNav"'))
+assert.ok(!html.includes('id="tabBar"') && !html.includes('id="actBar"'))
+for (const label of ["home: '首頁'", "receive: '收款'", "remit: '匯款'", "mining: '挖礦'", "navSettings: '設定'"]) assert.ok(menu.includes(label), label)
+assert.ok(menu.includes("act('home')") && menu.includes("act('recv')") && menu.includes("act('mineHome')") && menu.includes('openRemittance()') && menu.includes("act('settings')"))
+assert.ok(!menu.includes("act('mineStart')") && !menu.includes("act('mineStop')") && !menu.includes("act('mine')"))
+assert.ok(!menu.includes('開始挖礦') && !menu.includes('停止挖礦'))
+
+const home = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
+assert.ok(home.includes('id="shellTotal"') && home.includes('data-act="toggleChains"') && home.includes('mineHomeStripHtml()'))
+assert.ok(!home.includes('type="checkbox"') && !home.includes('role="switch"') && !home.includes('btn pri'))
+assert.ok(ui.includes('function pageRecv') && ui.includes('id="qrBox"') && ui.includes("T('copy')"))
+assert.ok(ui.includes('Shard0 EVM') && ui.includes("'Shard' + i + ' Classic'"))
+
+const pay = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
+assert.ok(pay.includes('id="wizStep1"') && pay.includes('id="wizStep2"') && pay.includes('id="wizStep3"'))
+assert.ok(pay.includes('id="wizBack2"') && pay.includes('id="wizBack3"') && pay.includes('id="btnRemitSign"'))
+assert.ok(pay.includes('wizNeedAmt') && pay.includes('units <= 0n'))
+assert.ok(pay.includes('id="payHash"') && pay.includes("data-act=\"openTx\""))
+assert.ok(/if \(!\(await confirmTx\(\{ title: T\('cf_title'\)/.test(pay))
+
+const minePage = ui.slice(ui.indexOf('function pageMine'), ui.indexOf('function pageRecv'))
+assert.ok(minePage.includes('minePageHtml(') && !minePage.includes('data-act="mineShard"') && !minePage.includes('data-act="mineBackend"'))
+assert.ok(ui.includes('saved.classic || (gpuAvail ? \'gpu\' : \'cpu\')'))
+assert.ok(ui.includes("case 'nav':"))
+
+function strip (input) { return mine.stripHtml(input, CN, esc) }
+function page (input) { return mine.minePageHtml(input, CN, esc) }
+const paused = {
+  miners: {
+    classicGpu: {
+      running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_PAUSED', phase: 'syncing', paused: true,
+      procs: ['classic-node'], localBlock: 45, networkBlock: 100
+    }
+  }
+}
+const live = {
+  miners: {
+    classicGpu: {
+      running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_GPU', phase: 'mining',
+      procs: ['classic-node'], hashrate: 80, localBlock: 100, networkBlock: 100
+    }
+  }
+}
+const idleHtml = strip({ miners: {}, phase: 'stopped' })
+assert.ok(idleHtml.includes('已停止') && idleHtml.includes('開始挖礦') && !idleHtml.includes('停止挖礦'))
+assert.ok(!idleHtml.includes('type="checkbox"') && !idleHtml.includes('role="switch"'))
+const waitHtml = strip(paused)
+assert.ok(waitHtml.includes('等待同步（Shard1 Classic 同步進度 45%）') && waitHtml.includes('停止挖礦') && !waitHtml.includes('開始挖礦'))
+const liveHtml = page(live)
+assert.ok(liveHtml.includes('正在挖礦') && liveHtml.includes('停止挖礦') && liveHtml.includes('今天挖到') && liveHtml.includes('進階'))
+assert.ok(!liveHtml.includes('data-act="mineShard"') && !liveHtml.includes('data-act="mineBackend"'))
+const busyHtml = page({ miners: {}, gpuBusy: true })
+assert.ok(busyHtml.includes('顯卡正被其他程式使用') && busyHtml.includes('開始挖礦') && !busyHtml.includes('挖礦狀態：已停止'))
+const hot = page({ miners: { classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 1, procs: ['g'], hashrate: 10, localBlock: 5, networkBlock: 5 } }, temps: [{ tempC: 90 }] })
+assert.ok(hot.includes('temp-hot'))
+const warm = page({ miners: { classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 1, procs: ['g'], hashrate: 10, localBlock: 5, networkBlock: 5 } }, temps: [{ tempC: 76 }] })
+assert.ok(warm.includes('temp-warm'))
+const cool = page({ miners: { classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 1, procs: ['g'], hashrate: 10, localBlock: 5, networkBlock: 5 } }, temps: [{ tempC: 60 }] })
+assert.ok(cool.includes('temp-ok'))
+assert.ok(cool.includes('\u2014') || cool.includes('今天挖到'))
+
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.0')
+assert.strictEqual(I.EN.relNotes[0].v, '3.1.0')
+assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
+assert.ok(I.CN.relNotes.find(n => n.v === '3.0.10').items.join(' ').includes('顯卡正被其他程式使用'))
+assert.ok(!I.CN.relNotes[0].items.join(' ').includes('主鏈'))
+console.log('shell-310: ok')
