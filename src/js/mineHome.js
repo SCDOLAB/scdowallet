@@ -154,23 +154,75 @@ function waitingSync (m, kind) {
   return stillSyncing(m)
 }
 
-function earnOf (log, now) {
-  if (log == null) return null
-  const items = Array.isArray(log) ? log : (Array.isArray(log.items) ? log.items : null)
-  if (!items) return null
+// Today's coins and the latest reward are confirmed credits only.
+// Source: indexer rows for this wallet's own addresses (Shard0 EVM in st.activity,
+// Shard1–Shard4 in st.oldAct), built by confirmedEarnLog. A row counts when the
+// indexer marked it dir "reward" (sent from the reward address), status "done",
+// asset SCDO, with a real SCDO amount and a time. A miner "block found" height
+// is not a credit, and a flat 2 SCDO block reward is not used. Anything less
+// certain returns null so the card shows a dash.
+const TX_PAGE = 30
+
+function coversToday (rows, now) {
+  if (rows.length < TX_PAGE) return true
   const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  const from = start.getTime()
+  let oldest = null
+  for (const r of rows) {
+    const t = num(r && r.t)
+    if (t == null) continue
+    if (oldest == null || t < oldest) oldest = t
+  }
+  return oldest != null && oldest < from
+}
+
+function confirmedEarnLog (byAddress, now) {
+  if (!byAddress || typeof byAddress !== 'object' || Array.isArray(byAddress)) return null
+  const keys = Object.keys(byAddress)
+  if (!keys.length) return null
+  const when = now == null ? Date.now() : now
+  const items = []
+  for (const key of keys) {
+    if (!key) return null
+    const rows = byAddress[key]
+    if (!Array.isArray(rows)) return null
+    if (!coversToday(rows, when)) return null
+    for (const r of rows) {
+      if (!r || r.dir !== 'reward' || r.status !== 'done') continue
+      if (r.asset && r.asset !== 'SCDO') continue
+      if (r.amount == null || String(r.amount).trim() === '') return null
+      const amount = num(r.amount)
+      const t = num(r.t)
+      if (amount == null || amount < 0 || t == null) return null
+      items.push({ t: t, amount: amount, address: key, confirmed: true })
+    }
+  }
+  return { certain: true, items: items }
+}
+
+function earnOf (log, now) {
+  if (!log || log.certain !== true || !Array.isArray(log.items)) return null
+  const when = now == null ? Date.now() : now
+  const start = new Date(when)
   start.setHours(0, 0, 0, 0)
   const from = start.getTime()
   let today = 0
   let last = null
-  for (const e of items) {
-    if (!e) continue
+  for (const e of log.items) {
+    if (!e || e.confirmed !== true || !e.address) return null
     const t = num(e.t)
-    if (t == null) continue
-    if (t >= from) today++
+    const amount = num(e.amount)
+    if (t == null || amount == null || amount < 0) return null
+    if (t >= from) today += amount
     if (last == null || t > last) last = t
   }
-  return { todayScdo: today * REWARD_SCDO, last: last }
+  return { todayScdo: today, last: last }
+}
+
+function scdoCount (n) {
+  if (Math.abs(n - Math.round(n)) < 1e-8) return Math.round(n).toLocaleString('en-US')
+  return n.toLocaleString('en-US', { maximumFractionDigits: 8 })
 }
 
 function clockText (t) {
@@ -196,22 +248,51 @@ function anyEngaged (miners) {
   return engaged(miners.shard0, 'shard0') || engaged(miners.classicCpu, 'classic') || engaged(miners.classicGpu, 'classic')
 }
 
-// The big status says mining only when a process is alive and reporting a speed.
-// starting and stopping are the in-progress click. A wanted session that is not
-// hashing yet stays "stopped" so the card does not claim it is mining.
+// A session is armed when its process is up, or it is paused while the chain syncs.
+// A running flag with no process and no sync state is not armed.
+function sessionArmed (m, kind) {
+  if (!m || m.mode === 'node') return false
+  if (kind === 'shard0' && m.chain === 'classic') return false
+  if (kind === 'classic' && m.chain && m.chain !== 'classic') return false
+  if (liveMiner(m, kind) || waitingSync(m, kind)) return true
+  return procsAlive(m)
+}
+
+function anyArmed (miners) {
+  miners = miners || {}
+  return sessionArmed(miners.shard0, 'shard0') || sessionArmed(miners.classicCpu, 'classic') || sessionArmed(miners.classicGpu, 'classic')
+}
+
+function waitingSessions (miners) {
+  miners = miners || {}
+  const out = []
+  const s0 = miners.shard0
+  if (waitingSync(s0, 'shard0')) out.push({ m: s0, chain: 'Shard0 EVM' })
+  const g = miners.classicGpu
+  if (waitingSync(g, 'classic')) {
+    const n = Number(g.shard)
+    if (n >= 1 && n <= 4) out.push({ m: g, chain: 'Shard' + n + ' Classic' })
+  }
+  return out
+}
+
+// Mining only when a process is alive and reporting a speed.
+// Waiting when a session is armed but not hashing yet (usually still syncing).
+// Stopped only when nothing is armed. starting and stopping are the click in progress.
+// The button uses the same split, so 「已停止」 is never next to 「停止挖礦」.
 function statusPhase (input) {
   const p = input && input.phase
   if (p === 'starting' || p === 'stopping') return p
-  return anyLive(input && input.miners) ? 'mining' : 'stopped'
+  const miners = input && input.miners
+  if (anyLive(miners)) return 'mining'
+  if (p === 'mining' || anyArmed(miners)) return 'waiting'
+  return 'stopped'
 }
 
-// The button stays on Stop while a process is wanted, even before a speed arrives,
-// so a syncing session can still be stopped.
 function buttonPhase (input) {
   const p = input && input.phase
   if (p === 'starting' || p === 'stopping') return p
-  if (p === 'mining' || anyLive(input && input.miners) || anyEngaged(input && input.miners)) return 'mining'
-  return 'stopped'
+  return statusPhase(input) === 'stopped' ? 'stopped' : 'mining'
 }
 
 // Click moves stopped → starting and mining → stopping.
@@ -307,12 +388,12 @@ function jobsForHome (input) {
   return jobs
 }
 
-function syncNote (m, chain, T) {
-  const pct = syncPctOf(m)
-  if (chain === 'Shard0 EVM') {
-    return pct == null ? tr(T, 'homeMineSyncSoon') : tr(T, 'homeMineSync', { pct: pct })
-  }
-  return pct == null ? tr(T, 'homeMineSyncSoonChain', { chain: chain }) : tr(T, 'homeMineSyncChain', { chain: chain, pct: pct })
+function waitDetail (sessions, T) {
+  const sep = tr(T, 'd_listSep')
+  return sessions.map(s => {
+    const pct = syncPctOf(s.m)
+    return pct == null ? tr(T, 'homeMineWaitChain', { chain: s.chain }) : tr(T, 'homeMineWaitPct', { chain: s.chain, pct: pct })
+  }).join(sep)
 }
 
 function noteLines (miners, input, T) {
@@ -320,14 +401,7 @@ function noteLines (miners, input, T) {
   input = input || {}
   const lines = []
   const s0 = miners.shard0
-  const s0Waiting = waitingSync(s0, 'shard0')
-  if (s0Waiting) lines.push(syncNote(s0, 'Shard0 EVM', T))
-  if (input.gpuBusy && !liveMiner(s0, 'shard0') && !s0Waiting) lines.push(tr(T, 'homeMineGpuBusy'))
-  const g = miners.classicGpu
-  if (waitingSync(g, 'classic')) {
-    const n = Number(g.shard)
-    if (n >= 1 && n <= 4) lines.push(syncNote(g, 'Shard' + n + ' Classic', T))
-  }
+  if (input.gpuBusy && !liveMiner(s0, 'shard0') && !waitingSync(s0, 'shard0')) lines.push(tr(T, 'homeMineGpuBusy'))
   return lines
 }
 
@@ -338,8 +412,10 @@ function formatMineHome (input, T) {
   const phase = statusPhase(input)
   const press = buttonPhase(input)
   const sep = tr(T, 'd_listSep')
-  const statusKey = phase === 'starting' ? 'homeMineStarting' : phase === 'stopping' ? 'homeMineStopping' : phase === 'mining' ? 'homeMineOn' : 'homeMineOff'
-  const tone = phase === 'mining' ? 'on' : phase === 'stopped' ? 'off' : 'busy'
+  const waits = phase === 'waiting' ? waitingSessions(miners) : []
+  let statusText = tr(T, phase === 'starting' ? 'homeMineStarting' : phase === 'stopping' ? 'homeMineStopping' : phase === 'mining' ? 'homeMineOn' : phase === 'waiting' ? 'homeMineWaitPlain' : 'homeMineOff')
+  if (phase === 'waiting' && waits.length) statusText = tr(T, 'homeMineWait', { detail: waitDetail(waits, T) })
+  const tone = phase === 'mining' ? 'on' : phase === 'stopped' ? 'off' : phase === 'waiting' ? 'wait' : 'busy'
   const speedN = speedCount(miners)
   const speedValue = speedN == null ? DASH : tr(T, 'islePerSec', { n: speedN.toLocaleString('en-US') })
   const speedText = speedN == null ? tr(T, 'homeMineSpeedNone') : tr(T, 'mineSpeedLine', { n: speedN.toLocaleString('en-US') })
@@ -364,7 +440,7 @@ function formatMineHome (input, T) {
   let lastClock = ''
   let lastMinutes = null
   if (earn) {
-    const todayN = earn.todayScdo.toLocaleString('en-US')
+    const todayN = scdoCount(earn.todayScdo)
     todayValue = todayN + ' SCDO'
     todayText = tr(T, 'homeMineToday', { n: todayN })
     if (earn.last != null) {
@@ -383,7 +459,7 @@ function formatMineHome (input, T) {
   const buttonKey = press === 'starting' ? 'homeMineBtnStarting' : press === 'stopping' ? 'homeMineBtnStopping' : press === 'mining' ? 'homeMineStop' : 'homeMineStart'
   return {
     phase: phase,
-    statusText: tr(T, statusKey),
+    statusText: statusText,
     statusTone: tone,
     speedText: speedText,
     speedValue: speedValue,
@@ -435,7 +511,7 @@ function cardHtml (input, T, esc) {
   </section>`
 }
 
-const api = { DASH, REWARD_SCDO, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, clockText, minutesAgo, earnOf }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, clockText, minutesAgo, earnOf, confirmedEarnLog }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

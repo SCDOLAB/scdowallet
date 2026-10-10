@@ -500,9 +500,31 @@
     try { e = islandModel(true).earn } catch (x) { e = null }
     return e ? { today: fmtNum(e.todayScdo), total: fmtNum(e.totalScdo) } : { today: null, total: null }
   }
+  // Indexer lists already fetched for this wallet's addresses. A missing list is
+  // uncertain: the mining card then shows a dash instead of a guessed payout.
+  // Shard0 EVM rows live in st.activity; Shard1–Shard4 rows live in st.oldAct.
+  function rewardRowsByAddress () {
+    const accounts = st.accounts || []
+    if (!accounts.length) return null
+    const out = {}
+    for (const a of accounts) {
+      if (a.evm) {
+        const key = String(a.evm).toLowerCase()
+        const rows = st.activity && st.activity[key]
+        if (!Array.isArray(rows)) return null
+        out[key] = rows
+      }
+      const p = parseClassicAddress(a.pubkey)
+      if (p && p.address) {
+        const key = String(p.address).toLowerCase()
+        const rows = st.oldAct && st.oldAct[key]
+        if (!Array.isArray(rows)) return null
+        out[key] = rows
+      }
+    }
+    return Object.keys(out).length ? out : null
+  }
   function mineHomeInput () {
-    let earn = st.earn || null
-    try { earn = noteEarn() } catch (e) { earn = st.earn || null }
     let phase = 'stopped'
     if (st.homeMine === 'starting' || st.homeMine === 'stopping') phase = st.homeMine
     else if (miningBusy() || st.homeMine === 'mining') phase = 'mining'
@@ -513,7 +535,7 @@
         classicGpu: st.miners && st.miners.classicGpu
       },
       temps: (st.gpuTemp && st.gpuTemp.gpus) || [],
-      earnLog: earn,
+      earnLog: window.SCDOMineHome.confirmedEarnLog(rewardRowsByAddress(), Date.now()),
       now: Date.now(),
       phase: phase,
       gpuBusy: !!(st.otherRigels && st.otherRigels.length)

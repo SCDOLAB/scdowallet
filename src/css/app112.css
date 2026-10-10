@@ -467,6 +467,7 @@ body.on-home #statusIsland { display: none; }
 .mine-home .mh-status.on { color: #1d7a34; }
 .mine-home .mh-status.off { color: #8e8e93; }
 .mine-home .mh-status.busy { color: #8a4b00; }
+.mine-home .mh-status.wait { color: #8a4b00; }
 .mine-home .btn.big { min-width: 220px; }
 .mine-home .mh-stats { display: flex; flex-wrap: wrap; gap: 14px 28px; margin-top: 14px; }
 .mine-home .mh-stat { min-width: 140px; }
