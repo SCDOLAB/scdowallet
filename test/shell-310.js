@@ -123,6 +123,7 @@ for (const good of ['#F2F2F7', '#1d7a34', '#8e8e93', '#8a4b00', '#c93400', '#d93
 assert.ok(!css.toLowerCase().includes('#f5f5f7'))
 assert.ok(css.includes('border-radius: 24px') && css.includes('border-radius: 16px') && css.includes('border-radius: 12px') && css.includes('border-radius: 999px'))
 assert.ok(css.includes('width: 216px') && css.includes('font-size: 40px') && css.includes('scale(.97)') && css.includes('opacity: .55'))
+assert.ok(css.includes('.addr-go { display: flex; align-items: center; gap: 8px; }') && css.includes('.addr-go .link { border: 0; border-radius: 999px;'))
 assert.ok(!css.includes('#22B573') && !css.includes('#FF5F57') && !css.includes('#FEBC2E') && !css.includes('#28C840'))
 assert.ok(!ui.includes('#0c1222'))
 const mainJs = read('main.js')
