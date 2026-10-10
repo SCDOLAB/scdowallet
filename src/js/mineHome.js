@@ -513,7 +513,206 @@ function cardHtml (input, T, esc) {
   </section>`
 }
 
-// One plain line for the 3.1.0 home strip and mining page.
+// 3.1.0 mining page: two devices, one Classic chain each.
+// The processor (zminer) can mine Shard1 Classic only. Shard0 EVM is the graphics-card
+// program (rigel). Shard2–Shard4 Classic pools are not live, so those ticks stay off.
+// The graphics card can mine Shard0 EVM and one of Shard1–Shard4 Classic (solo node).
+// The same Classic chain may run on both devices: the processor uses the pool and the
+// graphics card uses its own node. Extra Classic ticks are saved but not started.
+// Stop does not clear the saved ticks.
+function chainLabel (n) {
+  return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
+}
+
+function chainSupport (device, n, caps) {
+  n = Number(n)
+  const known = !!(caps && (caps.gpu || caps.cpu))
+  if (device === 'cpu') {
+    if (n === 0) return { ok: false, reasonKey: 'shellOnlyGpu' }
+    if (n >= 2 && n <= 4) return { ok: false, reasonKey: 'shellPoolOff' }
+    if (n === 1) {
+      if (known && caps.cpu && caps.cpu.available === false) return { ok: false, reasonKey: 'shellNoCpu' }
+      return { ok: true, reasonKey: '' }
+    }
+    return { ok: false, reasonKey: '' }
+  }
+  if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: 'shellNoGpu' }
+  if (n === 0 || (n >= 1 && n <= 4)) return { ok: true, reasonKey: '' }
+  return { ok: false, reasonKey: '' }
+}
+
+function sanitizeChainPick (pick, caps) {
+  pick = pick || {}
+  const keep = (device, list) => {
+    const out = []
+    for (const n of list || []) {
+      const x = Number(n)
+      if (!chainSupport(device, x, caps).ok) continue
+      if (out.indexOf(x) < 0) out.push(x)
+    }
+    out.sort((a, b) => a - b)
+    return out
+  }
+  return { cpu: keep('cpu', pick.cpu), gpu: keep('gpu', pick.gpu) }
+}
+
+function defaultChainPick (saved, caps, targets, miners) {
+  saved = saved || {}
+  targets = targets || {}
+  miners = miners || {}
+  const gpuAvail = !!(caps && caps.gpu && caps.gpu.available)
+  const shardOf = (t, miner) => {
+    const n = Number(t && t.shard)
+    if (n >= 1 && n <= 4) return n
+    const m = Number(miner && miner.shard)
+    if (m >= 1 && m <= 4) return m
+    return 0
+  }
+  const cpuShard = shardOf(targets.cpu, miners.classicCpu) || 1
+  const gpuShard = shardOf(targets.gpu, miners.classicGpu) || 1
+  let cpu = []
+  let gpu = []
+  if (saved.classic === 'cpu' || (saved.cpu && !saved.classic)) cpu = [cpuShard]
+  else if (saved.classic === 'gpu' || saved.classic === 'external') {
+    gpu = [gpuShard]
+    if (saved.cpu) cpu = [cpuShard]
+  } else if (gpuAvail) gpu = [gpuShard]
+  else cpu = [cpuShard]
+  if (saved.shard0 && gpu.indexOf(0) < 0) gpu.unshift(0)
+  return sanitizeChainPick({ cpu: cpu, gpu: gpu }, caps)
+}
+
+// Stop keeps whatever the user ticked.
+function selectionAfterStop (pick) {
+  const clean = sanitizeChainPick(pick, null)
+  return { cpu: clean.cpu.slice(), gpu: clean.gpu.slice() }
+}
+
+function jobsForDevice (input) {
+  input = input || {}
+  const device = input.device === 'gpu' ? 'gpu' : 'cpu'
+  const caps = input.caps
+  const chains = Array.isArray(input.chains) ? input.chains.map(Number) : []
+  const supported = chains.filter(n => chainSupport(device, n, caps).ok)
+  const classics = supported.filter(n => n >= 1 && n <= 4)
+  const notices = []
+  const jobs = []
+  if (device === 'gpu' && input.hot) {
+    notices.push('homeMineHot')
+    return { jobs: jobs, notices: notices }
+  }
+  if (classics.length > 1) notices.push('shellOneClassic')
+  const addresses = input.addresses || {}
+  const first = classics[0]
+  if (first) {
+    const address = addresses[first] || addresses[String(first)] || ''
+    if (!address) notices.push('pickAddr')
+    else {
+      const external = device === 'gpu' && input.saved && input.saved.classic === 'external'
+      jobs.push({
+        chain: 'classic',
+        backend: device,
+        gpuMiner: external ? 'external' : 'classic-node',
+        shard: first,
+        address: String(address)
+      })
+    }
+  }
+  if (device === 'gpu' && supported.indexOf(0) >= 0) {
+    const reward = String(input.reward || addresses[0] || '')
+    if (input.gpuBusy) notices.push('homeMineGpuBusy')
+    else if (!input.nvidia || !shard0PreflightOk(input.preflight) || !/^0x[0-9a-fA-F]{40}$/.test(reward)) notices.push('shellShard0Wait')
+    else jobs.push({ chain: 'shard0', backend: 'gpu', mode: 'mine', address: reward })
+  }
+  return { jobs: jobs, notices: notices }
+}
+
+function minersForDevice (miners, device) {
+  miners = miners || {}
+  if (device === 'cpu') return { classicCpu: miners.classicCpu }
+  return { shard0: miners.shard0, classicGpu: miners.classicGpu }
+}
+
+function devicePhase (input, device) {
+  const press = input && input.press && input.press[device]
+  if (press === 'starting' || press === 'stopping') return press
+  const miners = minersForDevice(input && input.miners, device)
+  if (anyLive(miners)) return 'mining'
+  if (anyArmed(miners)) return 'waiting'
+  return 'stopped'
+}
+
+function zhUi (T) {
+  return tr(T, 'shellMineOff') === '已停止'
+}
+
+function deviceTitle (device, T) {
+  const cn = zhUi(T)
+  if (device === 'cpu') return cn ? 'CPU 挖礦' : 'CPU mining'
+  return cn ? 'GPU 挖礦' : 'GPU mining'
+}
+
+function viewChains (input) {
+  if (input && input.chains && Array.isArray(input.chains.cpu) && Array.isArray(input.chains.gpu)) {
+    return sanitizeChainPick(input.chains, input.caps)
+  }
+  const miners = input && input.miners
+  const saved = input && input.saved
+  const inferred = saved && (saved.classic || saved.cpu || saved.shard0) ? saved : inferredSaved(miners)
+  return defaultChainPick(inferred, input && input.caps, input && input.targets, miners)
+}
+
+function inferredSaved (miners) {
+  miners = miners || {}
+  const gpu = miners.classicGpu
+  const cpu = miners.classicCpu
+  const s0 = miners.shard0
+  let classic = ''
+  if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') classic = gpu.backend === 'external' ? 'external' : 'gpu'
+  else if (cpu && cpu.running && cpu.mode !== 'node') classic = 'cpu'
+  return {
+    classic: classic,
+    cpu: !!(cpu && cpu.running && cpu.mode !== 'node'),
+    shard0: !!(s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic')
+  }
+}
+
+function deviceModel (input, device, T) {
+  const miners = minersForDevice(input && input.miners, device)
+  const phase = devicePhase(input, device)
+  const view = formatMineHome({
+    miners: miners,
+    temps: device === 'gpu' ? input.temps : [],
+    earnLog: input.earnLog,
+    now: input.now,
+    phase: phase
+  }, T)
+  let status = plainStatus(view, T)
+  const known = !!(input && input.caps && (input.caps.gpu || input.caps.cpu))
+  if (device === 'gpu' && view.phase === 'stopped' && input && input.gpuBusy) status = tr(T, 'homeMineGpuBusy')
+  else if (device === 'gpu' && view.phase === 'stopped' && known && input.caps.gpu && input.caps.gpu.available === false) {
+    status = tr(T, 'shellNoGpu')
+    view.buttonDisabled = true
+  }
+  return { view: view, status: status, phase: view.phase }
+}
+
+function earnForAddress (log, address) {
+  if (!log || log.certain !== true || !address) return null
+  const a = String(address).toLowerCase()
+  const items = (log.items || []).filter(e => e && String(e.address || '').toLowerCase() === a)
+  return earnOf({ certain: true, items: items })
+}
+
+function chainSession (input, device, n) {
+  const miners = (input && input.miners) || {}
+  if (n === 0) return device === 'gpu' ? miners.shard0 : null
+  const m = device === 'cpu' ? miners.classicCpu : miners.classicGpu
+  if (m && Number(m.shard) === Number(n)) return m
+  return null
+}
+
+// One plain line for one device.
 // Waiting keeps the chain and percent. A busy graphics card replaces 「已停止」.
 function plainStatus (m, T) {
   if (m.phase === 'starting') return tr(T, 'shellMineStarting')
@@ -524,39 +723,118 @@ function plainStatus (m, T) {
   return tr(T, 'shellMineOff')
 }
 
-function mineButton (m, esc) {
+function mineDevButton (device, m, esc, huge) {
   const kind = m.buttonKind === 'stop' ? 'stop' : 'start'
   const dis = m.buttonDisabled ? ' disabled' : ''
-  return `<button type="button" class="shell-mine ${kind}" data-act="homeMine" id="homeMineBtn"${dis}>${esc(m.buttonText)}</button>`
+  const id = device === 'cpu' ? 'homeMineCpu' : 'homeMineGpu'
+  const cls = huge ? 'shell-mine shell-huge' : 'shell-mine'
+  return `<button type="button" class="${cls} ${kind}" data-act="homeMineDev" data-dev="${device}" id="${id}"${dis}>${esc(m.buttonText)}</button>`
+}
+
+function foldSummary (title) {
+  return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${title}</summary>`
+}
+
+function chainPickHtml (device, picked, other, caps, T, esc) {
+  const supported = [0, 1, 2, 3, 4].filter(n => chainSupport(device, n, caps).ok)
+  const allOn = supported.length > 0 && supported.every(n => picked.indexOf(n) >= 0)
+  const boxes = [0, 1, 2, 3, 4].map(n => {
+    const sup = chainSupport(device, n, caps)
+    const on = sup.ok && picked.indexOf(n) >= 0
+    const why = sup.ok ? '' : ` <span class="mine-why">${esc(tr(T, sup.reasonKey))}</span>`
+    return `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
+  }).join('')
+  const shared = picked.filter(n => n >= 1 && other.indexOf(n) >= 0)
+  const note = shared.length ? `<div class="mine-note">${esc(tr(T, 'shellBothMine'))}</div>` : ''
+  const many = picked.filter(n => n >= 1).length > 1 ? `<div class="mine-note">${esc(tr(T, 'shellOneClassic'))}</div>` : ''
+  return `<details class="shell-fold" id="minePick-${device}">${foldSummary(esc(tr(T, 'shellPickChains')))}
+      <label class="mine-chain"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="all"${allOn ? ' checked' : ''}${supported.length ? '' : ' disabled'}> ${esc(tr(T, 'shellPickAll'))}</label>
+      ${boxes}${note}${many}
+    </details>`
+}
+
+function chainDetailHtml (input, device, n, T, esc) {
+  const addresses = (input && input.addresses) || {}
+  const address = addresses[n] || addresses[String(n)] || ''
+  const session = chainSession(input, device, n)
+  const live = session && ((n === 0 && liveMiner(session, 'shard0')) || (n >= 1 && liveMiner(session, 'classic')))
+  const waiting = session && ((n === 0 && waitingSync(session, 'shard0')) || (n >= 1 && waitingSync(session, 'classic')))
+  let state = tr(T, 'shellMineOff')
+  if (live) state = tr(T, 'shellMineOn')
+  else if (waiting) {
+    const pct = syncPctOf(session)
+    state = pct == null ? tr(T, 'shellMineWaitPlain') : tr(T, 'shellMineWait', { detail: chainLabel(n) + ' ' + pct + '%' })
+  }
+  const speedN = session ? sessionHashrate(session) : null
+  const speed = speedN == null ? DASH : tr(T, 'islePerSec', { n: Math.round(speedN).toLocaleString('en-US') })
+  const earn = earnForAddress(input && input.earnLog, address)
+  let today = DASH
+  let last = DASH
+  if (earn) {
+    today = scdoCount(earn.todayScdo) + ' SCDO'
+    if (earn.last != null) last = tr(T, 'homeMineLastVal', { t: clockText(earn.last), ago: tr(T, 'homeMineAgo', { n: minutesAgo(earn.last, input.now == null ? Date.now() : input.now) }) })
+  }
+  const pct = session ? syncPctOf(session) : null
+  const sync = pct == null ? DASH : (pct + '%')
+  const addr = address || DASH
+  let mode = DASH
+  if (n >= 1 && device === 'cpu') mode = tr(T, 'poolEndpoint')
+  else if (n >= 1 && device === 'gpu') mode = tr(T, 'poolLocal')
+  else if (n === 0) mode = session && session.mode === 'pool' ? tr(T, 'poolEndpoint') : tr(T, 'poolLocal')
+  const row = (k, v) => `<div class="mine-kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`
+  return `<details class="shell-fold" id="mineChain-${device}-${n}">${foldSummary(esc(chainLabel(n)))}
+      ${row(tr(T, 'shellStat'), state)}
+      ${row(tr(T, 'homeMineSpeedLbl'), speed)}
+      ${row(tr(T, 'homeMineTodayLbl'), today)}
+      ${row(tr(T, 'shellLast'), last)}
+      ${row(tr(T, 'd_sync'), sync)}
+      ${row(tr(T, 'd_addr'), addr)}
+      ${row(tr(T, 'poolEndpoint'), mode)}
+    </details>`
+}
+
+function devicePanel (input, device, picked, other, T, esc, huge) {
+  const model = deviceModel(input, device, T)
+  const tempCls = model.view.tempBand ? ' temp-' + model.view.tempBand : ''
+  const temp = device === 'gpu' ? `<div class="mine-temp"><span>${esc(tr(T, 'shellTemp'))}</span> <b class="shell-temp${tempCls}">${esc(model.view.tempValue)}</b></div>` : ''
+  const rows = picked.map(n => chainDetailHtml(input, device, n, T, esc)).join('')
+  return `<section class="mine-panel" data-dev="${device}">
+      <h2>${esc(deviceTitle(device, T))}</h2>
+      <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
+      <div class="mh-status ${model.view.statusTone}" data-dev-status="${device}">${esc(model.status)}</div>
+      ${temp}
+      ${chainPickHtml(device, picked, other, input && input.caps, T, esc)}
+      ${rows}
+    </section>`
 }
 
 function stripHtml (input, T, esc) {
   T = T || function (k) { return k }
   esc = esc || function (s) { return String(s == null ? '' : s) }
-  const m = formatMineHome(input, T)
-  return `<div class="mine-strip-in" id="homeMineCard"><div class="mh-status ${m.statusTone}" id="homeMineStatus">${esc(plainStatus(m, T))}</div>${mineButton(m, esc)}</div>`
+  const row = (device) => {
+    const model = deviceModel(input, device, T)
+    return `<div class="mine-dev" data-dev="${device}"><span class="mine-dev-name">${esc(deviceTitle(device, T))}</span><div class="mh-status ${model.view.statusTone}" data-dev-status="${device}">${esc(model.status)}</div>${mineDevButton(device, model.view, esc, false)}</div>`
+  }
+  return `<div class="mine-strip-in mine-strip-two" id="homeMineCard">${row('cpu')}${row('gpu')}</div>`
 }
 
 function minePageHtml (input, T, esc) {
   T = T || function (k) { return k }
   esc = esc || function (s) { return String(s == null ? '' : s) }
-  const m = formatMineHome(input, T)
-  const tempCls = m.tempBand ? ' temp-' + m.tempBand : ''
+  const pick = viewChains(input)
   return `<div class="page shell-mine-page" id="minePage">
     <h1 class="shell-h">${esc(tr(T, 'navMine'))}</h1>
-    <div class="shell-huge-wrap">${mineButton(m, esc).replace('shell-mine', 'shell-mine shell-huge')}</div>
-    <div class="mh-status ${m.statusTone}" id="homeMineStatus">${esc(plainStatus(m, T))}</div>
-    <div class="shell-sub">
-      <div><span>${esc(tr(T, 'shellToday'))}</span><b>${esc(m.todayValue)}</b></div>
-      <div><span>${esc(tr(T, 'shellTemp'))}</span><b class="shell-temp${tempCls}">${esc(m.tempValue)}</b></div>
+    <div class="mine-panels">
+      ${devicePanel(input, 'cpu', pick.cpu, pick.gpu, T, esc, true)}
+      ${devicePanel(input, 'gpu', pick.gpu, pick.cpu, T, esc, true)}
     </div>
-    <details class="shell-fold" id="mineAdvFold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(tr(T, 'shellAdvanced'))}</summary>
+    <details class="shell-fold" id="mineAdvFold">${foldSummary(esc(tr(T, 'shellAdvanced')))}
       <button type="button" class="shell-adv" data-act="nav" data-v="mineSet">${esc(tr(T, 'shellAdvanced'))}</button>
     </details>
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

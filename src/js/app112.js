@@ -158,7 +158,7 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', otherRigels: [],
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', homeMineDev: { cpu: '', gpu: '' }, otherRigels: [],
     payReview: null,
     homeChains: localStorage.getItem('homeChains310') === '1'
   }
@@ -543,7 +543,13 @@
       earnLog: window.SCDOMineHome.confirmedEarnLog(rewardRowsByAddress(), Date.now()),
       now: Date.now(),
       phase: phase,
-      gpuBusy: !!(st.otherRigels && st.otherRigels.length)
+      gpuBusy: !!(st.otherRigels && st.otherRigels.length),
+      press: { cpu: st.homeMineDev && st.homeMineDev.cpu, gpu: st.homeMineDev && st.homeMineDev.gpu },
+      chains: readChainPick(),
+      caps: st.caps,
+      saved: savedMineChoice(),
+      targets: { cpu: classicTargetForHome('cpu'), gpu: classicTargetForHome('gpu') },
+      addresses: mineChainAddresses()
     }
   }
   function mineHomeCardHtml () {
@@ -2774,6 +2780,130 @@
     for (const job of jobs) { if (await startOneHomeJob(job)) any = true }
     return any
   }
+  function mineChainAddresses () {
+    const out = { 0: rewardForHome() }
+    for (const n of [1, 2, 3, 4]) {
+      let addr = ''
+      for (const a of st.accounts || []) {
+        const p = parseClassicAddress(a.pubkey)
+        if (p && p.shard === n) { addr = p.address; break }
+      }
+      out[n] = addr
+    }
+    return out
+  }
+  function loadChainList (key) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || 'null')
+      if (!Array.isArray(v)) return null
+      return v.map(Number).filter(n => n === 0 || (n >= 1 && n <= 4))
+    } catch (e) { return null }
+  }
+  function readChainPick () {
+    let cpu = loadChainList('mineChainsCpu310')
+    let gpu = loadChainList('mineChainsGpu310')
+    if (!window.SCDOMineHome) return { cpu: cpu || [], gpu: gpu || [] }
+    if (cpu == null || gpu == null) {
+      const d = window.SCDOMineHome.defaultChainPick(savedMineChoice(), st.caps, {
+        cpu: classicTargetForHome('cpu'),
+        gpu: classicTargetForHome('gpu')
+      }, st.miners)
+      if (cpu == null) cpu = d.cpu
+      if (gpu == null) gpu = d.gpu
+    }
+    return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps)
+  }
+  function writeChainPick (device, list) {
+    const key = device === 'cpu' ? 'mineChainsCpu310' : 'mineChainsGpu310'
+    const clean = []
+    for (const n of list || []) {
+      const x = Number(n)
+      if (clean.indexOf(x) < 0) clean.push(x)
+    }
+    clean.sort((a, b) => a - b)
+    try { localStorage.setItem(key, JSON.stringify(clean)) } catch (e) {}
+  }
+  function deviceBusy (device) {
+    if (device === 'cpu') return !!(st.miners && st.miners.classicCpu && st.miners.classicCpu.running && st.miners.classicCpu.mode !== 'node')
+    const gpu = st.miners && st.miners.classicGpu
+    const s0 = st.miners && st.miners.shard0
+    if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') return true
+    return !!(s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic')
+  }
+  async function stopDevice (device) {
+    rememberMineChoice()
+    if (device === 'cpu') {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
+    } else {
+      try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      const s0 = st.miners && st.miners.shard0
+      if (s0 && s0.running && s0.mode !== 'node') {
+        try { await api.invoke('miner:stop', 'mine') } catch (e) {}
+      }
+    }
+    toast(T('stopped'))
+  }
+  async function startDevice (device) {
+    try { await ensureCaps() } catch (e) {}
+    try { await ensureGpu(true) } catch (e) {}
+    const pick = readChainPick()
+    const chains = pick[device] || []
+    const addresses = mineChainAddresses()
+    let preflight = null
+    if (device === 'gpu' && chains.indexOf(0) >= 0) {
+      try { preflight = await api.invoke('mining:gpuPreflight') } catch (e) { preflight = { ok: false, gpus: [] } }
+      try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) { st.otherRigels = st.otherRigels || [] }
+    }
+    const hot = catTemp() != null && catTemp() >= 85
+    const built = window.SCDOMineHome.jobsForDevice({
+      device: device,
+      chains: chains,
+      addresses: addresses,
+      caps: st.caps,
+      saved: savedMineChoice(),
+      gpuBusy: device === 'gpu' && !!(st.otherRigels && st.otherRigels.length),
+      nvidia: !!(st.gpu && st.gpu.nvidia),
+      preflight: preflight,
+      hot: device === 'gpu' && hot,
+      reward: addresses[0]
+    })
+    for (const key of built.notices || []) toast(T(key), 7000)
+    if (!built.jobs.length) return false
+    if (built.jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
+      localStorage.setItem('defenderAsked112', '1')
+      if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) {
+        const r = await api.invoke('miner:defender')
+        toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000)
+      }
+    }
+    let any = false
+    for (const job of built.jobs) { if (await startOneHomeJob(job)) any = true }
+    return any
+  }
+  async function homeMineToggleDevice (device) {
+    if (device !== 'cpu' && device !== 'gpu') return
+    if (!st.homeMineDev) st.homeMineDev = { cpu: '', gpu: '' }
+    if (st.homeMineDev[device] === 'starting' || st.homeMineDev[device] === 'stopping') return
+    const phase = deviceBusy(device) ? 'mining' : 'stopped'
+    const next = window.SCDOMineHome.reduceMinePhase(phase, 'click')
+    if (next === phase) return
+    st.homeMineDev[device] = next
+    refreshDash()
+    try {
+      if (next === 'stopping') {
+        const ok = await confirmBox(T('shellStopAsk'), '', T('stopAllYes'), T('cancel'), true)
+        if (!ok) { st.homeMineDev[device] = ''; refreshDash(); return }
+        await stopDevice(device)
+        st.homeMineDev[device] = ''
+      } else {
+        const ok = await startDevice(device)
+        st.homeMineDev[device] = ok ? 'mining' : ''
+      }
+    } catch (e) {
+      st.homeMineDev[device] = ''
+    }
+    refreshDash()
+  }
   async function homeMineToggle () {
     if (st.homeMine === 'starting' || st.homeMine === 'stopping' || st.actStarting) return
     const phase = miningBusy() ? 'mining' : 'stopped'
@@ -2915,6 +3045,25 @@
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'mineStart': mineStart(); break
       case 'homeMine': homeMineToggle(); break
+      case 'homeMineDev': homeMineToggleDevice(el.getAttribute('data-dev')); break
+      case 'mineChain': {
+        const device = el.getAttribute('data-dev') === 'gpu' ? 'gpu' : 'cpu'
+        const raw = el.getAttribute('data-v')
+        const pick = readChainPick()
+        const cur = (pick[device] || []).slice()
+        if (raw === 'all') {
+          const all = [0, 1, 2, 3, 4].filter(n => window.SCDOMineHome.chainSupport(device, n, st.caps).ok)
+          const on = all.length > 0 && all.every(n => cur.indexOf(n) >= 0)
+          pick[device] = on ? [] : all
+        } else {
+          const n = Number(raw)
+          if (!window.SCDOMineHome.chainSupport(device, n, st.caps).ok) break
+          pick[device] = cur.indexOf(n) >= 0 ? cur.filter(x => x !== n) : cur.concat(n)
+        }
+        writeChainPick(device, pick[device])
+        render()
+        break
+      }
       case 'nodeStart': nodeStart(); break
       case 'minerStop': minerStop(el.id === 'btnNode' || (st.miner && st.miner.mode === 'node') ? 'node' : 'mine'); break
       case 'toggleLog': {
