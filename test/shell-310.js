@@ -103,13 +103,19 @@ assert.ok(!ui.includes('st.advOpen'))
 assert.ok(ui.includes("homeChains: localStorage.getItem('homeChains310') === '1'"))
 assert.ok(ui.includes("localStorage.setItem('homeChains310'"))
 assert.ok((home.includes('\\u25B8') || home.includes('\u25B8')) && (home.includes('\\u25BE') || home.includes('\u25BE')) && home.includes("open ? '' : ' hidden'"))
-assert.ok(pay.includes('id="wizDetails"') && pay.indexOf('id="wizDetails"') < pay.indexOf('id="wizFee"'))
-assert.ok(pay.indexOf('</details>', pay.indexOf('id="wizDetails"')) > pay.indexOf('id="wizFee"'))
+assert.ok(pay.indexOf('id="wizFee"') < pay.indexOf('id="wizDetails"'))
+const feeBreak = pay.slice(pay.indexOf('id="wizDetails"'), pay.indexOf('</details>', pay.indexOf('id="wizDetails"')))
+assert.ok(feeBreak.includes('id="wizChainNow"') && feeBreak.includes('id="wizGas"') && feeBreak.includes("TC('wizDetails')"))
+assert.ok(!feeBreak.includes('id="wizFee"'))
+assert.strictEqual(I.CN.wizDetails, '明細')
+assert.strictEqual(I.EN.wizDetails, 'Details')
 const idlePage = page({ miners: {} })
 assert.ok(idlePage.includes('id="mineAdvFold"') && idlePage.includes('\u25B8') && !/<details\b[^>]*\sopen/.test(idlePage))
 const setFn = ui.slice(ui.indexOf('function pageMineSet'), ui.indexOf('function remitReset'))
-assert.ok(setFn.includes('id="mineSetFold"') && setFn.includes('shell-fold') && !/<details\b[^>]*\sopen/.test(setFn))
-assert.ok(ui.includes('id="setAdvanced"') && ui.includes('id="wizPayer"'))
+const advFn = ui.slice(ui.indexOf('function mineAdvanced'), ui.indexOf('function pageMineSet'))
+assert.ok(setFn.includes('mineAdvanced(') && advFn.includes("shellFold('advBox'") && advFn.includes('id="mLog"'))
+assert.ok(!/<details\b[^>]*\sopen/.test(setFn + advFn))
+assert.ok(ui.includes("shellFold('setAdvanced'") && ui.includes('id="wizPayer"'))
 const css = read('src/css/shell310.css')
 for (const bad of ['#0c1222', '#12182b', '#3b6cff', '#8a5cff', '#b15cff', '#2f6bff', '#3ddc84', '#c62828', '#c45c00', '#f0b45a']) {
   assert.ok(!css.toLowerCase().includes(bad.toLowerCase()), bad)
@@ -157,4 +163,41 @@ const stopDev = ui.slice(ui.indexOf('async function stopDevice'), ui.indexOf('as
 assert.ok(stopDev.includes('rememberMineChoice()'))
 assert.ok(!stopDev.includes('mineChainsCpu310') && !stopDev.includes('mineChainsGpu310') && !stopDev.includes('removeItem'))
 assert.ok(ui.includes('mineChainsCpu310') && ui.includes('mineChainsGpu310'))
+
+// One walk of every screen: extra sections start collapsed. The primary action stays outside them.
+function noOpen (name, src) {
+  for (const tag of src.match(/<details\b[^>]*>/g) || []) assert.ok(!/\sopen(\s|=|>|$)/.test(tag), name + ' starts open: ' + tag)
+}
+const recvFn = ui.slice(ui.indexOf('function pageRecv'), ui.indexOf('function paintRecvQr'))
+const remitFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
+const setModal = ui.slice(ui.indexOf('async function settingsModal'), ui.indexOf('async function fillAboutHash'))
+const screens = [
+  ['home', home],
+  ['receive', recvFn],
+  ['send', remitFn],
+  ['mining', page({ miners: {} })],
+  ['settings', setModal],
+  ['mining settings', setFn]
+]
+for (const [name, src] of screens) noOpen(name, src)
+assert.ok(home.includes("shellFold('homeTx'") && home.includes('id="recentTxHost"') && home.includes("T('d_recent')"))
+assert.ok(home.indexOf('id="shellTotal"') < home.indexOf("shellFold('homeTx'"))
+assert.ok(home.includes("open ? '' : ' hidden'") && !home.includes('homeTx310'))
+assert.ok(recvFn.includes('id="qrBox"') && recvFn.indexOf('id="qrBox"') < recvFn.indexOf("shellFold('recvChains'"))
+assert.ok(recvFn.indexOf('recv-tabs') > recvFn.indexOf("shellFold('recvChains'") && recvFn.indexOf("T('recvOnly')") > recvFn.indexOf("shellFold('recvChains'"))
+assert.ok(remitFn.includes('id="wizPayees"') && remitFn.indexOf('id="wizFee"') < remitFn.indexOf('id="wizDetails"'))
+const mined = screens[3][1]
+const cpuPanel = mined.slice(mined.indexOf('data-dev="cpu"'), mined.indexOf('data-dev="gpu"'))
+const gpuPanel = mined.slice(mined.indexOf('data-dev="gpu"'))
+assert.ok(cpuPanel.indexOf('id="homeMineCpu"') < cpuPanel.indexOf('<details') && cpuPanel.indexOf('type="checkbox"') > cpuPanel.indexOf('<details'))
+assert.ok(gpuPanel.indexOf('id="homeMineGpu"') < gpuPanel.indexOf('<details'))
+assert.ok(mined.includes('id="minePick-cpu"') && mined.includes('id="mineAdvFold"') && !/<details\b[^>]*\sopen/.test(mined))
+for (const id of ['setLang', 'setNotify', 'setSecurity', 'setUpdate', 'setAbout', 'setCat', 'setAdvanced']) assert.ok(setModal.includes("shellFold('" + id + "'"), id)
+const secAt = setModal.indexOf("shellFold('setSecurity'")
+const updAt = setModal.indexOf("shellFold('setUpdate'")
+assert.ok(secAt > 0 && setModal.indexOf('data-act="backup"') > secAt && setModal.indexOf('data-act="backup"') < updAt)
+assert.ok(setModal.indexOf('data-act="setLang"') > setModal.indexOf("shellFold('setLang'") && setModal.indexOf('data-act="setLang"') < setModal.indexOf("shellFold('setNotify'"))
+assert.ok(setModal.indexOf("T('rpcList')") > setModal.indexOf("shellFold('setAdvanced'"))
+assert.ok(!setModal.includes('<div class="setsec"'))
+assert.ok(I.CN.relNotes[0].items.join(' ').includes('最近交易') && I.EN.relNotes[0].items.join(' ').includes('Recent transactions'))
 console.log('shell-310: ok')

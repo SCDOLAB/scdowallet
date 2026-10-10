@@ -49,7 +49,8 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .chain-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #e5e5ea; font-size: 18px; color: #1c1c1e; }
 .chain-row b { font-variant-numeric: tabular-nums; }
 
-.shell-recv .recv-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.recv-sum { margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #3c3c43; }
+.shell-recv .recv-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
 .recv-tab { border: 2px solid #d5d8ea; border-radius: 999px; padding: 8px 14px; background: #fff; color: #3d4160; font-weight: 800; }
 .recv-tab.on { background: #1d7a34; border-color: #1d7a34; color: #fff; }
 .shell-recv .qrwrap { width: 260px; height: 260px; margin: 12px auto; background: #fff; border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -107,7 +108,8 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-fold > :not(summary) { margin-left: 16px; margin-right: 16px; }
 .shell-fold > :last-child { margin-bottom: 14px; }
 
-.shell-set #setHost { background: #fff; color: #1b1d33; border-radius: 24px; padding: 8px 18px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.shell-set #setHost { background: transparent; color: #1b1d33; border-radius: 0; padding: 0; box-shadow: none; }
+.shell-set .shell-fold { margin-top: 10px; }
 .shell-set .mh { display: flex; align-items: center; justify-content: space-between; }
 
 @media (max-width: 720px) {

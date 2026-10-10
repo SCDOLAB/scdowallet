@@ -583,6 +583,7 @@
       <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
       <button type="button" class="chain-fold" id="chainFoldBtn" data-act="toggleChains" aria-expanded="${open ? 'true' : 'false'}">${open ? '\u25BE' : '\u25B8'} ${esc(T('shellChains'))}</button>
       <div id="chainFold"${open ? '' : ' hidden'}>${open ? dashModels().map(chainFoldRow).join('') : ''}</div>
+      ${shellFold('homeTx', T('d_recent'), `<div id="recentTxHost">${window.SCDODash ? window.SCDODash.txHtml(recentTx(), T, esc) : ''}</div>`)}
     </div>`
   }
   function renderFooter () {
@@ -610,6 +611,8 @@
       if (mh) { const html = mineHomeStripHtml(); if (refreshDash.mineHome !== html) { refreshDash.mineHome = html; SD.html(mh, html) } }
       const fold = $('chainFold')
       if (fold && !fold.hidden) { const html = dashModels().map(chainFoldRow).join(''); if (refreshDash.cards !== html) { refreshDash.cards = html; SD.html(fold, html) } }
+      const tx = $('recentTxHost')
+      if (tx && window.SCDODash) { const html = window.SCDODash.txHtml(recentTx(), T, esc); if (refreshDash.tx !== html) { refreshDash.tx = html; SD.html(tx, html) } }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
@@ -679,7 +682,8 @@
     } else if (acc.locked && acc.file) {
       body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(acc.file)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-tabs">${tabs}</div>${body}<div class="lbl">${esc(T('recvOnly'))}</div></div>`
+    const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="recv-tabs">${tabs}</div><div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
   }
   function paintRecvQr () {
     const box = $('qrBox')
@@ -903,17 +907,16 @@
     const running = !!m.running
     const mineShard = [0, 1, 2, 3, 4].includes(Number(st.mineShard)) ? Number(st.mineShard) : 0
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('d_mineSetTitle'))}</div><div class="lbl">${esc(T('d_mineSetLead'))}</div>`
-    h += `<details class="shell-fold" id="mineSetFold">${shellFoldSummary(T('shellAdvanced'))}`
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
-      return h + '</details></div></div>'
+      return h + '</div></div>'
     }
-    if (api.platform === 'darwin') return h + `</details></div><div id="miningBatch1"></div></div>`
-    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></details></div><div id="miningBatch1"></div></div>`
+    if (api.platform === 'darwin') return h + `</div><div id="miningBatch1"></div></div>`
+    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div><div id="miningBatch1"></div></div>`
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
     const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
@@ -950,7 +953,7 @@
         <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
     }
     h += mineAdvanced(api.platform === 'win32' && g.nvidia, m)
-    return h + '</details></div><div id="miningBatch1"></div></div>'
+    return h + '</div><div id="miningBatch1"></div></div>'
   }
 
   // ---------------- 2.0.12 remittance gateway: unlock + personal_sign, no KYC form ----------------
@@ -1927,6 +1930,7 @@
       const sumTo = $('wizTo'); if (sumTo) sumTo.textContent = maskMid(route.to || s.to)
       const sumAmt = $('wizAmt'); if (sumAmt) sumAmt.textContent = (route.amount || s.amount) ? ((route.amount || s.amount) + ' SCDO') : '\u2014'
       const sumFee = $('wizFee'); if (sumFee) sumFee.textContent = s.feeReady && s.feeText ? s.feeText : '\u2014'
+      const sumGas = $('wizGas'); if (sumGas) sumGas.textContent = s.gas != null && s.gas !== '' ? String(s.gas) : '\u2014'
       const sumChain = $('wizChainNow'); if (sumChain) sumChain.textContent = chainLabel(route)
       const chainBox = $('payChain')
       if (chainBox) chainBox.hidden = !(s.to && inferShard(s.to) == null && !nameLike(s.to))
@@ -1997,8 +2001,8 @@
       <div id="wizStep1" class="wiz-step">
         <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
-          <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
-          <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
+          <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
+        <details class="shell-fold" id="wizPayees"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('shellPayees'))}</summary><div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></details>
         <div id="payChain" class="wiz-chain" hidden><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
         <div class="err" id="payErr1"></div>
         <div class="wiz-nav"><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
@@ -2010,9 +2014,9 @@
         <div class="wiz-nav"><button type="button" class="shell-back" id="wizBack2">${esc(TC('wizBack'))}</button><button type="button" class="shell-go" id="wizNext2">${esc(TC('wizNext'))}</button></div>
       </div>
       <div id="wizStep3" class="wiz-step" hidden>
-        <div class="wiz-sum"><div><span>${esc(TC('wizTo'))}</span><b id="wizTo">\u2014</b></div><div><span>${esc(TC('wizAmt'))}</span><b id="wizAmt">\u2014</b></div></div>
+        <div class="wiz-sum"><div><span>${esc(TC('wizTo'))}</span><b id="wizTo">\u2014</b></div><div><span>${esc(TC('wizAmt'))}</span><b id="wizAmt">\u2014</b></div><div><span>${esc(TC('wizFee'))}</span><b id="wizFee">\u2014</b></div></div>
         <details class="shell-fold" id="wizDetails"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('wizDetails'))}</summary>
-          <div class="wiz-sum"><div><span>${esc(TC('wizFee'))}</span><b id="wizFee">\u2014</b></div><div><span>${esc(TC('wizChain'))}</span><b id="wizChainNow">\u2014</b></div></div>
+          <div class="wiz-sum"><div><span>${esc(TC('wizChain'))}</span><b id="wizChainNow">\u2014</b></div><div><span>${esc(TC('wizGas'))}</span><b id="wizGas">\u2014</b></div></div>
           <div class="lbl" id="payNote"></div>
         </details>
         <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
@@ -2027,6 +2031,8 @@
     </div>`)
     const chips = $('payeeChips')
     const names = allPayees().map(p => p.name).slice(0, 8)
+    const payeeFold = $('wizPayees')
+    if (payeeFold && !names.length) payeeFold.hidden = true
     if (chips && names.length) {
       SD.html(chips, names.map(n => `<button type="button" class="btn ghost small" data-payee="${esc(n)}">${esc(n)}</button>`).join(''))
       chips.querySelectorAll('[data-payee]').forEach(b => {
@@ -2439,38 +2445,36 @@
     try { nt = await api.invoke('notify:get') } catch (e) {}
     try { chan = ((await api.invoke('update:getChannel')) || {}).channel || 'stable' } catch (e) {}
     const NT_TYPES = ['firstShare', 'payout', 'hashZero', 'stopNonUser', 'nodeBehind']
-    const notifyHtml = nt && nt.config ? `<div class="setsec" id="setNotify"><div class="sh">${esc(T('notifyTitle'))}</div><div class="lbl">${esc(T('notifyHint'))}</div>
-      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}</div>` : ''
+    const notifyInner = nt && nt.config ? `<div class="lbl">${esc(T('notifyHint'))}</div>
+      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}` : ''
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
+    const langNow = lang() === 'CN' ? '繁體中文' : 'English'
     const setHtml = `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
-      <details class="setsec shell-fold" id="setCat"><summary class="sh"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> AI小貓</summary><div class="lbl">${esc(T('catHint'))}</div>
-        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></details>
-      <div class="setsec" id="setSecurity"><div class="sh">${esc(T('setSecTitle'))}</div>
-        <div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+      ${shellFold('setLang', T('setLang') + ' · ' + langNow, `<div class="row" style="flex-wrap:wrap">
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div>`)}
+      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
+      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
           <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
           <button class="btn sec" data-act="manage">${esc(T('setManage'))}</button>
           <button class="btn sec" data-act="openBackups">${esc(T('setOpenBackups'))}</button>
         </div>
-        <div class="lbl">${esc(T('backupHint'))}</div></div>
-      <details class="setsec shell-fold" id="setAdvanced"><summary class="sh"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
-        <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
-        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
-        <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
-        <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
-      ${notifyHtml}
-      <div class="setsec"><div class="sh">${esc(T('updTitle'))}</div>
-        <div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
+        <div class="lbl">${esc(T('backupHint'))}</div>`)}
+      ${shellFold('setUpdate', T('updTitle') + ' · ' + APPVER, `<div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
         <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
         <div class="lbl" style="margin-top:6px">${esc(T('chanHint'))}</div>
         <div class="row" style="flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
-          <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div></div>
-      <div class="setsec" id="setAbout"><div class="sh">${esc(T('about'))}</div><div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-10</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div></div>`
+          <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
+      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-10</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
+      ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}
+      ${shellFold('setAdvanced', T('advanced'), `<div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
+        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
+        <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
+        <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>`)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
     else modal(setHtml, { width: 820, noFocus: true })
