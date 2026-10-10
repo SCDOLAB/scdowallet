@@ -1139,7 +1139,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

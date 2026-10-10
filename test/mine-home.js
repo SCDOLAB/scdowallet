@@ -788,4 +788,17 @@ assert.ok(!stopFn.includes("setItem('minerRunClassicCpu'"))
 assert.ok(!stopFn.includes('intentClear'))
 assert.ok(ui.includes('minerRunShard0'))
 
+// Every window.SCDOMineHome.name used by the page must be on the frozen export.
+// require() of a helper that is not in api still passes, and the button then throws.
+{
+  const used = new Set()
+  for (const m of ui.matchAll(/window\.SCDOMineHome\.([A-Za-z0-9_]+)/g)) used.add(m[1])
+  assert.ok(used.has('devicePhase'))
+  assert.ok(used.has('planDeviceClick'))
+  assert.ok(used.has('jobsForDevice'))
+  for (const name of used) {
+    assert.strictEqual(typeof mine[name], 'function', 'SCDOMineHome.' + name + ' is not exported')
+  }
+}
+
 console.log('mine-home: ok')
