@@ -1,4 +1,6 @@
-/* 3.1.0 shell layout. Colours stay the 3.0.10 palette. Spacing, 28px grouping and type scale follow the prototype layout only. */
+/* 3.1.0 shell layout. Colours stay the 3.0.10 palette (#F2F2F7, #1d7a34, #1c1c1e).
+   Spacing, radius and type follow the layout tokens only: 24px large cards, 16px, 12px, pill buttons.
+   The window uses the operating system's own title bar. This file does not draw window buttons. */
 body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 #app.shell { flex-direction: row; background: #F2F2F7; color: #1c1c1e; }
 #app.shell header.top { display: none; }
@@ -6,17 +8,17 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-col { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
 #app.shell main { background: #F2F2F7; }
 
-.side-nav { width: 108px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 10px; background: #fff; border-right: 1px solid #e5e5ea; }
-.nav-item { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; border: 0; border-radius: 18px; padding: 12px 4px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 700; }
-.nav-item svg { display: block; }
+.side-nav { width: 216px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 12px; background: #fff; border-right: 1px solid #e5e5ea; }
+.nav-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 12px 16px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 800; text-align: left; }
+.nav-item svg { display: block; flex: none; }
 .nav-item:hover { background: #E8F5E9; color: #1d7a34; }
 .nav-item.on, .nav-item.on:hover { background: #1d7a34; color: #fff; }
 
-.shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; margin: 0 auto; padding: 36px 32px 140px; }
-.shell-h { font-size: 40px; font-weight: 800; margin: 0 0 22px; letter-spacing: -0.4px; color: #1c1c1e; }
-.site-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 18px 28px 0; }
+.shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; margin: 0 auto; padding: 26px 30px 140px; }
+.shell-h { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -0.4px; color: #1c1c1e; }
+.site-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 16px 26px 0; }
 .site-link { border: 0; border-radius: 999px; background: #fff; color: #1c1c1e; font-weight: 800; padding: 10px 16px; }
-.site-fold { margin: 0; border-radius: 28px; }
+.site-fold { margin: 0; border-radius: 24px; }
 .site-fold > :not(summary) { display: inline-block; margin: 0 8px 10px; }
 
 .bal-hero { border-radius: 24px; padding: 28px 32px 32px; color: #1c1c1e;
@@ -28,26 +30,32 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .bal-n span { font-size: 28px; margin-left: 8px; color: #17693a; }
 
 .shell-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
-.shell-act, .shell-go, .shell-copy { border: 0; border-radius: 18px; background: #1d7a34; color: #fff; font-size: 20px; font-weight: 800; padding: 16px 12px; }
+.shell-act, .shell-go, .shell-copy { border: 0; border-radius: 999px; background: #1d7a34; color: #fff; font-size: 20px; font-weight: 800; padding: 16px 12px; box-shadow: 0 6px 16px rgba(29,122,52,.28); }
 .shell-act:hover, .shell-go:hover, .shell-copy:hover { background: #17652b; }
+.shell-act:active, .shell-go:active, .shell-copy:active { transform: scale(.97); box-shadow: 0 2px 6px rgba(29,122,52,.16); }
+.shell-act:disabled, .shell-go:disabled, .shell-copy:disabled { opacity: .55; cursor: default; box-shadow: none; }
 .shell-go { width: 100%; padding: 16px 20px; }
 .shell-back { border: 0; background: transparent; color: #43A047; font-size: 18px; font-weight: 800; padding: 12px 8px; }
 
-.mine-strip { background: #fff; border-radius: 28px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.mine-strip { background: #fff; border-radius: 22px; padding: 26px 34px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
 .mine-strip-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .mine-strip-two { flex-direction: column; align-items: stretch; }
 .mine-dev { display: flex; align-items: center; gap: 12px; }
 .mine-dev .mh-status { flex: 1; }
 .mine-dev-name { font-weight: 800; color: #1c1c1e; min-width: 92px; }
-.mine-strip .mh-status { font-size: 18px; font-weight: 800; }
+.mine-strip .mh-status { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 800; }
+.mine-strip .mh-status::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex: none; }
 .mine-strip .mh-status.on { color: #1d7a34; }
+.mine-strip .mh-status.on::before { box-shadow: 0 0 0 4px rgba(29,122,52,.18); }
 .mine-strip .mh-status.off { color: #8e8e93; }
 .mine-strip .mh-status.wait, .mine-strip .mh-status.busy { color: #8a4b00; }
-.shell-mine { border: 0; border-radius: 999px; padding: 12px 22px; font-size: 18px; font-weight: 800; color: #fff; background: #1d7a34; }
+.shell-mine { border: 0; border-radius: 999px; padding: 12px 22px; font-size: 18px; font-weight: 800; color: #fff; background: #1d7a34; box-shadow: 0 6px 16px rgba(29,122,52,.28); }
 .shell-mine:hover { background: #17652b; }
-.shell-mine.stop { background: #d93025; }
+.shell-mine:active { transform: scale(.97); box-shadow: 0 2px 6px rgba(29,122,52,.16); }
+.shell-mine.stop { background: #d93025; box-shadow: 0 6px 16px rgba(217,48,37,.28); }
 .shell-mine.stop:hover { background: #b9261d; }
-.shell-mine:disabled { opacity: .6; }
+.shell-mine.stop:active { box-shadow: 0 2px 6px rgba(217,48,37,.16); }
+.shell-mine:disabled { opacity: .55; cursor: default; box-shadow: none; transform: none; }
 
 .chain-fold { width: 100%; margin-top: 14px; border: 1px solid #e5e5ea; border-radius: 20px; background: #fff; color: #1c1c1e; font-size: 18px; font-weight: 700; padding: 16px 18px; text-align: left; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .chain-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #e5e5ea; font-size: 18px; color: #1c1c1e; }
@@ -63,7 +71,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .recv-empty { margin: 24px 0; font-size: 18px; color: #3c3c43; }
 .shell-copy { width: auto; padding: 10px 18px; }
 
-.shell-remit .wiz, #remitHost .wiz { background: #fff; color: #1b1d33; border-radius: 28px; padding: 28px 28px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
+.shell-remit .wiz, #remitHost .wiz { background: #fff; color: #1b1d33; border-radius: 24px; padding: 26px 26px 22px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
 .wiz-dots { display: flex; gap: 14px; color: #6b6b70; font-weight: 800; margin-bottom: 18px; }
 #payWiz[data-step="1"] [data-wiz-dot="1"], #payWiz[data-step="2"] [data-wiz-dot="2"], #payWiz[data-step="3"] [data-wiz-dot="3"], #payWiz[data-step="4"] [data-wiz-dot="3"] { color: #1d7a34; }
 .wiz-sum { display: grid; gap: 10px; margin-bottom: 12px; }
@@ -78,21 +86,29 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-remit .inp, .shell-set .inp, .shell-recv .inp { background: #fff; color: #1b1d33; }
 
 .shell-mine-page { background: transparent; color: #1b1d33; border-radius: 0; padding: 28px 22px 22px; box-shadow: none; }
-.mine-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
-.mine-panel { background: #fff; color: #1b1d33; border-radius: 28px; padding: 26px 22px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.04); }
-.mine-panel h2 { margin: 0 0 16px; font-size: 28px; color: #1c1c1e; }
+.mine-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.mine-panel { background: #fff; color: #1b1d33; border-radius: 24px; padding: 22px 26px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+.mine-panel h2 { margin: 0 0 8px; font-size: 15px; font-weight: 800; color: #1c1c1e; }
+.mine-glance { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 8px 0 16px; }
+.mine-glance .mine-glance-t { font-size: 40px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.05; }
+.mine-dot { width: 14px; height: 14px; border-radius: 50%; background: #8e8e93; flex: none; }
+.mine-glance.on { color: #1d7a34; }
+.mine-glance.on .mine-dot { background: #1d7a34; box-shadow: 0 0 0 5px rgba(29,122,52,.18); }
+.mine-glance.off { color: #8e8e93; }
+.mine-glance.wait, .mine-glance.busy { color: #8a4b00; }
+.mine-glance.wait .mine-dot, .mine-glance.busy .mine-dot { background: #8a4b00; }
 .mine-temp { margin-top: 8px; text-align: center; color: #6b6b70; font-weight: 700; }
 .mine-chain { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-weight: 700; color: #1c1c1e; }
 .mine-chain.off { color: #6b6b70; font-weight: 600; }
 .mine-why, .mine-note { font-weight: 700; color: #8a4b00; }
 .mine-note { margin: 8px 16px 12px; }
-.mine-kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 16px; }
-.mine-kv span { color: #6b6b70; }
-.mine-kv b { color: #1c1c1e; text-align: right; }
-.shell-huge-wrap { margin: 18px 0; }
-.shell-huge { width: 100%; border-radius: 999px; padding: 22px 16px; font-size: 28px; background: #1d7a34; }
+.mine-kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 20px; }
+.mine-kv span { color: #6b6b70; font-size: 12px; font-weight: 800; }
+.mine-kv b { color: #1c1c1e; text-align: right; font-size: 20px; }
+.shell-huge-wrap { margin: 8px 0 4px; }
+.shell-huge { width: 100%; border-radius: 999px; padding: 22px 16px; font-size: 20px; background: #1d7a34; }
 .shell-huge:hover { background: #17652b; }
-.shell-mine-page .mh-status { text-align: center; font-size: 18px; font-weight: 800; margin-top: 8px; }
+.shell-mine-page .mh-status { text-align: center; font-weight: 800; }
 .shell-mine-page .mh-status.on { color: #1d7a34; }
 .shell-mine-page .mh-status.off { color: #8e8e93; }
 .shell-mine-page .mh-status.wait, .shell-mine-page .mh-status.busy { color: #8a4b00; }
@@ -103,11 +119,11 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; }
 .shell-temp.temp-hot { color: #d93025; }
 .shell-adv { display: block; margin: 8px 16px 14px auto; border: 0; background: transparent; color: #43A047; font-weight: 800; font-size: 16px; }
 
-.shell-fold { margin-top: 16px; border-radius: 28px; background: #fff; border: 1px solid #e5e5ea; color: #1c1c1e; }
-.chain-rows { display: flex; flex-direction: column; gap: 16px; margin-top: 22px; }
+.shell-fold { margin-top: 16px; border-radius: 24px; background: #fff; border: 1px solid #e5e5ea; color: #1c1c1e; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+.chain-rows { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
 .chain-card > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.chain-name { font-size: 20px; font-weight: 800; }
-.chain-bal { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.chain-name { font-size: 15px; font-weight: 800; }
+.chain-bal { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .chain-partial { margin: 0 16px 8px; font-weight: 800; color: #8a4b00; }
 .addr-scroll { max-height: 420px; overflow: auto; }
 .addr-line { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e5ea; }

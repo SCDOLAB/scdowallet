@@ -813,8 +813,8 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
   const rows = picked.map(n => chainDetailHtml(input, device, n, T, esc)).join('')
   return `<section class="mine-panel" data-dev="${device}">
       <h2>${esc(deviceTitle(device, T))}</h2>
+      <div class="mine-glance mh-status ${model.view.statusTone}" data-dev-status="${device}"><span class="mine-dot" aria-hidden="true"></span><span class="mine-glance-t">${esc(model.status)}</span></div>
       <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
-      <div class="mh-status ${model.view.statusTone}" data-dev-status="${device}">${esc(model.status)}</div>
       ${temp}
       ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools)}
       ${rows}

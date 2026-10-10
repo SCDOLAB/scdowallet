@@ -74,7 +74,7 @@ const waitHtml = strip(paused)
 assert.ok(waitHtml.includes('等待同步（Shard1 Classic 同步進度 45%）') && waitHtml.includes('停止挖礦') && waitHtml.includes('開始挖礦'))
 const liveHtml = page(live)
 assert.ok(liveHtml.includes('CPU 挖礦') && liveHtml.includes('GPU 挖礦'))
-assert.ok(liveHtml.includes('正在挖礦') && liveHtml.includes('停止挖礦') && liveHtml.includes('今天挖到') && liveHtml.includes('進階'))
+assert.ok(liveHtml.includes('運算中') && liveHtml.includes('class="mine-glance') && liveHtml.includes('停止挖礦') && liveHtml.includes('今天挖到') && liveHtml.includes('進階'))
 assert.ok(liveHtml.includes('選擇要挖的鏈') && !/<details\b[^>]*\sopen/.test(liveHtml))
 assert.ok(!liveHtml.includes('data-act="mineShard"') && !liveHtml.includes('data-act="mineBackend"'))
 const busyHtml = page({ miners: {}, gpuBusy: true })
@@ -121,8 +121,17 @@ for (const bad of ['#0c1222', '#12182b', '#3b6cff', '#8a5cff', '#b15cff', '#2f6b
 }
 for (const good of ['#F2F2F7', '#1d7a34', '#8e8e93', '#8a4b00', '#c93400', '#d93025', '#1c1c1e']) assert.ok(css.includes(good), good)
 assert.ok(!css.toLowerCase().includes('#f5f5f7'))
-assert.ok(css.includes('border-radius: 28px'))
+assert.ok(css.includes('border-radius: 24px') && css.includes('border-radius: 16px') && css.includes('border-radius: 12px') && css.includes('border-radius: 999px'))
+assert.ok(css.includes('width: 216px') && css.includes('font-size: 40px') && css.includes('scale(.97)') && css.includes('opacity: .55'))
+assert.ok(!css.includes('#22B573') && !css.includes('#FF5F57') && !css.includes('#FEBC2E') && !css.includes('#28C840'))
 assert.ok(!ui.includes('#0c1222'))
+const mainJs = read('main.js')
+const win = mainJs.slice(mainJs.indexOf('function createWindow'), mainJs.indexOf('mainWindow.loadFile'))
+assert.ok(win.includes("titleBarStyle: 'default'"))
+assert.ok(!/frame:\s*false/.test(win) && !win.includes('hiddenInset') && !win.includes('titleBarStyle: \'hidden\''))
+assert.ok(pay.includes('const DUP_SEND_MS = 10 * 60 * 1000') && pay.includes('shellDupAsk') && !pay.includes('dupSendMinutes'))
+assert.strictEqual(I.CN.shellDupAsk, '要再送一次一樣的轉帳嗎？')
+assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.shellDupAsk))
 
 const noGpu = page({ miners: {}, caps: { gpu: { available: false }, cpu: { available: true } } })
 assert.ok(noGpu.includes('未偵測到顯卡'))
@@ -176,6 +185,7 @@ function noOpen (name, src) {
 const recvFn = ui.slice(ui.indexOf('function pageRecv'), ui.indexOf('function paintRecvQr'))
 const remitFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
 const setModal = ui.slice(ui.indexOf('async function settingsModal'), ui.indexOf('async function fillAboutHash'))
+assert.ok(!setModal.includes('DUP_SEND') && !setModal.includes('dupSend310'))
 const screens = [
   ['home', home],
   ['receive', recvFn],

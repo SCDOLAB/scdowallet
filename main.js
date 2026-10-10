@@ -604,6 +604,8 @@ function createWindow () {
     minWidth: 1000,
     minHeight: 700,
     backgroundColor: '#E8F5E9',
+    // 3.1.0: the operating system's own title bar and window buttons. Do not draw a custom bar.
+    titleBarStyle: 'default',
     icon: path.join(ASSETS, process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
     resizable: true,
     title: windowTitle(),

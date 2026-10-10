@@ -2204,42 +2204,71 @@
       showStep(4)
       const b = $('btnRemitSign'); if (b) b.disabled = true
     }
+    // 3.1.0: same recipient and same amount inside a fixed 10-minute window asks once. Not a setting.
+    const DUP_SEND_MS = 10 * 60 * 1000
+    function dupSendKey (to, amount) {
+      return String(to || '').trim().toLowerCase() + '\n' + String(amount || '').trim()
+    }
+    function recentSameSend (to, amount) {
+      try {
+        const rec = JSON.parse(localStorage.getItem('dupSend310') || 'null')
+        if (!rec || rec.key !== dupSendKey(to, amount)) return false
+        return Date.now() - Number(rec.at) < DUP_SEND_MS
+      } catch (e) { return false }
+    }
+    function rememberSameSend (to, amount) {
+      try { localStorage.setItem('dupSend310', JSON.stringify({ key: dupSendKey(to, amount), at: Date.now() })) } catch (e) {}
+    }
+    async function confirmSameSend (route, err, btn) {
+      if (!route || !recentSameSend(route.to, route.amount)) return true
+      const ok = await confirmBox(T('shellDupTitle'), T('shellDupAsk'), T('yes'), T('no'))
+      if (!ok) {
+        if (btn) btn.disabled = false
+        if (err) err.textContent = T('cf_canceled')
+      }
+      return ok
+    }
     async function confirmPay () {
       const btn = $('btnRemitSign'); const err = $('payErr')
+      if (btn && btn.disabled) return
+      if (btn) btn.disabled = true
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
       const guarded = AMT.guardAmount(s.amount)
-      if (!guarded.ok) { if (err) paintSendErr(err, guarded.code); return }
+      if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
       s.amount = guarded.value
       const route = paint()
       if (route.kind !== 'chain' && route.kind !== 'gateway') {
+        if (btn) btn.disabled = false
         if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
         return
       }
       const payer = chosenPayer(route)
-      if (!payer) { if (err) err.textContent = TC('payNoPayer'); return }
+      if (!payer) { if (btn) btn.disabled = false; if (err) err.textContent = TC('payNoPayer'); return }
       const pw = $('remitPw') ? $('remitPw').value : ''
       if (route.kind === 'gateway') {
         rememberPayee(route.to)
-        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { payShowLedger(); return }
-        if (!pw) { if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_titleSign'), yes: T('cf_yesSign'), rows: cfRows(route, payer) }))) { if (err) err.textContent = T('cf_canceled'); return }
+        if (remitOwnsSession() && payer.evm && sameAddr(payer.evm, st.remit.address)) { if (btn) btn.disabled = false; payShowLedger(); return }
+        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+        if (!(await confirmTx({ title: T('cf_titleSign'), yes: T('cf_yesSign'), rows: cfRows(route, payer) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
         await remitLogin(payer.filename)
         if ($('remitPw')) $('remitPw').value = ''
+        if (btn) btn.disabled = false
         return
       }
       if (route.shard === 0) { await confirmShard0(route, payer, pw, err, btn); return }
       await confirmClassic(route, payer, pw, err, btn)
     }
     async function confirmShard0 (route, payer, pw, err, btn) {
-      if (!payer.evm) { if (err) err.textContent = TC('payUnlock'); return }
+      if (!payer.evm) { if (btn) btn.disabled = false; if (err) err.textContent = TC('payUnlock'); return }
+      if (!(await confirmSameSend(route, err, btn))) return
       if (st.payReview && st.payReview.to === route.to && st.payReview.amount === route.amount && st.payReview.file === payer.filename) {
         const ack = $('payAck')
         if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
-        if (!pw) { if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (err) err.textContent = T('cf_canceled'); return }
-        if (!st.payReview) return
+        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+        if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
         if ($('remitPw')) $('remitPw').value = ''
@@ -2308,7 +2337,7 @@
     }
     const selfWarn = (payer, to) => (payer && to && String(payer.evm || '').toLowerCase() === String(to).toLowerCase()) ? T('cf_warnSelf') : ''
     function finishShard0 (res, route, payer, err, btn) {
-      if (res && res.ok) { showDone(TC('waiting') + ' ' + (res.hash || ''), res.hash); loadActivity(payer.evm); refreshS0(); return }
+      if (res && res.ok) { rememberSameSend(route.to, route.amount); showDone(TC('waiting') + ' ' + (res.hash || ''), res.hash); loadActivity(payer.evm); refreshS0(); return }
       if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash, res.hash); loadActivity(payer.evm); return }
       if (err) {
         if (SEND_ERR[res && res.error]) err.textContent = TC('sendFailedPrefix') + ' ' + TC(SEND_ERR[res.error])
@@ -2318,10 +2347,11 @@
       loadActivity(payer.evm)
     }
     async function confirmClassic (route, payer, pw, err, btn) {
-      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (err) err.textContent = TC('errAddrOld'); return }
-      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
+      if (!/^[1-4]S[0-9a-fA-F]{40}$/.test(route.to)) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errAddrOld'); return }
+      if (String(route.to[0]) !== String(payer.shard) && !CFG.allowCrossShard) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errCross', { n: payer.shard }); return }
       const units = /^\d+(\.\d{1,8})?$/.test(route.amount) ? AMT.toUnits(route.amount, 8) : null
-      if (units == null || units <= 0n) { if (err) err.textContent = TC('errAmount'); return }
+      if (units == null || units <= 0n) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errAmount'); return }
+      if (!(await confirmSameSend(route, err, btn))) return
       // 3.0.4: sending to this account's own address is allowed after the user ticks the box (same as Shard0 EVM)
       const self = String(payer.pubkey || '').toLowerCase() === String(route.to || '').toLowerCase()
       if (self) {
@@ -2343,9 +2373,9 @@
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
-      if (bal != null && units + feeU > bal) { if (err) err.textContent = TC('errTooMuch'); return }
-      if (!pw) { if (err) err.textContent = TC('errPw'); return }
-      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (err) err.textContent = T('cf_canceled'); return }
+      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
+      if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
+      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
       if ($('remitPw')) $('remitPw').value = ''
       if (btn) btn.disabled = true
       if (err) SD.spin(err, TC('sending'))
@@ -2358,6 +2388,7 @@
         if (btn) btn.disabled = false
         return
       }
+      rememberSameSend(route.to, route.amount)
       showDone(TC('sentOld') + ' ' + (res.hash || ''), res.hash)
       refreshOld(); loadOldActivity(true)
     }
