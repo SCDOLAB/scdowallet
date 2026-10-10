@@ -159,7 +159,8 @@
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
     catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', otherRigels: [],
-    payReview: null
+    payReview: null,
+    homeChains: localStorage.getItem('homeChains310') === '1'
   }
   const shard0 = () => ({
     cfg: S0CFG,
@@ -250,10 +251,10 @@
     else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
     else if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
       st.tab = TABS.includes(v) ? v : 'home'
-      if (st.tab === 'acc') { st.homeChains = true; st.tab = 'home'; st.scrollTo = 'chainFold' }
+      if (st.tab === 'acc') { st.homeChains = true; try { localStorage.setItem('homeChains310', '1') } catch (e) {} st.tab = 'home'; st.scrollTo = 'chainFold' }
       else if (st.tab === 'home' || st.tab === 'mine' || st.tab === 'mineSet') st.scrollTo = 'top'
     }
-    if (st.tab === 'acc') { st.homeChains = true; st.tab = 'home'; st.scrollTo = 'chainFold' }
+    if (st.tab === 'acc') { st.homeChains = true; try { localStorage.setItem('homeChains310', '1') } catch (e) {} st.tab = 'home'; st.scrollTo = 'chainFold' }
     ui.tab = st.tab; localStorage.setItem('tab112', st.tab); saveUi()
   }
   // The header switcher lists both kinds; the chain of the picked account decides balances, send and receive.
@@ -574,7 +575,7 @@
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
       <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
-      <button type="button" class="chain-fold" id="chainFoldBtn" data-act="toggleChains" aria-expanded="${open ? 'true' : 'false'}">${esc(T('shellChains'))}</button>
+      <button type="button" class="chain-fold" id="chainFoldBtn" data-act="toggleChains" aria-expanded="${open ? 'true' : 'false'}">${open ? '\u25BE' : '\u25B8'} ${esc(T('shellChains'))}</button>
       <div id="chainFold"${open ? '' : ' hidden'}>${open ? dashModels().map(chainFoldRow).join('') : ''}</div>
     </div>`
   }
@@ -873,32 +874,40 @@
     else if (m && m.chain === 'classic') st.miners.classicGpu = m
     else if (m) st.miners.shard0 = Object.assign({ chain: 'shard0' }, m)
   }
+  function shellFoldSummary (title) {
+    return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(title)}</summary>`
+  }
+  function shellFold (id, title, inner) {
+    return `<details class="shell-fold" id="${esc(id)}">${shellFoldSummary(title)}${inner}</details>`
+  }
   function mineAdvanced (showDefender, m) {
     m = m || {}
-    return `<details class="adv" id="advBox" ${st.advOpen ? 'open' : ''}><summary>${esc(T('advanced'))} <span>${esc(T('advHint'))}</span></summary>
-      <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(st.logOpen ? T('hideLog') : T('showLog'))}</button>
+    const inner = `<div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn ghost small" data-act="toggleLog">${esc(T('showLog'))}</button>
       <button class="btn ghost small" data-act="openLogs">${esc(T('openLogs'))}</button>
       ${showDefender ? `<button class="btn ghost small" data-act="defender">${esc(T('defender'))}</button>` : ''}</div>
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
-      <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
+      <pre class="log" id="mLog" hidden>${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre>`
+    return shellFold('advBox', T('advanced') + ' ' + T('advHint'), inner)
   }
   // 挖礦設定 (menu → 挖礦設定; the old 更改出塊獎勵地址 item opened this same page): shard, reward address, and the node. Start and stop mining stay on the Home card.
   function pageMineSet () {
+    st.logOpen = false
     st.miner = viewMiner()
     const m = st.miner || {}
     const running = !!m.running
     const mineShard = [0, 1, 2, 3, 4].includes(Number(st.mineShard)) ? Number(st.mineShard) : 0
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('d_mineSetTitle'))}</div><div class="lbl">${esc(T('d_mineSetLead'))}</div>`
+    h += `<details class="shell-fold" id="mineSetFold">${shellFoldSummary(T('shellAdvanced'))}`
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
-      return h + '</div></div>'
+      return h + '</details></div></div>'
     }
-    if (api.platform === 'darwin') return h + `</div><div id="miningBatch1"></div></div>`
-    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></div><div id="miningBatch1"></div></div>`
+    if (api.platform === 'darwin') return h + `</details></div><div id="miningBatch1"></div></div>`
+    if (!st.gpu) return h + `<div class="statusbar"><span class="spin"></span> ${esc(T('detecting'))}</div></details></div><div id="miningBatch1"></div></div>`
     const g = st.gpu
     const nodeMode = m.mode === 'node' && running
     const mineMode = (m.mode === 'mine' || m.mode === 'pool') && running
@@ -935,7 +944,7 @@
         <div class="lbl" style="margin-top:10px">${esc(ext ? T('extNoStop') : T('nodeHint'))}</div>`
     }
     h += mineAdvanced(api.platform === 'win32' && g.nvidia, m)
-    return h + '</div><div id="miningBatch1"></div></div>'
+    return h + '</details></div><div id="miningBatch1"></div></div>'
   }
 
   // ---------------- 2.0.12 remittance gateway: unlock + personal_sign, no KYC form ----------------
@@ -1043,7 +1052,7 @@
     const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit'], ['mine', 'navMine'], ['settings', 'navSettings']]
     const ico = {
       home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
-      recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#0c1222" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
+      recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
       remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
       mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
       settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
@@ -1980,7 +1989,7 @@
     mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}">
       <div class="wiz-dots"><span data-wiz-dot="1">1 ${esc(TC('wizAddr'))}</span><span data-wiz-dot="2">2 ${esc(TC('wizAmount'))}</span><span data-wiz-dot="3">3 ${esc(TC('wizConfirm'))}</span></div>
       <div id="wizStep1" class="wiz-step">
-        <div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap"></div>
+        <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off">
           <div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></div>
@@ -1995,10 +2004,13 @@
         <div class="wiz-nav"><button type="button" class="shell-back" id="wizBack2">${esc(TC('wizBack'))}</button><button type="button" class="shell-go" id="wizNext2">${esc(TC('wizNext'))}</button></div>
       </div>
       <div id="wizStep3" class="wiz-step" hidden>
-        <div class="wiz-sum"><div><span>${esc(TC('wizTo'))}</span><b id="wizTo">\u2014</b></div><div><span>${esc(TC('wizAmt'))}</span><b id="wizAmt">\u2014</b></div><div><span>${esc(TC('wizFee'))}</span><b id="wizFee">\u2014</b></div><div><span>${esc(TC('wizChain'))}</span><b id="wizChainNow">\u2014</b></div></div>
+        <div class="wiz-sum"><div><span>${esc(TC('wizTo'))}</span><b id="wizTo">\u2014</b></div><div><span>${esc(TC('wizAmt'))}</span><b id="wizAmt">\u2014</b></div></div>
+        <details class="shell-fold" id="wizDetails"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('wizDetails'))}</summary>
+          <div class="wiz-sum"><div><span>${esc(TC('wizFee'))}</span><b id="wizFee">\u2014</b></div><div><span>${esc(TC('wizChain'))}</span><b id="wizChainNow">\u2014</b></div></div>
+          <div class="lbl" id="payNote"></div>
+        </details>
         <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
         <div id="payRoute" hidden></div>
-        <div class="lbl" id="payNote" style="margin-top:8px"></div>
         <div id="payExtra"></div>
         <div id="payStatus" style="margin-top:8px"></div>
         <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
@@ -2231,7 +2243,7 @@
       <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" maxlength="40" placeholder="${esc(T('accountN', { n: nextNo() }))}"></div>
       <div class="field"><div class="lbl">${esc(T('pw1'))}</div><input class="inp" type="password" id="cPw1"></div>
       <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
-      <details style="margin-top:14px"><summary style="font-size:18px;cursor:pointer;color:#3d4160">${esc(T('advanced'))}</summary>
+      <details class="shell-fold" style="margin-top:14px"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
         <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="1" style="width:120px"></div>
         ${opts.priv ? '' : privField}</details>
       <div class="infobox">${esc(T('createSave'))}</div>
@@ -2408,7 +2420,7 @@
     const N = (window.I18N112[lang()] || {}).relNotes || window.I18N112.EN.relNotes || []
     const one = (n) => `<div class="rn"><div class="rnv">${esc(n.v)}</div><ul>${n.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`
     let h = N.slice(0, 3).map(one).join('')
-    if (N.length > 3) h += `<details class="rnmore" id="rnMore"><summary>${esc(T('earlierVersions'))}</summary>${N.slice(3).map(one).join('')}</details>`
+    if (N.length > 3) h += `<details class="rnmore shell-fold" id="rnMore"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('earlierVersions'))}</summary>${N.slice(3).map(one).join('')}</details>`
     return h
   }
   // ----- settings (gear): language, accounts, backup/export, advanced, about -----
@@ -2427,8 +2439,8 @@
     const setHtml = `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
       <div class="setsec"><div class="sh">${esc(T('setLang'))}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
-      <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
-        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
+      <details class="setsec shell-fold" id="setCat"><summary class="sh"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> AI小貓</summary><div class="lbl">${esc(T('catHint'))}</div>
+        <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></details>
       <div class="setsec" id="setSecurity"><div class="sh">${esc(T('setSecTitle'))}</div>
         <div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
@@ -2437,10 +2449,11 @@
           <button class="btn sec" data-act="manage">${esc(T('setManage'))}</button>
           <button class="btn sec" data-act="openBackups">${esc(T('setOpenBackups'))}</button>
         </div>
-        <div class="lbl">${esc(T('backupHint'))}</div>
+        <div class="lbl">${esc(T('backupHint'))}</div></div>
+      <details class="setsec shell-fold" id="setAdvanced"><summary class="sh"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
         <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
-        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
-      <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
+        <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
+        <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
         <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div></details>
       ${notifyHtml}
       <div class="setsec"><div class="sh">${esc(T('updTitle'))}</div>
@@ -2861,7 +2874,7 @@
         if (v === 'home' || v === 'recv' || v === 'acc') { refreshOld(); refreshS0() }
         break
       }
-      case 'toggleChains': st.homeChains = !st.homeChains; render(); break
+      case 'toggleChains': st.homeChains = !st.homeChains; try { localStorage.setItem('homeChains310', st.homeChains ? '1' : '0') } catch (e) {} render(); break
       case 'recvShard': st.recvShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; render(); break
       case 'backup': backupPickModal(); break
       case 'manage': manageModal(); break
@@ -2904,7 +2917,13 @@
       case 'homeMine': homeMineToggle(); break
       case 'nodeStart': nodeStart(); break
       case 'minerStop': minerStop(el.id === 'btnNode' || (st.miner && st.miner.mode === 'node') ? 'node' : 'mine'); break
-      case 'toggleLog': st.logOpen = !st.logOpen; st.advOpen = true; render(); break
+      case 'toggleLog': {
+        st.logOpen = !st.logOpen
+        const pre = $('mLog')
+        if (pre) pre.hidden = !st.logOpen
+        el.textContent = st.logOpen ? T('hideLog') : T('showLog')
+        break
+      }
       case 'openLogs': api.invoke('miner:openLogs'); break
       case 'remitSign': remitLogin(f); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); render(); break
@@ -2960,7 +2979,6 @@
       try { t.setSelectionRange(pos, pos) } catch (e) {}
     }
   })
-  document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'advBox') st.advOpen = ev.target.open }, true)
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
       if ($('stopAllDlg')) { const n = $('cbNo'); if (n) n.click(); return }

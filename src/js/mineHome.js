@@ -550,7 +550,9 @@ function minePageHtml (input, T, esc) {
       <div><span>${esc(tr(T, 'shellToday'))}</span><b>${esc(m.todayValue)}</b></div>
       <div><span>${esc(tr(T, 'shellTemp'))}</span><b class="shell-temp${tempCls}">${esc(m.tempValue)}</b></div>
     </div>
-    <button type="button" class="shell-adv" data-act="nav" data-v="mineSet">${esc(tr(T, 'shellAdvanced'))}</button>
+    <details class="shell-fold" id="mineAdvFold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(tr(T, 'shellAdvanced'))}</summary>
+      <button type="button" class="shell-adv" data-act="nav" data-v="mineSet">${esc(tr(T, 'shellAdvanced'))}</button>
+    </details>
   </div>`
 }
 

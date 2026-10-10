@@ -87,4 +87,29 @@ assert.strictEqual(I.EN.relNotes[0].v, '3.1.0')
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(I.CN.relNotes.find(n => n.v === '3.0.10').items.join(' ').includes('顯卡正被其他程式使用'))
 assert.ok(!I.CN.relNotes[0].items.join(' ').includes('主鏈'))
+
+// Complex sections start collapsed. Only 「查看各鏈餘額」 is remembered.
+function detailTags (src) {
+  return src.match(/<details\b[^>]*>/g) || []
+}
+const tags = detailTags(ui).concat(detailTags(read('src/js/mineHome.js')))
+assert.ok(tags.length >= 4, 'expected collapsed disclosures')
+for (const tag of tags) assert.ok(!/\sopen(\s|=|>|$)/.test(tag), 'details starts open: ' + tag)
+assert.ok(!ui.includes('st.advOpen'))
+assert.ok(ui.includes("homeChains: localStorage.getItem('homeChains310') === '1'"))
+assert.ok(ui.includes("localStorage.setItem('homeChains310'"))
+assert.ok((home.includes('\\u25B8') || home.includes('\u25B8')) && (home.includes('\\u25BE') || home.includes('\u25BE')) && home.includes("open ? '' : ' hidden'"))
+assert.ok(pay.includes('id="wizDetails"') && pay.indexOf('id="wizDetails"') < pay.indexOf('id="wizFee"'))
+assert.ok(pay.indexOf('</details>', pay.indexOf('id="wizDetails"')) > pay.indexOf('id="wizFee"'))
+const idlePage = page({ miners: {} })
+assert.ok(idlePage.includes('id="mineAdvFold"') && idlePage.includes('\u25B8') && !/<details\b[^>]*\sopen/.test(idlePage))
+const setFn = ui.slice(ui.indexOf('function pageMineSet'), ui.indexOf('function remitReset'))
+assert.ok(setFn.includes('id="mineSetFold"') && setFn.includes('shell-fold') && !/<details\b[^>]*\sopen/.test(setFn))
+assert.ok(ui.includes('id="setAdvanced"') && ui.includes('id="wizPayer"'))
+const css = read('src/css/shell310.css')
+for (const bad of ['#0c1222', '#12182b', '#3b6cff', '#8a5cff', '#b15cff', '#2f6bff', '#3ddc84', '#c62828', '#c45c00', '#f0b45a']) {
+  assert.ok(!css.toLowerCase().includes(bad.toLowerCase()), bad)
+}
+for (const good of ['#F2F2F7', '#1d7a34', '#8e8e93', '#8a4b00', '#c93400', '#d93025', '#1c1c1e']) assert.ok(css.includes(good), good)
+assert.ok(!ui.includes('#0c1222'))
 console.log('shell-310: ok')
