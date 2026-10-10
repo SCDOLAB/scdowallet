@@ -2467,21 +2467,40 @@
     if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
   function rememberMineChoice () {
+    // Selection (minerPick*) survives stop. Running flags (minerRun*) do not.
     const gpu = st.miners && st.miners.classicGpu
     const cpu = st.miners && st.miners.classicCpu
     const s0 = st.miners && st.miners.shard0
     if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') {
-      localStorage.setItem('minerRunClassicGpu', gpu.backend === 'external' ? 'external' : 'gpu')
+      localStorage.setItem('minerPickClassicGpu', gpu.backend === 'external' ? 'external' : 'gpu')
       if (gpu.wallet) localStorage.setItem('minerClassicGpu', gpu.wallet)
     }
     if (cpu && cpu.running && cpu.mode !== 'node') {
-      localStorage.setItem('minerRunClassicCpu', '1')
+      localStorage.setItem('minerPickClassicCpu', '1')
       if (cpu.wallet) localStorage.setItem('minerClassicCpu', cpu.wallet)
     }
     if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic') {
-      localStorage.setItem('minerRunShard0', '1')
+      localStorage.setItem('minerPickShard0', '1')
       if (s0.wallet && /^0x[0-9a-fA-F]{40}$/.test(s0.wallet)) localStorage.setItem('minerReward', s0.wallet)
     }
+  }
+  function promoteRunningToSelection () {
+    if (localStorage.getItem('minerPickClassicGpu') || localStorage.getItem('minerPickClassicCpu') === '1' || localStorage.getItem('minerPickShard0') === '1') return
+    const gpu = localStorage.getItem('minerRunClassicGpu') || ''
+    const cpuOn = localStorage.getItem('minerRunClassicCpu') === '1'
+    const mode = localStorage.getItem('minerMode') || ''
+    if (gpu === 'gpu' || gpu === 'external') localStorage.setItem('minerPickClassicGpu', gpu)
+    else if (mode === 'classic-gpu') localStorage.setItem('minerPickClassicGpu', localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu')
+    if (cpuOn || mode === 'classic-cpu') localStorage.setItem('minerPickClassicCpu', '1')
+    if (localStorage.getItem('minerRunShard0') === '1') localStorage.setItem('minerPickShard0', '1')
+  }
+  function clearMineRunningFlags () {
+    try {
+      localStorage.removeItem('minerRunClassicCpu')
+      localStorage.removeItem('minerRunClassicGpu')
+      localStorage.removeItem('minerRunShard0')
+    } catch (e) {}
+    try { api.invoke('miner:clearRunning') } catch (e) {}
   }
   // Stop only stops processes. The saved graphics-card / processor choice stays,
   // so the next Start mining restores that session instead of falling back to the processor.
@@ -2490,6 +2509,7 @@
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+    clearMineRunningFlags()
     toast(T('stopped'))
   }
   async function stopAll () {
@@ -2499,12 +2519,12 @@
     return true
   }
   function savedMineChoice () {
-    const gpu = localStorage.getItem('minerRunClassicGpu') || ''
-    const cpuOn = localStorage.getItem('minerRunClassicCpu') === '1'
+    const gpu = localStorage.getItem('minerPickClassicGpu') || ''
+    const cpuOn = localStorage.getItem('minerPickClassicCpu') === '1'
     let classic = ''
     if (gpu === 'external' || gpu === 'gpu') classic = gpu
     else if (cpuOn) classic = 'cpu'
-    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: localStorage.getItem('minerRunShard0') === '1' }
+    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: localStorage.getItem('minerPickShard0') === '1' }
   }
   function classicTargetForHome (backendName) {
     const pickedBackend = backendName === 'gpu' || backendName === 'external' || backendName === 'cpu'
@@ -2638,13 +2658,17 @@
     if (classic) {
       const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
       toast(T('stopping'), 60000)
+      rememberMineChoice()
       await api.invoke('miner:stop', { chain: 'classic', backend })
+      clearMineRunningFlags()
       toast(T('stopped'))
       return
     }
     const ext = st.miners && st.miners.shard0 && st.miners.shard0.phase === 'external'
     if (!ext) toast(T('stopping'), 60000)
+    if (src !== 'node') rememberMineChoice()
     await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
+    if (src !== 'node') clearMineRunningFlags()
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
@@ -2845,6 +2869,7 @@
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': settingsModal(); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
+      case 'clearMineRunning': clearMineRunningFlags(); break
     }
   }
   api.on('menu:action', (a) => menuAction(a))
@@ -3145,9 +3170,11 @@
   async function runCatAction (action) {
     if (!action || action.type === 'send' || action.type === 'sign' || action.type === 'spend' || action.type === 'review' || action.type === 'login') return { ok: false }
     if (action.type === 'stopGpu') {
+      rememberMineChoice()
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
       const s0 = (st.miners && st.miners.shard0) || st.miner
       if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
+      clearMineRunningFlags()
       return { ok: true }
     }
     if (action.type === 'startJobs' || action.type === 'restartJobs') {
@@ -3277,32 +3304,46 @@
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
-    ensureCaps().then(async caps => {
-      const classicCpu = localStorage.getItem('minerRunClassicCpu') === '1'
-      let classicGpu = localStorage.getItem('minerRunClassicGpu') || ''
-      if (!classicCpu && !classicGpu && localStorage.getItem('minerMode') === 'classic-cpu') localStorage.setItem('minerRunClassicCpu', '1')
-      if (localStorage.getItem('minerRunClassicCpu') === '1' && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps && caps.cpu && caps.cpu.available) {
+    ensureCaps().catch(() => {})
+    ensureGpu().then(async () => {
+      promoteRunningToSelection()
+      let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
+      const legacyOn = localStorage.getItem('minerRunClassicCpu') === '1'
+      const plan = window.SCDOMineSession ? window.SCDOMineSession.launchPlan({
+        autoResume: !!(rc && rc.autoResume === true),
+        resume: rc && rc.resume,
+        running: {
+          cpu: legacyOn,
+          classicGpu: !!(localStorage.getItem('minerRunClassicGpu')),
+          shard0: localStorage.getItem('minerRunShard0') === '1'
+        }
+      }) : { start: [] }
+      if (!rc || rc.autoResume !== true || !plan.start.length) {
+        clearMineRunningFlags()
+        return
+      }
+      if (rc.running || (st.miner && st.miner.running)) return
+      const caps = st.caps || {}
+      if (plan.start.indexOf('cpu') >= 0 && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps.cpu && caps.cpu.available !== false) {
         const p = parseClassicAddress(localStorage.getItem('minerClassicCpu') || localStorage.getItem('minerClassic') || '')
         if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
       }
-      if (!classicGpu && localStorage.getItem('minerMode') === 'classic-gpu') classicGpu = localStorage.getItem('mineBackend112') === 'external' ? 'external' : 'gpu'
-      if (classicGpu && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
+      if (plan.start.indexOf('classicGpu') >= 0 && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
+        const gpuKind = localStorage.getItem('minerPickClassicGpu') || 'gpu'
         const p = parseClassicAddress(localStorage.getItem('minerClassicGpu') || localStorage.getItem('minerClassic') || '')
-        const gpuOk = classicGpu === 'external' ? (caps && caps.external && caps.external.available) : (caps && caps.gpu && caps.gpu.available)
+        const gpuOk = gpuKind === 'external' ? (caps.external && caps.external.available) : (caps.gpu && caps.gpu.available)
         if (p && gpuOk) {
           const gpu = gpuParams()
-          api.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: classicGpu === 'external' ? 'external' : 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
+          api.invoke('miner:start', p.address, { chain: 'classic', backend: 'gpu', gpuMiner: gpuKind === 'external' ? 'external' : 'classic-node', shard: p.shard, threads: gpu.threads, threadblocks: gpu.threadblocks, blockthreads: gpu.blockthreads })
         }
       }
-    }).catch(() => {})
-    ensureGpu().then(async () => {
-      let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
-      if (!rc || !rc.autoResume || rc.running || (st.miner && st.miner.running)) return
-      if (rc.mode === 'node') { nodeStart(); return }
-      if (!rc.gpuOk || !rc.reward) return
-      if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
-      const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
-      if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
+      if (plan.start.indexOf('shard0') >= 0) {
+        if (rc.mode === 'node') { nodeStart(); return }
+        if (!rc.gpuOk || !rc.reward) return
+        if (!(await okWithOtherRigel(rc.otherRigels))) { await api.invoke('miner:intentClear'); toast(T('otherRigelSkipped'), 9000); return }
+        const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
+        if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
+      }
     })
     if (st.tab === 'mineSet') render()
   }
