@@ -42,7 +42,7 @@
     "femployContract":"Employ",
     "QueryContract":"Query",
     "callContract":"Call",
-    "createWarning":"Secure your PASSWORD and KEYS, password must be 10+ characters long and include numbers, alphabets and special symbols",
+    "createWarning":"A reminder: keep the password and the keys. A password of 10 or more characters, with letters, numbers and a special symbol, works here.",
     "any":"Any",
     "cancel":"Cancel",
     "CancelTransaction":"Cancel",
@@ -79,23 +79,23 @@
     "manage":"manage",
     "passwordWarning":{
       "fail":"Fail to Create password",
-      "invalid":"Must contain letter,number and special char,length 8-15",
-      "length":"Password must contain at least 10 characters",
-      "uppercase":"Password must contain at least 1 uppercase letter",
-      "letter":"Password must contain at least 1 letter",
-      "number":"Password must contain at least 1 number",
-      "specialChar":"Password must contain at least 1 special char"
+      "invalid":"A reminder: use a letter, a number and a special character, 8-15 characters.",
+      "length":"A reminder: use at least 10 characters.",
+      "uppercase":"A reminder: include at least 1 uppercase letter.",
+      "letter":"A reminder: include at least 1 letter.",
+      "number":"A reminder: include at least 1 number.",
+      "specialChar":"A reminder: include at least 1 special character."
     },
     "shardWarning":{
-      "1":"NOTE: <br/>Send funds From Shard",
+      "1":"A reminder: <br/>Send funds From Shard",
       "2":" To Shard",
       "3":"<br/>higher fee will be taken.<br/>Your transaction will be mined <span>probably within 50 minutes"
     },
     "createKeyfileWarning":{
-      "stringEmpty":"Please enter name for keyfile",
+      "stringEmpty":"A reminder: add a name for the keyfile.",
       "stringExist":"Name already used",
-      "shardInvalid":"Shard number must be 1-4",
-      "keyInvalid":"Privatekey should be 64 alphanumeric characters after 0x",
+      "shardInvalid":"A reminder: the shard number is 1-4.",
+      "keyInvalid":"A reminder: a private key is 64 letters or digits after 0x.",
       "createSuccess":"Create success",
       "pubkeyExist":"Account existed"
     },
@@ -197,7 +197,7 @@
     "deployContract":"部署",
     "QueryContract":"查詢",
     "callContract":"呼叫",
-    "createWarning":"請儲存密碼和密帳戶件，密碼要10位以上含字母數字特殊字元",
+    "createWarning":"溫馨提醒：請另外留好密碼和帳戶檔案。密碼用 10 位以上，含字母、數字和特殊字元。",
     "any":"任意",
     "cancel":"取消",
     "CancelTransaction":"取消",
@@ -234,23 +234,23 @@
     "manage":"管理",
     "passwordWarning":{
       "fail":"帳戶建立失敗",
-      "invalid":"密碼必須包含大小寫字母、數字和特殊字元，8-15位",
-      "length":"密碼必須含至少10個字元",
-      "uppercase":"密碼必須含至少1個大寫字母",
-      "letter":"密碼必須含至少1個字母",
-      "number":"密碼必須含至少1個數字",
-      "specialChar":"密碼必須含至少1個特殊字元"
+      "invalid":"溫馨提醒：密碼用大小寫字母、數字和特殊字元，長度 8-15 位。",
+      "length":"溫馨提醒：密碼至少 10 個字元。",
+      "uppercase":"溫馨提醒：密碼裡放至少 1 個大寫字母。",
+      "letter":"溫馨提醒：密碼裡放至少 1 個字母。",
+      "number":"溫馨提醒：密碼裡放至少 1 個數字。",
+      "specialChar":"溫馨提醒：密碼裡放至少 1 個特殊字元。"
     },
     "shardWarning":{
-      "1":"注意: <br/>數額將從片",
+      "1":"溫馨提醒：<br/>數額將從片",
       "2":" 轉至片",
       "3":"<br/>交易費用會提高<br/>點選 確認 繼續交易操作"
     },
     "createKeyfileWarning":{
-      "stringEmpty":"檔名不能為空",
+      "stringEmpty":"溫馨提醒：檔名再填一個字。",
       "stringExist":"檔名已有",
-      "shardInvalid":"片號須為1-4",
-      "keyInvalid":"私鑰須為以0x開頭66位數字字母字串",
+      "shardInvalid":"溫馨提醒：片號是 1-4。",
+      "keyInvalid":"溫馨提醒：私鑰是 0x 後面 64 位數字或字母。",
       "createSuccess":"建立成功!",
       "pubkeyExist":"帳戶已存在"
     },

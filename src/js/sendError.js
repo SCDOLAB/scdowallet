@@ -2,8 +2,8 @@
 'use strict'
 ;(function () {
   const CN = {
-    TOO_MANY_DECIMALS: '最多小數點後 8 位。',
-    NUMERIC_FAULT: '這個金額的小數位數太多。最多小數點後 8 位。',
+    TOO_MANY_DECIMALS: '溫馨提醒：小數點後最多 8 位。',
+    NUMERIC_FAULT: '溫馨提醒：這個金額的小數位數比較多。小數點後最多 8 位。',
     INSUFFICIENT_FUNDS: '餘額不夠付這筆金額和手續費。',
     NONCE_EXPIRED: '這筆交易的序號已經過期，請再試一次。',
     NETWORK: '網路暫時連不上，請稍後再試。',
@@ -12,8 +12,8 @@
     UNKNOWN: '這一步沒有完成，請再試一次。'
   }
   const EN = {
-    TOO_MANY_DECIMALS: 'At most 8 digits after the decimal point.',
-    NUMERIC_FAULT: 'This amount has too many decimal places. Use at most 8.',
+    TOO_MANY_DECIMALS: 'A reminder: at most 8 digits after the decimal point.',
+    NUMERIC_FAULT: 'A reminder: this amount has more decimal places than the wallet keeps. At most 8.',
     INSUFFICIENT_FUNDS: 'The balance does not cover this amount and the fee.',
     NONCE_EXPIRED: 'This transaction number has expired. Please try again.',
     NETWORK: 'The network cannot be reached right now. Please try again later.',

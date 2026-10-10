@@ -194,7 +194,7 @@ function planHeal (ctx) {
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
         bits.push('準備重新啟動 Shard0 EVM')
-      } else if (!jobs.length) bits.push('先不要再啟動新的節點')
+      } else if (!jobs.length) bits.push('可以先等一下，再啟動新的節點')
     }
   }
   if (!jobs.length) return { say: bits.join('，') + '。', actions: [] }
@@ -209,13 +209,13 @@ function sayBalance (ctx) {
 
 function planBackup () {
   return {
-    say: '帳戶要靠帳戶檔案和密碼才能恢復。小貓不會顯示種子、私鑰或密碼，也不會把它寫進紀錄。請在接下來的清單裡自己按「立即備份」，並另外複製到隨身碟。',
+    say: '溫馨提醒：帳戶要靠帳戶檔案和密碼才能恢復。小貓不會顯示種子、私鑰或密碼，也不會把它寫進紀錄。接下來的清單裡可以自己按「立即備份」，並另外複製到隨身碟。',
     actions: [{ type: 'openBackup' }]
   }
 }
 
 function refuseSecret () {
-  return { say: '請不要把種子、私鑰或密碼貼在這裡。小貓不會顯示，也不會記錄。', actions: [] }
+  return { say: '溫馨提醒：助記詞、私鑰和密碼只存在你自己的設備，我們不會向你索取。小貓不會顯示，也不會記錄。', actions: [] }
 }
 
 function parseTransfer (text) {
@@ -281,7 +281,7 @@ function planTransfer (text, ctx) {
 // A private key is only ever typed into the masked import dialog, never into this chat.
 const OPEN_SAY = {
   create: '已開啟「建立新地址」視窗。同一個帳戶會有一個 Shard1–Shard4 的地址和一個 Shard0 EVM 地址。密碼請你自己輸入，小貓看不到。',
-  import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入；私鑰只在隱藏輸入視窗裡輸入，請不要貼在這裡。',
+  import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入。私鑰只在隱藏輸入視窗裡輸入。溫馨提醒：助記詞和私鑰只存在你自己的設備，貼在聊天裡小貓也看不到。',
   settings: '已開啟「設定」。',
   reward: '已開啟「挖礦設定」。要改出塊獎勵地址，請先停止挖礦，再選新的地址。',
   send: '已開啟轉帳表單。金額、收款人和哪條鏈都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
@@ -304,7 +304,7 @@ function planOpen (q, ctx) {
 // 3.0.4: official contacts (the same ones as Settings → About)
 const CONTACT = { channel: 't.me/SCDOLabor', group: 't.me/SCDOCommunity', email: 'admin@apeccapital.org' } // no URLs here: the cat never goes online; the links live in the window
 function sayContact () {
-  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。SCDO 實驗室不會向你索取種子、私鑰或密碼。', actions: [] }
+  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。溫馨提醒：助記詞、私鑰和密碼只存在你自己的設備，我們不會向你索取。', actions: [] }
 }
 
 function wantsMine (q) {

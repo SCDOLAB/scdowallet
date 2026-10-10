@@ -14,8 +14,8 @@ const { signPlan, macTarget } = macAfterSign
 const root = path.join(__dirname, '..')
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
 
-const WIN_CN_BACKUP = '把帳戶檔案複製到「文件\\ScdoWallet\\備份」。帳戶檔案和密碼一起才能恢復帳戶，請另外再存一份到隨身碟。'
-const WIN_EN_BACKUP = 'Copies keyfiles to the backup folder below (inside Documents\\ScdoWallet). A keyfile plus its password restores the account; keep another copy on a USB stick.'
+const WIN_CN_BACKUP = '溫馨提醒：把帳戶檔案複製到「文件\\ScdoWallet\\備份」。帳戶檔案和密碼放在一起才恢復得了，另外再存一份到隨身碟。'
+const WIN_EN_BACKUP = 'A reminder: copies keyfiles to the backup folder below (inside Documents\\ScdoWallet). A keyfile and its password together restore the account. Another copy on a USB stick is handy.'
 const WIN_CN_NOTIFY = '在 Windows 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。'
 const WIN_EN_NOTIFY = 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.'
 

@@ -85,7 +85,7 @@ for (const code of ['BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NO_ZMINE
   assert.strictEqual(err.full('EN', code, 'x'), err.FULL[code].EN)
 }
 assert.strictEqual(err.full('CN', 'BAD_POOLS', 'SCDO_ZPOW_POOLS is not JSON'), err.FULL.BAD_POOLS.CN)
-assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '下載的挖礦程式跟官方版本對不上，為了安全已經停止啟動。請重新安裝或再試一次。')
+assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '溫馨提醒：下載的挖礦程式跟官方版本對不上，所以這次沒有啟動。重新安裝或再試一次就可以。')
 assert.strictEqual(err.full('CN', 'NO_ZMINER', 'zminer binary not found ... set SCDO_ZMINER_EXE.'), '找不到處理器挖礦程式。請重新安裝 SCDO Wallet。')
 assert.ok(err.FULL.CRASHING.EN.includes('"Export mining logs (sanitized)"'))
 assert.ok(err.FULL.CRASHING.CN.includes('「匯出挖礦日誌」'))

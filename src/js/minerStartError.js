@@ -57,12 +57,12 @@
       EN: 'A file the graphics-card miner needs is missing, so mining did not start. Please reinstall SCDO Wallet.'
     },
     SHA256_MISSING: {
-      CN: '沒辦法確認挖礦程式是不是官方版本，為了安全已經停止啟動。請重新安裝 SCDO Wallet。',
-      EN: 'The wallet could not check that the mining program is the official version, so for safety it was not started. Please reinstall SCDO Wallet.'
+      CN: '溫馨提醒：還沒能確認挖礦程式是不是官方版本，所以這次沒有啟動。重新安裝 SCDO Wallet 就可以。',
+      EN: 'A reminder: the wallet could not yet check that the mining program is the official version, so this start did not go ahead. Reinstalling SCDO Wallet takes care of it.'
     },
     SHA256_MISMATCH: {
-      CN: '下載的挖礦程式跟官方版本對不上，為了安全已經停止啟動。請重新安裝或再試一次。',
-      EN: 'The mining program does not match the official version, so for safety it was not started. Please reinstall or try again.'
+      CN: '溫馨提醒：下載的挖礦程式跟官方版本對不上，所以這次沒有啟動。重新安裝或再試一次就可以。',
+      EN: 'A reminder: the mining program does not match the official version, so this start did not go ahead. Reinstalling or trying again takes care of it.'
     },
     BAD_ARGS: {
       CN: '挖礦程式的啟動設定不對，所以沒有開始挖礦。請檢查挖礦地址和設定，再試一次。',
