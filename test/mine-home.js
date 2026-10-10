@@ -671,6 +671,39 @@ assert.strictEqual(mine.chooseMinePath({
     now: now
   }, CN, esc)
   assert.ok(shown.includes('等待同步（Shard1 52%），同步完成後顯卡自動開始'))
+  const ghostWait = mine.minePageHtml({
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 1, backend: 'classic-node',
+        code: 'CLASSIC_SYNCING', phase: 'syncing', procs: [], localBlock: 52, networkBlock: 100
+      }
+    },
+    chains: { cpu: [], gpu: [1] },
+    caps: { gpu: { available: true } },
+    addresses: { 1: addr(1) }
+  }, CN, esc)
+  assert.ok(ghostWait.includes('已停止'))
+  assert.ok(ghostWait.includes('開始挖礦'))
+  assert.ok(!ghostWait.includes('等待同步'))
+  assert.ok(!ghostWait.includes('停止挖礦'))
+  const poolLine = mine.homeLine({
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 1, backend: 'zminer-gpu',
+        procs: ['zminer-gpu'], phase: 'starting', code: 'POOL_CONNECTING'
+      }
+    }
+  }, CN)
+  assert.strictEqual(poolLine, I.CN.homeLineGpuPool)
+  const ghostLine = mine.homeLine({
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 1, backend: 'classic-node',
+        code: 'CLASSIC_SYNCING', phase: 'syncing', procs: [], localBlock: 40, networkBlock: 100
+      }
+    }
+  }, CN)
+  assert.strictEqual(ghostLine, I.CN.homeLineIdle)
   assert.ok(shown.includes('先用 CPU 經礦池挖'))
   assert.ok(shown.includes('data-act="mineCpuFirst"'))
   assert.ok(shown.includes('class="wait"'))

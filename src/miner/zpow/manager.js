@@ -648,6 +648,11 @@ class GpuFleet extends EventEmitter {
     await Promise.all(jobs)
   }
 
+  childUp (kid) {
+    const proc = kid && kid.proc
+    return !!(proc && proc.pid && proc.exitCode == null && proc.signalCode == null)
+  }
+
   async start (address, opts) {
     opts = opts || {}
     const parsed = parseClassicAddress(address)
@@ -660,8 +665,10 @@ class GpuFleet extends EventEmitter {
     if (gpuMiner === 'zminer-gpu') await this.stopWhere((shard, kid) => kid.state.backend && kid.state.backend !== 'zminer-gpu')
     else await this.stopWhere(shard => shard !== parsed.shard)
     let kid = this.kids.get(parsed.shard)
-    if (kid && kid.wantRunning && kid.state.backend === gpuMiner && kid.state.wallet === parsed.address) return this.status()
-    if (kid && kid.wantRunning) await kid.stop()
+    // A previous start can still say it is running after the process has gone.
+    // That must not skip the pool miner while a solo node is still syncing.
+    if (kid && this.childUp(kid) && kid.wantRunning && kid.state.backend === gpuMiner && kid.state.wallet === parsed.address) return this.status()
+    if (kid && (kid.wantRunning || kid.proc)) await kid.stop()
     kid = new ZpowManager(this.o)
     this.kids.set(parsed.shard, kid)
     this.watch(kid)

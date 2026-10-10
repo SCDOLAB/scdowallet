@@ -1220,6 +1220,16 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   assert.ok(kid2.launchSpec.args.includes(shard2))
   assert.ok(kid2.launchSpec.args.includes('-device') && kid2.launchSpec.args.includes('0'))
   assert.strictEqual(fleet.childPids().length, 2)
+  // A dead child must not count as already mining. The next start spawns again,
+  // including the pool miner used while a solo node is still syncing.
+  const dead = fleet.kids.get(1)
+  dead.proc.kill('SIGKILL')
+  await new Promise(resolve => dead.proc.once('exit', resolve))
+  assert.strictEqual(fleet.childUp(fleet.kids.get(1)), false)
+  const again = await fleet.start(REAL, { backend: 'gpu', gpuMiner: 'zminer-gpu', shard: 1 })
+  assert.strictEqual(again.backend, 'zminer-gpu')
+  assert.strictEqual(fleet.childUp(fleet.kids.get(1)), true)
+  assert.ok(fleet.childPids().length >= 2)
   const tStop = Date.now()
   await fleet.stop()
   const stopMs = Date.now() - tStop

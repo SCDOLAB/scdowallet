@@ -331,6 +331,11 @@ function statusPhase (input) {
   if (p === 'starting' || p === 'stopping') return p
   const miners = input && input.miners
   if (anyLive(miners)) return 'mining'
+  if (input && input.liveOnly) {
+    if (p === 'mining') return 'mining'
+    if (armedWithProcess(miners)) return 'waiting'
+    return 'stopped'
+  }
   if (p === 'mining' || anyArmed(miners)) return 'waiting'
   return 'stopped'
 }
@@ -799,7 +804,15 @@ function minersForDevice (miners, device) {
 function gpuPoolUp (g) {
   if (!g) return false
   const list = Array.isArray(g.shards) && g.shards.length ? g.shards : [g]
-  return list.some(s => s && s.backend === 'zminer-gpu' && s.mode !== 'node' && (s.running || procsAlive(s)))
+  return list.some(s => s && s.backend === 'zminer-gpu' && s.mode !== 'node' && procsAlive(s))
+}
+
+// Waiting is a live process that has not started hashing. A running flag
+// with no child is stopped, so the page cannot sit on 「等待同步」 by itself.
+function armedWithProcess (miners) {
+  miners = miners || {}
+  const one = (m, kind) => processAlive(m) && (liveMiner(m, kind) || waitingSync(m, kind) || procsAlive(m))
+  return one(miners.shard0, 'shard0') || one(miners.classicCpu, 'classic') || one(miners.classicGpu, 'classic')
 }
 
 function devicePhase (input, device) {
@@ -808,7 +821,7 @@ function devicePhase (input, device) {
   const miners = minersForDevice(input && input.miners, device)
   if (anyLive(miners)) return 'mining'
   if (device === 'gpu' && gpuPoolUp(miners.classicGpu)) return 'mining'
-  if (anyArmed(miners)) return 'waiting'
+  if (armedWithProcess(miners)) return 'waiting'
   return 'stopped'
 }
 
@@ -855,12 +868,13 @@ function deviceModel (input, device, T) {
     temps: device === 'gpu' ? input.temps : [],
     earnLog: input.earnLog,
     now: input.now,
-    phase: phase
+    phase: phase,
+    liveOnly: true
   }, T)
   let status = plainStatus(view, T)
   const known = !!(input && input.caps && (input.caps.gpu || input.caps.cpu))
   const g = (input && input.miners && input.miners.classicGpu)
-  if (device === 'gpu' && g && g.backend !== 'zminer-gpu' && waitingSync(g, 'classic') && !(g.gpuActive || g.code === 'CLASSIC_GPU')) {
+  if (device === 'gpu' && g && processAlive(g) && g.backend !== 'zminer-gpu' && waitingSync(g, 'classic') && !(g.gpuActive || g.code === 'CLASSIC_GPU')) {
     const pct = syncPctOf(g)
     status = gpuWaitText(g.shard, pct != null ? pct : g.syncPct, zhUi(T))
     view.statusTone = 'wait'
@@ -948,7 +962,7 @@ function chainDetailHtml (input, device, n, T, esc) {
   const zh = zhUi(T)
   let state = tr(T, 'shellMineOff')
   let waitingRow = false
-  const gpuRunning = device === 'gpu' && n >= 1 && session && session.mode !== 'node' && session.mode !== 'cpu' && (session.running || procsAlive(session))
+  const gpuRunning = device === 'gpu' && n >= 1 && session && session.mode !== 'node' && session.mode !== 'cpu' && procsAlive(session)
   const poolGpu = gpuRunning && session.backend === 'zminer-gpu'
   const behind = gpuRunning && !poolGpu ? heightsBehind(session) : null
   const miningNow = gpuRunning && !poolGpu && (session.gpuActive || session.code === 'CLASSIC_GPU' || (behind === false && (session.phase === 'mining' || session.code === 'CLASSIC_GPU')))
@@ -975,7 +989,7 @@ function chainDetailHtml (input, device, n, T, esc) {
   else if (held && held.reason) state = held.reason
   else if (held && held.reasonKey) state = tr(T, held.reasonKey)
   else if (session && ((n === 0 && liveMiner(session, 'shard0')) || (n >= 1 && liveMiner(session, 'classic')))) state = tr(T, 'shellMineOn')
-  else if (session && ((n === 0 && waitingSync(session, 'shard0')) || (n >= 1 && waitingSync(session, 'classic')))) {
+  else if (session && processAlive(session) && ((n === 0 && waitingSync(session, 'shard0')) || (n >= 1 && waitingSync(session, 'classic')))) {
     const pct = syncPctOf(session)
     state = pct == null ? tr(T, 'shellMineWaitPlain') : tr(T, 'shellMineWait', { detail: chainLabel(n) + ' ' + pct + '%' })
     waitingRow = n >= 1 && device === 'gpu'
@@ -1033,7 +1047,7 @@ function homeLine (input, T) {
   if (press.gpu === 'starting' || press.cpu === 'starting' || input.phase === 'starting') return tr(T, 'homeLineStarting')
   if (press.gpu === 'stopping' || press.cpu === 'stopping' || input.phase === 'stopping') return tr(T, 'homeLineStopping')
   if (gpuPoolUp(gpu)) return tr(T, 'homeLineGpuPool')
-  const gpuOn = gpu && gpu.mode !== 'node' && gpu.mode !== 'cpu' && (gpu.running || procsAlive(gpu))
+  const gpuOn = gpu && gpu.mode !== 'node' && gpu.mode !== 'cpu' && processAlive(gpu)
   if (gpuOn && waitingSync(gpu, 'classic') && !(gpu.gpuActive || gpu.code === 'CLASSIC_GPU')) {
     const pct = syncPctOf(gpu)
     return gpuWaitText(gpu.shard, pct != null ? pct : gpu.syncPct, zhUi(T))
