@@ -377,6 +377,18 @@ function writeIntent (patch) {
 // ---- 1.1.5: startup cleanup of the wallet's own leftover geth / proxy / rigel ----
 let startupCleanup = null
 function afterCleanup () { return startupCleanup ? startupCleanup.catch(() => {}) : Promise.resolve() }
+function minerProcessAlive () {
+  if (classicBusy(zpowCpu) || classicBusy(zpowGpu)) return true
+  if (!miner) return false
+  if (miner.wantRunning || miner.stopping || miner.cleaning) return true
+  try { if (miner.childPids().length) return true } catch (e) {}
+  try { return Object.values(miner.procs || {}).some(Boolean) } catch (e) { return false }
+}
+// Startup with nothing running: a leftover running* flag is a crashed session, not a request to mine.
+function settleStaleRunFlags () {
+  if (minerProcessAlive()) return
+  writeIntent(mineResume.afterStartup(readIntent() || {}, false))
+}
 
 // ---- 1.1.5: visible "stopping" window while the miner shuts down (Stop button and quit) ----
 let stopWin = null
@@ -461,6 +473,7 @@ ipcMain.handle('miner:otherRigels', async () => { await afterCleanup(); try { re
 // everything the renderer needs to decide about auto-resume on launch
 ipcMain.handle('miner:resumeCheck', async () => {
   await afterCleanup()
+  try { settleStaleRunFlags() } catch (e) {}
   const it = readIntent() || {}
   const m = getMiner()
   let gpuOk = !app.isPackaged && !!process.env.SCDO_RIGEL_EXE // test hook (development runs only, 1.1.5b): a stand-in miner exe, no GPU check (same as MinerManager.start)
@@ -479,9 +492,10 @@ ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } 
 ipcMain.handle('miner:stop', async (e, src) => {
   if (src && typeof src === 'object' && src.chain === 'classic') {
     const backend = optsBackend(src)
+    // On disk before the kill. A hang must not leave runningClassicGpu set.
+    writeIntent(mineResume.afterStop(readIntent() || {}, backend === 'gpu' ? 'classicGpu' : 'cpu'))
     try {
       await stopClassic(backend)
-      writeIntent(mineResume.afterStop(readIntent() || {}, backend === 'gpu' ? 'classicGpu' : 'cpu'))
       refreshTray()
       return { ok: true }
     } catch (err) { return { ok: false, error: err.message } }
@@ -733,7 +747,9 @@ if (!app.requestSingleInstanceLock()) {
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
     // 1.1.5: stop the wallet's own miner processes left over from an earlier session (never other Rigel/geth)
-    startupCleanup = getMiner().cleanupStale().catch(err => { console.error('miner cleanup failed', err); return [] })
+    startupCleanup = getMiner().cleanupStale().then(() => {
+      try { settleStaleRunFlags() } catch (e) { console.error('stale run flags', e) }
+    }).catch(err => { console.error('miner cleanup failed', err); return [] })
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
@@ -754,6 +770,10 @@ let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, upda
 let hintShown = false
 const startHidden = process.argv.includes('--scdo-hidden')
 // 2.0.6: the one way to quit. confirm=true asks first while mining (Cancel is the default).
+async function clearPageRunFlags () {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  await mainWindow.webContents.executeJavaScript("try{localStorage.removeItem('minerRunClassicCpu');localStorage.removeItem('minerRunClassicGpu');localStorage.removeItem('minerRunShard0')}catch(e){}")
+}
 async function requestQuit ({ confirm, reason } = {}) {
   if (quitPromise) return quitPromise
   if (confirm && miningNow()) {
@@ -764,6 +784,7 @@ async function requestQuit ({ confirm, reason } = {}) {
   }
   quitting = true
   try { writeIntent(mineResume.afterQuit(readIntent() || {})) } catch (e) { console.error('clear running flags on quit failed', e) }
+  try { await clearPageRunFlags() } catch (e) { console.error('clear page run flags failed', e) }
   try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', 'clearMineRunning') } catch (e) {}
   // 2.0.7: a quit stops mining on purpose; only an update quit is reported as "paused for an update"
   try { if (reason === 'update') getNotifier().markStopReason('update'); else getNotifier().markUserStop() } catch (e) {}

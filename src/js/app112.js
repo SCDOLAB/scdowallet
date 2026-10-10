@@ -3001,16 +3001,16 @@
       localStorage.removeItem('minerRunClassicGpu')
       localStorage.removeItem('minerRunShard0')
     } catch (e) {}
-    try { api.invoke('miner:clearRunning') } catch (e) {}
+    try { return api.invoke('miner:clearRunning') } catch (e) { return Promise.resolve() }
   }
   // Stop only stops processes. The saved graphics-card / processor choice stays,
   // so the next Start mining restores that session instead of falling back to the processor.
   async function stopAllNow () {
     rememberMineChoice()
+    try { await clearMineRunningFlags() } catch (e) {}
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
-    clearMineRunningFlags()
     toast(T('stopped'))
   }
   async function stopAll () {
@@ -3228,6 +3228,7 @@
   }
   async function stopDevice (device) {
     rememberMineChoice()
+    try { await clearMineRunningFlags() } catch (e) {}
     if (device === 'cpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     } else {
@@ -3240,7 +3241,6 @@
     const stoppedPick = readChainPick()
     st.mineRows = st.mineRows || {}
     for (const n of stoppedPick[device] || []) delete st.mineRows[n]
-    clearMineRunningFlags()
     toast(T('stopped'))
   }
   function rememberMineRows (device, built) {
@@ -3466,6 +3466,7 @@
     refreshDash()
   }
   async function minerStop (src) {
+    if (src !== 'node') { try { await clearMineRunningFlags() } catch (e) {} }
     const classic = Number(st.mineShard) >= 1
     if (classic) {
       const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
@@ -3477,7 +3478,6 @@
     const ext = st.miners && st.miners.shard0 && st.miners.shard0.phase === 'external'
     if (!ext) toast(T('stopping'), 60000)
     await api.invoke('miner:stop', src === 'node' ? 'node' : 'mine')
-    if (src !== 'node') clearMineRunningFlags()
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
@@ -4246,19 +4246,23 @@
     ensureCaps().catch(() => {})
     ensureGpu().then(async () => {
       let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
-      // Running flags never start a miner. Auto-resume has to be explicitly on.
-      const legacyOn = localStorage.getItem('minerRunClassicCpu') === '1'
+      // A leftover localStorage run flag is not a miner. Only an armed resume snapshot may start one.
+      const alive = !!(rc && rc.running) || !!(st.miner && st.miner.running)
+        || !!(window.SCDOMineHome && (window.SCDOMineHome.deviceProcessAlive(st.miners, 'cpu') || window.SCDOMineHome.deviceProcessAlive(st.miners, 'gpu')))
+      if (!alive) {
+        try {
+          localStorage.removeItem('minerRunClassicCpu')
+          localStorage.removeItem('minerRunClassicGpu')
+          localStorage.removeItem('minerRunShard0')
+        } catch (e) {}
+      }
       const plan = window.SCDOMineSession ? window.SCDOMineSession.launchPlan({
         autoResume: !!(rc && rc.autoResume === true),
         resume: rc && rc.resume,
-        running: {
-          cpu: legacyOn,
-          classicGpu: !!(localStorage.getItem('minerRunClassicGpu')),
-          shard0: localStorage.getItem('minerRunShard0') === '1'
-        }
+        running: { cpu: false, classicGpu: false, shard0: false }
       }) : { start: [] }
       if (!rc || rc.autoResume !== true || !plan.start.length) {
-        clearMineRunningFlags()
+        if (!alive) clearMineRunningFlags()
         return
       }
       if (rc.running || (st.miner && st.miner.running)) return

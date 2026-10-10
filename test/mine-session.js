@@ -137,4 +137,60 @@ assert.strictEqual(flags.minerRunClassicGpu, '')
 assert.strictEqual(flags.minerRunShard0, '')
 assert.strictEqual(flags.minerPickClassicGpu, 'gpu')
 
+// A killed session leaves runningClassicGpu set. With no process, startup forgets it and does not resume.
+const stale = resume.afterStartup({
+  autoResume: true,
+  keepMining: true,
+  runningClassicGpu: true,
+  resume: { cpu: false, classicGpu: true, shard0: false }
+}, false)
+assert.strictEqual(stale.runningClassicGpu, false)
+assert.strictEqual(stale.runningCpu, false)
+assert.strictEqual(stale.runningShard0, false)
+assert.strictEqual(stale.autoResume, false)
+assert.deepStrictEqual(stale.resume, { cpu: false, classicGpu: false, shard0: false })
+assert.deepStrictEqual(resume.launchTargets(stale), [])
+
+// A clean quit already cleared running*. Startup keeps the armed resume snapshot.
+const clean = resume.afterStartup({
+  autoResume: true,
+  keepMining: true,
+  runningCpu: false,
+  runningClassicGpu: false,
+  runningShard0: false,
+  resume: { cpu: false, classicGpu: true, shard0: false }
+}, false)
+assert.strictEqual(clean.runningClassicGpu, false)
+assert.deepStrictEqual(clean.resume, { cpu: false, classicGpu: true, shard0: false })
+assert.deepStrictEqual(resume.launchTargets(clean), ['classicGpu'])
+
+// A live process is left alone, including its running flag.
+const live = resume.afterStartup({
+  autoResume: true,
+  keepMining: true,
+  runningClassicGpu: true,
+  resume: { cpu: false, classicGpu: true, shard0: false }
+}, true)
+assert.strictEqual(live.runningClassicGpu, true)
+assert.deepStrictEqual(live.resume, { cpu: false, classicGpu: true, shard0: false })
+
+const fs = require('fs')
+const path = require('path')
+const mainSrc = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+const uiSrc = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
+const stopH = mainSrc.slice(mainSrc.indexOf("ipcMain.handle('miner:stop'"), mainSrc.indexOf("ipcMain.handle('miner:status'"))
+const classicStop = stopH.slice(0, stopH.indexOf("{}, 'shard0'"))
+assert.ok(classicStop.indexOf('afterStop') >= 0 && classicStop.indexOf('afterStop') < classicStop.indexOf('await stopClassic'))
+assert.ok(mainSrc.includes('settleStaleRunFlags()'))
+assert.ok(mainSrc.includes('mineResume.afterStartup'))
+assert.ok(mainSrc.includes("localStorage.removeItem('minerRunClassicGpu')"))
+const stopDev = uiSrc.slice(uiSrc.indexOf('async function stopDevice'), uiSrc.indexOf('async function startDevice'))
+assert.ok(stopDev.indexOf('clearMineRunningFlags') < stopDev.indexOf("invoke('miner:stop'"))
+const stopAll = uiSrc.slice(uiSrc.indexOf('async function stopAllNow'), uiSrc.indexOf('async function stopAll ()'))
+assert.ok(stopAll.indexOf('clearMineRunningFlags') < stopAll.indexOf("invoke('miner:stop'"))
+const boot = uiSrc.slice(uiSrc.indexOf('async function boot'), uiSrc.length)
+const planArg = boot.slice(boot.indexOf('launchPlan'), boot.indexOf('if (!rc'))
+assert.ok(planArg.includes('classicGpu: false'))
+assert.ok(!planArg.includes('minerRunClassicGpu'))
+
 console.log('mine-session: ok')

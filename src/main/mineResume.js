@@ -71,4 +71,14 @@ function launchTargets (intent) {
   return out
 }
 
-module.exports = { blankResume, armed, clearedRunning, afterStop, afterQuit, launchTargets }
+// A killed or hung session leaves running* set. With no live process those flags are stale:
+// forget them and do not resume. A clean quit already cleared running*, so an armed resume snapshot stays.
+function afterStartup (intent, processAlive) {
+  const it = Object.assign({}, intent || {})
+  if (processAlive) return it
+  const stale = !!(it.runningCpu || it.runningClassicGpu || it.runningShard0)
+  if (stale) return afterStop(it, 'all')
+  return clearedRunning(it)
+}
+
+module.exports = { blankResume, armed, clearedRunning, afterStop, afterQuit, launchTargets, afterStartup }
