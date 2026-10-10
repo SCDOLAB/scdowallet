@@ -981,51 +981,6 @@
         <div style="font-weight:700">${esc(amt)}</div></div>`
     }).join('')
   }
-  function pageRemit () {
-    const a = remitAccount()
-    if (!st.remit.base) api.invoke('remit:info').then(r => { if (r && r.base && r.base !== st.remit.base) { st.remit.base = r.base; const el = $('remitBase'); if (el) SD.text(el, r.base) } }).catch(() => {})
-    const signedIn = remitOwnsSession()
-    if (st.remit.phase === 'in' && !signedIn) { api.invoke('remit:logout').catch(() => {}); remitReset() }
-    const phase = signedIn ? 'in' : st.remit.phase
-    let body
-    if (!a) {
-      body = `<div class="muted" style="font-size:20px;margin-top:12px">${esc(T('remitNeedAccount'))}</div>
-        <div class="actions" style="justify-content:flex-start"><button class="btn pri" data-act="create">${esc(T('createAccount'))}</button><button class="btn sec" data-act="import">${esc(T('importAccount'))}</button></div>`
-    } else if (signedIn) {
-      body = `<div class="ok" id="remitStatus" style="font-size:22px;font-weight:700;margin-top:8px">${esc(T('remitIn'))}</div>
-        <div class="lbl" style="margin-top:8px">${esc(T('remitAddr'))}</div>
-        <div class="mono" id="remitAddr">${esc(st.remit.address)}</div>
-        <div class="card" id="remitLedger" style="margin-top:16px;padding:8px 0">${remitLedgerHtml(st.remit.ledger)}</div>
-        <div class="row" style="margin-top:16px;flex-wrap:wrap">
-          <button class="btn sec" data-act="remitRefresh" id="btnRemitRefresh">${esc(T('remitRefresh'))}</button>
-          <button class="btn ghost" data-act="remitLogout" id="btnRemitLogout">${esc(T('remitLogout'))}</button>
-        </div>`
-    } else {
-      const busy = phase === 'challenge' || phase === 'sign' || phase === 'session' || phase === 'ledger'
-      const status = phase === 'challenge' ? T('remitChallenge') : phase === 'sign' ? T('remitSigning') : phase === 'session' ? T('remitSession') : phase === 'ledger' ? T('remitLedgerLoad') : ''
-      body = `<div class="lbl" style="margin-top:14px">${esc(T('remitAccount'))}${PU.c()}<b class="wrap">${esc(accLabel(a))}</b></div>
-        ${a.evm ? `<div class="lbl">${esc(T('remitAddr'))}</div><div class="mono" id="remitAddr">${esc(a.evm)}</div>` : `<div class="lbl">🔒 ${esc(T('locked'))}</div>`}
-        <div class="muted" style="margin-top:10px">${esc(T('remitSigningNote'))}</div>
-        <div class="unlockbox" style="justify-content:flex-start">
-          <input class="inp" type="password" id="remitPw" placeholder="${esc(T('password'))}" style="width:320px;max-width:100%" ${busy ? 'disabled' : ''}>
-          <button class="btn pri" data-act="remitSign" data-f="${esc(a.filename)}" id="btnRemitSign" ${busy ? 'disabled' : ''}>${esc(T('remitSignIn'))}</button>
-        </div>
-        ${status ? `<div id="remitStatus" style="margin-top:12px"><span class="spin"></span> ${esc(status)}</div>` : '<div id="remitStatus"></div>'}
-        ${st.remit.error ? `<div class="err" id="remitErr">${esc(st.remit.error)}</div>` : ''}`
-    }
-    return `<div class="page"><div class="h1" style="font-size:30px;font-weight:700">${esc(T('remitTitle'))}</div>
-      <div class="muted" style="font-size:18px;margin-top:4px">${esc(T('remitEn'))}</div>
-      <div class="card" style="margin-top:18px;padding:28px 32px">
-        <div style="font-size:20px">${esc(T('remitLead'))}</div>
-        <div style="font-size:20px;margin-top:8px">${esc(T('remitZero'))}</div>
-        <div class="enline">${esc(T('remitZeroEn'))}</div>
-        <div class="lbl" style="margin-top:12px">${esc(T('remitOwnOnly'))}</div>
-        ${remitSteps(phase)}
-        ${body}
-        <div class="lbl wrap" style="margin-top:18px">${esc(T('remitGateway'))}${PU.c()}<span class="mono" id="remitBase">${esc(st.remit.base || 'https://scdoscan.io/remit-api')}</span></div>
-        <div class="enline">${esc(T('remitEnv'))}</div>
-      </div></div>`
-  }
   function remitErrText (r) {
     if (r && r.wrongPw) return T('wrongPw')
     if (r && r.foreign) return T('remitForeign')
