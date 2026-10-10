@@ -97,6 +97,7 @@ function buildTemplate (mainWindow, lang) {
     if (it.action === 'create') return { label: L.create, click: act('create') }
     if (it.action === 'import') return { label: L.import, click: act('import') }
     if (it.action) return { label: cn ? it.cn : it.en, click: act(it.action) }
+    if (it.href && it.withAddress) return { label: cn ? it.cn : it.en, click: act('buy:' + it.id) }
     if (it.href) return { label: cn ? it.cn : it.en, click: () => openExternal(it.href) }
     return { label: cn ? it.cn : it.en, enabled: false }
   }

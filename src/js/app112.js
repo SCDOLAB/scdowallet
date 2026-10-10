@@ -605,6 +605,25 @@
     if (host) host.querySelectorAll('details[data-chain-row]').forEach(d => { if (d.open) open[d.getAttribute('data-chain-row')] = true })
     return window.SCDOChainHome.rowsHtml(chainRowModel(open), T, esc)
   }
+  function selectedShard1 () {
+    const model = (chainRowModel({})[1]) || { entries: [] }
+    let last = ''
+    try { last = localStorage.getItem('recvAddr310-1') || '' } catch (e) {}
+    const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
+    const addr = picked && picked.address ? String(picked.address) : ''
+    return addr.indexOf('1S01') === 0 ? addr : ''
+  }
+  function openAccountSite (id) {
+    const nav = window.SCDOSiteNav
+    if (!nav || !nav.visit) return
+    const target = nav.visit(id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: selectedShard1() })
+    if (target) openExternal(target)
+  }
+  function homeBuyHtml () {
+    if (!window.SCDOSiteNav) return ''
+    const pills = `<div class="home-buy-row"><button type="button" class="home-buy-pill" data-act="buySite" data-v="membership">${esc(T('homeBuyMember'))}</button><button type="button" class="home-buy-pill" data-act="buySite" data-v="otc">${esc(T('homeBuyOtc'))}</button></div>`
+    return `<details class="shell-fold home-buy" id="homeBuy">${shellFoldSummary(T('homeBuyTitle'))}${pills}</details>`
+  }
   function pageHome () {
     return `<div class="page shell-home" id="homePage">
       <div class="shell-actions">
@@ -612,6 +631,7 @@
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
+      ${homeBuyHtml()}
       <section class="mine-strip" id="homeMineHost">${mineHomeStripHtml()}</section>
       <div class="chain-rows" id="chainRows">${chainRowsHtml()}</div>
     </div>`
@@ -3371,9 +3391,11 @@
       }
       case 'chainTxMore': { const n = Number(v); st.txMore[n] = ((st.txMore && st.txMore[n]) || 8) + 8; render(); break }
       case 'openExplorer': if (/^https:\/\/scdoscan\.io\//.test(String(v || ''))) openExternal(v); break
+      case 'buySite': openAccountSite(v); break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
-        if (hit && hit.action) menuAction(hit.action)
+        if (hit && hit.withAddress) openAccountSite(hit.id)
+        else if (hit && hit.action) menuAction(hit.action)
         else if (hit && hit.href && window.SCDOSiteNav) openExternal(window.SCDOSiteNav.url(hit.href))
         break
       }
@@ -3570,6 +3592,9 @@
       case 'settings': goPage('settings'); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
+      default:
+        if (typeof a === 'string' && a.indexOf('buy:') === 0) openAccountSite(a.slice(4))
+        break
     }
   }
   api.on('menu:action', (a) => menuAction(a))
@@ -3901,7 +3926,8 @@
     }
     if (action.type === 'openSite') {
       const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
-      if (hit && hit.action) menuAction(hit.action)
+      if (hit && hit.withAddress) openAccountSite(hit.id)
+      else if (hit && hit.action) menuAction(hit.action)
       else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
       return { ok: true }
     }

@@ -148,6 +148,21 @@ Module._load = function (req, parent, ...rest) {
 }
 const menu = require('../src/js/menu.js')
 Module._load = realLoad
+const sent = []
+const win = { isDestroyed () { return false }, webContents: { send (ch, a) { sent.push([ch, a]) } } }
+function menuLeaves (items) {
+  const out = []
+  for (const m of items || []) {
+    if (m.click) out.push(m)
+    if (m.submenu) out.push(...menuLeaves(m.submenu))
+  }
+  return out
+}
+const cnLeaves = menuLeaves(menu.buildTemplate(win, 'CN'))
+cnLeaves.find(m => m.label === '會員').click()
+cnLeaves.find(m => m.label === '向 SCDO OTC 購買 SCDO').click()
+assert.deepStrictEqual(sent, [['menu:action', 'buy:membership'], ['menu:action', 'buy:otc']])
+assert.ok(menuLeaves(menu.buildTemplate(null, 'EN')).some(m => m.label === 'Buy SCDO from SCDO OTC'))
 const labels = menu.buildTemplate(null, 'CN').flatMap(m => [m.label].concat((m.submenu || []).map(s => s.label)))
 for (const it of siteNav.flat()) {
   if (it.id === 'remit') assert.ok(labels.includes('匯款…'), it.id)
@@ -157,10 +172,51 @@ for (const it of siteNav.flat()) {
 }
 assert.strictEqual(cat.reply('GPU 共享', { accounts: [] }).actions[0].type, 'openSite')
 assert.strictEqual(cat.reply('餘額', { accounts: [] }).actions.length, 0)
+const ADDR = '1S01dfdbe4d921d507032cb83ee04bb7efc4fd9a51'
+assert.strictEqual(siteNav.MEMBERSHIP_URL, 'https://scdoscan.io/membership/')
+assert.strictEqual(siteNav.OTC_URL, 'https://scdoscan.io/otc/')
+assert.strictEqual(siteNav.byId('membership').href, siteNav.MEMBERSHIP_URL)
+assert.strictEqual(siteNav.byId('otc').href, siteNav.OTC_URL)
+assert.strictEqual((read('src/js/siteNavMap.js').match(/https:\/\/scdoscan\.io\/membership\//g) || []).length, 1)
+assert.strictEqual((read('src/js/siteNavMap.js').match(/https:\/\/scdoscan\.io\/otc\//g) || []).length, 1)
+assert.strictEqual(siteNav.visit('membership', { lang: 'CN', address: ADDR }), siteNav.MEMBERSHIP_URL + '?lang=zh-TW&address=' + ADDR)
+assert.strictEqual(siteNav.visit('otc', { lang: 'en', address: ADDR }), siteNav.OTC_URL + '?lang=en&address=' + ADDR)
+assert.strictEqual(siteNav.visit('otc', { lang: 'EN' }), siteNav.OTC_URL + '?lang=en')
+assert.strictEqual(siteNav.visit('games', { lang: 'CN', address: ADDR }), 'https://scdoscan.io/games/')
+assert.strictEqual(siteNav.match('開會員').id, 'membership')
+assert.strictEqual(siteNav.match('我想買 SCDO').id, 'otc')
+assert.strictEqual(cat.reply('開會員', { accounts: [] }).actions[0].id, 'membership')
+assert.strictEqual(cat.reply('我想買 SCDO', { accounts: [] }).actions[0].id, 'otc')
+assert.strictEqual(cat.reply('我想買 SCDO', { accounts: [] }).actions[0].type, 'openSite')
+const salesBan = /收益|價格|年化|報酬|yield|return|price|幣安|binance|okx/i
+for (const it of [siteNav.byId('membership'), siteNav.byId('otc')]) {
+  assert.ok(!salesBan.test(it.cn + ' ' + it.en + ' ' + (it.ask || []).join(' ')), it.id)
+}
+const i18nBox = { window: {} }
+require('vm').runInNewContext(read('src/js/i18n112.js'), i18nBox)
+const I = i18nBox.window.I18N112
+assert.strictEqual(I.CN.homeBuyTitle, '會員 · 向 SCDO 購買')
+assert.strictEqual(I.EN.homeBuyTitle, 'Membership · Buy from SCDO')
+assert.strictEqual(I.CN.homeBuyMember, '開通會員')
+assert.strictEqual(I.EN.homeBuyMember, 'Open membership')
+assert.strictEqual(I.CN.homeBuyOtc, '向 SCDO OTC 購買 SCDO')
+assert.strictEqual(I.EN.homeBuyOtc, 'Buy SCDO from SCDO OTC')
+assert.ok(I.CN.relNotes[0].items[0].includes('會員 · 向 SCDO 購買') && I.CN.relNotes[0].items[0].includes('開會員'))
+assert.ok(I.EN.relNotes[0].items[0].includes('Membership · Buy from SCDO'))
+assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.homeBuyTitle + I.EN.homeBuyMember + I.EN.homeBuyOtc + I.EN.relNotes[0].items[0]))
+assert.ok(!salesBan.test(I.CN.homeBuyTitle + I.CN.homeBuyMember + I.CN.homeBuyOtc))
+assert.ok(!salesBan.test(I.EN.homeBuyTitle + I.EN.homeBuyMember + I.EN.homeBuyOtc + I.EN.relNotes[0].items[0]))
 
 const ui = read('src/js/app112.js')
 const home = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
 assert.ok(home.includes('chainRowsHtml()') && home.includes('mineHomeStripHtml()'))
+assert.ok(home.includes('homeBuyHtml()'))
+assert.ok(home.indexOf('shell-actions') < home.indexOf('homeBuyHtml()') && home.indexOf('homeBuyHtml()') < home.indexOf('mineHomeStripHtml()'))
+assert.ok(ui.includes('data-act="buySite" data-v="membership"') && ui.includes('data-act="buySite" data-v="otc"'))
+assert.ok(ui.includes("case 'buySite': openAccountSite(v)"))
+assert.ok(ui.includes("localStorage.getItem('recvAddr310-1')"))
+assert.ok(ui.includes('class="shell-fold home-buy"') && !ui.includes('home-buy" open'))
+assert.ok(read('src/css/shell310.css').includes('.home-buy-pill'))
 assert.ok(!home.includes('shellTotal') && !home.includes('recentTxHost'))
 assert.ok(ui.includes("case 'remitAddr'") && ui.includes('from: v'))
 assert.ok(!read('src/css/shell310.css').toLowerCase().includes('#f5f5f7'))

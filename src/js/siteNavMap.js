@@ -5,6 +5,9 @@
 'use strict'
 ;(function () {
   const ORIGIN = 'https://scdoscan.io'
+  // Temporary pages. Each address lives only here.
+  const MEMBERSHIP_URL = 'https://scdoscan.io/membership/'
+  const OTC_URL = 'https://scdoscan.io/otc/'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
@@ -38,7 +41,8 @@
       id: 'prod', cn: '產品', en: 'Products', children: [
         { id: 'launch', cn: '代幣發行', en: 'Token launch', href: '/launch' },
         { id: 'enterprise', cn: '企業服務', en: 'Enterprise', href: '/enterprise/' },
-        { id: 'membership', cn: '會員', en: 'Membership', href: '/membership/' }
+        { id: 'membership', cn: '會員', en: 'Membership', href: MEMBERSHIP_URL, withAddress: true, ask: ['開會員', '開通會員'] },
+        { id: 'otc', cn: '向 SCDO OTC 購買 SCDO', en: 'Buy SCDO from SCDO OTC', href: OTC_URL, withAddress: true, ask: ['我想買 SCDO'] }
       ]
     },
     {
@@ -92,10 +96,28 @@
     const q = String(text == null ? '' : text).replace(/\s+/g, ' ').trim()
     if (!q) return null
     const lower = q.toLowerCase()
-    return flat().find(it => it.cn === q || String(it.en).toLowerCase() === lower) || null
+    return flat().find(it => {
+      if (it.cn === q || String(it.en).toLowerCase() === lower) return true
+      return (it.ask || []).some(a => a === q || String(a).toLowerCase() === lower)
+    }) || null
   }
 
-  const api = { ORIGIN: ORIGIN, GROUPS: GROUPS, url: url, flat: flat, byId: byId, match: match }
+  // Membership and buying SCDO add the wallet language and the selected Shard1 Classic address.
+  function visit (id, opts) {
+    const it = byId(id)
+    if (!it || !it.href) return ''
+    const base = url(it.href)
+    if (!it.withAddress) return base
+    opts = opts || {}
+    const u = new URL(base)
+    const raw = String(opts.lang || '')
+    u.searchParams.set('lang', raw === 'en' || raw === 'EN' ? 'en' : 'zh-TW')
+    const address = String(opts.address || '').trim()
+    if (address) u.searchParams.set('address', address)
+    return u.toString()
+  }
+
+  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, GROUPS: GROUPS, url: url, visit: visit, flat: flat, byId: byId, match: match }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOSiteNav = Object.freeze(api)
 })()
