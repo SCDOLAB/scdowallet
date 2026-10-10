@@ -486,7 +486,12 @@ class ZpowManager extends EventEmitter {
     try {
       const body = await (this.o.fetchJson || httpGetJson)(this.state.pool.stats, 8000)
       const stats = parsePoolMiner(body)
-      this.set({ poolStats: stats, poolError: null })
+      const patch = { poolStats: stats, poolError: null }
+      if (stats && stats.hashrate != null && stats.hashrate > 0 && (!(this.state.hashrate > 0) || this.state.hashrateSource === 'pool')) {
+        patch.hashrate = stats.hashrate
+        patch.hashrateSource = 'pool'
+      }
+      this.set(patch)
     } catch (e) {
       this.set({ poolError: e.message })
     }

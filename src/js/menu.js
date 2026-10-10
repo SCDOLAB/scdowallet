@@ -11,17 +11,15 @@ const LABELS = {
     minimize: 'Minimize Window',
     fullscreen: 'Toggle Fullscreen',
     close: 'Close Window (keep running in the tray)',
-    file: 'File',
+    wallet: 'Wallet (balance, send, receive)',
     create: 'Create a New Address (any of Shard0–Shard4)…',
     import: 'Import Wallet (keyfile or private key)…',
+    backupSec: 'Backup and security',
     backup: 'Back Up Accounts…',
+    openBackups: 'Open the Backup Folder',
     manage: 'Manage Accounts (rename, hide, delete)…',
-    mineStart: 'Start Mining',
-    mineStop: 'Stop Mining…',
-    reward: 'Change the Block Reward Address…',
-    mineSettings: 'Mining Settings (shard, graphics card or processor)…',
-    send: 'Transfer…',
-    remitItem: 'Remittance…',
+    mineSettings: 'Mining settings (shard, graphics card or processor)…',
+    remitItem: 'Send…',
     remitLogout: 'Sign Out of the Remittance Gateway',
     catShow: 'Show AI小貓',
     edit: 'Edit',
@@ -29,13 +27,12 @@ const LABELS = {
     paste: 'Paste',
     selectAll: 'Select All',
     refresh: 'Refresh',
-    view: 'View',
     home: 'Home',
     accounts: 'Accounts',
     mining: 'Mining',
     miningHome: 'Mining status',
-    settings: 'Settings / Network Info…',
-    remit: 'Remittance',
+    settingsCat: 'Settings (language, notifications, updates)',
+    settings: 'Language, notifications and updates…',
     help: 'Help',
     learnMore: 'Learn More'
   },
@@ -46,16 +43,14 @@ const LABELS = {
     minimize: '最小化視窗',
     fullscreen: '切換全螢幕',
     close: '關閉視窗（繼續在系統匣執行）',
-    file: '檔案',
+    wallet: '錢包（餘額・匯款・收款）',
     create: '建立新地址（Shard0–Shard4 任選）…',
     import: '匯入錢包（帳戶檔案或私鑰）…',
+    backupSec: '備份與安全',
     backup: '備份帳戶…',
+    openBackups: '開啟備份資料夾',
     manage: '管理帳戶（改名稱、隱藏、刪除）…',
-    mineStart: '開始挖礦',
-    mineStop: '停止挖礦…',
-    reward: '更改出塊獎勵地址…',
     mineSettings: '挖礦設定（分片、顯卡或處理器）…',
-    send: '轉帳…',
     remitItem: '匯款…',
     remitLogout: '登出匯款閘道',
     catShow: '顯示 AI小貓',
@@ -64,13 +59,12 @@ const LABELS = {
     paste: '貼上',
     selectAll: '全選',
     refresh: '重新整理',
-    view: '檢視',
     home: '首頁',
     accounts: '帳戶',
     mining: '挖礦',
     miningHome: '挖礦狀態',
-    settings: '設定 / 網路資訊…',
-    remit: '匯款',
+    settingsCat: '設定（語言・通知・更新）',
+    settings: '語言、通知與更新…',
     help: '說明',
     learnMore: '了解更多'
   }
@@ -95,27 +89,6 @@ function buildTemplate (mainWindow, lang) {
       ]
     },
     {
-      label: L.mining,
-      submenu: [
-        { label: L.miningHome, click: act('mineHome') }
-      ]
-    },
-    {
-      label: L.file,
-      submenu: [
-        // 3.0.2: every action is reachable by hand here, so the wallet stays usable without AI小貓
-        { label: L.create, accelerator: 'CmdOrCtrl+N', click: act('create') },
-        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') },
-        { label: L.backup, accelerator: 'CmdOrCtrl+B', click: act('backup') },
-        { label: L.manage, click: act('manage') },
-        { type: 'separator' },
-        { label: L.mineStart, accelerator: 'CmdOrCtrl+G', click: act('mineStart') },
-        { label: L.mineStop, accelerator: 'CmdOrCtrl+Shift+G', click: act('mineStop') },
-        { label: L.reward, click: act('reward') },
-        { label: L.mineSettings, click: act('mineSettings') }
-      ]
-    },
-    {
       label: L.edit,
       submenu: [
         { label: L.copy, accelerator: 'CmdOrCtrl+C', role: 'copy' },
@@ -125,23 +98,36 @@ function buildTemplate (mainWindow, lang) {
       ]
     },
     {
-      label: L.view,
+      label: L.wallet,
       submenu: [
-        // 3.0.2: page switching lives here and on the Home cards (no tab bar)
         { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') },
         { label: L.accounts, accelerator: 'CmdOrCtrl+2', click: act('acc') },
-        { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mine') },
-        { label: L.remit, accelerator: 'CmdOrCtrl+4', click: () => openRemittance() },
+        { label: L.create, accelerator: 'CmdOrCtrl+N', click: act('create') },
+        { label: L.import, accelerator: 'CmdOrCtrl+I', click: act('import') },
         { type: 'separator' },
-        { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
+        { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() },
+        { label: L.remitLogout, click: act('remitLogout') }
       ]
     },
     {
-      label: L.remit,
+      label: L.mining,
       submenu: [
-        { label: L.send, accelerator: 'CmdOrCtrl+T', click: act('send') },
-        { label: L.remitItem, accelerator: 'CmdOrCtrl+P', click: act('remit') },
-        { label: L.remitLogout, click: act('remitLogout') }
+        { label: L.miningHome, accelerator: 'CmdOrCtrl+3', click: act('mineHome') },
+        { label: L.mineSettings, click: act('mineSettings') }
+      ]
+    },
+    {
+      label: L.backupSec,
+      submenu: [
+        { label: L.backup, accelerator: 'CmdOrCtrl+B', click: act('backup') },
+        { label: L.openBackups, click: act('openBackups') },
+        { label: L.manage, click: act('manage') }
+      ]
+    },
+    {
+      label: L.settingsCat,
+      submenu: [
+        { label: L.settings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
       ]
     },
     {

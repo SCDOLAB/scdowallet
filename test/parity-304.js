@@ -136,10 +136,10 @@ console.log('parity-304: ok')
   assert.ok(/\.dc \.balrow \.v \{[^}]*white-space: nowrap/.test(css), 'balance digits stay on one line')
   for (const k of ['d_capSynced', 'd_capSyncing', 'd_capChecking', 'd_capPool', 'd_capPublic', 'd_earnToday', 'd_earnTotal', 'catRowBalance']) { assert.ok(I.CN[k] && I.EN[k], k); assert.ok(!/[\u4e00-\u9fff]/.test(I.EN[k]), 'EN ' + k) }
   eq(I.CN.d_capSynced, '已同步'); eq(I.CN.catRowBalance, '查餘額'); eq(I.CN.catInput, '直接打字問我')
-  // AI小貓: six distinct actions in two columns, black capsule, big green pill, the two links, contacts
+  // AI小貓: 修同步 is the only popup button. The other five actions live in the menu or on Home.
   const rowsSrc = app.slice(app.indexOf('  const CAT_ROWS = ['), app.indexOf('  const catPhrase'))
   const keys = (rowsSrc.match(/\['(\w+)', 'catRow\w+'/g) || []).map(x => x.split("'")[1])
-  assert.deepStrictEqual(keys, ['create', 'send', 'mine', 'heal', 'balance', 'settings'])
+  assert.deepStrictEqual(keys, ['heal'])
   assert.ok(/\.ios-group \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/.test(css))
   assert.ok(app.includes('class="cat-launch cat-capsule" id="aiCatBtn"') && /\.cat-launch\.cat-capsule \{[^}]*background: #000/.test(css))
   assert.ok(app.includes('id="catType" data-act="catType">${esc(T(\'catInput\'))}') && /case 'catType':/.test(app))

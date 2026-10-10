@@ -1,4 +1,5 @@
-// SCDO Wallet 2.0.1 (P0 #3): tray icon with "Stop mining" / "Keep mining" / "Quit", hashrate in the tray tooltip,
+// Tray: show the window, a status line, and quit. Start and stop mining are the Home card.
+// Keep mining stays on the mining settings page. Hashrate is in the tray tooltip.
 // and a Windows taskbar overlay badge (green = mining, grey = stopped, red = error).
 'use strict'
 const path = require('path')
@@ -67,14 +68,10 @@ class TrayStatus {
     if (!this.tray || this.tray.isDestroyed()) return
     const st = this.last
     const L = this.L()
-    const mining = minersRunning(st)
     const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     this.tray.setContextMenu(Menu.buildFromTemplate([
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },
-      { type: 'separator' },
-      { label: L.stop, id: 'stop', enabled: mining, click: () => this.o.onStop() },
-      { label: L.keep, type: 'checkbox', checked: !!this.o.getKeepMining(), click: (mi) => this.o.onKeepMining(!!mi.checked) },
       { type: 'separator' },
       { label: L.quit, click: () => this.o.onQuit() }
     ]))

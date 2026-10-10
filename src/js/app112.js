@@ -158,7 +158,7 @@
     mineBackend: localStorage.getItem('mineBackend112') || 'cpu',
     rawAccounts: BOOT.accounts || [], activity: {}, oldRecords: [], oldAct: {}, oldActAt: 0,
     remit: { phase: 'idle', error: '', address: '', ledger: null, base: '' }, // 2.0.12 匯款 (token stays in the main process)
-    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '',
+    catLog: [], catOpen: false, catH: { classic: null, peersAt: 0 }, catHeatAt: 0, catWatchAt: 0, catHealKey: '', catHealAt: 0, mem: null, actStarting: false, homeMine: '', otherRigels: [],
     payReview: null
   }
   const shard0 = () => ({
@@ -500,9 +500,31 @@
     try { e = islandModel(true).earn } catch (x) { e = null }
     return e ? { today: fmtNum(e.todayScdo), total: fmtNum(e.totalScdo) } : { today: null, total: null }
   }
+  // Indexer lists already fetched for this wallet's addresses. A missing list is
+  // uncertain: the mining card then shows a dash instead of a guessed payout.
+  // Shard0 EVM rows live in st.activity; Shard1–Shard4 rows live in st.oldAct.
+  function rewardRowsByAddress () {
+    const accounts = st.accounts || []
+    if (!accounts.length) return null
+    const out = {}
+    for (const a of accounts) {
+      if (a.evm) {
+        const key = String(a.evm).toLowerCase()
+        const rows = st.activity && st.activity[key]
+        if (!Array.isArray(rows)) return null
+        out[key] = rows
+      }
+      const p = parseClassicAddress(a.pubkey)
+      if (p && p.address) {
+        const key = String(p.address).toLowerCase()
+        const rows = st.oldAct && st.oldAct[key]
+        if (!Array.isArray(rows)) return null
+        out[key] = rows
+      }
+    }
+    return Object.keys(out).length ? out : null
+  }
   function mineHomeInput () {
-    let earn = st.earn || null
-    try { earn = noteEarn() } catch (e) { earn = st.earn || null }
     let phase = 'stopped'
     if (st.homeMine === 'starting' || st.homeMine === 'stopping') phase = st.homeMine
     else if (miningBusy() || st.homeMine === 'mining') phase = 'mining'
@@ -513,9 +535,10 @@
         classicGpu: st.miners && st.miners.classicGpu
       },
       temps: (st.gpuTemp && st.gpuTemp.gpus) || [],
-      earnLog: earn,
+      earnLog: window.SCDOMineHome.confirmedEarnLog(rewardRowsByAddress(), Date.now()),
       now: Date.now(),
-      phase: phase
+      phase: phase,
+      gpuBusy: !!(st.otherRigels && st.otherRigels.length)
     }
   }
   function mineHomeCardHtml () {
@@ -767,7 +790,6 @@
           ? statHtml('mPending', T('poolPending'), pending, tipPack(T('poolPending'), pending, T('mineTipPending'))) + statHtml('mPaid', T('poolPaid'), paid, tipPack(T('poolPaid'), paid, T('mineTipPaid')))
           : statHtml('mRate', T('blockRate'), rate, tipPack(T('blockRate'), rate, T('mineTipRate')))}
       </div>
-      <div class="row" style="margin-top:22px"><button class="btn ${active ? 'dan' : 'pri'} big" data-act="${active ? 'minerStop' : 'mineStart'}" id="btnMine">${esc(active ? T('stopMining') : T('startMining'))}</button></div>
       <div class="lbl" style="margin-top:10px">${esc(backend === 'cpu' ? T('classicFirst') : T('blockRateHint'))}</div>`
     if (backend !== 'cpu') h += `<div class="lbl">${esc(T('classicFirst'))}</div>`
     return h
@@ -796,7 +818,7 @@
       <div class="lbl" style="margin-top:10px">${esc(T('cpuNote'))}</div>
       <pre class="log" id="mLog" style="display:${st.logOpen ? 'block' : 'none'}">${esc(window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n'))}</pre></details>`
   }
-  // 挖礦設定 (File → 挖礦設定 / 更改出塊獎勵地址, or AI小貓): the existing mining form, opened like a dialog page.
+  // 挖礦設定 (menu → 挖礦設定; the old 更改出塊獎勵地址 item opened this same page): shard, reward address, and the node. Start and stop mining stay on the Home card.
   function pageMineSet () {
     st.miner = viewMiner()
     const m = st.miner || {}
@@ -805,6 +827,7 @@
     let h = `<div class="page"><div class="card mine-card"><div style="font-size:30px;font-weight:700">${esc(T('d_mineSetTitle'))}</div><div class="lbl">${esc(T('d_mineSetLead'))}</div>`
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
+    h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
@@ -831,7 +854,6 @@
         <div class="stats">${statHtml('mHr', T('hashrate') + (mineMode ? '' : ' ' + T('hashrateHint')), speedText(m.hashrate, mineMode), tipPack(T('hashrate'), speedText(m.hashrate, mineMode), T('mineTipSpeed'), T('mineTipSpeedDetail', { n: groupedTries(m.hashrate) || T('isleUnknown') })))}
         ${statHtml('mFound', T('blocksFound'), blockText(m.blocksFound), tipPack(T('blocksFound'), blockText(m.blocksFound), T('mineTipBlocks')))}${blocks}</div>
         <div class="row" style="margin-top:22px;flex-wrap:wrap;gap:18px">
-          ${mineMode ? `<button class="btn dan big" data-act="minerStop" id="btnMine">${esc(T('stopMining'))}</button>` : `<button class="btn pri big" data-act="mineStart" id="btnMine" ${running ? 'disabled' : ''}>${esc(T('startMining'))}</button>`}
           ${nodeMode ? `<button class="btn dan" data-act="minerStop">${esc(T('stopNode'))}</button>` : `<button class="btn ghost" data-act="nodeStart" ${running ? 'disabled' : ''}>${esc(T('nodeOnlyToo'))}</button>`}
         </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
         ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
@@ -2257,7 +2279,6 @@
   // ----- settings (gear): language, accounts, backup/export, advanced, about -----
   async function settingsModal () {
     const paths = await api.invoke('keyfile:paths')
-    const nHid = new Set(ui.hidden.new.concat(ui.hidden.old)).size
     const cfg = CFG
     // 2.0.7: mining notification toggles (P1) and update channel (P3) from the main-process settings store
     let nt = null; let chan = 'stable'
@@ -2272,11 +2293,7 @@
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">繁體中文</button></div></div>
       <div class="setsec"><div class="sh">AI小貓</div><div class="lbl">${esc(T('catHint'))}</div>
         <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div></div>
-      <div class="setsec"><div class="sh">${esc(T('accounts'))}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ghost" data-act="toggleHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button>
-        <button class="btn ghost" data-act="create">＋ ${esc(T('createTitle'))}</button><button class="btn ghost" data-act="import">⤓ ${esc(T('importAccount'))}</button></div></div>
-      <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div><div class="row" style="flex-wrap:wrap;margin-top:8px">
-        <button class="btn ghost" data-act="backupPick">${esc(T('backupKeyfile'))}</button><button class="btn ghost" data-act="openBackups">${esc(T('openBackups'))}</button></div>
+      <div class="setsec"><div class="sh">${esc(T('backupExport'))}</div><div class="lbl">${esc(T('backupHint'))}</div>
         <div class="lbl" style="margin-top:8px">${esc(T('keyfileDir'))}${PU.c()}<span class="mono">${esc(paths.keyfileDir)}</span></div>
         <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div></div>
       <details class="setsec"><summary class="sh" style="cursor:pointer">${esc(T('advanced'))}</summary><div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
@@ -2355,6 +2372,7 @@
   }
   // 管理帳戶（改名稱、隱藏、刪除）: the per-account actions that used to sit on the panels
   function manageModal () {
+    const nHid = new Set(ui.hidden.new.concat(ui.hidden.old)).size
     const rows = st.accounts.map((a, i) => {
       const hidOld = isHidden('old', a.filename); const hidNew = isHidden('new', a.filename)
       const hid = hidOld || hidNew
@@ -2366,7 +2384,8 @@
         <button class="btn ghost small" data-act="${hid ? 'unhideAll' : 'hideAll'}" data-chain="${chain}" data-f="${esc(a.filename)}">${esc(hid ? T('unhide') : T('hide'))}</button>
         <button class="btn danl small" data-act="delete" data-f="${esc(a.filename)}">${esc(T('del'))}</button></div></div></div>`
     }).join('') || esc(T('noAccount'))
-    modal(`<div class="mh"><h2>${esc(T('d_manageTitle'))}</h2><button class="btn ghost small" data-act="closeModal" aria-label="${esc(T('catClose'))}">✕</button></div>${rows}
+    modal(`<div class="mh"><h2>${esc(T('d_manageTitle'))}</h2><button class="btn ghost small" data-act="closeModal" aria-label="${esc(T('catClose'))}">✕</button></div>
+      <div class="row" style="margin:0 0 10px"><button class="btn ghost" data-act="toggleHidden" id="manageHidden">${esc(ui.showHidden ? T('hideHidden') : T('showHidden', { n: nHid }))}</button></div>${rows}
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 860, noFocus: true })
   }
 
@@ -2429,6 +2448,7 @@
       toast(text, 7000)
       return
     }
+    localStorage.setItem('minerRunShard0', '1')
     // 1.1.5: the on/off state is saved by the main process (miner-intent.json), not in localStorage
   }
   // 1.1.5: another Rigel (e.g. the SCDO-Mining task of the standalone miner package) already uses the GPU -> ask first
@@ -2446,15 +2466,30 @@
     const r = await api.invoke('miner:start', '', { mode: 'node', payout: payout || undefined })
     if (!r.ok) { toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000); return }
   }
+  function rememberMineChoice () {
+    const gpu = st.miners && st.miners.classicGpu
+    const cpu = st.miners && st.miners.classicCpu
+    const s0 = st.miners && st.miners.shard0
+    if (gpu && gpu.running && gpu.mode !== 'cpu' && gpu.mode !== 'node') {
+      localStorage.setItem('minerRunClassicGpu', gpu.backend === 'external' ? 'external' : 'gpu')
+      if (gpu.wallet) localStorage.setItem('minerClassicGpu', gpu.wallet)
+    }
+    if (cpu && cpu.running && cpu.mode !== 'node') {
+      localStorage.setItem('minerRunClassicCpu', '1')
+      if (cpu.wallet) localStorage.setItem('minerClassicCpu', cpu.wallet)
+    }
+    if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic') {
+      localStorage.setItem('minerRunShard0', '1')
+      if (s0.wallet && /^0x[0-9a-fA-F]{40}$/.test(s0.wallet)) localStorage.setItem('minerReward', s0.wallet)
+    }
+  }
+  // Stop only stops processes. The saved graphics-card / processor choice stays,
+  // so the next Start mining restores that session instead of falling back to the processor.
   async function stopAllNow () {
-    localStorage.setItem('minerRunClassicCpu', '')
-    localStorage.setItem('minerRunClassicGpu', '')
-    const mode = localStorage.getItem('minerMode')
-    if (mode === 'classic-cpu' || mode === 'classic-gpu') localStorage.removeItem('minerMode')
+    rememberMineChoice()
     try { await api.invoke('miner:stop', 'mine') } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
-    try { await api.invoke('miner:intentClear') } catch (e) {}
     toast(T('stopped'))
   }
   async function stopAll () {
@@ -2463,9 +2498,19 @@
     await stopAllNow()
     return true
   }
-  function classicTargetForHome () {
-    const backendName = st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu'
-    const key = backendName === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu'
+  function savedMineChoice () {
+    const gpu = localStorage.getItem('minerRunClassicGpu') || ''
+    const cpuOn = localStorage.getItem('minerRunClassicCpu') === '1'
+    let classic = ''
+    if (gpu === 'external' || gpu === 'gpu') classic = gpu
+    else if (cpuOn) classic = 'cpu'
+    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: localStorage.getItem('minerRunShard0') === '1' }
+  }
+  function classicTargetForHome (backendName) {
+    const pickedBackend = backendName === 'gpu' || backendName === 'external' || backendName === 'cpu'
+      ? backendName
+      : (st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu')
+    const key = pickedBackend === 'cpu' ? 'minerClassicCpu' : 'minerClassicGpu'
     const pref = Number(st.mineShard)
     const accounts = []
     for (const a of st.accounts || []) {
@@ -2525,22 +2570,35 @@
   async function startHomeMining () {
     try { await ensureCaps() } catch (e) {}
     try { await ensureGpu(true) } catch (e) {}
+    const saved = savedMineChoice()
+    let preflight = null
+    if (saved.shard0) {
+      try { preflight = await api.invoke('mining:gpuPreflight') } catch (e) { preflight = { ok: false, gpus: [] } }
+      try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) { st.otherRigels = st.otherRigels || [] }
+    }
+    const gpuBusy = !!(st.otherRigels && st.otherRigels.length)
     const hot = catTemp() != null && catTemp() >= 85
+    const classicMode = saved.classic || (st.mineBackend === 'gpu' || st.mineBackend === 'external' ? st.mineBackend : 'cpu')
     const spec = {
-      backend: st.mineBackend,
+      saved: saved,
+      backend: classicMode,
       caps: st.caps,
-      classic: classicTargetForHome(),
+      classic: classicTargetForHome(classicMode),
+      classicCpu: saved.cpu ? classicTargetForHome('cpu') : null,
       reward: rewardForHome(),
-      nvidia: !!(st.gpu && st.gpu.nvidia)
+      nvidia: !!(st.gpu && st.gpu.nvidia),
+      preflight: preflight,
+      gpuBusy: gpuBusy && saved.shard0
     }
     const cool = window.SCDOMineHome.jobsForHome(spec)
     const jobs = hot ? window.SCDOMineHome.jobsForHome(Object.assign({ hot: true }, spec)) : cool
     const droppedGpu = cool.some(j => j.chain === 'shard0' || j.backend === 'gpu') && !jobs.some(j => j.chain === 'shard0' || j.backend === 'gpu')
     if (!jobs.length) {
-      toast(droppedGpu ? T('homeMineHot') : T('pickAddr'), 7000)
+      toast(droppedGpu ? T('homeMineHot') : (saved.shard0 && gpuBusy ? T('homeMineGpuBusy') : T('pickAddr')), 7000)
       return false
     }
     if (droppedGpu) toast(T('homeMineHot'), 7000)
+    else if (saved.shard0 && gpuBusy) toast(T('homeMineGpuBusy'), 7000)
     if (jobs.some(j => j.chain === 'shard0') && api.platform === 'win32' && !localStorage.getItem('defenderAsked112')) {
       localStorage.setItem('defenderAsked112', '1')
       if (await confirmBox(T('defender'), T('defAsk'), T('yes'), T('no'))) {
@@ -2579,8 +2637,6 @@
     const classic = Number(st.mineShard) >= 1
     if (classic) {
       const backend = st.mineBackend === 'cpu' ? 'cpu' : 'gpu'
-      if (backend === 'cpu') localStorage.setItem('minerRunClassicCpu', '')
-      else localStorage.setItem('minerRunClassicGpu', '')
       toast(T('stopping'), 60000)
       await api.invoke('miner:stop', { chain: 'classic', backend })
       toast(T('stopped'))
@@ -2663,7 +2719,7 @@
       case 'hideAll': case 'unhideAll': { const on = act === 'hideAll'; for (const ch of ['old', 'new']) { const l = ui.hidden[ch]; if (on && !l.includes(f)) l.push(f); if (!on) ui.hidden[ch] = l.filter(x => x !== f) } saveUi(); toast(on ? T('hideOk') : T('unhideOk')); render(); manageModal(); break }
       case 'importKey': createModal({ priv: true }); break
       case 'unhide': setHidden(el.getAttribute('data-chain') || 'new', f, false); break
-      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); settingsModal() } else render(); break
+      case 'toggleHidden': ui.showHidden = !ui.showHidden; saveUi(); if ($('md')) { SD.clear($('modalRoot')); render(); manageModal() } else render(); break
       case 'delete': deleteModal(f); break
       case 'rename': renameModal(f); break
       case 'cardMine': openMineFor(f, el.getAttribute('data-chain') || 'new'); break
@@ -2781,6 +2837,7 @@
       case 'mineStart': menuStartMining(); break
       case 'mineStop': stopAll(); break
       case 'reward': case 'mineSettings': goPage('mineSet'); break
+      case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
       case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
@@ -2812,6 +2869,7 @@
 
   async function refreshGpuTemp () {
     try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) { st.gpuTemp = { ok: false, gpus: [] } }
+    try { st.otherRigels = await api.invoke('miner:otherRigels') || [] } catch (e) {}
     renderIsland()
     refreshDash()
     catWatch()
@@ -2885,9 +2943,9 @@
   // iOS-style popup: two inset-grouped lists (coloured icon tiles, chevrons), an iMessage-style input, 下次再說 /
   // 先隱藏小貓 and the safety note. Each row goes through askCat() → SCDOCat.reply() → runCatAction(), which only opens
   // the wallet's own dialogs; transfers, remittance and signing always end in a visible confirmation.
-  // 3.0.4 (v9, water-bubble glass): six distinct actions in one two-column inset-grouped list
+  // 3.0.10: the popup keeps 修同步 only. Create, send, mining, balance and settings each have one place in the menu or on Home. Typing still opens those screens.
   const CAT_ROWS = [
-    [['create', 'catRowCreate', '#34c759', 'plus', '建立新地址'], ['send', 'catRowSend', '#007aff', 'plane', '轉帳'], ['mine', 'catRowMine', '#ff9500', 'bolt', '開始／停止挖礦'], ['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步'], ['balance', 'catRowBalance', '#5856d6', 'wallet', '查餘額'], ['settings', 'catRowSettings', '#8e8e93', 'gear', '設定']]
+    [['heal', 'catRowHeal', '#ff2d55', 'sync', '修同步']]
   ]
   const catPhrase = (k) => { for (const g of CAT_ROWS) for (const r of g) if (r[0] === k) return r[4]; return '' }
   // 3.0.5: animated AI小貓 in the launcher (same as the web wallet): a 68px cat replaces the avatar and cycles through
@@ -3081,13 +3139,13 @@
     let r
     try { r = await api.invoke('miner:start', job.address, { mode: job.mode === 'node' ? 'node' : 'mine' }) } catch (e) { r = { ok: false } }
     if (!r || !r.ok) return { fail: window.SCDOCat.startFail(r && r.code) }
+    if (job.mode !== 'node') localStorage.setItem('minerRunShard0', '1')
     return { ok: true }
   }
   async function runCatAction (action) {
     if (!action || action.type === 'send' || action.type === 'sign' || action.type === 'spend' || action.type === 'review' || action.type === 'login') return { ok: false }
     if (action.type === 'stopGpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
-      localStorage.setItem('minerRunClassicGpu', '')
       const s0 = (st.miners && st.miners.shard0) || st.miner
       if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
       return { ok: true }

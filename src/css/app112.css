@@ -467,6 +467,7 @@ body.on-home #statusIsland { display: none; }
 .mine-home .mh-status.on { color: #1d7a34; }
 .mine-home .mh-status.off { color: #8e8e93; }
 .mine-home .mh-status.busy { color: #8a4b00; }
+.mine-home .mh-status.wait { color: #8a4b00; }
 .mine-home .btn.big { min-width: 220px; }
 .mine-home .mh-stats { display: flex; flex-wrap: wrap; gap: 14px 28px; margin-top: 14px; }
 .mine-home .mh-stat { min-width: 140px; }
@@ -475,6 +476,7 @@ body.on-home #statusIsland { display: none; }
 .mine-home .mh-stat b.temp-ok { color: #1d7a34; }
 .mine-home .mh-stat b.temp-warm { color: #c93400; }
 .mine-home .mh-stat b.temp-hot { color: #d93025; }
+.mine-home .mh-note { margin-top: 12px; font-size: 15pt; font-weight: 600; color: #3c3c43; line-height: 1.35; }
 /* five identical white cards in one row; 3 + 2 equal cards when narrow */
 .chains { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: stretch; grid-auto-rows: 1fr; }
 @media (max-width: 1180px) { .chains { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

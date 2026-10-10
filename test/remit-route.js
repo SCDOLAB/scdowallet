@@ -182,16 +182,18 @@ assert.strictEqual(M.L(' · source: '), ' · 資料來源：')
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 const menuEn = menuSrc.slice(menuSrc.indexOf('  EN: {'), menuSrc.indexOf('  CN: {'))
 const menuCn = menuSrc.slice(menuSrc.indexOf('  CN: {'))
-// 3.0.2 (v8): the top-level menu is 匯款 / Remittance, holding Transfer… and Remittance…
-assert.ok(menuEn.includes("remit: 'Remittance'") && menuEn.includes("send: 'Transfer…'") && menuEn.includes("remitItem: 'Remittance…'"))
+// 3.0.10: one Send item under Wallet. Transfer and Remittance opened the same form.
+assert.ok(menuEn.includes("wallet: 'Wallet (balance, send, receive)'") && menuEn.includes("remitItem: 'Send…'"))
+assert.ok(!menuEn.includes("send: 'Transfer…'") && !menuEn.includes("remitItem: 'Remittance…'"))
 // the only Chinese in the English menu is the deliberate AI小貓 name, as in the English UI
 assert.ok(!CJK.test(menuEn.replace(/\/\/.*$/gm, '').split('AI小貓').join('')), 'menu EN has Chinese')
-assert.ok(menuCn.includes("remit: '匯款'"))
+assert.ok(menuCn.includes("wallet: '錢包（餘額・匯款・收款）'") && menuCn.includes("remitItem: '匯款…'"))
+assert.ok(!menuCn.includes("send: '轉帳…'"))
 const payFn = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function payShowLedger'))
 assert.ok(!payFn.includes('I18N112.CN'), 'pay form must follow the UI language')
 
 console.log('remit-route: ok')
 // 3.0.2: the newest notes are first and the English ones have no Chinese
-assert.strictEqual(EN.relNotes[0].v, '3.0.9')
-assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.9 notes contain Chinese')
+assert.strictEqual(EN.relNotes[0].v, '3.0.10')
+assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')), 'EN 3.0.10 notes contain Chinese')
 assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[1].items.join(' ')), 'EN 3.0.2 notes contain Chinese')

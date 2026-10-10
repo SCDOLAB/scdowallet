@@ -125,7 +125,8 @@ for (const lang of ['CN', 'EN']) {
 }
 
 const tray = fs.readFileSync(path.join(__dirname, '../src/main/trayStatus.js'), 'utf8')
-assert.ok(tray.includes('enabled: mining'))
+assert.ok(!tray.includes('enabled: mining'), 'tray no longer has a second Stop mining item')
+assert.ok(!tray.includes('this.o.onStop()'))
 assert.ok(tray.includes('tooltipError(lang, st.code, st.message)'))
 assert.ok(!tray.includes("L.minerError + ': '"))
 
