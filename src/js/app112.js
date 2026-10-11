@@ -3113,7 +3113,10 @@
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
     const lowOn = mineCfg.lowPriority !== false
-    const advancedInner = `<div class="set-open" id="setGuard"><button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div></div>
+    let showGuardIntro = true
+    try { showGuardIntro = !localStorage.getItem('scdoGuardIntro'); if (showGuardIntro) localStorage.setItem('scdoGuardIntro', '1') } catch (e) {}
+    const guardIntro = showGuardIntro ? `<div class="lbl" id="guardFirst">${esc(T('guardFirst'))}</div>` : ''
+    const advancedInner = `<div class="set-open" id="setGuard">${guardIntro}<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div><button class="btn ghost" data-act="guardReset" id="guardReset">${esc(T('guardReset'))}</button></div>
       ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
@@ -3893,6 +3896,10 @@
       case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
       case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
       case 'lowPriority': setGuardUi(el, 'lowPriority'); break
+      case 'guardReset':
+        try { await api.invoke('mining:setGuard', { resetGuard: true }) } catch (e) {}
+        settingsModal()
+        break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)

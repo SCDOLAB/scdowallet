@@ -60,6 +60,41 @@ function parseMacFullscreen (text) {
   return /^\s*true\s*$/im.test(String(text || ''))
 }
 
+// Windows notification state: busy, exclusive fullscreen, or presentation.
+function parseNoteState (note) {
+  const n = Number(note)
+  return n === 2 || n === 3 || n === 4
+}
+
+function parseVendor (text) {
+  const s = String(text || '').toLowerCase()
+  if (s.indexOf('authenticamd') >= 0 || s.indexOf('advanced micro') >= 0 || /(^|[^a-z])amd([^a-z]|$)/.test(s)) return 'amd'
+  if (s.indexOf('apple') >= 0) return 'apple'
+  if (s.indexOf('genuineintel') >= 0 || s.indexOf('intel') >= 0) return 'intel'
+  return ''
+}
+
+function parseVirtBlob (text) {
+  return /vmware|virtualbox|kvm|qemu|xen|parallels|virtual machine|hypervisor/i.test(String(text || ''))
+}
+
+function parseRemoteSession (text) {
+  return /^(RDP|rdp)/.test(String(text || '').trim())
+}
+
+function parseProcRoute (text) {
+  const lines = String(text || '').split(/\n/).slice(1)
+  for (const line of lines) {
+    const col = line.trim().split(/\s+/)
+    if (col[1] === '00000000') return false
+  }
+  return true
+}
+
+function parsePmsetAssertions (text) {
+  return /PreventUserIdleDisplaySleep\s+[1-9]/i.test(String(text || ''))
+}
+
 function parseGpuTemp (text) {
   const line = String(text || '').split(/\r?\n/).map(s => s.trim()).find(s => s && s !== '[Not Supported]')
   if (!line) return null
@@ -128,5 +163,11 @@ module.exports = {
   parseGpuTemp,
   parseMemoryPressure,
   coreTypeClass,
-  groupsFromCpuList
+  groupsFromCpuList,
+  parseNoteState,
+  parseVendor,
+  parseVirtBlob,
+  parseRemoteSession,
+  parseProcRoute,
+  parsePmsetAssertions
 }

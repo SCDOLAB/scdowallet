@@ -8,6 +8,7 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 const { classifyCores, threadPlan, pendingPlan, fallbackPlan } = require('./guardPlan')
+const hostProbe = require('./hostProbe')
 
 const PROBE_PS1 = [
   "$ErrorActionPreference = 'Continue'",
@@ -103,7 +104,21 @@ const PROBE_PS1 = [
   '          if ($p) { $procs += @{ pid = [int]$n; ws = [int64]$p.WorkingSet64; handles = [int]$p.HandleCount } }',
   '        }',
   '      }',
-  '      $obj = @{ cores = [ScdoGuardProbe]::Cores(); age = [ScdoGuardProbe]::InputAge(); note = [ScdoGuardProbe]::NoteState(); power = [ScdoGuardProbe]::Power(); mem = [ScdoGuardProbe]::Mem(); procs = $procs }',
+  '      if (-not $script:VendorName) {',
+  '        try { $script:VendorName = [string](Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1 -ExpandProperty Manufacturer) } catch { $script:VendorName = \'\' }',
+  '      }',
+  '      $remote = $false',
+  '      $sess = [Environment]::GetEnvironmentVariable(\'SESSIONNAME\')',
+  '      if ($sess -and $sess.ToUpperInvariant().StartsWith(\'RDP\')) { $remote = $true }',
+  '      $virt = $false',
+  '      try {',
+  '        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue',
+  '        if ($cs) {',
+  '          $blob = [string]$cs.Manufacturer + \' \' + [string]$cs.Model',
+  '          if ($blob -match \'VMware|VirtualBox|KVM|QEMU|Xen|Parallels|Virtual Machine\') { $virt = $true }',
+  '        }',
+  '      } catch {}',
+  '      $obj = @{ cores = [ScdoGuardProbe]::Cores(); age = [ScdoGuardProbe]::InputAge(); note = [ScdoGuardProbe]::NoteState(); power = [ScdoGuardProbe]::Power(); mem = [ScdoGuardProbe]::Mem(); procs = $procs; remote = $remote; virt = $virt; vendor = [string]$script:VendorName }',
   '      Emit ($obj | ConvertTo-Json -Compress -Depth 4)',
   '    } elseif ($line.StartsWith(\'AFF \')) {',
   '      $rest = $line.Substring(4).Trim()',
@@ -124,6 +139,8 @@ const PROBE_PS1 = [
 
 // null: not read yet. []: read, no groups. non-empty: processor groups.
 let topo = null
+let lastVendor = ''
+let lastVirt = false
 let worker = null
 let inbox = []
 let waiters = []
@@ -280,9 +297,14 @@ async function readSampleWin (opts) {
   for (const p of list) {
     if (p && p.pid) procs[p.pid] = { ws: Number(p.ws) || 0, handles: Number(p.handles) || 0 }
   }
+  lastVendor = hostProbe.parseVendor(json.vendor)
+  lastVirt = json.virt === true
   return safeSample({
     inputAgeMs: Number.isFinite(age) && age >= 0 ? age : null,
-    fullscreen: note === 2 || note === 3,
+    fullscreen: hostProbe.parseNoteState(note),
+    remoteSession: json.remote === true || hostProbe.parseRemoteSession(process.env.SESSIONNAME),
+    virtualMachine: lastVirt,
+    vendor: lastVendor,
     onBattery: ac === 0,
     batteryPct: pct >= 0 && pct <= 100 ? pct : null,
     ramFreePct,
@@ -309,7 +331,9 @@ function threadPlanCached () {
     logical: logicalIds.length || logical,
     hybrid: info.hybrid,
     pLogical: info.pLogical,
-    logicalIds: logicalIds.length ? logicalIds : undefined
+    logicalIds: logicalIds.length ? logicalIds : undefined,
+    vendor: lastVendor,
+    virtual: lastVirt
   })
 }
 

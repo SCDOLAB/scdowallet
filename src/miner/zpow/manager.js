@@ -141,7 +141,7 @@ class ZpowManager extends EventEmitter {
       const dir = path.join(this.o.dataRoot, 'logs')
       fs.mkdirSync(dir, { recursive: true })
       const file = path.join(dir, 'zpow.log')
-      rotateFile(file, fs)
+      rotateFile(file, fs, { gzip: true })
       fs.appendFileSync(file, shown + '\n')
     } catch (e) {}
     this.emit('log', shown)

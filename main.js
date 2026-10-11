@@ -6,13 +6,15 @@
 // wallet/keyfile/signing moved to the main process (src/main/walletService.js), shard0 confirm step with address checks,
 // external-URL allowlist, miner never restarts itself unless "Keep mining" is on, tray + taskbar overlay badge.
 require('./src/main/safeLog') // 2.0.2: EPIPE-safe logging + crash guards, must load first
-const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification } = require('electron')
+const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification, powerMonitor } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const mineResume = require('./src/main/mineResume')
 const guardHost = require('./src/miner/guardHost')
 const pcGuard = require('./src/miner/pcGuard')
 const { applyPriority } = require('./src/miner/priority')
+const powerHold = require('./src/miner/powerHold')
+const { FIRST_RUN } = require('./src/miner/guardPlan')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
@@ -259,7 +261,7 @@ function guardLoopOn () {
 function pinMiner (proc) {
   if (!guardActive() || !proc || !proc.pid) return
   const plan = guardHost.threadPlanCached()
-  if (plan && !plan.pending && plan.affinity) guardHost.applyAffinity(proc.pid, plan.affinity)
+  if (plan && !plan.pending) guardHost.pinProcess(proc.pid, plan)
 }
 function zpowOptions () {
   return {
@@ -535,8 +537,25 @@ ipcMain.handle('miner:resumeCheck', async () => {
   // update always gives back the mining state the user had, whatever "Keep mining" says
   const once = !!it.resumeOnce
   if (once) writeIntent({ resumeOnce: false })
-  const autoResume = !!((it.autoResume && it.keepMining) || once)
-  return { autoResume, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? (it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
+  let weak = false
+  let plan = null
+  try {
+    if (guardActive()) {
+      await guardHost.ready()
+      plan = guardHost.threadPlanCached()
+      weak = !!(plan && (plan.unsuitable || plan.virtual))
+    }
+  } catch (e) {}
+  if (weak && !it.guardWeakNoted) {
+    writeIntent({ guardWeakNoted: true })
+    const cn = uiLang() !== 'EN'
+    const line = plan && plan.virtual
+      ? (cn ? '虛擬機中挖礦效率極低，建議關閉' : 'Mining inside a virtual machine is very slow. Leaving it off is recommended.')
+      : (cn ? '此裝置不適合挖礦' : 'This computer is a poor fit for mining.')
+    try { if (tray) tray.balloon('SCDO Wallet', line) } catch (e) {}
+  }
+  const autoResume = !!((it.autoResume && it.keepMining) || once) && !weak
+  return { autoResume, weakDevice: weak, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? (it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async (e, src) => {
@@ -600,6 +619,13 @@ ipcMain.handle('mining:setGuard', (e, patch) => {
   if (patch.guardSmooth != null) next.guardSmooth = !!patch.guardSmooth
   if (patch.mineOnBattery != null) next.mineOnBattery = !!patch.mineOnBattery
   if (patch.lowPriority != null) next.lowPriority = !!patch.lowPriority
+  if (patch.guardPauseUntil != null) next.guardPauseUntil = Math.max(0, Number(patch.guardPauseUntil) || 0)
+  if (patch.resetGuard) {
+    next.guardSmooth = true
+    next.mineOnBattery = false
+    next.lowPriority = true
+    next.guardPauseUntil = 0
+  }
   writeIntent(next)
   const it = readIntent() || {}
   const low = it.lowPriority !== false
@@ -659,6 +685,8 @@ function ensureGuard () {
     gpuTempC: () => guardHost.gpuTempC(),
     threadPlan: () => guardHost.threadPlanCached(),
     applyAffinity: (pids, ids) => guardHost.applyAffinity(pids, ids),
+    applyPriority: (pid, low) => guardHost.applyPriority(pid, low),
+    pinProcess: (pid, plan) => guardHost.pinProcess(pid, plan),
     note: (text) => { if (tray) tray.balloon('SCDO Wallet', text) },
     onChange: () => refreshTray()
   })
@@ -681,8 +709,25 @@ function createTray () {
         try { await stopClassic() } catch (err) { console.error('classic stop failed', err) }
         refreshTray()
       },
-      onQuit: () => requestQuit({ confirm: true, reason: 'tray' })
+      onQuit: () => requestQuit({ confirm: true, reason: 'tray' }),
+      onPauseFor: (spec) => {
+        let until = 0
+        if (spec === 'today') {
+          const d = new Date()
+          until = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime()
+        } else until = Date.now() + Number(spec)
+        writeIntent({ guardPauseUntil: until })
+      },
+      onPauseClear: () => writeIntent({ guardPauseUntil: 0 })
     })
+    try {
+      const seen = readIntent() || {}
+      if (!seen.guardIntroSeen) {
+        writeIntent({ guardIntroSeen: true })
+        const line = uiLang() === 'EN' ? FIRST_RUN.EN : FIRST_RUN.CN
+        tray.balloon('SCDO Wallet', line)
+      }
+    } catch (e) {}
     refreshTray()
     ensureGuard()
   } catch (e) { console.error('tray failed', e) }
@@ -845,6 +890,10 @@ if (!app.requestSingleInstanceLock()) {
   })
   app.whenReady().then(() => {
     try { guardHost.warm() } catch (e) {}
+    try {
+      powerMonitor.on('suspend', () => { try { powerHold.onSuspend(Date.now(), minerProcessAlive()) } catch (e) {} })
+      powerMonitor.on('resume', () => { try { powerHold.onResume(Date.now()) } catch (e) {} })
+    } catch (e) {}
     if (process.platform === 'win32') { try { app.setAppUserModelId('io.scdoscan.scdowallet') } catch (e) {} } // 2.0.7: Windows toast notifications (same id as the installer shortcut)
     fixCors()
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))

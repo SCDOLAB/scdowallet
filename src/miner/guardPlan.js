@@ -3,12 +3,12 @@
 'use strict'
 
 const MIN = 60 * 1000
-const BACKOFF_MIN = [1, 2, 5, 10]
+const BACKOFF_MIN = [1, 2, 4, 8, 16, 30]
 const SHARE_FRESH_MS = 10 * MIN
-const STALL_MS = 15 * MIN
-const IDLE_RESTORE_MS = 2 * MIN
+const STALL_MS = 5 * MIN
+const IDLE_RESTORE_MS = 45 * 1000
 const INPUT_RECENT_MS = 30 * 1000
-const HIGH_CPU_HOLD_MS = 10 * 1000
+const HIGH_CPU_HOLD_MS = 5 * 1000
 const HIGH_CPU = 85
 const RAM_FREE_MIN = 15
 const COMMIT_MAX = 90
@@ -16,20 +16,52 @@ const MEM_CHECK_MS = 60 * 1000
 const LEAK_WINDOW_MS = 30 * MIN
 const LEAK_GROWTH = 0.5
 const HOUR_MS = 60 * MIN
-const MAX_RESTARTS_HOUR = 5
+const QUICK_LIFE_MS = 30 * 1000
+const QUICK_DEATHS = 3
+const AC_STABLE_MS = 15 * 1000
+const DISK_MIN_BYTES = 500 * 1024 * 1024
 const TEMP_LOW = 85
 const TEMP_PAUSE = 90
-const BATTERY_STOP = 30
+const BATTERY_STOP = 20
 const LOG_LIMIT = 50 * 1024 * 1024
 const LOG_KEEP = 3
 const GPU_BATCH = 8192
+
+// One row per machine class. A later hybrid AMD row can be added here.
+const ARCH_RULES = {
+  'intel-hybrid': 'p-core-affinity',
+  amd: 'physical-minus-one',
+  'apple-silicon': 'qos-utility',
+  'apple-intel': 'physical-minus-one',
+  virtual: 'warn',
+  uniform: 'physical-minus-one'
+}
+
+const TRAY_COPY = {
+  green: { CN: '正在挖礦 · 已自動避開你的使用高峰', EN: 'Mining · automatically stays out of your way' },
+  yellow: { CN: '你在忙，我先緩緩，空閒了自動繼續', EN: "You're busy — I've slowed down and will resume when you're idle" },
+  blue: { CN: '已暫停(全螢幕/電池/記憶體原因)，條件恢復後自動繼續', EN: 'Paused (fullscreen / on battery / low memory) — resumes automatically' },
+  red: { CN: '挖礦遇到麻煩，已停止重試 — 點我查看詳情', EN: 'Mining hit a snag and stopped retrying — click for details' }
+}
+
+const FIRST_RUN = {
+  CN: '開啟挖礦後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。',
+  EN: 'Once enabled, mining automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.'
+}
+
+const COLOUR_RANK = { red: 4, yellow: 3, blue: 2, green: 1 }
 
 const PAUSE_TEXT = {
   '電池': '因電池暫停',
   '全螢幕': '因全螢幕暫停',
   '溫度': '因溫度暫停',
   '記憶體': '因記憶體暫停',
-  '重新啟動': '重新啟動太多次，已暫停'
+  '重新啟動': '重新啟動太多次，已暫停',
+  '睡眠': '因睡眠暫停',
+  '磁碟': '磁碟空間不足，已暫停挖礦',
+  '手動': '已暫停一段時間',
+  '異常': '挖礦遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。',
+  '不適合': '此裝置不適合挖礦'
 }
 
 function classifyCores (groups) {
@@ -45,6 +77,26 @@ function classifyCores (groups) {
   const pLogical = []
   for (const g of pGroups) for (const id of (g && g.logical) || []) pLogical.push(id)
   return { hybrid, pClass, physicalPCores: pGroups.length, pLogical }
+}
+
+function archKind (cpu) {
+  cpu = cpu || {}
+  if (cpu.virtual) return 'virtual'
+  if (cpu.qos === 'utility' || cpu.vendor === 'apple-silicon') return 'apple-silicon'
+  if (cpu.vendor === 'apple-intel') return 'apple-intel'
+  if (cpu.hybrid) return 'intel-hybrid'
+  if (cpu.vendor === 'amd') return 'amd'
+  return 'uniform'
+}
+
+function dominantColour (colours) {
+  let best = 'green'
+  let rank = 0
+  for (const c of colours || []) {
+    const n = COLOUR_RANK[c] || 0
+    if (n > rank) { rank = n; best = c }
+  }
+  return best
 }
 
 function range (n) {
@@ -78,21 +130,33 @@ function threadPlan (cpu) {
   const hybrid = !!cpu.hybrid
   const pLogical = Array.isArray(cpu.pLogical) ? cpu.pLogical.map(Number).filter(n => Number.isFinite(n)) : []
   const physical = Math.max(0, Math.floor(Number(cpu.physicalPCores) || 0))
+  const unsuitable = physical > 0 ? physical <= 2 : logical > 0 && logical <= 2
+  const virtual = !!cpu.virtual
+  const arch = archKind(cpu)
+  if (cpu.qos) {
+    const threads = Math.max(1, physical > 0 ? physical - 1 : 1)
+    return { threads, affinity: null, priority: 'below-normal', unsuitable, qos: cpu.qos, virtual, arch }
+  }
   let threads = physical > 0 ? Math.max(1, physical - 1) : (logical > 2 ? Math.max(1, logical - 2) : 1)
   let affinity = null
   if (hybrid && pLogical.length) {
     affinity = pLogical.slice()
     threads = Math.max(1, Math.min(threads, affinity.length))
   } else if (!hybrid && logical > 2) {
-    threads = Math.max(1, Math.min(threads, logical - 2))
     const ids = Array.isArray(cpu.logicalIds) && cpu.logicalIds.length ? cpu.logicalIds.map(Number) : range(logical)
-    affinity = ids.slice(0, Math.max(0, ids.length - 2))
-    if (!affinity.length) affinity = null
+    if (physical > 0) {
+      threads = Math.max(1, physical - 1)
+      affinity = ids.slice()
+    } else {
+      threads = Math.max(1, Math.min(threads, logical - 2))
+      affinity = ids.slice(0, Math.max(0, ids.length - 2))
+      if (!affinity.length) affinity = null
+    }
   } else if (!hybrid && logical > 0 && logical <= 2) {
     affinity = null
     threads = 1
   }
-  return { threads: Math.max(1, threads), affinity, priority: 'below-normal' }
+  return { threads: Math.max(1, threads), affinity, priority: 'below-normal', unsuitable, qos: null, virtual, arch }
 }
 
 function backoffMs (index) {
@@ -106,20 +170,30 @@ function shouldRotate (size, limit) {
   return Number(size) >= cap
 }
 
-// Keep `keep` archived copies: file.1 is the newest archive, file.keep is the oldest.
+// Keep `keep` archived copies. With gzip, the copies are file.1.gz ... file.keep.gz.
 function rotateFile (file, fsImpl, opts) {
   opts = opts || {}
   const limit = opts.limit == null ? LOG_LIMIT : opts.limit
   const keep = opts.keep == null ? LOG_KEEP : opts.keep
+  const gzip = !!(opts.gzip && typeof fsImpl.readFileSync === 'function' && typeof fsImpl.writeFileSync === 'function')
+  const slot = (i) => file + '.' + i + (gzip ? '.gz' : '')
   let size = 0
   try { size = fsImpl.statSync(file).size } catch (e) { return false }
   if (!shouldRotate(size, limit)) return false
-  try { fsImpl.unlinkSync(file + '.' + keep) } catch (e) {}
+  try { fsImpl.unlinkSync(slot(keep)) } catch (e) {}
   for (let i = keep - 1; i >= 1; i--) {
-    const src = file + '.' + i
-    try { if (fsImpl.existsSync(src)) fsImpl.renameSync(src, file + '.' + (i + 1)) } catch (e) {}
+    const src = slot(i)
+    try { if (fsImpl.existsSync(src)) fsImpl.renameSync(src, slot(i + 1)) } catch (e) {}
   }
   try { fsImpl.renameSync(file, file + '.1') } catch (e) { return false }
+  if (gzip) {
+    try {
+      const zlib = require('zlib')
+      const buf = fsImpl.readFileSync(file + '.1')
+      fsImpl.writeFileSync(slot(1), zlib.gzipSync(buf))
+      try { fsImpl.unlinkSync(file + '.1') } catch (e) {}
+    } catch (e) {}
+  }
   return true
 }
 
@@ -127,10 +201,11 @@ function trayView (input) {
   input = input || {}
   const phase = input.phase
   const reason = input.reason || ''
-  if (phase === 'paused') return { colour: 'grey', reason }
-  if (phase === 'stopped' || phase === 'restarting') return { colour: 'red', reason: '' }
-  const fresh = input.shareAgeMs != null && input.shareAgeMs >= 0 && input.shareAgeMs < SHARE_FRESH_MS
-  if (phase === 'mining' || phase === 'running') return { colour: fresh ? 'green' : 'yellow', reason: '' }
+  if (input.gaveUp || phase === 'gave-up') return { colour: 'red', reason: reason || '異常' }
+  if (input.yielding || phase === 'yielding') return { colour: 'yellow', reason: '' }
+  if (phase === 'paused') return { colour: 'blue', reason }
+  if (phase === 'mining' || phase === 'running') return { colour: 'green', reason: '' }
+  if (phase === 'restarting') return { colour: 'blue', reason: reason || '重新啟動' }
   return { colour: 'red', reason: '' }
 }
 
@@ -160,7 +235,18 @@ function freshGuard (opts) {
     childGeneration: 0,
     batch: GPU_BATCH,
     wasUserRunning: false,
-    lastHashrate: null
+    lastHashrate: null,
+    childBornAt: null,
+    quickDeaths: 0,
+    gaveUp: false,
+    acSince: null,
+    onBatteryPrev: null,
+    remoteCap: false,
+    vmNoted: false,
+    unsuitableNoted: false,
+    appliedPlan: null,
+    expectExit: false,
+    sleepHeld: false
   }
 }
 
@@ -176,7 +262,9 @@ function plannedThreads (state) {
   if (state.memStage >= 1) n = Math.max(1, Math.floor(n / 2))
   if (state.halved) n = Math.max(1, Math.floor(n / 2))
   if (state.intensity === 'low') n = Math.max(1, Math.floor(n / 2))
-  return Math.max(1, n)
+  n = Math.max(1, n)
+  if (state.remoteCap) n = 1
+  return n
 }
 
 function plannedBatch (state) {
@@ -190,15 +278,19 @@ function memoryPressure (sample) {
   return false
 }
 
-function pauseReasonFor (state, sample) {
+function pauseReasonFor (state, sample, now) {
+  if (state.gaveUp) return '異常'
+  if (sample.manualPauseUntil && now < sample.manualPauseUntil) return '手動'
+  if (sample.suspended || sample.wakeHold) return '睡眠'
   const pct = sample.batteryPct
-  if (pct != null && pct >= 0 && pct < BATTERY_STOP) return '電池'
+  if (sample.onBattery && pct != null && pct >= 0 && pct < BATTERY_STOP) return '電池'
   if (sample.onBattery && !state.mineOnBattery) return '電池'
   if (!state.enabled) return ''
-  if (sample.fullscreen) return '全螢幕'
+  if (sample.diskLow) return '磁碟'
+  if (sample.fullscreen && !sample.remoteSession) return '全螢幕'
   if (sample.gpuTempC != null && sample.gpuTempC > TEMP_PAUSE) return '溫度'
   if (state.memStage >= 3 && memoryPressure(sample)) return '記憶體'
-  if (state.paused && state.reason === '重新啟動') return '重新啟動'
+  if (state.paused && (state.reason === '重新啟動' || state.reason === '異常')) return state.reason
   return ''
 }
 
@@ -209,7 +301,9 @@ function enterPause (state, actions, reason) {
   state.restartDue = 0
   state.lastAction = PAUSE_TEXT[reason] || reason
   actions.push({ type: 'pause', reason })
-  if (reason === '記憶體' || reason === '重新啟動') actions.push({ type: 'tray-note', reason, text: state.lastAction })
+  if (reason === '記憶體' || reason === '重新啟動' || reason === '異常' || reason === '磁碟' || reason === '不適合') {
+    actions.push({ type: 'tray-note', reason, text: state.lastAction })
+  }
 }
 
 function pushLevels (state, actions) {
@@ -241,11 +335,13 @@ function stepGuard (state, sample, now) {
     return { state: s, actions }
   }
 
-  // The restart limit stays until mining is started again. It does not clear
+  // A give-up stays until mining is started again. It does not clear
   // on every tick while the user still wants the miner to run.
-  if (sample.userRunning && !s.wasUserRunning && s.paused && s.reason === '重新啟動') {
+  if (sample.userRunning && !s.wasUserRunning && s.paused && (s.reason === '重新啟動' || s.reason === '異常' || s.gaveUp)) {
     s.paused = false
     s.reason = ''
+    s.gaveUp = false
+    s.quickDeaths = 0
     s.restarts = []
     s.restartIndex = 0
     s.restartDue = 0
@@ -254,14 +350,45 @@ function stepGuard (state, sample, now) {
   }
   s.wasUserRunning = !!sample.userRunning
 
-  const why = pauseReasonFor(s, sample)
+  if (s.sleepHeld && !sample.suspended && !sample.wakeHold) {
+    s.sleepHeld = false
+    s.restarts = []
+    s.restartIndex = 0
+    s.restartDue = 0
+    s.quickDeaths = 0
+    s.childBornAt = null
+  }
+
+  const onBat = !!sample.onBattery
+  if (s.onBatteryPrev === true && !onBat) s.acSince = now
+  if (onBat) s.acSince = null
+  s.onBatteryPrev = onBat
+  const acFresh = !onBat && s.acSince != null && (now - s.acSince) < AC_STABLE_MS
+  const powerSample = acFresh ? Object.assign({}, sample, { onBattery: true }) : sample
+  s.remoteCap = !!sample.remoteSession
+
+  if (sample.virtualMachine && !s.vmNoted) {
+    s.vmNoted = true
+    s.lastAction = '虛擬機中挖礦效率極低，建議關閉'
+    actions.push({ type: 'tray-note', reason: '虛擬機', text: s.lastAction })
+  }
+  if (sample.unsuitable && !s.unsuitableNoted) {
+    s.unsuitableNoted = true
+    s.lastAction = '此裝置不適合挖礦'
+    actions.push({ type: 'tray-note', reason: '不適合', text: s.lastAction })
+  }
+
+  const why = pauseReasonFor(s, powerSample, now)
   if (why) {
+    if (why === '睡眠') s.sleepHeld = true
+    s.childBornAt = null
     enterPause(s, actions, why)
     return { state: s, actions }
   }
   if (s.paused) {
     s.paused = false
     s.reason = ''
+    s.childBornAt = null
     s.lastAction = '恢復執行緒'
     actions.push({ type: 'resume' })
   }
@@ -301,6 +428,7 @@ function stepGuard (state, sample, now) {
       } else if (s.memStage === 1) {
         s.memStage = 2
         s.lastAction = '重新啟動挖礦程式'
+        s.expectExit = true
         actions.push({ type: 'restart-child', cause: 'memory' })
       } else if (s.memStage === 2) {
         s.memStage = 3
@@ -315,7 +443,10 @@ function stepGuard (state, sample, now) {
   }
   if (s.memStage === 1 && !actions.some(a => a.type === 'restart-child')) {
     const before = plannedThreads(s)
-    if (before < s.threads) actions.push({ type: 'restart-child', cause: 'memory' })
+    if (before < s.threads) {
+      s.expectExit = true
+      actions.push({ type: 'restart-child', cause: 'memory' })
+    }
   }
   pushLevels(s, actions)
   if (s.paused || actions.some(a => a.type === 'restart-child' || a.type === 'pause')) return { state: s, actions }
@@ -343,6 +474,7 @@ function stepGuard (state, sample, now) {
           s.baseline = null
           s.lastProgressAt = now
           s.lastAction = '重新啟動挖礦程式'
+          s.expectExit = true
           actions.push({ type: 'restart-child', cause: 'leak' })
           s.shares = shares
           return { state: s, actions }
@@ -352,15 +484,34 @@ function stepGuard (state, sample, now) {
   }
   s.shares = shares
 
-  const stalled = sample.childAlive && s.lastProgressAt != null && now - s.lastProgressAt >= STALL_MS
+  if (sample.planSig && s.appliedPlan && sample.planSig !== s.appliedPlan && sample.childAlive) {
+    s.appliedPlan = sample.planSig
+    s.expectExit = true
+    s.lastAction = '重新啟動挖礦程式'
+    actions.push({ type: 'restart-child', cause: 'topology' })
+    return { state: s, actions }
+  }
+  if (sample.planSig) s.appliedPlan = sample.planSig
+
+  if (!sample.childAlive && s.childBornAt != null) {
+    const life = now - s.childBornAt
+    s.childBornAt = null
+    if (s.expectExit) s.expectExit = false
+    else if (life >= 0 && life < QUICK_LIFE_MS) s.quickDeaths += 1
+    else s.quickDeaths = 0
+    if (s.quickDeaths >= QUICK_DEATHS) {
+      s.gaveUp = true
+      enterPause(s, actions, '異常')
+      return { state: s, actions }
+    }
+  }
+  if (sample.childAlive && s.childBornAt == null) s.childBornAt = now
+
+  const stalled = sample.childAlive && !sample.networkDown && s.lastProgressAt != null && now - s.lastProgressAt >= STALL_MS
   const dead = !sample.childAlive
   if (stalled || dead) {
     const recent = (s.restarts || []).filter(t => now - t < HOUR_MS)
     s.restarts = recent
-    if (recent.length >= MAX_RESTARTS_HOUR) {
-      enterPause(s, actions, '重新啟動')
-      return { state: s, actions }
-    }
     if (!s.restartDue) s.restartDue = now + backoffMs(s.restartIndex)
     if (now >= s.restartDue) {
       s.restarts = recent.concat([now])
@@ -391,14 +542,22 @@ module.exports = {
   LEAK_WINDOW_MS,
   LEAK_GROWTH,
   HOUR_MS,
-  MAX_RESTARTS_HOUR,
+  QUICK_LIFE_MS,
+  QUICK_DEATHS,
+  AC_STABLE_MS,
+  DISK_MIN_BYTES,
   TEMP_LOW,
   TEMP_PAUSE,
   BATTERY_STOP,
   LOG_LIMIT,
   LOG_KEEP,
   GPU_BATCH,
+  ARCH_RULES,
+  TRAY_COPY,
+  FIRST_RUN,
   classifyCores,
+  archKind,
+  dominantColour,
   threadPlan,
   pendingPlan,
   fallbackPlan,

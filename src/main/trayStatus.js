@@ -5,6 +5,7 @@
 const path = require('path')
 const { Tray, Menu, nativeImage, BrowserWindow, screen } = require('electron')
 const { tooltipError, minersRunning } = require('../js/minerStartError')
+const { TRAY_COPY } = require('../miner/guardPlan')
 
 function fmtHash (h, lang) {
   const raw = Number(h)
@@ -16,7 +17,7 @@ function fmtHash (h, lang) {
 
 // state of the badge for a miner status object
 function badgeState (st) {
-  if (st && st.guard && (st.guard.colour === 'green' || st.guard.colour === 'yellow' || st.guard.colour === 'red' || st.guard.colour === 'grey')) return st.guard.colour
+  if (st && st.guard && (st.guard.colour === 'green' || st.guard.colour === 'yellow' || st.guard.colour === 'blue' || st.guard.colour === 'red' || st.guard.colour === 'grey')) return st.guard.colour
   if (!st) return 'grey'
   if (st.phase === 'error') return 'red'
   if (st.running && (st.mode === 'mine' || st.mode === 'pool')) return 'green'
@@ -25,12 +26,21 @@ function badgeState (st) {
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 華語繁體)
 const TL = {
-  EN: { show: 'Show SCDO Wallet', notMining: 'Not mining', minerError: 'Miner error', nodeOnly: 'Node only (not mining)', nodeOnlyShort: 'Node only', mining: 'Mining: ', starting: 'Miner starting…', stop: 'Stop mining', keep: 'Keep mining (restart the miner if it exits)', quit: 'Quit' },
-  CN: { show: '顯示 SCDO Wallet', notMining: '未在挖礦', minerError: '挖礦程式出錯', nodeOnly: '只執行節點（未挖礦）', nodeOnlyShort: '只執行節點', mining: '挖礦中：', starting: '挖礦程式啟動中…', stop: '停止挖礦', keep: '持續挖礦（挖礦程式退出時自動重新啟動）', quit: '結束' }
+  EN: { show: 'Show SCDO Wallet', notMining: 'Not mining', minerError: 'Miner error', nodeOnly: 'Node only (not mining)', nodeOnlyShort: 'Node only', mining: 'Mining: ', starting: 'Miner starting…', stop: 'Stop mining', keep: 'Keep mining (restart the miner if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume mining' },
+  CN: { show: '顯示 SCDO Wallet', notMining: '未在挖礦', minerError: '挖礦程式出錯', nodeOnly: '只執行節點（未挖礦）', nodeOnlyShort: '只執行節點', mining: '挖礦中：', starting: '挖礦程式啟動中…', stop: '停止挖礦', keep: '持續挖礦（挖礦程式退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復挖礦' }
 }
+function guardLine (st, lang) {
+  const colour = st && st.guard && st.guard.colour
+  const row = TRAY_COPY[colour]
+  if (!row) return ''
+  return row[lang === 'EN' ? 'EN' : 'CN']
+}
+
 function tooltipText (version, st, lang) {
   const L = TL[lang] || TL.CN
   const head = 'SCDO Wallet ' + version
+  const promised = guardLine(st, lang)
+  if (promised) return (head + '\n' + promised).slice(0, 127)
   let line
   const classic = st && st.classicNote
   if (classic && !st.running && st.phase !== 'error') {
@@ -52,7 +62,7 @@ function escHtml (s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
-const REASON_EN = { '電池': 'battery', '全螢幕': 'full screen', '記憶體': 'memory', '溫度': 'temperature', '重新啟動': 'too many restarts' }
+const REASON_EN = { '電池': 'battery', '全螢幕': 'full screen', '記憶體': 'memory', '溫度': 'temperature', '重新啟動': 'too many restarts', '睡眠': 'sleep', '磁碟': 'disk space', '手動': 'paused by you', '異常': 'stopped retrying', '不適合': 'this computer is a poor fit', '虛擬機': 'virtual machine' }
 const ACTION_EN = {
   '因電池暫停': 'Paused because of the battery',
   '因全螢幕暫停': 'Paused because a program is full screen',
@@ -62,7 +72,13 @@ const ACTION_EN = {
   '執行緒減半': 'Thread count cut in half',
   '恢復執行緒': 'Thread count restored',
   '重新啟動挖礦程式': 'Miner program restarted',
-  '溫度過高，已降低強度': 'Graphics card is hot, so intensity is lower'
+  '溫度過高，已降低強度': 'Graphics card is hot, so intensity is lower',
+  '因睡眠暫停': 'Paused while the computer sleeps',
+  '磁碟空間不足，已暫停挖礦': 'Paused because the disk is nearly full',
+  '已暫停一段時間': 'Paused for a while',
+  '挖礦遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。': 'Mining stopped retrying. Allow the wallet in your security software.',
+  '此裝置不適合挖礦': 'This computer is a poor fit for mining',
+  '虛擬機中挖礦效率極低，建議關閉': 'Mining inside a virtual machine is very slow. Leaving it off is recommended.'
 }
 
 function panelHtml (guard, lang) {
@@ -115,7 +131,7 @@ class TrayStatus {
         }
         try { return nativeImage.createFromBitmap(buf, { width: size, height: size }) } catch (e) { return null }
       }
-      this.icons = { green: solid(29, 122, 52), yellow: solid(214, 164, 0), red: solid(180, 40, 40), grey: solid(142, 142, 147) }
+      this.icons = { green: solid(29, 122, 52), yellow: solid(214, 164, 0), blue: solid(20, 110, 210), red: solid(180, 40, 40), grey: solid(142, 142, 147) }
     }
     return this.icons[colour] || null
   }
@@ -182,6 +198,9 @@ class TrayStatus {
       { label: L.show, click: () => this.showWindow() },
       { label, enabled: false },
       { type: 'separator' },
+      { label: L.pauseHour, click: () => { if (this.o.onPauseFor) this.o.onPauseFor(60 * 60 * 1000) } },
+      { label: L.pauseToday, click: () => { if (this.o.onPauseFor) this.o.onPauseFor('today') } },
+      { label: L.pauseClear, click: () => { if (this.o.onPauseClear) this.o.onPauseClear() } },
       { label: L.quit, click: () => this.o.onQuit() }
     ]))
   }
@@ -195,12 +214,16 @@ class TrayStatus {
       this.guardColour = st.guard.colour
       const icon = this.colourIcon(st.guard.colour)
       if (icon) this.tray.setImage(icon)
+      const line = guardLine(st, this.lang)
+      if (line) this.balloon('SCDO Wallet', line)
     }
     const w = this.o.getWindow()
-    const overlay = b === 'yellow' ? 'green' : b
+    const overlay = b === 'yellow' ? 'green' : b === 'blue' ? 'blue' : b
     if (process.platform === 'win32' && w && !w.isDestroyed() && overlay !== this.lastBadge) {
       this.lastBadge = overlay
-      w.setOverlayIcon(this.badges[overlay], overlay === 'green' ? 'Mining' : overlay === 'red' ? 'Miner error' : 'Not mining')
+      const badge = overlay === 'blue' ? this.colourIcon('blue') : this.badges[overlay]
+      const caption = overlay === 'green' ? 'Mining' : overlay === 'red' ? 'Miner error' : overlay === 'blue' ? 'Paused' : 'Not mining'
+      if (badge) w.setOverlayIcon(badge, caption)
     }
     const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')
     if (sig !== this.sig) { this.sig = sig; this.rebuild() }

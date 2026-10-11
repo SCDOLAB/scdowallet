@@ -1,6 +1,7 @@
 // Applies guard decisions to miner children on Windows, Mac and Linux.
 'use strict'
-const { freshGuard, stepGuard, trayView } = require('./guardPlan')
+const { freshGuard, stepGuard, trayView, dominantColour } = require('./guardPlan')
+const powerHold = require('./powerHold')
 
 const TICK_MS = 5000
 
@@ -26,24 +27,21 @@ function chainStatus (mgr, gst) {
 }
 
 function phaseOf (mgr, gst, now) {
-  if (gst && gst.paused) return { phase: 'paused', reason: gst.reason || '', shareAgeMs: gst.lastShareAt ? now - gst.lastShareAt : null }
+  const shareAgeMs = gst && gst.lastShareAt ? now - gst.lastShareAt : null
+  if (gst && gst.gaveUp) return { phase: 'gave-up', reason: gst.reason || '異常', shareAgeMs, gaveUp: true }
+  if (gst && gst.paused) return { phase: 'paused', reason: gst.reason || '', shareAgeMs }
+  if (gst && gst.halved) return { phase: 'yielding', reason: '', shareAgeMs, yielding: true }
   const alive = mgr.childAlive ? mgr.childAlive() : false
-  if (mgr.wantRunning && !alive) return { phase: 'restarting', reason: '', shareAgeMs: gst && gst.lastShareAt ? now - gst.lastShareAt : null }
-  if (mgr.wantRunning || mgr.guardHeld) {
-    return { phase: 'mining', reason: '', shareAgeMs: gst && gst.lastShareAt ? now - gst.lastShareAt : null }
-  }
+  if (mgr.wantRunning && !alive) return { phase: 'restarting', reason: '', shareAgeMs }
+  if (mgr.wantRunning || mgr.guardHeld) return { phase: 'mining', reason: '', shareAgeMs }
   return { phase: 'stopped', reason: '', shareAgeMs: null }
 }
 
 function combine (parts) {
   if (!parts.length) return null
-  const grey = parts.find(p => p.view.colour === 'grey')
-  let colour = 'red'
-  let reason = ''
-  if (grey) { colour = 'grey'; reason = grey.view.reason || '' }
-  else if (parts.some(p => p.view.colour === 'green')) colour = 'green'
-  else if (parts.some(p => p.view.colour === 'yellow')) colour = 'yellow'
-  else colour = 'red'
+  const colour = dominantColour(parts.map(p => p.view.colour))
+  const top = parts.find(p => p.view.colour === colour)
+  const reason = top ? (top.view.reason || '') : ''
   let lastAction = ''
   for (const p of parts) if (p.gst && p.gst.lastAction) lastAction = p.gst.lastAction
   return {
@@ -119,10 +117,26 @@ function start (deps) {
       let gpuTempC = null
       try { gpuTempC = deps.gpuTempC ? await deps.gpuTempC() : null } catch (e) { gpuTempC = null }
       const now = Date.now()
+      const aliveAny = miners.some(m => { try { return m.mgr.childAlive && m.mgr.childAlive() } catch (e) { return false } })
+      const hold = powerHold.flags(now, aliveAny)
       const plan = deps.threadPlan ? deps.threadPlan() : null
-      if (enabled && plan && !plan.pending && plan.affinity && plan.affinity.length && deps.applyAffinity && now - lastAff >= 60000) {
-        lastAff = now
-        try { await deps.applyAffinity(pids, plan.affinity) } catch (e) {}
+      if (deps.applyPriority && pids.length) {
+        const low = intent.lowPriority !== false
+        for (const id of pids) {
+          try { deps.applyPriority(id, low) } catch (e) {}
+        }
+      }
+      if (enabled && plan && !plan.pending && pids.length && now - lastAff >= 60000) {
+        const canPin = deps.pinProcess && (plan.qos === 'utility' || (plan.affinity && plan.affinity.length))
+        const canAff = plan.affinity && plan.affinity.length && deps.applyAffinity
+        if (canPin || canAff) {
+          lastAff = now
+          if (canPin) {
+            for (const id of pids) { try { deps.pinProcess(id, plan) } catch (e) {} }
+          } else {
+            try { await deps.applyAffinity(pids, plan.affinity) } catch (e) {}
+          }
+        }
       }
       const parts = []
       let note = ''
@@ -158,6 +172,16 @@ function start (deps) {
           ramFreePct: probe.ramFreePct,
           commitPct: probe.commitPct,
           gpuTempC,
+          remoteSession: !!probe.remoteSession,
+          virtualMachine: !!(probe.virtualMachine || (plan && plan.virtual)),
+          networkDown: !!probe.networkDown,
+          diskLow: !!probe.diskLow,
+          unsuitable: !!(plan && plan.unsuitable),
+          planSig: plan && !plan.pending ? (plan.threads + ':' + ((plan.affinity || []).join(','))) : '',
+          manualPauseUntil: Number(intent.guardPauseUntil) || 0,
+          suspended: !!hold.suspended,
+          wakeHold: !!hold.wakeHold,
+          childDiedInSleep: !!hold.childDiedInSleep,
           childAlive: mgr.childAlive ? !!mgr.childAlive() : false,
           shares: mgr.state ? mgr.state.sharesAccepted || 0 : 0,
           hashrate: mgr.state && mgr.state.hashrateSource !== 'pool' ? mgr.state.hashrate || 0 : 0,

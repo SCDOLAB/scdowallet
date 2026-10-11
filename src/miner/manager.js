@@ -232,7 +232,7 @@ const GETH_STOP_MS = 60000
 const HELPER_STOP_CAP_MS = 30000
 const POLL_MS = 250
 function rotateIfBig (file) {
-  return rotateFile(file, fs, { limit: LOG_LIMIT })
+  return rotateFile(file, fs, { limit: LOG_LIMIT, gzip: true })
 }
 
 class MinerManager extends EventEmitter {
@@ -367,6 +367,7 @@ class MinerManager extends EventEmitter {
     const lf = path.join(this.logDir, name + '.log')
     rotateIfBig(lf)
     const logf = this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
+    logf.on('error', () => { try { logf.destroy() } catch (e) {} if (this.logStreams[name] === logf) this.logStreams[name] = null })
     let buf = { out: '', err: '' }
     const onData = (k) => (d) => {
       const ls = this.logStreams[name]; if (ls) ls.write(d); buf[k] += d.toString()
