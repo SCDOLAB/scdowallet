@@ -34,7 +34,10 @@ assert.strictEqual(mnemonic.saveDefaultPath('/home/me/Documents', 'txt', day), p
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-phrase-'))
 function finish (sealedJson) {
-  g.words.forEach(w => assert.ok(!sealedJson.includes(w)))
+  // The seal is hex, so a short word can appear inside the ciphertext.
+  // The phrase contains spaces, and a word counts only as its own token.
+  assert.ok(!sealedJson.includes(g.phrase))
+  g.words.forEach(w => assert.ok(!new RegExp('\\b' + w + '\\b').test(sealedJson), w))
   return mnemonic.open(sealedJson, 'Aa1!aaaa').then(opened => {
     assert.strictEqual(opened, g.phrase)
     assert.strictEqual(mnemonic.meta(sealedJson).created, day)
