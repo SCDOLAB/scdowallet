@@ -21,10 +21,13 @@ Var pid
 ; 3.1.2 installs for the current user under %LOCALAPPDATA%\Programs.
 ; An older all-users copy is recorded at
 ; HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\<guid>
-; (UNINSTALL_REGISTRY_KEY). Remember that folder so customInstall can run its
-; uninstaller, then keep the new files in the per-user directory.
-; Account files stay in the home directory, outside both install folders.
+; (UNINSTALL_REGISTRY_KEY). That copy is removed before any new files or
+; per-user uninstall key are written. Running it afterwards, and without
+; /allusers, deletes the install that was just registered and still exits 0.
+; --updated tells that uninstaller to leave app data in place.
+; Account files stay outside both install folders.
 Var oldInstallDir
+Var oldQuietUninstall
 
 !macro scdoReadPerMachineUninstall
   ReadRegStr $R8 HKLM "${UNINSTALL_REGISTRY_KEY}" "InstallLocation"
@@ -78,6 +81,13 @@ Var oldInstallDir
       StrCpy $R6 "1"
     ${EndIf}
   ${EndIf}
+  ${If} $R6 == "1"
+  ${AndIf} $oldQuietUninstall == ""
+    ReadRegStr $R8 HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+    ${If} $R8 != ""
+      StrCpy $oldQuietUninstall $R8
+    ${EndIf}
+  ${EndIf}
 !macroend
 
 !macro customInit
@@ -90,6 +100,7 @@ Var oldInstallDir
   Push $R9
   StrCpy $R6 ""
   StrCpy $R7 ""
+  StrCpy $oldQuietUninstall ""
 
   SetRegView 64
   !insertmacro scdoReadPerMachineUninstall
@@ -105,10 +116,68 @@ Var oldInstallDir
     StrCpy $oldInstallDir $perMachineInstallationFolder
   ${EndIf}
 
-  ; Do not reuse the old Program Files directory and do not elevate this installer.
+  ${If} $oldInstallDir == ""
+    ${If} ${FileExists} "$PROGRAMFILES64\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES64\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\ScdoWalletBeta"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\ScdoWalletBeta"
+    ${EndIf}
+  ${EndIf}
+
+  ; Never put this install back into Program Files.
   StrCpy $hasPerMachineInstallation "0"
   StrCpy $hasPerUserInstallation "1"
   !insertmacro setInstallModePerUser
+
+  ; Cross-scope: an all-users 3.0.x copy must be removed before the per-user
+  ; files exist. Elevation is only for that uninstall. If it is declined, the
+  ; new copy is installed beside it and the old shortcuts are removed later.
+  ${If} $oldInstallDir != ""
+  ${AndIf} $oldInstallDir != $INSTDIR
+    ${IfNot} ${UAC_IsAdmin}
+      ShowWindow $HWNDPARENT ${SW_HIDE}
+      !insertmacro UAC_RunElevated
+      ${Switch} $0
+        ${Case} 0
+          ${If} $1 = 1
+            SetErrorLevel $2
+            Quit
+          ${EndIf}
+          ${Break}
+        ${Case} 1223
+          StrCpy $oldInstallDir ""
+          ${Break}
+        ${Default}
+          StrCpy $oldInstallDir ""
+          ${Break}
+      ${EndSwitch}
+      ShowWindow $HWNDPARENT ${SW_SHOW}
+    ${EndIf}
+    ${If} $oldInstallDir != ""
+    ${AndIf} ${UAC_IsAdmin}
+      StrCpy $R2 $INSTDIR
+      StrCpy $INSTDIR $oldInstallDir
+      !insertmacro customCheckAppRunning
+      StrCpy $INSTDIR $R2
+      ${If} $oldQuietUninstall != ""
+        ExecWait '$oldQuietUninstall --updated' $R1
+      ${Else}
+        StrCpy $R0 "$oldInstallDir\Uninstall ScdoWalletBeta.exe"
+        ${IfNot} ${FileExists} "$R0"
+          StrCpy $R0 "$oldInstallDir\Uninstall SCDO Wallet.exe"
+        ${EndIf}
+        ${If} ${FileExists} "$R0"
+          InitPluginsDir
+          CopyFiles /SILENT "$R0" "$PLUGINSDIR\old-uninstaller.exe"
+          ExecWait '"$PLUGINSDIR\old-uninstaller.exe" /S /allusers --updated _?=$oldInstallDir' $R1
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
   ClearErrors
   Pop $R9
   Pop $R8
@@ -132,28 +201,12 @@ Var oldInstallDir
 !macro customInstall
   Push $R0
   Push $R1
-  ${If} $oldInstallDir == ""
-    ${If} ${FileExists} "$PROGRAMFILES64\SCDO Wallet\ScdoWalletBeta.exe"
-      StrCpy $oldInstallDir "$PROGRAMFILES64\SCDO Wallet"
-    ${ElseIf} ${FileExists} "$PROGRAMFILES\SCDO Wallet\ScdoWalletBeta.exe"
-      StrCpy $oldInstallDir "$PROGRAMFILES\SCDO Wallet"
-    ${ElseIf} ${FileExists} "$PROGRAMFILES64\ScdoWalletBeta\ScdoWalletBeta.exe"
-      StrCpy $oldInstallDir "$PROGRAMFILES64\ScdoWalletBeta"
-    ${ElseIf} ${FileExists} "$PROGRAMFILES\ScdoWalletBeta\ScdoWalletBeta.exe"
-      StrCpy $oldInstallDir "$PROGRAMFILES\ScdoWalletBeta"
-    ${EndIf}
-  ${EndIf}
-  ; A silent update may not be an administrator, so removing Program Files can fail.
-  ; The new per-user copy and its shortcuts are still written.
-  ${If} $oldInstallDir != ""
-  ${AndIf} $oldInstallDir != $INSTDIR
-    StrCpy $R0 "$oldInstallDir\Uninstall SCDO Wallet.exe"
-    ${IfNot} ${FileExists} "$R0"
-      StrCpy $R0 "$oldInstallDir\Uninstall ScdoWalletBeta.exe"
-    ${EndIf}
-    ${If} ${FileExists} "$R0"
-      ExecWait '"$R0" /S' $R0
-    ${EndIf}
+  ; The old all-users uninstaller already ran in customInit, before this
+  ; install was registered. Do not run it again from here.
+  ${IfNot} ${FileExists} "$appExe"
+    MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet was not installed. ScdoWalletBeta.exe is missing, so this setup did not succeed." /SD IDOK
+    SetErrorLevel 1
+    Quit
   ${EndIf}
   !ifdef MENU_FILENAME
     CreateDirectory "$SMPROGRAMS\${MENU_FILENAME}"
@@ -215,4 +268,5 @@ Var oldInstallDir
   ; The uninstaller pass never runs customInit/customInstall, so reference
   ; oldInstallDir here too; otherwise makensis warning 6001 fails the pack (-WX).
   StrCpy $oldInstallDir ""
+  StrCpy $oldQuietUninstall ""
 !macroend
