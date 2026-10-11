@@ -90,6 +90,25 @@
     return (e.name || DASH) + ' · ' + shortAddr(e.address) + ' · ' + scdoText(bal)
   }
 
+  function accountMenuHtml (id, entries, selected, esc) {
+    const sorted = sortEntries(entries)
+    const cur = selected ? String(selected).toLowerCase() : ''
+    const row = (e, tag, on) => {
+      const bal = e.units == null ? DASH : scdoText(showUnits(e.units, e.decimals))
+      const dash = e.units == null ? ' dash' : ''
+      const attr = tag === 'button' ? ' type="button" data-pay-addr="' + esc(e.address || '') + '"' : ''
+      return '<' + tag + ' class="pay-acct-row' + (on ? ' on' : '') + '"' + attr + '>' +
+        '<span class="pay-acct-name">' + esc(e.name || DASH) + '</span>' +
+        '<span class="pay-acct-addr">' + esc(shortAddr(e.address)) + '</span>' +
+        '<b class="pay-acct-bal' + dash + '">' + esc(bal) + '</b>' +
+        '</' + tag + '>'
+    }
+    const picked = sorted.find(e => e.address && String(e.address).toLowerCase() === cur) || null
+    const head = picked ? row(picked, 'span', false) : '<span class="pay-acct-row"><span class="pay-acct-name">' + esc(DASH) + '</span></span>'
+    const list = sorted.map(e => row(e, 'button', !!(e.address && String(e.address).toLowerCase() === cur))).join('')
+    return '<details class="pay-acct" id="' + esc(id) + '"><summary>' + head + '</summary><div class="pay-acct-list">' + list + '</div></details>'
+  }
+
   function selectHtml (id, entries, selected, esc) {
     const sorted = sortEntries(entries)
     const cur = selected ? String(selected).toLowerCase() : ''
@@ -184,6 +203,7 @@
     sortEntries: sortEntries,
     pickDefault: pickDefault,
     selectHtml: selectHtml,
+    accountMenuHtml: accountMenuHtml,
     rowsHtml: rowsHtml,
     historyHtml: historyHtml,
     txRows: txRows,

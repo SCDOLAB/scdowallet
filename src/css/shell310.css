@@ -37,6 +37,17 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .phrase-word { background: #fff; border: 1px solid #e5e5ea; border-radius: 10px; padding: 8px 10px; font-size: 18px; }
 .phrase-word b { color: #8e8e93; margin-right: 6px; font-weight: 700; }
 .home-state { font-size: 16px; color: #3a3a3c; margin: 6px 0 4px; }
+.home-heights { margin: 0 0 8px; }
+.home-heights > summary { cursor: pointer; list-style: none; color: #8e8e93; font-size: 14px; font-weight: 700; }
+.home-heights > summary::-webkit-details-marker { display: none; }
+.home-height-line { margin: 4px 0 0 18px; color: #3a3a3c; font-size: 14px; }
+.home-chain-fold.shell-fold { margin-top: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.home-chain-fold > summary { display: flex; align-items: center; gap: 8px; padding: 12px 4px; border-bottom: 1px solid #e5e5ea; font-size: 18px; font-weight: 700; background: transparent; }
+.home-tx-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.home-tx-when { color: #8e8e93; font-size: 14px; font-weight: 700; }
+.home-tx-tag { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 13px; font-weight: 800; line-height: 1.4; }
+.home-tx-tag.ok { color: #1d7a34; background: #E8F5E9; }
+.home-tx-tag.wait { color: #8a4b00; background: #fff4cc; }
 .home-chains .chain-rows { margin-top: 8px; }
 .home-invite-line { margin: 8px 14px; }
 .home-invite-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 14px 12px; }
@@ -84,13 +95,24 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .recv-tab { border: 2px solid #d5d8ea; border-radius: 999px; padding: 8px 14px; background: #fff; color: #3d4160; font-weight: 800; }
 .recv-tab.on { background: #1d7a34; border-color: #1d7a34; color: #fff; }
 .shell-recv .qrwrap { width: 340px; height: 340px; margin: 12px auto; background: #fff; border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.shell-recv .qrwrap canvas, .shell-recv .qrwrap img { display: block; max-width: 100%; max-height: 100%; }
 .recv-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .recv-addr { font-size: 20px; font-weight: 800; word-break: break-all; color: #1c1c1e; }
 .recv-empty { margin: 24px 0; font-size: 18px; color: #3c3c43; }
 .shell-copy { width: auto; padding: 10px 18px; }
 
 .shell-remit .wiz, #remitHost .wiz { background: #fff; color: #1b1d33; border-radius: 24px; padding: 26px 26px 22px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
-.wiz-dots { display: flex; gap: 14px; color: #6b6b70; font-weight: 800; margin-bottom: 18px; }
+.wiz-dots { display: flex; gap: 14px; color: #6b6b70; font-weight: 800; margin-bottom: 8px; }
+.wiz-step-hint { color: #8e8e93; font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+.pay-acct > summary { list-style: none; cursor: pointer; }
+.pay-acct > summary::-webkit-details-marker { display: none; }
+.pay-acct-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.pay-acct-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; text-align: left; background: #fff; border: 1px solid #e5e5ea; border-radius: 12px; padding: 8px 12px; color: #1c1c1e; font-size: 15px; }
+button.pay-acct-row { font: inherit; }
+.pay-acct-row.on { border-color: #1d7a34; }
+.pay-acct-name { font-weight: 800; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pay-acct-addr { color: #8e8e93; min-width: 0; }
+.pay-acct-bal { text-align: right; font-variant-numeric: tabular-nums; }
 #payWiz[data-step="1"] [data-wiz-dot="1"], #payWiz[data-step="2"] [data-wiz-dot="2"], #payWiz[data-step="3"] [data-wiz-dot="3"], #payWiz[data-step="4"] [data-wiz-dot="3"] { color: #1d7a34; }
 .wiz-sum { display: grid; gap: 10px; margin-bottom: 12px; }
 .wiz-sum div { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; }
@@ -116,6 +138,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .mine-glance.on { color: #1d7a34; }
 .mine-glance.on .mine-dot { background: #1d7a34; box-shadow: 0 0 0 5px rgba(29,122,52,.18); }
 .mine-glance.off { color: #8e8e93; }
+.mine-glance.off .mine-dot { background: #8e8e93; }
 .mine-glance.wait, .mine-glance.busy { color: #8a4b00; }
 .mine-glance.wait .mine-dot, .mine-glance.busy .mine-dot { background: #8a4b00; }
 .mine-load { height: 8px; border-radius: 999px; background: #F2F2F7; overflow: hidden; margin: 8px 0 12px; }
@@ -218,6 +241,23 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
    area itself stops above the cat. Address pills on the last rows stay clear. */
 body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--cat-res, 92px); }
 
+/* ~1024×700: the cat reserves the bottom, so the QR has to shrink or it starts below the fold. */
+@media (max-height: 820px) {
+  .shell-recv { padding: 12px 30px 12px; }
+  .shell-recv .shell-h { font-size: 26px; line-height: 1.1; margin: 0 0 4px; }
+  .shell-recv .recv-sum { margin: 0 0 2px; font-size: 15px; line-height: 1.2; }
+  .shell-recv .recv-tabs { margin: 2px 0 4px; }
+  .shell-recv .recv-tab { padding: 3px 12px; }
+  .shell-recv .field .lbl { font-size: 13px; line-height: 1.15; }
+  .shell-recv select.inp { height: 36px; font-size: 16px; }
+  .shell-recv .qrwrap { width: 176px; height: 176px; margin: 4px auto; }
+  .shell-recv .qrwrap canvas, .shell-recv .qrwrap img { width: 160px; height: 160px; }
+  .shell-recv .recv-line { margin-top: 2px; }
+  .shell-recv .recv-addr { font-size: 15px; }
+  .shell-recv .shell-copy { padding: 6px 14px; font-size: 16px; }
+  .shell-recv .shell-fold { margin-top: 6px; }
+  .shell-recv .shell-fold > summary { padding: 8px 12px; font-size: 16px; }
+}
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }

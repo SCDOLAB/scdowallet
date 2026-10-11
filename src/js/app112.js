@@ -675,6 +675,10 @@
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
     return window.SCDOMineHome.homeLine(mineHomeInput(), T)
   }
+  function homeHeightLine () {
+    if (!window.SCDOMineHome || !window.SCDOMineHome.heightTicker) return ''
+    return window.SCDOMineHome.heightTicker(mineHomeInput().pools)
+  }
   function homeSnapHtml () {
     if (!window.SCDOChainHome) return ''
     const chains = chainRowModel({})
@@ -698,7 +702,20 @@
         known = true
       }
     }
-    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><b class="${known ? '' : 'dash'}">${esc(last)}</b></div>`
+    let extra = ''
+    if (hit && hit.tx) {
+      const n = Number(hit.tx.t) || Number(hit.t) || 0
+      let when = ''
+      if (n) {
+        try { when = new Date(n).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB') } catch (e) { when = '' }
+      }
+      const stt = hit.tx.status
+      const ok = stt === 'done'
+      const fail = stt === 'fail' || stt === 'error'
+      const tag = ok ? T('homeTxOk') : (fail ? T('d_txFail') : T('homeTxWait'))
+      extra = (when ? `<span class="home-tx-when">${esc(when)}</span>` : '') + `<span class="home-tx-tag ${ok ? 'ok' : 'wait'}">${esc(tag)}</span>`
+    }
+    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
   }
   function phraseBannerHtml () {
     if (!st.phrasePending || !st.phrasePending.length) return ''
@@ -717,12 +734,13 @@
       ${legacyHintHtml()}
       <p class="home-lead">${esc(T('homeLead'))}</p>
       <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
+      <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
-      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
+      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
@@ -745,6 +763,11 @@
       if (line) {
         const text = homeMineLine()
         if (line.textContent !== text) line.textContent = text
+      }
+      const heights = $('homeHeightLine')
+      if (heights) {
+        const text = homeHeightLine()
+        if (heights.textContent !== text) heights.textContent = text
       }
       const ref = $('homeRefLink')
       if (ref) {
@@ -867,7 +890,6 @@
       const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
-    const chainPick = `<select class="inp" id="recvChain">${[0, 1, 2, 3, 4].map(i => `<option value="${i}"${i === n ? ' selected' : ''}>${esc(i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic'))}</option>`).join('')}</select>`
     const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
     const locked = n === 0 ? visible('new').find(a => !a.evm) : null
     let body
@@ -877,7 +899,7 @@
       body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
     const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('shellRecvChains'))}</div>${chainPick}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
   }
   function paintRecvQr () {
     const box = $('qrBox')
@@ -2204,6 +2226,7 @@
       if (s.confirmedKey && s.confirmedKey !== payKey(route)) s.confirmedKey = ''
       if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount || st.payReview.file !== s.payerFile)) dropReview()
       paint(route)
+      paintAmtRoom()
       clearTimeout(feeTimer)
       if (route.kind !== 'chain') return
       const gen = ++feeGen
@@ -2230,12 +2253,14 @@
         if (text) { s.feeText = text; s.feeReady = true }
         if (gas) s.gas = gas
         paint()
+        paintAmtRoom()
       }, 350)
     }
     const chip = (n) => `<button type="button" class="wiz-chip" data-wiz-chain="${n}">${esc(n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic'))}</button>`
     mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}">
       <div class="wiz-dots"><span data-wiz-dot="1">1 ${esc(TC('wizAddr'))}</span><span data-wiz-dot="2">2 ${esc(TC('wizAmount'))}</span><span data-wiz-dot="3">3 ${esc(TC('wizConfirm'))}</span></div>
       <div id="wizStep1" class="wiz-step">
+        <div class="lbl wiz-step-hint">${esc(TC('wizNextAmt'))}</div>
         <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
@@ -2286,7 +2311,52 @@
       if (inferShard(s.to) == null && !nameLike(s.to)) { stepErr('payErr1', TC('wizNeedFull')); const box = $('payChain'); if (box) box.hidden = false; return }
       showStep(2)
     }
-    function next2 () {
+    function amountRoom (text) {
+      const route = currentRoute()
+      const payer = chosenPayer(route) || accByFile(s.payerFile)
+      const shard = maxShard(route)
+      if (!payer || shard == null) return null
+      const amount = nhw(text == null ? (($('payAmt') && $('payAmt').value) || s.amount) : text)
+      if (shard >= 1) {
+        const bal = oldRaw(payer.pubkey)
+        if (bal == null) return null
+        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8 }
+      }
+      const b = st.s0[payer.filename]
+      if (!b || b.nativeWei == null || s.feeWei == null || s.feeFor !== 0) return null
+      let fee
+      try { fee = BigInt(s.feeWei) } catch (e) { return null }
+      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18 }
+    }
+    function paintAmtRoom (text) {
+      const hint = $('payAmtHint')
+      const btn = $('wizNext2')
+      const room = amountRoom(text)
+      const over = !!(room && AMT.exceedsBalance(room.amount, room.bal, room.fee, room.dec))
+      if (hint) hint.textContent = over ? T('shellAmtRoom') : ''
+      if (btn) btn.disabled = over
+      return over
+    }
+    async function ensureRoomFee () {
+      const route = currentRoute()
+      const shard = maxShard(route)
+      if (shard == null || shard >= 1) return
+      if (s.feeWei != null && s.feeFor === 0) return
+      const payer = chosenPayer(route) || accByFile(s.payerFile)
+      const dest = (route && route.to) || s.to
+      if (!payer || !payer.evm || !/^0x[0-9a-fA-F]{40}$/.test(dest)) return
+      try {
+        const est = await api.invoke('s0:estimate', payer.evm, dest, s.amount || '0.00000001', 'SCDO')
+        if (est && est.estFeeWei != null) {
+          const fee = BigInt(est.estFeeWei)
+          s.feeWei = est.estFeeWei
+          s.feeFor = 0
+          s.feeText = fmtWei(fee) + ' SCDO'
+          s.feeReady = true
+        }
+      } catch (e) {}
+    }
+    async function next2 () {
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
       stepErr('payErr2', '')
       const g = AMT.guardAmount(s.amount)
@@ -2295,6 +2365,8 @@
       if ($('payAmt')) $('payAmt').value = g.value
       const units = AMT.toUnits(s.amount, 18)
       if (units == null || units <= 0n) { stepErr('payErr2', TC('wizNeedAmt')); return }
+      await ensureRoomFee()
+      if (paintAmtRoom(s.amount)) return
       showStep(3)
       sync()
     }
@@ -2368,7 +2440,7 @@
       }
     }
     if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
-    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
+    if (amtEl) { amtEl._paintAmtRoom = paintAmtRoom; amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
     if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
     if (go) go.onclick = () => { confirmPay() }
     const n1 = $('wizNext1'); if (n1) n1.onclick = next1
@@ -2394,18 +2466,20 @@
       let last = s.payAddr || ''
       try { if (!last) last = localStorage.getItem('payAddr310-' + n) || '' } catch (e) {}
       const picked = window.SCDOChainHome.pickDefault(entries, last)
-      const html = window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
+      const html = window.SCDOChainHome.accountMenuHtml ? window.SCDOChainHome.accountMenuHtml('payAddr', entries, picked && picked.address, esc) : window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
       if (box.getAttribute('data-html') !== html) {
         box.setAttribute('data-html', html)
         SD.html(box, html)
-        const sel = $('payAddr')
-        if (sel) sel.onchange = () => {
-          s.payAddr = sel.value
-          try { localStorage.setItem('payAddr310-' + n, sel.value) } catch (e) {}
-          const hit = entries.find(e => String(e.address).toLowerCase() === String(sel.value).toLowerCase())
-          if (hit && hit.file) s.payerFile = hit.file
-          sync()
-        }
+        box.querySelectorAll('[data-pay-addr]').forEach(b => {
+          b.onclick = () => {
+            s.payAddr = b.getAttribute('data-pay-addr') || ''
+            try { localStorage.setItem('payAddr310-' + n, s.payAddr) } catch (e) {}
+            const hit = entries.find(e => String(e.address).toLowerCase() === String(s.payAddr).toLowerCase())
+            if (hit && hit.file) s.payerFile = hit.file
+            sync()
+            paintFromPick()
+          }
+        })
       }
       if (picked && picked.file) s.payerFile = picked.file
       const bal = $('payFromBal')
@@ -3121,7 +3195,7 @@
   function backupPickModal () {
     const l = st.accounts
     modal(`<div class="mh"><h2>${esc(T('backupKeyfile'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(accLabel(a))}</div><div class="lbl" style="font-size:15px">${esc(T('keyfileName'))}${PU.c()}${esc(a.filename)}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
+      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(accLabel(a))}</div><div class="lbl" style="font-size:15px">${esc(T('keyfileName'))}${PU.c()}${esc(a.filename)}</div><div class="lbl" style="font-size:15px">${esc(T('acctId'))}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 820, noFocus: true })
   }
 
@@ -3943,10 +4017,6 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
-    if (t.id === 'recvChain') {
-      st.recvShard = [0, 1, 2, 3, 4].includes(Number(t.value)) ? Number(t.value) : 0
-      render(); return
-    }
     if (t.id === 'recvPick') {
       const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
@@ -3971,7 +4041,9 @@
       const clip = AMT.clipDecimals(next, 8)
       next = clip.value
       const hint = $('payAmtHint')
-      if (hint) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+      let over = false
+      if (t.id === 'payAmt' && typeof t._paintAmtRoom === 'function') over = t._paintAmtRoom(next)
+      if (hint && !over) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
     }
     if (next !== t.value) {
       const pos = t.selectionStart
