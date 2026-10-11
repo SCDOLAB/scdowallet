@@ -8,15 +8,17 @@ const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const { ethers } = require('ethers')
-const { dialog, BrowserWindow } = require('electron')
+const { dialog, BrowserWindow, app } = require('electron')
 const ScdoClient = require('../api/scdoClient')
 const { Shard0 } = require('../api/evm')
+const mnemonic = require('../api/mnemonic')
 const { normalizeHalfWidth } = require('../js/halfWidth')
 const { guardAmount, toUnits } = require('../js/amount')
 const { normLang } = require('../js/uiLang')
 
 const S0_CHAIN_ID = 5680
 const HOME = path.join(os.homedir(), '.ScdoWallet')
+const MNEMONIC_DIR = path.join(HOME, 'mnemonic')
 const UI_PATH = path.join(HOME, 'ui112.json')
 const S0TX_PATH = path.join(HOME, 's0tx.json')
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/
@@ -444,14 +446,65 @@ async function create (p) {
   if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) throw new Error('BAD_PASSWORD')
   if (!/^[1-4]$/.test(shard)) throw new Error('BAD_SHARD')
   const cl = c()
+  let phrase = null
   let priv = String(p.priv || '').trim()
+  if (priv && mnemonic.isPhrase(priv)) {
+    try { priv = mnemonic.privateKeyFromPhrase(priv) } catch (e) { throw new Error('BAD_KEY') }
+  }
   if (priv) { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) throw new Error('BAD_KEY') }
-  if (!priv) priv = cl.keyTool.generateKeys(shard).privatekey
+  if (!priv) { const g = mnemonic.generateAccount(); priv = g.privateKey; phrase = g.phrase }
   else { const addr = cl.getAddressFromPriKey(priv, shard); if (!addr) throw new Error('BAD_KEY'); if (accounts().some(x => x.pubkey === addr)) throw new Error('EXISTS') }
   const file = (name || 'account' + (Number(p.no) || 0)) + '.' + Date.now()
   safeName(file)
-  try { await cl.keyStore(file, priv, pw, shard); cl.rememberEvmAddress(file, priv) } finally { priv = null }
-  return { ok: true, file }
+  let evm = ''
+  let shown = null
+  const day = mnemonic.today()
+  try {
+    await cl.keyStore(file, priv, pw, shard)
+    cl.rememberEvmAddress(file, priv)
+    evm = cl.evmAddressOf(file) || Shard0.addressFromPrivateKey(priv)
+    if (phrase) {
+      mnemonic.writeSeal(MNEMONIC_DIR, file, await mnemonic.seal(phrase, pw, { created: day }))
+      shown = phrase
+    }
+  } catch (e) {
+    try { fs.unlinkSync(path.join(cl.accountPath, file)) } catch (e2) {}
+    mnemonic.removeSeal(MNEMONIC_DIR, file)
+    throw e
+  } finally { priv = null; phrase = null }
+  return { ok: true, file, phrase: shown, evm, date: day }
+}
+async function showPhrase (file, pw) {
+  if (typeof pw !== 'string' || !pw) throw new Error('NO_PASSWORD')
+  const name = safeName(file)
+  const raw = mnemonic.readSeal(MNEMONIC_DIR, name)
+  if (!raw) throw new Error('NONE')
+  const phrase = await mnemonic.open(raw, pw)
+  return { ok: true, phrase, evm: c().evmAddressOf(name) || '', date: mnemonic.meta(raw).created || mnemonic.today() }
+}
+function finishPhrase (file) {
+  mnemonic.removeSeal(MNEMONIC_DIR, safeName(file))
+  return { ok: true }
+}
+async function savePhraseFile (win, p) {
+  p = p || {}
+  const kind = p.kind === 'png' ? 'png' : 'txt'
+  const data = String(p.data || '')
+  if (!data || data.length > 3000000) throw new Error('BAD_FILE')
+  const buf = Buffer.from(data, 'base64')
+  if (buf.length < 8 || buf.length > 2000000) throw new Error('BAD_FILE')
+  if (kind === 'png' && buf.slice(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('BAD_FILE')
+  const documents = app.getPath('documents')
+  const destDefault = mnemonic.saveDefaultPath(documents, kind, mnemonic.today())
+  fs.mkdirSync(path.dirname(destDefault), { recursive: true })
+  const picked = await dialog.showSaveDialog(win || undefined, {
+    defaultPath: destDefault,
+    filters: kind === 'png' ? [{ name: 'PNG', extensions: ['png'] }] : [{ name: 'Text', extensions: ['txt'] }]
+  })
+  if (!picked || picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+  const fd = fs.openSync(picked.filePath, 'w', 0o600)
+  try { fs.writeSync(fd, buf); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  return { ok: true, path: picked.filePath }
 }
 // 2.0.12 匯款: decrypt for a single personal_sign in remitService (main process only, never sent over IPC)
 function decryptForRemit (file, pw) { return c().decKeyFile(safeName(file), String(pw || '')) }
@@ -506,7 +559,8 @@ function boot () {
     config: { lang: normLang(cfg.lang), connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
     shard0: { chainId: shard0().cfg.chainId, explorer: shard0().cfg.explorer, tokens: shard0().cfg.tokens.map(t => ({ symbol: t.symbol, address: t.address, decimals: t.decimals })) },
     ui: readJson(UI_PATH, {}),
-    accounts: accounts()
+    accounts: accounts(),
+    phrasePending: mnemonic.listPending(MNEMONIC_DIR)
   }
 }
 
@@ -518,6 +572,9 @@ function register (ipcMain, getWin) {
   h('wallet:setLang', (e, l) => { try { return setLang(l) } catch (err) { return { ok: false, error: err.message } } })
   h('acct:create', (e, p) => create(p).catch(err => ({ ok: false, error: err.message })))
   h('acct:unlock', (e, f, pw) => unlock(f, pw))
+  h('phrase:show', (e, file, pw) => showPhrase(file, pw).catch(err => ({ ok: false, error: err.message })))
+  h('phrase:done', (e, file) => { try { return finishPhrase(file) } catch (err) { return { ok: false, error: err.message } } })
+  h('phrase:save', (e, p) => savePhraseFile(getWin(), p).catch(err => ({ ok: false, error: err.message })))
   h('acct:import', () => importKeyfiles(getWin()))
   h('s0:chainInfo', async () => { const ci = await shard0().chainInfo(); return { chainId: ci.chainId, block: ci.block } })
   h('s0:balances', async (e, addr) => {

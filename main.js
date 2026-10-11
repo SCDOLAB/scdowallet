@@ -646,6 +646,7 @@ ipcMain.handle('keyfile:backupDelete', (e, name) => {
   let b
   try { b = backupKeyfile(name) } catch (err) { return { ok: false, stage: 'backup', error: err.message } }
   try { fs.unlinkSync(b.src) } catch (err) { return { ok: false, stage: 'delete', error: err.message, backup: b.dst } }
+  try { require('./src/api/mnemonic').removeSeal(path.join(os.homedir(), '.ScdoWallet', 'mnemonic'), name) } catch (err) {}
   return { ok: true, backup: b.dst, sha256: b.sha256 }
 })
 ipcMain.handle('keyfile:backupOnly', (e, name) => {
