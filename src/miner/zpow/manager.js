@@ -12,7 +12,7 @@ const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
-const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
+const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, workerFigure, sessionDelta, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
@@ -92,6 +92,7 @@ class ZpowManager extends EventEmitter {
     this.syncSamples = []
     this.etaHold = null
     this.etaHoldAt = 0
+    this.earnBase = null
     this.state = this.fresh()
   }
 
@@ -99,7 +100,8 @@ class ZpowManager extends EventEmitter {
     return {
       chain: 'classic', phase: 'idle', code: 'IDLE', mode: null, backend: null, message: '',
       wallet: null, shard: null, pool: null, connected: null,
-      hashrate: null, hashrateSource: null, sharesAccepted: 0, sharesRejected: 0,
+      hashrate: null, hashrateSource: null, rateSeen: false, sharesSeen: false,
+      sharesAccepted: 0, sharesRejected: 0, sessionEarn: null, worker: null,
       blocksFound: 0, blocksFoundHeights: [], blockRatePerHour: null,
       poolStats: null, poolError: null, startedAt: null, logTail: [], lastError: null,
       gpuActive: false, paused: false, nodeSeen: false,
@@ -156,8 +158,8 @@ class ZpowManager extends EventEmitter {
     if (!ev) return
     if (ev.kind === 'status') {
       const patch = {}
-      if (ev.hashrate != null) { patch.hashrate = ev.hashrate; patch.hashrateSource = 'status' }
-      if (ev.accepted != null) patch.sharesAccepted = ev.accepted
+      if (ev.hashrate != null) { patch.hashrate = ev.hashrate; patch.hashrateSource = 'status'; patch.rateSeen = true }
+      if (ev.accepted != null) { patch.sharesAccepted = ev.accepted; patch.sharesSeen = true }
       if (ev.rejected != null) patch.sharesRejected = ev.rejected
       if (ev.connected != null) patch.connected = ev.connected
       if (ev.blocks != null) patch.blocksFound = Math.max(this.state.blocksFound, ev.blocks)
@@ -363,6 +365,7 @@ class ZpowManager extends EventEmitter {
     const threadblocks = asInt(opts.threadblocks, 100)
     const blockthreads = asInt(opts.blockthreads, 100)
     const pool = poolForShard(parsed.shard, poolsFromEnv(env) || this.o.pools)
+    const workerName = opts.worker || (backend === 'cpu' || gpuMiner !== 'zminer-gpu' ? 'wallet' : computerName(env))
 
     let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null
     if (backend === 'cpu') {
@@ -374,7 +377,7 @@ class ZpowManager extends EventEmitter {
       binary = caps.cpu.path
       shaOpts = Object.assign({ required: true }, this.sumsFor(binary, env.SCDO_ZMINER_SHA256))
       args = renderArgs(ZMINER_ARGS, {
-        pool: pool.stratum, user: parsed.address, worker: opts.worker || 'wallet', threads
+        pool: pool.stratum, user: parsed.address, worker: workerName, threads
       })
       cwd = path.dirname(binary)
     } else if (gpuMiner === 'zminer-gpu') {
@@ -388,7 +391,7 @@ class ZpowManager extends EventEmitter {
       args = renderArgs(ZMINER_GPU_ARGS, {
         pool: pool.stratum,
         user: parsed.address,
-        worker: opts.worker || computerName(env)
+        worker: workerName
       })
       cwd = path.dirname(binary)
     } else if (gpuMiner === 'external') {
@@ -404,7 +407,7 @@ class ZpowManager extends EventEmitter {
         pool: pool.stratum,
         user: parsed.address,
         threads,
-        worker: opts.worker || 'wallet',
+        worker: workerName,
         shard: String(parsed.shard)
       })
       cwd = path.dirname(binary)
@@ -433,6 +436,7 @@ class ZpowManager extends EventEmitter {
     await assertSha256(binary, shaOpts)
 
     fs.mkdirSync(path.join(this.o.dataRoot, 'logs'), { recursive: true })
+    this.earnBase = null
     this.state = Object.assign(this.fresh(), {
       wallet: parsed.address,
       shard: parsed.shard,
@@ -444,6 +448,7 @@ class ZpowManager extends EventEmitter {
       message: '',
       mineLabel: mineLabel,
       syncPct: opts.syncPct == null ? null : opts.syncPct,
+      worker: workerName,
       startedAt: Date.now()
     })
     this.restarts = []
@@ -524,12 +529,24 @@ class ZpowManager extends EventEmitter {
   async pollPool () {
     if (!this.wantRunning || !this.state.pool) return
     try {
-      const body = await (this.o.fetchJson || httpGetJson)(this.state.pool.stats, 8000)
+      const fetchJson = this.o.fetchJson || httpGetJson
+      const body = await fetchJson(this.state.pool.stats, 8000)
+      let statsBody = null
+      const statsUrl = String(this.state.pool.stats || '').replace(/\/api\/miner\/.*$/, '/api/stats')
+      if (statsUrl && statsUrl !== this.state.pool.stats) {
+        try { statsBody = await fetchJson(statsUrl, 8000) } catch (e) { statsBody = null }
+      }
       const stats = parsePoolMiner(body)
+      const fig = workerFigure(statsBody, this.state.wallet, this.state.worker) || workerFigure(body, this.state.wallet, this.state.worker)
       const patch = { poolStats: stats, poolError: null }
       if (this.state.backend !== 'zminer-gpu' && stats && stats.hashrate != null && stats.hashrate > 0 && (!(this.state.hashrate > 0) || this.state.hashrateSource === 'pool')) {
         patch.hashrate = stats.hashrate
         patch.hashrateSource = 'pool'
+      }
+      if (!fig) patch.sessionEarn = null
+      else {
+        if (!this.earnBase) this.earnBase = { shares: fig.shares, paid: fig.paid, earned: fig.earned }
+        patch.sessionEarn = sessionDelta(this.earnBase, fig)
       }
       this.set(patch)
     } catch (e) {
@@ -539,6 +556,7 @@ class ZpowManager extends EventEmitter {
 
   async stop () {
     this.wantRunning = false
+    this.earnBase = null
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
     if (this.poller) { clearInterval(this.poller); this.poller = null }
     if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null }
@@ -600,11 +618,25 @@ class GpuFleet extends EventEmitter {
     let hash = 0
     let anyHash = false
     let accepted = 0
+    let earnShares = 0
+    let earnPaid = 0
+    let earnEarned = 0
+    let earnOn = false
+    let anyShare = false
+    let anyPaid = false
+    let anyEarned = false
     for (const s of running) {
       accepted += Number(s.sharesAccepted) || 0
-      if (Number(s.sharesAccepted) > 0 && Number(s.hashrate) > 0 && s.hashrateSource !== 'pool') {
-        hash += Number(s.hashrate)
+      if (s.hashrateSource !== 'pool' && s.hashrate != null && Number.isFinite(Number(s.hashrate)) && (s.rateSeen || s.hashrateSource === 'status' || s.backend === 'zminer-gpu')) {
         anyHash = true
+        if (Number(s.hashrate) > 0) hash += Number(s.hashrate)
+      }
+      const earn = s.sessionEarn
+      if (earn && earn.exposed === true) {
+        earnOn = true
+        if (earn.shares != null && Number.isFinite(Number(earn.shares))) { earnShares += Number(earn.shares); anyShare = true }
+        if (earn.paid != null && Number.isFinite(Number(earn.paid))) { earnPaid += Number(earn.paid); anyPaid = true }
+        if (earn.earned != null && Number.isFinite(Number(earn.earned))) { earnEarned += Number(earn.earned); anyEarned = true }
       }
     }
     const one = running.length === 1 ? running[0] : null
@@ -620,6 +652,14 @@ class GpuFleet extends EventEmitter {
       code: one ? one.code : running[0].code,
       hashrate: anyHash ? hash : null,
       hashrateSource: anyHash ? 'status' : null,
+      rateSeen: anyHash,
+      sharesSeen: running.some(s => s.sharesSeen === true),
+      sessionEarn: earnOn ? {
+        exposed: true,
+        shares: anyShare ? earnShares : null,
+        paid: anyPaid ? String(earnPaid) : null,
+        earned: anyEarned ? String(earnEarned) : null
+      } : null,
       sharesAccepted: accepted,
       procs: running.reduce((acc, s) => acc.concat(s.procs || []), []),
       shards: running,

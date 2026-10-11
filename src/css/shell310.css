@@ -75,7 +75,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .shell-recv .recv-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
 .recv-tab { border: 2px solid #d5d8ea; border-radius: 999px; padding: 8px 14px; background: #fff; color: #3d4160; font-weight: 800; }
 .recv-tab.on { background: #1d7a34; border-color: #1d7a34; color: #fff; }
-.shell-recv .qrwrap { width: 260px; height: 260px; margin: 12px auto; background: #fff; border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.shell-recv .qrwrap { width: 340px; height: 340px; margin: 12px auto; background: #fff; border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .recv-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .recv-addr { font-size: 20px; font-weight: 800; word-break: break-all; color: #1c1c1e; }
 .recv-empty { margin: 24px 0; font-size: 18px; color: #3c3c43; }
@@ -89,7 +89,10 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .wiz-sum span { color: #5f6482; }
 .wiz-nav { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
 .wiz-nav .shell-go { flex: 1; }
-.wiz-ok { font-size: 28px; font-weight: 800; margin-bottom: 8px; color: #1d7a34; }
+.wiz-ok { font-size: 48px; font-weight: 800; margin-bottom: 8px; color: #1d7a34; }
+.wiz-amt { font-size: 28px; font-weight: 800; margin: 8px 0; color: #1c1c1e; }
+.wiz-query { font-size: 22px; font-weight: 800; margin-bottom: 12px; color: #1c1c1e; }
+#payHash { word-break: break-all; font-size: 16px; margin: 8px 0; color: #1c1c1e; }
 .wiz-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .wiz-chip { border: 2px solid #cfd3ea; border-radius: 999px; padding: 8px 12px; background: #fff; color: #3d4160; font-weight: 800; }
 .wiz-chip.on { background: #1d7a34; border-color: #1d7a34; color: #fff; }
@@ -107,6 +110,19 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .mine-glance.off { color: #8e8e93; }
 .mine-glance.wait, .mine-glance.busy { color: #8a4b00; }
 .mine-glance.wait .mine-dot, .mine-glance.busy .mine-dot { background: #8a4b00; }
+.mine-load { height: 8px; border-radius: 999px; background: #F2F2F7; overflow: hidden; margin: 8px 0 12px; }
+.mine-load-bar { height: 100%; width: 36%; border-radius: 999px; background: #1d7a34; }
+.mine-load.wait .mine-load-bar { animation: mine-load 1.2s ease-in-out infinite; }
+.mine-load.run .mine-load-bar { width: 100%; opacity: .55; }
+@keyframes mine-load { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+.mine-rate, .mine-earn { display: flex; justify-content: space-between; gap: 12px; font-size: 18px; font-weight: 700; color: #1c1c1e; padding: 4px 0; }
+.dash { color: #8e8e93; }
+.mine-chain-row { border-bottom: 1px solid #e5e5ea; }
+.mine-x { margin: 0 0 6px 26px; }
+.mine-x summary { cursor: pointer; color: #8e8e93; font-size: 14px; }
+.home-chains { margin-top: 14px; }
+.home-bal, .home-last { display: flex; justify-content: space-between; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #e5e5ea; font-size: 18px; color: #1c1c1e; }
+.home-bal b, .home-last b { font-variant-numeric: tabular-nums; }
 .mine-temp { margin-top: 8px; text-align: center; color: #6b6b70; font-weight: 700; }
 .mine-chain { display: flex; align-items: center; gap: 8px; padding: 8px 0; font-size: 16px; font-weight: 600; line-height: 1.25; color: #1c1c1e; min-width: 0; }
 .mine-chain input { width: 18px; height: 18px; margin: 0; flex: none; }

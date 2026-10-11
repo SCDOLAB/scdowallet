@@ -153,6 +153,18 @@
     return '<div class="chain-tx" data-tx-chain="' + esc(String(chain.n)) + '"><div class="chain-tx-h">' + esc(title) + '</div>' + filter + empty + body + more + '</div>'
   }
 
+  function latestTx (chains) {
+    let best = null
+    for (const chain of chains || []) {
+      const rows = txRows(chain)
+      if (!rows.length) continue
+      const top = rows[0]
+      const t = Number(top.t) || 0
+      if (!best || t > best.t) best = { n: chain.n, t: t, tx: top }
+    }
+    return best
+  }
+
   function rowsHtml (chains, T, esc) {
     return (chains || []).map(chain => {
       const sum = summarize(chain)
@@ -174,7 +186,8 @@
     selectHtml: selectHtml,
     rowsHtml: rowsHtml,
     historyHtml: historyHtml,
-    txRows: txRows
+    txRows: txRows,
+    latestTx: latestTx
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOChainHome = Object.freeze(api)

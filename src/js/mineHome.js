@@ -962,7 +962,71 @@ function foldSummary (title) {
   return `<summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${title}</summary>`
 }
 
-function chainPickHtml (device, picked, other, caps, T, esc, pools, open) {
+function reportedRate (m) {
+  if (!m || m.hashrateSource === 'pool' || m.mode === 'node') return null
+  const zpow = m.backend === 'zminer-gpu' || m.backend === 'zminer' || m.mode === 'cpu'
+  if (!zpow) return null
+  if (m.rateSeen === false) return null
+  const n = num(m.hashrate)
+  return n
+}
+
+function zpowSessions (miners, device) {
+  miners = miners || {}
+  const out = []
+  if (device === 'cpu') {
+    const m = miners.classicCpu
+    if (m && m.mode !== 'node' && processAlive(m)) out.push(m)
+    return out
+  }
+  const g = miners.classicGpu
+  const list = g && Array.isArray(g.shards) && g.shards.length ? g.shards : (g ? [g] : [])
+  for (const s of list) {
+    if (s && s.backend === 'zminer-gpu' && s.mode !== 'node' && processAlive(s)) out.push(s)
+  }
+  return out
+}
+
+function rateOfList (list) {
+  let sum = 0
+  let any = false
+  for (const m of list || []) {
+    const n = reportedRate(m)
+    if (n == null) continue
+    any = true
+    if (n > 0) sum += n
+  }
+  return any ? sum : null
+}
+
+function sessionEarnText (list, T) {
+  let shares = 0
+  let paid = 0
+  let anyShare = false
+  let anyPay = false
+  let exposed = false
+  for (const m of list || []) {
+    const e = m && m.sessionEarn
+    if (!e || e.exposed !== true) continue
+    exposed = true
+    if (e.shares != null && Number.isFinite(Number(e.shares))) { shares += Number(e.shares); anyShare = true }
+    const pay = e.paid != null ? Number(e.paid) : (e.earned != null ? Number(e.earned) : null)
+    if (pay != null && Number.isFinite(pay)) { paid += pay; anyPay = true }
+  }
+  if (!exposed) return null
+  const parts = []
+  if (anyShare) parts.push(tr(T, 'sessionEarnShares', { n: String(shares) }))
+  if (anyPay) parts.push(tr(T, 'sessionEarnPaid', { n: scdoCount(paid) }))
+  return parts.length ? parts.join(' · ') : DASH
+}
+
+function reportedShares (m) {
+  if (!m || m.sharesSeen !== true) return null
+  const n = num(m.sharesAccepted)
+  return n == null ? null : n
+}
+
+function chainPickHtml (device, picked, other, caps, T, esc, pools, open, input) {
   const supported = [0, 1, 2, 3, 4].filter(n => chainSupport(device, n, caps, pools).ok)
   const allOn = supported.length > 0 && supported.every(n => picked.indexOf(n) >= 0)
   const boxes = [0, 1, 2, 3, 4].map(n => {
@@ -970,7 +1034,8 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools, open) {
     const on = sup.ok && picked.indexOf(n) >= 0
     const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 礦池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
     const why = sup.ok ? '' : ` <span class="mine-why">${esc(down || tr(T, sup.reasonKey))}</span>`
-    return `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
+    const label = `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
+    return `<div class="mine-chain-row">${label}${chainExpandHtml(input, device, n, T, esc, pools)}</div>`
   }).join('')
   const shared = picked.filter(n => n >= 1 && other.indexOf(n) >= 0)
   const note = shared.length ? `<div class="mine-note">${esc(tr(T, 'shellBothMine'))}</div>` : ''
@@ -979,6 +1044,33 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools, open) {
   return `<details class="shell-fold" id="minePick-${device}"${pickOpen}>${foldSummary(esc(tr(T, 'shellPickChains')))}
       <label class="mine-chain"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="all"${allOn ? ' checked' : ''}${supported.length ? '' : ' disabled'}> ${esc(tr(T, 'shellPickAll'))}</label>
       ${boxes}${note}${many}
+    </details>`
+}
+
+function chainExpandHtml (input, device, n, T, esc, pools) {
+  const session = input ? chainSession(input, device, n) : null
+  const alive = !!(session && processAlive(session) && session.mode !== 'node')
+  const rate = reportedRate(session)
+  let state = tr(T, 'shellMineOff')
+  if (alive && (session.backend === 'zminer-gpu' || session.backend === 'zminer' || session.mode === 'cpu')) state = rate == null ? tr(T, 'shellBoot') : tr(T, 'shellMineOn')
+  else if (alive && (session.phase === 'mining' || session.code === 'CLASSIC_GPU' || session.code === 'CLASSIC_MINING' || session.gpuActive)) state = tr(T, 'shellMineOn')
+  else if (alive && stillSyncing(session)) state = tr(T, 'shellMineWaitPlain')
+  else if (alive) state = tr(T, 'shellMineStarting')
+  const speed = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
+  const sharesN = reportedShares(session)
+  const shares = sharesN == null ? DASH : String(sharesN)
+  const local = session && knownHeight(session.localBlock) != null ? String(Math.round(knownHeight(session.localBlock))) : DASH
+  const pool = pools && (pools[n] || pools[String(n)])
+  const diff = pool && pool.network_difficulty != null && pool.network_difficulty !== '' ? String(pool.network_difficulty) : DASH
+  const row = (k, v) => `<div class="mine-kv"><span>${esc(k)}</span><b class="${v === DASH ? 'dash' : ''}">${esc(v)}</b></div>`
+  return `<details class="mine-x" id="mineX-${device}-${n}">${foldSummary('')}
+      <div class="mine-x-body">
+        ${row(tr(T, 'shellStat'), state)}
+        ${row(tr(T, 'homeMineSpeedLbl'), speed)}
+        ${row(tr(T, 'shellShares'), shares)}
+        ${row(tr(T, 'shellLocalH'), local)}
+        ${row(tr(T, 'shellDiff'), diff)}
+      </div>
     </details>`
 }
 
@@ -1072,19 +1164,32 @@ function homeLine (input, T) {
   const cpu = miners.classicCpu
   const s0 = miners.shard0
   const press = input.press || {}
-  if (press.gpu === 'starting' || press.cpu === 'starting' || input.phase === 'starting') return tr(T, 'homeLineStarting')
-  if (press.gpu === 'stopping' || press.cpu === 'stopping' || input.phase === 'stopping') return tr(T, 'homeLineStopping')
-  if (gpuPoolUp(gpu)) return tr(T, 'homeLineGpuPool')
-  const gpuOn = gpu && gpu.mode !== 'node' && gpu.mode !== 'cpu' && processAlive(gpu)
-  if (gpuOn && waitingSync(gpu, 'classic') && !(gpu.gpuActive || gpu.code === 'CLASSIC_GPU')) {
-    const pct = syncPctOf(gpu)
-    return gpuWaitText(gpu.shard, pct != null ? pct : gpu.syncPct, zhUi(T))
+  let base
+  if (press.gpu === 'starting' || press.cpu === 'starting' || input.phase === 'starting') base = tr(T, 'homeLineStarting')
+  else if (press.gpu === 'stopping' || press.cpu === 'stopping' || input.phase === 'stopping') base = tr(T, 'homeLineStopping')
+  else if (gpuPoolUp(gpu)) base = tr(T, 'homeLineGpuPool')
+  else {
+    const gpuOn = gpu && gpu.mode !== 'node' && gpu.mode !== 'cpu' && processAlive(gpu)
+    if (gpuOn && waitingSync(gpu, 'classic') && !(gpu.gpuActive || gpu.code === 'CLASSIC_GPU')) {
+      const pct = syncPctOf(gpu)
+      base = gpuWaitText(gpu.shard, pct != null ? pct : gpu.syncPct, zhUi(T))
+    } else if (gpuOn && (gpu.gpuActive || gpu.code === 'CLASSIC_GPU' || gpu.phase === 'mining')) base = tr(T, 'homeLineGpuMine')
+    else if (input.gpuBusy && !gpuOn) base = tr(T, 'homeMineGpuBusy')
+    else if (cpu && cpu.mode !== 'node' && (cpu.running || procsAlive(cpu))) base = tr(T, 'homeLineCpuPool')
+    else if (s0 && s0.mode !== 'node' && (s0.running || procsAlive(s0))) base = tr(T, 'homeLineShard0')
+    else base = tr(T, 'homeLineIdle')
   }
-  if (gpuOn && (gpu.gpuActive || gpu.code === 'CLASSIC_GPU' || gpu.phase === 'mining')) return tr(T, 'homeLineGpuMine')
-  if (input.gpuBusy && !gpuOn) return tr(T, 'homeMineGpuBusy')
-  if (cpu && cpu.mode !== 'node' && (cpu.running || procsAlive(cpu))) return tr(T, 'homeLineCpuPool')
-  if (s0 && s0.mode !== 'node' && (s0.running || procsAlive(s0))) return tr(T, 'homeLineShard0')
-  return tr(T, 'homeLineIdle')
+  return base + ' · ' + heightTicker(input.pools)
+}
+
+function heightTicker (pools) {
+  const parts = []
+  for (const n of [1, 2, 3, 4]) {
+    const p = pools && (pools[n] || pools[String(n)])
+    const known = p && p.online !== false && p.chain_height != null && p.chain_height !== ''
+    parts.push('Shard' + n + ' ' + (known ? String(p.chain_height) : DASH))
+  }
+  return parts.join(' · ')
 }
 
 function devicePanel (input, device, picked, other, T, esc, huge) {
@@ -1097,13 +1202,28 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
     : ''
   const needPick = !!(input && input.needChain && input.needChain[device] && model.phase === 'stopped')
   const needNote = needPick ? `<p class="mine-note" id="mineNeed-${device}">${esc(tr(T, 'shellNeedChain'))}</p>` : ''
+  const zpow = zpowSessions(input && input.miners, device)
+  let load = ''
+  if (zpow.length && model.phase !== 'stopped' && model.phase !== 'stopping') {
+    const rate = rateOfList(zpow)
+    model.status = rate == null ? tr(T, 'shellBoot') : tr(T, 'shellMineOn')
+    model.view.statusTone = rate == null ? 'busy' : 'on'
+    const rateText = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
+    const earn = sessionEarnText(zpow, T)
+    const earnText = earn == null ? DASH : earn
+    const mode = rate == null ? 'wait' : 'run'
+    load = `<div class="mine-load ${mode}" data-mine-load="${device}"><div class="mine-load-bar"></div></div>
+      <div class="mine-rate">${esc(tr(T, 'homeMineSpeedLbl'))} <b class="${rate == null ? 'dash' : ''}">${esc(rateText)}</b></div>
+      <div class="mine-earn">${esc(tr(T, 'sessionEarn'))} <b class="${earnText === DASH ? 'dash' : ''}">${esc(earnText)}</b></div>`
+  }
   const html = `<section class="mine-panel" data-dev="${device}">
       <h2>${esc(deviceTitle(device, T))}</h2>
       <div class="mine-glance mh-status ${model.view.statusTone}" data-dev-status="${device}"><span class="mine-dot" aria-hidden="true"></span><span class="mine-glance-t">${esc(model.status)}</span></div>
+      ${load}
       <div class="shell-huge-wrap">${mineDevButton(device, model.view, esc, huge)}</div>
       ${fallback}
       ${needNote}
-      ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools, needPick)}
+      ${chainPickHtml(device, picked, other, input && input.caps, T, esc, input && input.pools, needPick, input)}
     </section>`
   return { html: html, rows: rows, temp: temp }
 }
