@@ -194,11 +194,73 @@ function parsePoolMiner (body) {
   }
 }
 
+function moneyText (v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return String(Math.round(n * 1e8) / 1e8)
+}
+
+function moneyDelta (now, base) {
+  const a = moneyText(now)
+  const b = moneyText(base)
+  if (a == null || b == null) return null
+  const d = Math.round((Number(a) - Number(b)) * 1e8) / 1e8
+  return d < 0 ? '0' : String(d)
+}
+
+function figureFrom (obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
+  const shares = num(obj.shares != null ? obj.shares : (obj.accepted != null ? obj.accepted : obj.shares_valid))
+  const paid = obj.paid_scdo != null ? moneyText(obj.paid_scdo) : moneyText(obj.paid)
+  const earned = obj.earned_scdo != null ? moneyText(obj.earned_scdo) : null
+  if (shares == null && paid == null && earned == null) return null
+  return { shares: shares, paid: paid, earned: earned }
+}
+
+// Per worker or per address only. Pool-wide counters are not this session.
+function workerFigure (body, address, worker) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+  const keys = []
+  if (worker) keys.push(String(worker))
+  if (address) keys.push(String(address))
+  const maps = [body.workers, body.miners, body.addresses]
+  for (const map of maps) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) continue
+    for (const key of keys) {
+      if (map[key] && typeof map[key] === 'object') {
+        const hit = figureFrom(map[key])
+        if (hit) return hit
+      }
+      const found = Object.keys(map).find(k => k.toLowerCase() === key.toLowerCase())
+      if (found && map[found] && typeof map[found] === 'object') {
+        const hit = figureFrom(map[found])
+        if (hit) return hit
+      }
+    }
+  }
+  if (body.address && address && String(body.address).toLowerCase() === String(address).toLowerCase()) return figureFrom(body)
+  return null
+}
+
+function sessionDelta (base, now) {
+  if (!now) return null
+  base = base || {}
+  return {
+    exposed: true,
+    shares: now.shares != null && base.shares != null ? Math.max(0, now.shares - base.shares) : null,
+    paid: moneyDelta(now.paid, base.paid),
+    earned: moneyDelta(now.earned, base.earned)
+  }
+}
+
 module.exports = {
   parseStatusLine,
   cudaInitFailed,
   blockRatePerHour,
   parsePoolMiner,
+  workerFigure,
+  sessionDelta,
   looksLikeStatus,
   peerTargetOf,
   mergeSyncView,

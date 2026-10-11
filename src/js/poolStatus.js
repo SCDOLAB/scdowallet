@@ -13,13 +13,18 @@ function judge (httpOk, body) {
   if (body.dry_run === true) return { online: false, dry_run: true }
   if (body.chain_height == null || body.chain_height === '') return { online: false }
   const counters = body.counters && typeof body.counters === 'object' ? body.counters : {}
+  const job = body.job && typeof body.job === 'object' ? body.job : null
+  const networkDifficulty = job && job.network_difficulty != null && job.network_difficulty !== ''
+    ? job.network_difficulty
+    : (body.network_difficulty != null && body.network_difficulty !== '' ? body.network_difficulty : null)
   return {
     online: true,
     dry_run: false,
     chain_height: body.chain_height,
     connections: body.connections,
     algorithm: body.algorithm,
-    blocks_found: counters.blocks_found
+    blocks_found: counters.blocks_found,
+    network_difficulty: networkDifficulty
   }
 }
 

@@ -90,11 +90,11 @@ const cool = page({ miners: { classicGpu: { running: true, mode: 'gpu', chain: '
 assert.ok(cool.includes('temp-ok'))
 assert.ok(cool.includes('\u2014') || cool.includes('今天挖到'))
 
-assert.strictEqual(I.CN.relNotes[0].v, '3.1.0')
-assert.strictEqual(I.EN.relNotes[0].v, '3.1.0')
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.1')
+assert.strictEqual(I.EN.relNotes[0].v, '3.1.1')
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(I.CN.relNotes.find(n => n.v === '3.0.10').items.join(' ').includes('顯卡正被其他程式使用'))
-assert.ok(!I.CN.relNotes[0].items.join(' ').includes('主鏈'))
+assert.ok(!I.CN.relNotes.find(n => n.v === '3.1.0').items.join(' ').includes('主鏈'))
 
 // Complex sections start collapsed. Only 「查看各鏈餘額」 is remembered.
 function detailTags (src) {
@@ -242,5 +242,5 @@ assert.ok(setModal.indexOf('id="setLang"') < setModal.indexOf("shellFold('setAdv
 assert.ok(setModal.indexOf('id="setResume"') < setModal.indexOf("shellFold('setAdvanced'") && setModal.indexOf('data-act="keepMining"') < setModal.indexOf("shellFold('setAdvanced'"))
 assert.ok(setModal.indexOf("T('rpcList')") > setModal.indexOf('const advancedInner') && setModal.indexOf('data-act="manage"') > setModal.indexOf('const advancedInner'))
 assert.ok(!setModal.includes('<div class="setsec"'))
-assert.ok(I.CN.relNotes[0].items.join(' ').includes('最近交易') && I.EN.relNotes[0].items.join(' ').includes('Recent transactions'))
+assert.ok(I.CN.relNotes.find(n => n.v === '3.1.0').items.join(' ').includes('最近交易') && I.EN.relNotes.find(n => n.v === '3.1.0').items.join(' ').includes('Recent transactions'))
 console.log('shell-310: ok')

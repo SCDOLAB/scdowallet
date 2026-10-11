@@ -667,6 +667,31 @@
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
     return window.SCDOMineHome.homeLine(mineHomeInput(), T)
   }
+  function homeSnapHtml () {
+    if (!window.SCDOChainHome) return ''
+    const chains = chainRowModel({})
+    const lines = chains.map(c => {
+      const sum = window.SCDOChainHome.summarize(c)
+      const dash = sum.text === '\u2014'
+      const shown = dash ? '\u2014' : (sum.text + ' SCDO')
+      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}">${esc(shown)}</b></div>`
+    }).join('')
+    const hit = window.SCDOChainHome.latestTx ? window.SCDOChainHome.latestTx(chains) : null
+    let last = '\u2014'
+    let known = false
+    if (hit && hit.tx) {
+      let amt = ''
+      if (hit.tx.amount != null && hit.tx.amount !== '') amt = String(hit.tx.amount)
+      else if (hit.tx.raw != null && hit.tx.decimals != null && window.SCDOAmount) {
+        try { const shown = window.SCDOAmount.fmtUnits(hit.tx.raw, hit.tx.decimals); amt = shown == null ? '' : String(shown) } catch (e) { amt = '' }
+      }
+      if (amt && amt !== '\u2014') {
+        last = window.SCDOChainHome.chainTitle(hit.n) + ' · ' + amt + ' SCDO'
+        known = true
+      }
+    }
+    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><b class="${known ? '' : 'dash'}">${esc(last)}</b></div>`
+  }
   function pageHome () {
     const link = referralLink()
     return `<div class="page shell-home" id="homePage">
@@ -677,7 +702,7 @@
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
-      <details class="shell-fold home-chains" id="homeChains">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details>
+      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
@@ -711,6 +736,8 @@
       }
       const rows = $('chainRows')
       if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
+      const snap = $('homeSnap')
+      if (snap) { const html = homeSnapHtml(); if (refreshDash.snap !== html) { refreshDash.snap = html; SD.html(snap, html) } }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
@@ -820,6 +847,7 @@
       const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
+    const chainPick = `<select class="inp" id="recvChain">${[0, 1, 2, 3, 4].map(i => `<option value="${i}"${i === n ? ' selected' : ''}>${esc(i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic'))}</option>`).join('')}</select>`
     const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
     const locked = n === 0 ? visible('new').find(a => !a.evm) : null
     let body
@@ -829,14 +857,14 @@
       body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
     const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('shellRecvChains'))}</div>${chainPick}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
   }
   function paintRecvQr () {
     const box = $('qrBox')
     if (!box || box.getAttribute('data-painted') === '1') return
     const addr = box.getAttribute('data-addr') || ''
     if (!addr || !window.QRCode) return
-    try { new window.QRCode(box, { text: addr, width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
+    try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
   function pageRemit () {
     return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><div id="remitHost"></div></div>`
@@ -2010,7 +2038,8 @@
       feeWei: null,
       shardPick: prefill && [0, 1, 2, 3, 4].includes(Number(prefill.shard)) ? Number(prefill.shard) : (prefill && /^[1-4]S/.test(String(prefill.to || '')) ? Number(String(prefill.to)[0]) : 0),
       payAddr: prefill && prefill.from ? String(prefill.from) : '',
-      payerFile: opened.filename
+      payerFile: opened.filename,
+      confirmedKey: ''
     }
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
     st.payReview = null
@@ -2018,6 +2047,9 @@
     const currentRoute = () => window.SCDORemitRoute.routePay({
       to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText || '…', etaText: ''
     })
+    function payKey (route) {
+      return String(route && route.to || '') + '\n' + String(route && route.amount || '') + '\n' + String(s.payerFile || '')
+    }
     let feeTimer = 0
     let feeGen = 0
     function mountPay (html) {
@@ -2149,6 +2181,7 @@
         s.feeFor = 0
       }
       route = currentRoute()
+      if (s.confirmedKey && s.confirmedKey !== payKey(route)) s.confirmedKey = ''
       if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount || st.payReview.file !== s.payerFile)) dropReview()
       paint(route)
       clearTimeout(feeTimer)
@@ -2190,7 +2223,7 @@
         <div id="payChain" class="wiz-chain"><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
         <div class="field"><div class="lbl">${esc(TC('shellPickAddr'))}</div><div id="payFromPick"></div><div class="lbl" id="payFromBal"></div></div>
         <div class="err" id="payErr1"></div>
-        <div class="wiz-nav"><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
+        <div class="wiz-nav"><button type="button" class="shell-copy" data-act="nav" data-v="recv">${esc(TC('navRecv'))}</button><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
       </div>
       <div id="wizStep2" class="wiz-step" hidden>
         <div class="field"><div class="lbl">${esc(TC('payAmount'))}</div>
@@ -2365,19 +2398,59 @@
     const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
     showStep(1)
     sync()
-    function showDone (text, hash) {
-      s.to = ''; s.amount = ''; s.feeText = ''; s.feeReady = false
+    function lockSend (btn) {
+      if (!btn) return
+      btn.disabled = true
+      btn.textContent = TC('wizNoRepeat')
+    }
+    function unlockSend (btn) {
+      if (!btn) return
+      btn.disabled = false
+      btn.textContent = TC('wizSend')
+    }
+    function clearPayFields () {
+      s.to = ''
+      s.amount = ''
+      s.feeText = ''
+      s.feeReady = false
+      s.confirmedKey = ''
       if ($('payTo')) $('payTo').value = ''
       if ($('payAmt')) $('payAmt').value = ''
       if ($('remitPw')) $('remitPw').value = ''
+    }
+    function paintSent (amount, hash) {
       const h = String(hash || '')
-      const link = /^0x[0-9a-fA-F]{64}$/.test(h) || /^[0-9a-fA-F]{64}$/.test(h) ? `<button type="button" class="shell-copy" data-act="openTx" data-v="${esc(h)}">${esc(TC('wizExplorer'))}</button>` : ''
+      const amt = amount ? (String(amount) + ' SCDO') : '\u2014'
+      const copy = `<button type="button" class="shell-copy" data-act="copy" data-v="${esc(h)}">${esc(TC('wizCopyHash'))}</button>`
+      const link = `<button type="button" class="shell-copy" data-act="openTx" data-v="${esc(h)}">${esc(TC('wizScan'))}</button>`
       const done = $('wizStep4')
-      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizDone'))}</div>${h ? `<div class="mono" id="payHash">${esc(h)}</div>` : ''}${link}<div class="muted">${esc(text)}</div><button type="button" class="shell-go" id="wizAgain">${esc(TC('wizAgain'))}</button>`)
-      const again = $('wizAgain')
-      if (again) again.onclick = () => { const err = $('payErr'); if (err) err.textContent = ''; const b = $('btnRemitSign'); if (b) b.disabled = false; showStep(1) }
+      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizSent'))}</div><div class="wiz-amt">${esc(amt)}</div><div class="mono" id="payHash">${esc(h)}</div>${copy}${link}<button type="button" class="shell-go" id="wizFinish">${esc(TC('wizFinish'))}</button>`)
+      const fin = $('wizFinish')
+      if (fin) fin.onclick = () => {
+        clearPayFields()
+        const err = $('payErr')
+        if (err) err.textContent = ''
+        unlockSend($('btnRemitSign'))
+        showStep(1)
+      }
       showStep(4)
-      const b = $('btnRemitSign'); if (b) b.disabled = true
+    }
+    async function showSent (amount, hash, poll) {
+      const kept = String(amount || '')
+      const h = String(hash || '')
+      clearPayFields()
+      const done = $('wizStep4')
+      if (done) SD.html(done, `<div class="wiz-query">${esc(TC('wizQuery'))}</div><div class="mine-load wait"><div class="mine-load-bar"></div></div>`)
+      showStep(4)
+      const b = $('btnRemitSign')
+      if (b) { b.disabled = true; b.textContent = TC('wizNoRepeat') }
+      if (poll && /^0x[0-9a-fA-F]{64}$/.test(h)) {
+        try { await api.invoke('s0:waitReceipt', h) } catch (e) {}
+      } else {
+        await new Promise(res => setTimeout(res, 700))
+      }
+      if (!$('wizStep4')) return
+      paintSent(kept, h)
     }
     // 3.1.0: same recipient and same amount inside a fixed 10-minute window asks once. Not a setting.
     const DUP_SEND_MS = 10 * 60 * 1000
@@ -2396,7 +2469,7 @@
     }
     async function confirmSameSend (route, err, btn) {
       if (!route || !recentSameSend(route.to, route.amount)) return true
-      const ok = await confirmBox(T('shellDupTitle'), T('shellDupAsk'), T('yes'), T('no'))
+      const ok = await confirmBox(T('shellDupTitle'), T('shellDupAsk'), T('shellDupYes'), T('shellDupNo'))
       if (!ok) {
         if (btn) btn.disabled = false
         if (err) err.textContent = T('cf_canceled')
@@ -2441,13 +2514,16 @@
       if (st.payReview && st.payReview.to === route.to && st.payReview.amount === route.amount && st.payReview.file === payer.filename) {
         const ack = $('payAck')
         if ((st.payReview.warns || []).length && !(ack && ack.checked)) { if (err) err.textContent = TC('ackWarnings'); return }
-        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
-        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+        if (s.confirmedKey !== payKey(route)) {
+          if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(st.payReview.fee, route.amount)), warn: selfWarn(payer, route.to) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+          s.confirmedKey = payKey(route)
+        }
+        if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); const pwBox = $('remitPw'); if (pwBox) pwBox.focus(); return }
         if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
         if ($('remitPw')) $('remitPw').value = ''
-        if (btn) btn.disabled = true
+        lockSend(btn)
         if (err) SD.spin(err, TC('sending'))
         let res
         try { res = await api.invoke('s0:send', { token: token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
@@ -2488,15 +2564,26 @@
         if (err) err.textContent = ''
         return
       }
-      if (!pw) { if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {}); if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
       if (err) err.textContent = ''
-      if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(rev.fee, route.amount)), warn: selfWarn(payer, route.to) }))) {
-        if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
+      if (s.confirmedKey !== payKey(route)) {
+        if (!(await confirmTx({ title: T('cf_title'), rows: cfRows(route, payer, feeRow(rev.fee, route.amount)), warn: selfWarn(payer, route.to) }))) {
+          if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
+          if (btn) btn.disabled = false
+          if (err) err.textContent = T('cf_canceled')
+          return
+        }
+        s.confirmedKey = payKey(route)
+      }
+      if (!pw) {
+        st.payReview = { token: rev.token, to: chk.address, amount: route.amount, file: payer.filename, warns: [], fee: rev.fee }
         if (btn) btn.disabled = false
-        if (err) err.textContent = T('cf_canceled')
+        if (err) err.textContent = TC('errPw')
+        const pwBox = $('remitPw')
+        if (pwBox) pwBox.focus()
         return
       }
       if ($('remitPw')) $('remitPw').value = ''
+      lockSend(btn)
       if (err) SD.spin(err, TC('sending'))
       let res
       try { res = await api.invoke('s0:send', { token: rev.token, password: pw }) } catch (e) { res = { ok: false, error: e.message } }
@@ -2512,13 +2599,13 @@
     }
     const selfWarn = (payer, to) => (payer && to && String(payer.evm || '').toLowerCase() === String(to).toLowerCase()) ? T('cf_warnSelf') : ''
     function finishShard0 (res, route, payer, err, btn) {
-      if (res && res.ok) { rememberSameSend(route.to, route.amount); showDone(TC('waiting') + ' ' + (res.hash || ''), res.hash); loadActivity(payer.evm); refreshS0(); return }
-      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showDone(TC('errBcastTimeout') + ' ' + res.hash, res.hash); loadActivity(payer.evm); return }
+      if (res && res.ok) { rememberSameSend(route.to, route.amount); showSent(route.amount, res.hash, true); loadActivity(payer.evm); refreshS0(); return }
+      if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showSent(route.amount, res.hash, true); loadActivity(payer.evm); return }
       if (err) {
         if (SEND_ERR[res && res.error]) err.textContent = TC('sendFailedPrefix') + ' ' + TC(SEND_ERR[res.error])
         else paintSendErr(err, (res && res.error) || 'error')
       }
-      if (btn) btn.disabled = false
+      unlockSend(btn)
       loadActivity(payer.evm)
     }
     async function confirmClassic (route, payer, pw, err, btn) {
@@ -2549,10 +2636,13 @@
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
       if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
-      if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); return }
-      if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+      if (s.confirmedKey !== payKey(route)) {
+        if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
+        s.confirmedKey = payKey(route)
+      }
+      if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); const pwBox = $('remitPw'); if (pwBox) pwBox.focus(); return }
       if ($('remitPw')) $('remitPw').value = ''
-      if (btn) btn.disabled = true
+      lockSend(btn)
       if (err) SD.spin(err, TC('sending'))
       let res
       try { res = await api.invoke('old:send', { file: payer.filename, password: pw, to: route.to, amount: route.amount, price: 1, gas: gas || 21000, selfOk: self }) } catch (e) { res = { ok: false, error: e.message } }
@@ -2560,11 +2650,11 @@
       if (!res || !res.ok) {
         const em = String((res && res.error) || 'error')
         if (err) { if (em === 'WRONG_PASSWORD') err.textContent = TC('wrongPw'); else paintSendErr(err, em) }
-        if (btn) btn.disabled = false
+        unlockSend(btn)
         return
       }
       rememberSameSend(route.to, route.amount)
-      showDone(TC('sentOld') + ' ' + (res.hash || ''), res.hash)
+      showSent(route.amount, res.hash, false)
       refreshOld(); loadOldActivity(true)
     }
   }
@@ -3691,6 +3781,10 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
+    if (t.id === 'recvChain') {
+      st.recvShard = [0, 1, 2, 3, 4].includes(Number(t.value)) ? Number(t.value) : 0
+      render(); return
+    }
     if (t.id === 'recvPick') {
       const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
