@@ -635,7 +635,7 @@ for (const langName of ['CN', 'EN']) {
     assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
     assert.ok(!/GPU/i.test(s), langName + ' GPU: ' + s.slice(0, 90))
     // The one-tap hint is the product name 「先用 CPU 經礦池挖」. Nothing else may say CPU.
-    const cpuLeft = s.split('先用 CPU 經礦池挖').join('').split('已改用 CPU 經礦池挖').join('').split('改用 CPU').join('')
+    const cpuLeft = s.split('先用 CPU 經礦池挖').join('').split('已改用 CPU 經礦池挖').join('').split('改用 CPU').join('').split('讓出部分 CPU').join('')
     assert.ok(!/CPU/.test(cpuLeft), langName + ' CPU: ' + s.slice(0, 90))
     assert.ok(!s.includes('算力'), langName + ' 算力: ' + s.slice(0, 90))
   })
@@ -1067,7 +1067,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.1.1')
+  assert.strictEqual(pkg.version, '3.1.2')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')

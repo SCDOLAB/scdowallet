@@ -118,6 +118,12 @@
     st.keepMining = on
     settingsModal()
   }
+  async function setGuardUi (el, key) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { await api.invoke('mining:setGuard', { [key]: on }) } catch (e) {}
+    settingsModal()
+  }
   function avatar (name) {
     let h = 0; for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) >>> 0
     const hue = h % 360
@@ -2883,6 +2889,9 @@
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
+    const guardOn = mineCfg.guardSmooth !== false
+    const batOn = !!mineCfg.mineOnBattery
+    const guardRow = `<div class="set-open" id="setGuard"><button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div></div>`
     const advancedInner = `${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
@@ -2909,6 +2918,7 @@
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
       ${langRow}
       ${resumeRow}
+      ${guardRow}
       ${shellFold('setAdvanced', T('advanced'), advancedInner)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
@@ -3659,6 +3669,8 @@
       case 'shareRef': shareReferral(v); break
       case 'setMineMode': setMineMode(v); break
       case 'keepMining': setKeepMiningUi(el); break
+      case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
+      case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)
