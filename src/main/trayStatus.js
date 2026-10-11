@@ -3,7 +3,7 @@
 // and a Windows taskbar overlay badge (green = mining, grey = stopped, red = error).
 'use strict'
 const path = require('path')
-const { Tray, Menu, nativeImage, BrowserWindow } = require('electron')
+const { Tray, Menu, nativeImage, BrowserWindow, screen } = require('electron')
 const { tooltipError, minersRunning } = require('../js/minerStartError')
 
 function fmtHash (h, lang) {
@@ -52,6 +52,19 @@ function escHtml (s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
+const REASON_EN = { '電池': 'battery', '全螢幕': 'full screen', '記憶體': 'memory', '溫度': 'temperature', '重新啟動': 'too many restarts' }
+const ACTION_EN = {
+  '因電池暫停': 'Paused because of the battery',
+  '因全螢幕暫停': 'Paused because a program is full screen',
+  '因溫度暫停': 'Paused because the graphics card is hot',
+  '因記憶體暫停': 'Paused because memory is low',
+  '重新啟動太多次，已暫停': 'Paused after too many restarts',
+  '執行緒減半': 'Thread count cut in half',
+  '恢復執行緒': 'Thread count restored',
+  '重新啟動挖礦程式': 'Miner program restarted',
+  '溫度過高，已降低強度': 'Graphics card is hot, so intensity is lower'
+}
+
 function panelHtml (guard, lang) {
   const g = guard || {}
   const cn = lang !== 'EN'
@@ -59,13 +72,15 @@ function panelHtml (guard, lang) {
   const rows = chains.length ? chains.map(c => {
     const when = c.lastShareAt ? new Date(c.lastShareAt).toLocaleString() : (cn ? '—' : '-')
     const speed = c.hashrate > 0 ? fmtHash(c.hashrate, cn ? 'CN' : 'EN') : (cn ? '—' : '-')
-    const name = c.shard ? ('Shard' + c.shard) : (cn ? '挖礦' : 'Mining')
+    const name = (c.shard === 0 || c.shard) ? ('Shard' + c.shard) : (cn ? '挖礦' : 'Mining')
     return '<tr><td>' + escHtml(name) + '</td><td>' + escHtml(c.status || '') + '</td><td>' + escHtml(speed) + '</td><td>' + escHtml(when) + '</td></tr>'
   }).join('') : '<tr><td colspan="4">' + (cn ? '未在挖礦' : 'Not mining') + '</td></tr>'
   const title = cn ? '挖礦狀態' : 'Mining status'
   const heads = cn ? ['鏈', '狀態', '速度', '上次份額'] : ['Chain', 'Status', 'Speed', 'Last share']
-  const action = g.lastAction ? escHtml(g.lastAction) : (cn ? '—' : '-')
-  const reason = g.reason ? escHtml(g.reason) : ''
+  const actionRaw = g.lastAction ? (cn ? g.lastAction : (ACTION_EN[g.lastAction] || g.lastAction)) : ''
+  const action = actionRaw ? escHtml(actionRaw) : (cn ? '—' : '-')
+  const reasonRaw = g.reason ? (cn ? g.reason : (REASON_EN[g.reason] || g.reason)) : ''
+  const reason = reasonRaw ? escHtml(reasonRaw) : ''
   return '<!doctype html><html><head><meta charset="utf-8"><title>' + title + '</title><style>body{font:14px/1.4 sans-serif;margin:16px;color:#1c1c1e;background:#F2F2F7}h1{font-size:18px;margin:0 0 8px}table{width:100%;border-collapse:collapse;background:#fff}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #e5e5ea;font-weight:400}th{color:#8e8e93}.note{margin-top:12px}</style></head><body><h1>' + title + (reason ? ' · ' + reason : '') + '</h1><table><tr>' + heads.map(h => '<th>' + h + '</th>').join('') + '</tr>' + rows + '</table><p class="note">' + (cn ? '剛才的調整' : 'Last adjustment') + ': ' + action + '</p></body></html>'
 }
 
@@ -105,17 +120,34 @@ class TrayStatus {
     return this.icons[colour] || null
   }
 
+  placePanel (win) {
+    try {
+      const area = screen.getPrimaryDisplay().workArea
+      const width = 400
+      const height = 280
+      win.setBounds({
+        x: Math.max(area.x, area.x + area.width - width - 12),
+        y: Math.max(area.y, area.y + area.height - height - 12),
+        width,
+        height
+      })
+    } catch (e) {}
+  }
+
   openPanel () {
     try {
       const guard = (this.last && this.last.guard) || { colour: 'grey', chains: [], lastAction: '', reason: '' }
+      const html = 'data:text/html;charset=utf-8,' + encodeURIComponent(panelHtml(guard, this.lang))
       if (this.panel && !this.panel.isDestroyed()) {
-        this.panel.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(panelHtml(guard, this.lang)))
-        this.panel.show()
+        this.placePanel(this.panel)
+        this.panel.loadURL(html)
+        this.panel.showInactive()
         return
       }
       this.panel = new BrowserWindow({
-        width: 360,
-        height: 420,
+        width: 400,
+        height: 280,
+        show: false,
         alwaysOnTop: false,
         skipTaskbar: true,
         resizable: false,
@@ -125,7 +157,12 @@ class TrayStatus {
         webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
       })
       this.panel.on('closed', () => { this.panel = null })
-      this.panel.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(panelHtml(guard, this.lang)))
+      this.panel.once('ready-to-show', () => {
+        if (!this.panel || this.panel.isDestroyed()) return
+        this.placePanel(this.panel)
+        this.panel.showInactive()
+      })
+      this.panel.loadURL(html)
     } catch (e) {}
   }
 

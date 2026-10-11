@@ -505,7 +505,8 @@ class ZpowManager extends EventEmitter {
 
   armChild () {
     const spec = this.launchSpec
-    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
+    const low = typeof this.o.lowPriority === 'function' ? this.o.lowPriority() !== false : true
+    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined, lowPriority: low })
     this.proc = proc
     this.livePid = proc.pid || 0
     try { if (typeof this.o.onSpawn === 'function') this.o.onSpawn(proc, this) } catch (e) {}

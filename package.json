@@ -83,6 +83,7 @@
             "guid": "57073243-c123-5d9f-8aae-05e2817b09df",
             "shortcutName": "SCDO Wallet",
             "uninstallDisplayName": "SCDO Wallet ${version}",
+            "deleteAppDataOnUninstall": false,
             "artifactName": "SCDOWallet-${version}-win-x64-setup.${ext}"
         },
         "portable": {

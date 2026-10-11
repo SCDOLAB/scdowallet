@@ -53,6 +53,22 @@ function range (n) {
   return ids
 }
 
+// Used until the core list has been read. No affinity mask: a guessed mask on
+// an Intel hybrid processor includes the efficient cores.
+function pendingPlan () {
+  return { threads: 1, affinity: null, priority: 'below-normal', pending: true }
+}
+
+// Probe finished without a core list. Keep the lower logical ids only.
+// On the hybrid CPUs that froze a desktop, those lower ids are the performance cores.
+function fallbackPlan (logical) {
+  const n = Math.max(0, Math.floor(Number(logical) || 0))
+  if (n <= 2) return { threads: 1, affinity: null, priority: 'below-normal', pending: false, fallback: true }
+  const keep = Math.max(1, Math.floor(n / 2))
+  const threads = Math.max(1, Math.min(keep, Math.floor(n / 2) - 1) || 1)
+  return { threads, affinity: range(keep), priority: 'below-normal', pending: false, fallback: true }
+}
+
 // Threads default to physical performance cores minus 1 (at least 1).
 // Hybrid: affinity is the performance-core logical ids only.
 // Otherwise, when more than 2 logical cores exist, leave the last 2 unbound.
@@ -142,7 +158,9 @@ function freshGuard (opts) {
     intensity: 'normal',
     lastAction: '',
     childGeneration: 0,
-    batch: GPU_BATCH
+    batch: GPU_BATCH,
+    wasUserRunning: false,
+    lastHashrate: null
   }
 }
 
@@ -210,7 +228,7 @@ function pushLevels (state, actions) {
 function stepGuard (state, sample, now) {
   const s = cloneState(state)
   const actions = []
-  if (!sample || sample.platform !== 'win32') return { state: s, actions }
+  if (!sample || sample.skipped) return { state: s, actions }
   now = Number(now) || 0
 
   if (s.memStage >= 3 && !memoryPressure(sample)) s.memStage = 0
@@ -219,10 +237,13 @@ function stepGuard (state, sample, now) {
     s.paused = false
     s.reason = ''
     s.restartDue = 0
+    s.wasUserRunning = false
     return { state: s, actions }
   }
 
-  if (sample.userRunning && s.paused) {
+  // The restart limit stays until mining is started again. It does not clear
+  // on every tick while the user still wants the miner to run.
+  if (sample.userRunning && !s.wasUserRunning && s.paused && s.reason === '重新啟動') {
     s.paused = false
     s.reason = ''
     s.restarts = []
@@ -231,6 +252,7 @@ function stepGuard (state, sample, now) {
     if (s.memStage >= 3) s.memStage = 0
     s.lastProgressAt = now
   }
+  s.wasUserRunning = !!sample.userRunning
 
   const why = pauseReasonFor(s, sample)
   if (why) {
@@ -302,11 +324,14 @@ function stepGuard (state, sample, now) {
   const hashrate = Number(sample.hashrate) || 0
   if (sample.childAlive) {
     if (s.lastProgressAt == null) s.lastProgressAt = now
-    if (shares > s.shares || hashrate > 0) s.lastProgressAt = now
     if (shares > s.shares) {
+      s.lastProgressAt = now
       s.lastShareAt = now
       s.restartIndex = 0
+    } else if (s.lastHashrate != null && hashrate !== s.lastHashrate) {
+      s.lastProgressAt = now
     }
+    s.lastHashrate = hashrate
     if (sample.workingSet != null) {
       if (!s.baseline || s.baseline.gen !== s.childGeneration) {
         s.baseline = { at: now, ws: Number(sample.workingSet) || 0, handles: Number(sample.handles) || 0, gen: s.childGeneration }
@@ -375,6 +400,8 @@ module.exports = {
   GPU_BATCH,
   classifyCores,
   threadPlan,
+  pendingPlan,
+  fallbackPlan,
   backoffMs,
   shouldRotate,
   rotateFile,

@@ -1,4 +1,4 @@
-// Applies guard decisions to Classic miner children. Windows only.
+// Applies guard decisions to miner children on Windows, Mac and Linux.
 'use strict'
 const { freshGuard, stepGuard, trayView } = require('./guardPlan')
 
@@ -88,11 +88,12 @@ async function applyActions (mgr, actions) {
 function start (deps) {
   deps = deps || {}
   const platform = deps.platform || process.platform
-  if (platform !== 'win32') return { started: false, view: null, snapshot () { return null } }
+  if (platform !== 'win32' && platform !== 'darwin' && platform !== 'linux') return { started: false, view: null, snapshot () { return null } }
   const states = new Map()
   let view = null
   let engaged = false
   let ticking = false
+  let lastAff = 0
   const handle = {
     started: true,
     get view () { return view },
@@ -113,11 +114,16 @@ function start (deps) {
           for (const id of ids) pids.push(id)
         } catch (e) {}
       }
-      const probe = deps.readSample ? await deps.readSample({ pids }) : { platform: 'win32', skipped: true }
-      if (!probe || probe.skipped || probe.platform !== 'win32') return
+      const probe = deps.readSample ? await deps.readSample({ pids }) : { platform, skipped: true }
+      if (!probe || probe.skipped) return
       let gpuTempC = null
       try { gpuTempC = deps.gpuTempC ? await deps.gpuTempC() : null } catch (e) { gpuTempC = null }
       const now = Date.now()
+      const plan = deps.threadPlan ? deps.threadPlan() : null
+      if (enabled && plan && !plan.pending && plan.affinity && plan.affinity.length && deps.applyAffinity && now - lastAff >= 60000) {
+        lastAff = now
+        try { await deps.applyAffinity(pids, plan.affinity) } catch (e) {}
+      }
       const parts = []
       let note = ''
       for (const m of miners) {
@@ -128,14 +134,20 @@ function start (deps) {
           const fromArgs = argValue(mgr.launchSpec && mgr.launchSpec.args, ['-threads', '--threads'])
           const base = fromArgs || (mgr.launchThreads) || 1
           gst = freshGuard({ enabled, mineOnBattery, baseThreads: base, threads: base, lastMemCheck: now, lastProgressAt: now })
+          gst.pendingLaunch = !!(plan && plan.pending)
         }
         gst.enabled = enabled
         gst.mineOnBattery = mineOnBattery
+        if (enabled && plan && !plan.pending && gst.pendingLaunch) {
+          gst.pendingLaunch = false
+          gst.baseThreads = plan.threads
+        }
+        if (enabled && plan && !plan.pending && gst.baseThreads > plan.threads) gst.baseThreads = plan.threads
         const pid = (mgr.childPids && mgr.childPids()[0]) || 0
         const proc = pid && probe.procs ? probe.procs[pid] : null
         const active = !!(mgr.wantRunning || mgr.guardHeld)
         const sample = {
-          platform: 'win32',
+          platform: probe.platform || platform,
           active,
           userRunning: !!mgr.wantRunning,
           inputAgeMs: probe.inputAgeMs,

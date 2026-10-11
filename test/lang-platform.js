@@ -124,7 +124,9 @@ win.extraResources.splice(genesisAt, 0, {
   filter: ['zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll']
 })
 assert.deepStrictEqual(pkg.build.win, win)
-assert.deepStrictEqual(pkg.build.nsis, base.build.nsis)
+const nsis = JSON.parse(JSON.stringify(base.build.nsis))
+nsis.deleteAppDataOnUninstall = false
+assert.deepStrictEqual(pkg.build.nsis, nsis)
 assert.deepStrictEqual(pkg.build.portable, base.build.portable)
 assert.strictEqual(pkg.build.beforePack, base.build.beforePack)
 assert.strictEqual(pkg.scripts['dist:win'], base.scripts['dist:win'])

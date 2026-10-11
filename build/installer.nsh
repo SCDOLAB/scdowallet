@@ -197,3 +197,8 @@ Var pid
   ${EndIf}
   Pop $R1
 !macroend
+
+; Uninstall removes the program folder only. Account files stay in the home directory.
+!macro customUnInstall
+  ; Do not delete account files.
+!macroend

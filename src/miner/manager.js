@@ -13,13 +13,12 @@ const dgram = require('dgram')
 const { spawn, execFile } = require('child_process')
 const { EventEmitter } = require('events')
 const { evaluateGpu, parseNvidiaSmi, parseVideoControllerOutput, miningGpuReady, rigelDeviceArgs } = require('./gpuSelect')
+const { rotateFile, LOG_LIMIT } = require('./guardPlan')
+const { applyPriority } = require('./priority')
 
-function relaxMinerPriority (proc) {
+function relaxMinerPriority (proc, low) {
   if (!proc || proc.pid == null) return
-  try {
-    const level = process.platform === 'win32' ? os.constants.priority.PRIORITY_BELOW_NORMAL : 5
-    os.setPriority(proc.pid, level)
-  } catch (e) {}
+  applyPriority(proc.pid, low !== false)
 }
 
 const RIGEL = {
@@ -227,15 +226,13 @@ function extractZip (zipPath, destDir) {
   })
 }
 
-// keep log files bounded: a miner runs for weeks and geth/proxy/wallet logs grow ~100 MB/day otherwise
-const LOG_MAX = 20 * 1024 * 1024
+// Miner logs roll at 50 MB and three copies are kept. zpow.log uses the same rule.
 // 2.0.0 (B3): stop limits. geth unchanged (60 s); rigel / proxy: 30 s in total from the start of the stop, polled.
 const GETH_STOP_MS = 60000
 const HELPER_STOP_CAP_MS = 30000
 const POLL_MS = 250
-function rotateIfBig (file, max) {
-  try { if (fs.statSync(file).size > (max || LOG_MAX)) { try { fs.unlinkSync(file + '.1') } catch (e) {} fs.renameSync(file, file + '.1'); return true } } catch (e) {}
-  return false
+function rotateIfBig (file) {
+  return rotateFile(file, fs, { limit: LOG_LIMIT })
 }
 
 class MinerManager extends EventEmitter {
@@ -359,10 +356,13 @@ class MinerManager extends EventEmitter {
 
   // ---------- processes ----------
   // Miners sit below the wallet so a background window is not frozen behind them.
-  // Windows: BELOW_NORMAL. macOS and Linux: nice +5.
+  // Default is below-normal. Advanced can raise that to normal.
   spawnChild (name, cmd, args) {
     const p = spawn(cmd, args, { cwd: this.o.dataRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    if (name === 'rigel') relaxMinerPriority(p)
+    if (name === 'rigel') relaxMinerPriority(p, !(this.o.lowPriority) || this.o.lowPriority() !== false)
+    if (name === 'rigel' && typeof this.o.onSpawn === 'function') {
+      try { this.o.onSpawn(p, name) } catch (e) {}
+    }
     this.procs[name] = p
     const lf = path.join(this.logDir, name + '.log')
     rotateIfBig(lf)
@@ -378,7 +378,10 @@ class MinerManager extends EventEmitter {
     p.on('exit', (code, sig) => {
       if (this.procs[name] === p) { const ls = this.logStreams[name]; if (ls) ls.end(); this.logStreams[name] = null; this.procs[name] = null } else logf.end()
       this.log(name, 'exited (code ' + code + (sig ? ', ' + sig : '') + ')')
-      if (this.wantRunning) this.scheduleRestart(name, code)
+      if (!this.wantRunning) return
+      if (name === 'rigel' && (this._guardPauseRigel || this._suppressRigelRestart)) return
+      if (name === 'rigel' && typeof this.o.guardOwnsRestart === 'function' && this.o.guardOwnsRestart()) return
+      this.scheduleRestart(name, code)
     })
     return p
   }
@@ -565,9 +568,11 @@ class MinerManager extends EventEmitter {
     for (const name of Object.keys(this.logStreams)) {
       const ls = this.logStreams[name]; if (!ls) continue
       const lf = path.join(this.logDir, name + '.log')
-      try { if (fs.statSync(lf).size <= LOG_MAX) continue } catch (e) { continue }
+      try { if (fs.statSync(lf).size < LOG_LIMIT) continue } catch (e) { continue }
       ls.end(); rotateIfBig(lf); this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
     }
+    rotateIfBig(path.join(this.logDir, 'rigel-own.log'))
+    rotateIfBig(path.join(this.logDir, 'wallet-miner.log'))
   }
 
   async poll () {
@@ -803,6 +808,73 @@ class MinerManager extends EventEmitter {
     if (p.name === 'scdo-stratum') return exe === binFile('scdo-stratum')
     if (p.name === 'rigel') return exe === norm(this.rigelPath()) || under(p.exe, this.o.dataRoot)
     return false
+  }
+
+  rigelAlive () {
+    const p = this.procs.rigel
+    if (!p || p.exitCode != null || p.signalCode != null) return false
+    return this.pidAlive(p.pid)
+  }
+
+  rigelPid () { return this.rigelAlive() ? this.procs.rigel.pid : 0 }
+
+  async killRigel () {
+    const p = this.procs.rigel
+    if (!p || p.exitCode != null || p.signalCode != null) return
+    this._suppressRigelRestart = true
+    try {
+      if (this.o.platform === 'win32') {
+        await new Promise(resolve => execFile('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true, timeout: 4000 }, () => resolve()))
+      } else {
+        try { p.kill('SIGKILL') } catch (e) {}
+      }
+      const t0 = Date.now()
+      while (this.procs.rigel === p && Date.now() - t0 < 3000) await new Promise(resolve => setTimeout(resolve, 50))
+    } finally {
+      this._suppressRigelRestart = false
+    }
+  }
+
+  async pauseRigelForGuard () {
+    if (!this.wantRunning || this.state.mode === 'node') return false
+    this.guardHeld = { wallet: this.state.wallet, mode: this.state.mode, poolUrl: this.state.poolUrl }
+    this._guardPauseRigel = true
+    await this.killRigel()
+    return true
+  }
+
+  async resumeRigelFromGuard () {
+    this._guardPauseRigel = false
+    this.guardHeld = null
+    if (!this.wantRunning || this.state.mode === 'node' || this.procs.rigel) return false
+    this.startRigel()
+    return true
+  }
+
+  async restartRigelForGuard () {
+    if (this._guardPauseRigel || !this.wantRunning || this.state.mode === 'node') return false
+    await this.killRigel()
+    if (this._guardPauseRigel || !this.wantRunning || this.procs.rigel) return false
+    this.startRigel()
+    return true
+  }
+
+  guardTarget () {
+    if (this.state.mode === 'node') return null
+    if (!this.wantRunning && !this.guardHeld) return null
+    const self = this
+    return {
+      get wantRunning () { return !!(self.wantRunning && self.state.mode !== 'node') },
+      get guardHeld () { return self.guardHeld || null },
+      childPids () { const id = self.rigelPid(); return id ? [id] : [] },
+      childAlive () { return self.rigelAlive() },
+      get state () { return Object.assign({}, self.state, { shard: 0 }) },
+      status () { return Object.assign({}, self.status(), { shard: 0 }) },
+      setArg () { return false },
+      pauseForGuard () { return self.pauseRigelForGuard() },
+      resumeFromGuard () { return self.resumeRigelFromGuard() },
+      restartChild () { return self.restartRigelForGuard() }
+    }
   }
 
   childPids () { return Object.values(this.procs).filter(Boolean).map(p => p.pid) }

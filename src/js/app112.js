@@ -3112,8 +3112,9 @@
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
-    const guardRow = `<div class="set-open" id="setGuard"><button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div></div>`
-    const advancedInner = `${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+    const lowOn = mineCfg.lowPriority !== false
+    const advancedInner = `<div class="set-open" id="setGuard"><button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div></div>
+      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
           <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
@@ -3139,7 +3140,6 @@
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
       ${langRow}
       ${resumeRow}
-      ${guardRow}
       ${shellFold('setAdvanced', T('advanced'), advancedInner)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
@@ -3892,6 +3892,7 @@
       case 'keepMining': setKeepMiningUi(el); break
       case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
       case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
+      case 'lowPriority': setGuardUi(el, 'lowPriority'); break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)

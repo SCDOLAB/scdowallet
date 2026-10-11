@@ -10,8 +10,9 @@ const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification } = re
 const path = require('path')
 const fs = require('fs')
 const mineResume = require('./src/main/mineResume')
-const guardWin = require('./src/miner/guardWin')
+const guardHost = require('./src/miner/guardHost')
 const pcGuard = require('./src/miner/pcGuard')
+const { applyPriority } = require('./src/miner/priority')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
@@ -250,7 +251,15 @@ let miner = null
 let zpowCpu = null
 let zpowGpu = null
 function guardActive () {
-  return process.platform === 'win32' && (readIntent() || {}).guardSmooth !== false
+  return (readIntent() || {}).guardSmooth !== false
+}
+function guardLoopOn () {
+  return !!(guardRun && guardRun.started && guardActive())
+}
+function pinMiner (proc) {
+  if (!guardActive() || !proc || !proc.pid) return
+  const plan = guardHost.threadPlanCached()
+  if (plan && !plan.pending && plan.affinity) guardHost.applyAffinity(proc.pid, plan.affinity)
 }
 function zpowOptions () {
   return {
@@ -258,23 +267,21 @@ function zpowOptions () {
     gpuDir: zminerGpuDir(),
     dataRoot: (!app.isPackaged && process.env.SCDO_MINER_DIR) || minerDataRoot(),
     root: __dirname,
+    lowPriority: () => (readIntent() || {}).lowPriority !== false,
     threadsDefault: () => {
       if (!guardActive()) return null
-      const plan = guardWin.threadPlanCached()
-      return plan && plan.threads
+      const plan = guardHost.threadPlanCached()
+      if (!plan || plan.pending) return 1
+      return plan.threads
     },
     clampThreads: (n) => {
       if (!guardActive()) return n
-      const plan = guardWin.threadPlanCached()
-      if (!plan) return n
+      const plan = guardHost.threadPlanCached()
+      if (!plan || plan.pending) return 1
       return Math.max(1, Math.min(n, plan.threads))
     },
-    onSpawn: (proc) => {
-      if (!guardActive() || !proc) return
-      const plan = guardWin.threadPlanCached()
-      if (plan && plan.affinity) guardWin.applyAffinity(proc.pid, plan.affinity)
-    },
-    guardOwnsRestart: () => guardActive()
+    onSpawn: (proc) => pinMiner(proc),
+    guardOwnsRestart: () => guardLoopOn()
   }
 }
 function classicNote () {
@@ -299,9 +306,7 @@ function refreshTray () {
   const note = classicNote()
   if (note) st.classicNote = note
   const g = guardRun && guardRun.snapshot && guardRun.snapshot()
-  if (g && process.platform === 'win32') {
-    if (g.active || g.colour === 'grey' || g.colour === 'yellow' || g.colour === 'green' || !st.running) st.guard = g
-  }
+  if (g && (g.active || g.colour === 'grey' || g.colour === 'yellow' || g.colour === 'green' || g.colour === 'red')) st.guard = g
   tray.update(st)
 }
 function publishClassic (st) {
@@ -371,7 +376,10 @@ function getMiner () {
       // 1.1.5b: test-only overrides, honoured only in a development run (never in the installed app)
       dataRoot: (!app.isPackaged && process.env.SCDO_MINER_DIR) || minerDataRoot(),
       rigelExe: !app.isPackaged ? (process.env.SCDO_RIGEL_EXE || undefined) : undefined,
-      keepMining: () => !!(readIntent() || {}).keepMining // 2.0.1: respawn only when the user turned on "Keep mining"
+      keepMining: () => !!(readIntent() || {}).keepMining, // 2.0.1: respawn only when the user turned on "Keep mining"
+      lowPriority: () => (readIntent() || {}).lowPriority !== false,
+      guardOwnsRestart: () => guardLoopOn(),
+      onSpawn: (proc) => pinMiner(proc)
     })
     miner.on('status', st => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st)
@@ -453,6 +461,7 @@ async function stopMinerVisibly (parent) {
 
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   opts = opts || {}
+  if (guardActive()) { try { await guardHost.ready() } catch (err) {} }
   if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
     try {
@@ -554,7 +563,12 @@ ipcMain.handle('miner:defender', async () => {
   try { await getMiner().defenderExclusion(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
 })
 ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dataRoot, 'logs')))
-ipcMain.handle('miner:caps', () => { try { return getZpow('cpu').capabilities() } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } } })
+ipcMain.handle('miner:caps', async () => {
+  try {
+    if (guardActive()) await guardHost.ready()
+    return getZpow('cpu').capabilities()
+  } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } }
+})
 ipcMain.handle('miner:classicStatus', () => classicSnapshot())
 function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu' }
 
@@ -569,7 +583,7 @@ ipcMain.handle('mining:networkStats', async () => {
 ipcMain.handle('mining:exportLogs', () => miningService.exportLogs(mainWindow, getMiner(), { version: app.getVersion() }))
 ipcMain.handle('mining:getConfig', () => {
   const it = readIntent() || {}
-  return { miningMode: it.miningMode === 'pool' ? 'pool' : 'solo', poolUrl: it.poolUrl || '', keepMining: !!it.keepMining, guardSmooth: it.guardSmooth !== false, mineOnBattery: !!it.mineOnBattery }
+  return { miningMode: it.miningMode === 'pool' ? 'pool' : 'solo', poolUrl: it.poolUrl || '', keepMining: !!it.keepMining, guardSmooth: it.guardSmooth !== false, mineOnBattery: !!it.mineOnBattery, lowPriority: it.lowPriority !== false }
 })
 ipcMain.handle('mining:setConfig', (e, cfg) => {
   cfg = cfg || {}
@@ -585,9 +599,16 @@ ipcMain.handle('mining:setGuard', (e, patch) => {
   const next = {}
   if (patch.guardSmooth != null) next.guardSmooth = !!patch.guardSmooth
   if (patch.mineOnBattery != null) next.mineOnBattery = !!patch.mineOnBattery
+  if (patch.lowPriority != null) next.lowPriority = !!patch.lowPriority
   writeIntent(next)
   const it = readIntent() || {}
-  return { ok: true, guardSmooth: it.guardSmooth !== false, mineOnBattery: !!it.mineOnBattery }
+  const low = it.lowPriority !== false
+  const ids = []
+  try { if (zpowCpu) ids.push.apply(ids, zpowCpu.childPids()) } catch (e) {}
+  try { if (zpowGpu) ids.push.apply(ids, zpowGpu.childPids()) } catch (e) {}
+  try { if (miner && miner.rigelPid) { const id = miner.rigelPid(); if (id) ids.push(id) } } catch (e) {}
+  for (const id of ids) applyPriority(id, low)
+  return { ok: true, guardSmooth: it.guardSmooth !== false, mineOnBattery: !!it.mineOnBattery, lowPriority: low }
 })
 ipcMain.handle('mining:localSync', async () => {
   try { return await require('./src/miner/zpow/manager').localNodeHeights() } catch (e) { return {} }
@@ -617,7 +638,8 @@ function setKeepMining (on) {
 let tray = null
 let guardRun = null
 function ensureGuard () {
-  if (guardRun || process.platform !== 'win32') return
+  if (guardRun) return
+  if (process.platform !== 'win32' && process.platform !== 'darwin' && process.platform !== 'linux') return
   guardRun = pcGuard.start({
     platform: process.platform,
     readIntent,
@@ -627,10 +649,16 @@ function ensureGuard () {
       if (zpowGpu && zpowGpu.kids) {
         for (const [shard, kid] of zpowGpu.kids) out.push({ id: 'gpu-' + shard, mgr: kid, kind: 'gpu' })
       }
+      if (miner && miner.guardTarget) {
+        const target = miner.guardTarget()
+        if (target) out.push({ id: 'shard0', mgr: target, kind: 'gpu' })
+      }
       return out
     },
-    readSample: (opts) => guardWin.readSample(opts),
-    gpuTempC: () => guardWin.gpuTempC(),
+    readSample: (opts) => guardHost.readSample(opts),
+    gpuTempC: () => guardHost.gpuTempC(),
+    threadPlan: () => guardHost.threadPlanCached(),
+    applyAffinity: (pids, ids) => guardHost.applyAffinity(pids, ids),
     note: (text) => { if (tray) tray.balloon('SCDO Wallet', text) },
     onChange: () => refreshTray()
   })
@@ -816,6 +844,7 @@ if (!app.requestSingleInstanceLock()) {
     if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() }
   })
   app.whenReady().then(() => {
+    try { guardHost.warm() } catch (e) {}
     if (process.platform === 'win32') { try { app.setAppUserModelId('io.scdoscan.scdowallet') } catch (e) {} } // 2.0.7: Windows toast notifications (same id as the installer shortcut)
     fixCors()
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
