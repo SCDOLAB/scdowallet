@@ -38,9 +38,13 @@ Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 | 1 (live) | 82.223.19.88:3341 | 8341 `/api/miner/<address>` |
 | 2–4 (not live yet) | same host, 3342–3344 | 8342–8344 |
 
-## GPU — Classic node
+## GPU — pool by default, Classic node for solo
 
-The GPU miner is the go-scdo node (`node.exe` with `libcudart.dll` next to it), packed like Shard0 under `miner-bin/win32/classic/`. `libgoGpuDet.a` is linked into `node.exe`. The node does not load `goGpuDet.dll`; that name is not a second runtime library. One node per shard. The wallet writes `nodeN.json` under its own data directory, sets `basic.coinbase` to the user's Classic address, and generates a new P2P key there. It does not read `~/.scdo` or any other node key on the machine.
+The default graphics-card miner is `zminer-gpu` 0.1.3, one process per selected Shard1–Shard4 chain, all on device 0. The Windows pack downloads the zip and checks its sha256. The three files (`zminer-gpu.exe`, `zpowdet.dll`, `cudart64_12.dll`) stay in one folder. Command lines are in [doc/mining-modes.md](../doc/mining-modes.md).
+
+Solo still uses the go-scdo node (`node.exe` with `libcudart.dll` next to it) under `miner-bin/win32/classic/`, and only when solo was saved and that node is already synced. `libgoGpuDet.a` is linked into `node.exe`. The node does not load `goGpuDet.dll`. The wallet writes `nodeN.json` under its own data directory, sets `basic.coinbase` to the user's Classic address, and generates a new P2P key there. It does not read `~/.scdo` or any other node key on the machine.
+
+When solo is saved and the chain is behind, the same node process syncs in the background and the row waits.
 
 ```text
 node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100

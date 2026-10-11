@@ -35,7 +35,7 @@ assert.ok(/function fmtWei \(wei\) \{ return AMT\.fmtUnits\(wei, 18\) \}/.test(a
 assert.ok(!/\/ 1e8/.test(app), 'no float division by 1e8 in the window')
 assert.ok(!/minimumFractionDigits: 4/.test(app), 'v8 fixed 4 decimals are gone')
 assert.ok(/function oldTotal \(list\) \{ let t = 0n;/.test(app), 'Shard1–4 totals in BigInt')
-assert.ok(/known\.reduce\(\(x, y\) => x \+ y, 0n\)/.test(app), 'overall total in BigInt')
+assert.ok(!/known\.reduce\(\(x, y\) => x \+ y, 0n\)/.test(app), 'no cross-chain total')
 const ws = read('src/main/walletService.js')
 assert.ok(!/Number\(info\.Balance\) \/ 1e8/.test(ws), 'Shard1–4 balance is integer units')
 const W = require('../src/main/walletService.js')._test

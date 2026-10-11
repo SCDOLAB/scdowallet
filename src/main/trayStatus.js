@@ -22,7 +22,7 @@ function badgeState (st) {
   if (st.classicNote) return 'green'
   return 'grey'
 }
-// 2.0.6: tray texts follow the wallet language ('CN' = 繁體中文)
+// 2.0.6: tray texts follow the wallet language ('CN' = 華語繁體)
 const TL = {
   EN: { show: 'Show SCDO Wallet', notMining: 'Not mining', minerError: 'Miner error', nodeOnly: 'Node only (not mining)', nodeOnlyShort: 'Node only', mining: 'Mining: ', starting: 'Miner starting…', stop: 'Stop mining', keep: 'Keep mining (restart the miner if it exits)', quit: 'Quit' },
   CN: { show: '顯示 SCDO Wallet', notMining: '未在挖礦', minerError: '挖礦程式出錯', nodeOnly: '只執行節點（未挖礦）', nodeOnlyShort: '只執行節點', mining: '挖礦中：', starting: '挖礦程式啟動中…', stop: '停止挖礦', keep: '持續挖礦（挖礦程式退出時自動重新啟動）', quit: '結束' }

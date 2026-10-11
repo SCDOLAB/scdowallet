@@ -14,8 +14,8 @@ const { signPlan, macTarget } = macAfterSign
 const root = path.join(__dirname, '..')
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
 
-const WIN_CN_BACKUP = '把帳戶檔案複製到「文件\\ScdoWallet\\備份」。帳戶檔案和密碼一起才能恢復帳戶，請另外再存一份到隨身碟。'
-const WIN_EN_BACKUP = 'Copies keyfiles to the backup folder below (inside Documents\\ScdoWallet). A keyfile plus its password restores the account; keep another copy on a USB stick.'
+const WIN_CN_BACKUP = '溫馨提醒：把帳戶檔案複製到「文件\\ScdoWallet\\備份」。帳戶檔案和密碼放在一起才恢復得了，另外再存一份到隨身碟。'
+const WIN_EN_BACKUP = 'A reminder: copies keyfiles to the backup folder below (inside Documents\\ScdoWallet). A keyfile and its password together restore the account. Another copy on a USB stick is handy.'
 const WIN_CN_NOTIFY = '在 Windows 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。'
 const WIN_EN_NOTIFY = 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.'
 
@@ -58,23 +58,21 @@ const menu = require('../src/js/menu.js')
 Module._load = realLoad
 const cnMenu = menu.buildTemplate(null, undefined)
 const enMenu = menu.buildTemplate(null, 'EN')
-assert.strictEqual(cnMenu[0].label, 'SCDO 錢包', 'first launch menu is 華語')
-assert.strictEqual(cnMenu[2].label, '錢包（餘額・匯款・收款）')
-assert.strictEqual(cnMenu[3].label, '挖礦')
-assert.strictEqual(cnMenu[3].submenu[0].label, '挖礦狀態')
-assert.strictEqual(cnMenu[4].label, '備份與安全')
-assert.strictEqual(cnMenu[5].label, '設定（語言・通知・更新）')
+assert.strictEqual(cnMenu[0].label, 'SCDO 錢包', 'first launch menu is 華語繁體')
+assert.deepStrictEqual(cnMenu.slice(2, 8).map(m => m.label), ['首頁', 'GPU 共享', '錢包', '遊戲', '區塊鏈', '運算服務'])
+assert.strictEqual(cnMenu.find(m => m.label === '錢包').submenu.map(s => s.label).join('|'), '收款|匯款…|設定|建立新地址（Shard0–Shard4 任選）…|匯入錢包（帳戶檔案或私鑰）…')
+assert.strictEqual(cnMenu.find(m => m.label === '運算服務').submenu[0].label, '運算服務')
 assert.strictEqual(enMenu[0].label, 'SCDO Wallet', 'saved English menu stays English')
-assert.strictEqual(enMenu[2].label, 'Wallet (balance, send, receive)')
-assert.strictEqual(enMenu[3].label, 'Mining')
-assert.strictEqual(enMenu[3].submenu[0].label, 'Mining status')
-assert.strictEqual(menu.buildTemplate(null, 'zh-Hant-TW')[3].label, '挖礦')
-const flat = (t) => t.flatMap(m => [m.label].concat((m.submenu || []).map(s => s.label).filter(Boolean)))
+assert.deepStrictEqual(enMenu.slice(2, 8).map(m => m.label), ['Home', 'GPU share', 'Wallet', 'Games', 'Blockchain', 'Mining'])
+assert.strictEqual(enMenu.find(m => m.label === 'Mining').submenu[0].label, 'Mining')
+assert.strictEqual(menu.buildTemplate(null, 'zh-Hant-TW')[7].label, '運算服務')
+const flat = (t) => t.flatMap(m => [m.label].concat((m.submenu || []).flatMap(s => [s.label].concat((s.submenu || []).map(x => x.label))).filter(Boolean)))
 assert.ok(!flat(cnMenu).includes('開始挖礦') && !flat(cnMenu).includes('停止挖礦…') && !flat(cnMenu).includes('轉帳…'))
-assert.ok(flat(cnMenu).includes('匯款…'))
+assert.ok(flat(cnMenu).includes('匯款…') && flat(cnMenu).includes('收款') && flat(cnMenu).includes('設定'))
+assert.ok(!flat(cnMenu).includes('挖礦'))
 menu.createMenu({ isDestroyed: () => false }, undefined)
-assert.strictEqual(menu.buildTemplate(null, 'EN')[6].label, 'Help')
-assert.strictEqual(menu.buildTemplate(null, 'CN')[6].label, '說明')
+assert.strictEqual(menu.buildTemplate(null, 'EN').find(m => m.label === 'Wallet').submenu[2].label, 'Settings')
+assert.strictEqual(menu.buildTemplate(null, 'CN').find(m => m.label === '錢包').submenu[2].label, '設定')
 
 // ---- (2) platform strings: Windows bytes unchanged, Mac path and notification centre ----
 const box = { window: {} }
@@ -103,21 +101,29 @@ assert.ok(enNote.startsWith('Shown in macOS Notification Centre'))
 assert.ok(!enNote.includes('Windows'))
 assert.strictEqual(cnNote.slice('在 Mac 通知中心顯示'.length), WIN_CN_NOTIFY.slice('在 Windows 通知中心顯示'.length))
 assert.strictEqual(enNote.slice('Shown in macOS Notification Centre'.length), WIN_EN_NOTIFY.slice('Shown in the Windows notification centre'.length))
-assert.strictEqual(I.CN.relNotes[0].v, '3.0.10')
-assert.strictEqual(I.EN.relNotes[0].v, '3.0.10')
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.0')
+assert.strictEqual(I.EN.relNotes[0].v, '3.1.0')
 assert.ok(I.CN.relNotes[0].items.join(' ').includes('顯卡正被其他程式使用'))
-assert.ok(I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('繁體中文'))
+assert.ok(I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('華語繁體'))
+assert.ok(!I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('繁體中文'))
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(read('src/js/app112.js').includes('T(\'backupHint\')') && read('src/js/app112.js').includes('T(\'notifyHint\')'))
 
 // version and Windows build left as they were, plus the Mac signing gate
 const pkg = require('../package.json')
-assert.strictEqual(pkg.version, '3.0.10')
+assert.strictEqual(pkg.version, '3.1.0')
 const lock = JSON.parse(read('package-lock.json'))
-assert.strictEqual(lock.version, '3.0.10')
-assert.strictEqual(lock.packages[''].version, '3.0.10')
+assert.strictEqual(lock.version, '3.1.0')
+assert.strictEqual(lock.packages[''].version, '3.1.0')
 const base = JSON.parse(execFileSync('git', ['show', 'c8049bb:package.json'], { encoding: 'utf8' }))
-assert.deepStrictEqual(pkg.build.win, base.build.win)
+const win = JSON.parse(JSON.stringify(base.build.win))
+const genesisAt = win.extraResources.findIndex(x => x.from === 'miner-bin/scdo-shard0-genesis.json')
+win.extraResources.splice(genesisAt, 0, {
+  from: 'resources/miners/zminer-gpu',
+  to: 'miners/zminer-gpu',
+  filter: ['zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll']
+})
+assert.deepStrictEqual(pkg.build.win, win)
 assert.deepStrictEqual(pkg.build.nsis, base.build.nsis)
 assert.deepStrictEqual(pkg.build.portable, base.build.portable)
 assert.strictEqual(pkg.build.beforePack, base.build.beforePack)

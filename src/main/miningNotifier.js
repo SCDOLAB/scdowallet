@@ -2,7 +2,7 @@
 // Based on 豆包's miningNotifier.js; adapted to this codebase:
 //  - settings live in the wallet's existing main-process settings file (miner-intent.json, see main.js settingsStore)
 //    under the key "miningNotifications"; every type defaults to on and the toggles survive a restart
-//  - one language per notification, following the wallet language: 繁體中文 (CN) or English (EN); never mixed
+//  - one language per notification, following the wallet language: 華語繁體 (CN) or English (EN); never mixed
 //  - at most 1 notification per type per 10 minutes
 //  - the events are derived here from the miner status stream (main.js feeds onStatus / onBlock / onPayout)
 // Types:

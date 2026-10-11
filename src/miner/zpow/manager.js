@@ -1,8 +1,8 @@
-// Classic shard 1–4 mining. The main process keeps one instance for CPU and
-// one for GPU, so both can run next to Shard0.
-// CPU: zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// GPU: go-scdo node.exe CUDA zpow, one shard, coinbase = the user's address.
-// A third binary can be dropped in with SCDO_ZPOW_GPU_BIN / SCDO_ZPOW_GPU_ARGS.
+// Classic shard 1–4 mining.
+// CPU: one zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// GPU default: one zminer-gpu process per selected shard, all on device 0.
+// GPU solo: the Classic node (node.exe) only when solo was saved and that node is synced.
+// An unsynced node, including a solo choice saved by an older wallet, starts zminer-gpu instead.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -12,7 +12,7 @@ const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
-const { parseStatusLine, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase } = require('./status')
+const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
@@ -29,8 +29,8 @@ function formatExitMessage (code, logTail) {
   if (msg.length > 500) msg = msg.slice(0, 497) + '...'
   return msg
 }
-const { firstExisting, zminerCandidates, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
-const { renderArgs, externalProfile, ZMINER_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, ctrlCScript } = require('./launch')
+const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
+const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, pidAlive } = require('./launch')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -113,7 +113,7 @@ class ZpowManager extends EventEmitter {
     return Object.assign({}, this.state, {
       running: this.wantRunning,
       blockRatePerHour: rate,
-      procs: this.proc ? [this.state.backend || 'zpow'] : []
+      procs: this.childAlive() ? [this.state.backend || 'zpow'] : []
     })
   }
 
@@ -126,7 +126,13 @@ class ZpowManager extends EventEmitter {
     this.state.logTail.push(shown)
     if (this.state.logTail.length > 200) this.state.logTail.shift()
     if (this.state.mode === 'gpu' && this.state.backend === 'classic-node') this.state.nodeSeen = true
-    this.applyLine(line)
+    if (this.state.backend === 'zminer-gpu' && cudaInitFailed(line)) {
+      this.wantRunning = false
+      const proc = this.proc
+      this.proc = null
+      this.set({ phase: 'error', code: 'NO_NVIDIA', cudaFailed: true, lastError: line, message: line })
+      if (proc) stopMiner(proc, { platform: this.o.platform, graceMs: 1500, stdinStop: true }).catch(() => {})
+    } else this.applyLine(line)
     this.refreshClassicGpu()
     try {
       const dir = path.join(this.o.dataRoot, 'logs')
@@ -155,7 +161,12 @@ class ZpowManager extends EventEmitter {
       if (ev.rejected != null) patch.sharesRejected = ev.rejected
       if (ev.connected != null) patch.connected = ev.connected
       if (ev.blocks != null) patch.blocksFound = Math.max(this.state.blocksFound, ev.blocks)
-      if (this.state.mode === 'cpu') {
+      if (this.state.backend === 'zminer-gpu') {
+        const accepted = ev.accepted != null ? ev.accepted : this.state.sharesAccepted
+        patch.code = accepted > 0 ? 'CLASSIC_MINING' : 'POOL_CONNECTING'
+        patch.phase = accepted > 0 ? 'mining' : 'starting'
+        patch.message = ''
+      } else if (this.state.mode === 'cpu' || this.state.backend === 'pool' || this.state.backend === 'external') {
         patch.code = ev.connected ? 'CLASSIC_MINING' : 'POOL_CONNECTING'
         patch.phase = ev.connected ? 'mining' : 'starting'
         patch.message = ev.connected ? '' : 'connecting'
@@ -191,11 +202,12 @@ class ZpowManager extends EventEmitter {
     env = env || process.env
     const platform = this.o.platform
     const zminer = firstExisting(zminerCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
+    const gpuExe = firstExisting(zminerGpuCandidates({ gpuDir: this.o.gpuDir, root: this.o.root, env }))
+    const gpuReady = gpuPackReady(gpuExe)
     const node = firstExisting(classicNodeCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
     const cudart = node ? findCudart(node, platform, env) : null
     let external = null
     try { external = externalProfile(env) } catch (e) { external = { error: e.message, code: e.code } }
-    const gpuReady = !!(node && cudart)
     const pools = {}
     try {
       const over = poolsFromEnv(env)
@@ -203,7 +215,7 @@ class ZpowManager extends EventEmitter {
     } catch (e) { pools.error = e.message }
     return {
       cpu: { available: !!zminer, path: zminer },
-      gpu: { available: gpuReady, path: node, cudart, reason: node && !cudart ? 'CUDART' : (node ? null : 'NO_BINARY') },
+      gpu: { available: gpuReady, path: gpuExe, solo: !!(node && cudart), node, cudart, reason: gpuReady ? null : 'NO_BINARY' },
       external: external && external.binary ? { available: fs.existsSync(external.binary), path: external.binary, solo: !!external.solo, id: external.id } : null,
       pools,
       cpuCount: Math.max(1, (os.cpus() || []).length || 1),
@@ -211,7 +223,15 @@ class ZpowManager extends EventEmitter {
     }
   }
 
-  childPids () { return this.proc && this.proc.pid ? [this.proc.pid] : [] }
+  childAlive () {
+    const proc = this.proc
+    if (!proc || proc.exitCode != null || proc.signalCode != null) return false
+    return pidAlive(proc.pid)
+  }
+
+  childPids () {
+    return this.childAlive() ? [this.proc.pid] : []
+  }
 
   pushSyncSample (h, now) {
     if (h == null || !Number.isFinite(Number(h))) return
@@ -331,7 +351,8 @@ class ZpowManager extends EventEmitter {
       throw err
     }
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
-    const gpuMiner = opts.gpuMiner === 'external' ? 'external' : 'classic-node'
+    const gpuMiner = resolveGpuMiner(opts)
+    const mineLabel = poolFallbackLabel(opts, gpuMiner)
     const env = this.o.env || process.env
     const caps = this.capabilities(env)
     const asInt = (v, fallback) => {
@@ -356,6 +377,20 @@ class ZpowManager extends EventEmitter {
         pool: pool.stratum, user: parsed.address, worker: opts.worker || 'wallet', threads
       })
       cwd = path.dirname(binary)
+    } else if (gpuMiner === 'zminer-gpu') {
+      if (!caps.gpu.available || !caps.gpu.path) {
+        const err = new Error('zminer-gpu.exe, zpowdet.dll and cudart64_12.dll were not found together. The Windows pack downloads them into resources/miners/zminer-gpu/.')
+        err.code = 'NO_ZMINER_GPU'
+        throw err
+      }
+      binary = caps.gpu.path
+      shaOpts = { required: false }
+      args = renderArgs(ZMINER_GPU_ARGS, {
+        pool: pool.stratum,
+        user: parsed.address,
+        worker: opts.worker || computerName(env)
+      })
+      cwd = path.dirname(binary)
     } else if (gpuMiner === 'external') {
       const profile = externalProfile(env)
       if (!profile || !caps.external || !caps.external.available) {
@@ -374,17 +409,17 @@ class ZpowManager extends EventEmitter {
       })
       cwd = path.dirname(binary)
     } else {
-      if (!caps.gpu.path) {
+      if (!caps.gpu.node) {
         const err = new Error('Classic node binary not found. Build node.exe from SCDOLAB/go-scdo and set SCDO_CLASSIC_NODE, or place it in miner-bin/win32/classic/ with libcudart.dll.')
         err.code = 'NO_CLASSIC_NODE'
         throw err
       }
       if (!caps.gpu.cudart) {
-        const err = new Error('libcudart is not next to the Classic node (' + caps.gpu.path + ')')
+        const err = new Error('libcudart is not next to the Classic node (' + caps.gpu.node + ')')
         err.code = 'NO_CUDART'
         throw err
       }
-      binary = caps.gpu.path
+      binary = caps.gpu.node
       shaOpts = Object.assign({ required: false }, this.sumsFor(binary, env.SCDO_CLASSIC_NODE_SHA256))
       const dir = path.join(this.o.dataRoot, 'classic', 'shard' + parsed.shard)
       const written = writeNodeConfig({ dir, shard: parsed.shard, coinbase: parsed.address })
@@ -405,8 +440,10 @@ class ZpowManager extends EventEmitter {
       backend: backend === 'cpu' ? 'zminer' : gpuMiner,
       pool: backend === 'gpu' && gpuMiner === 'classic-node' ? null : { stratum: pool.stratum, stats: minerStatsUrl(pool, parsed.address), live: pool.live },
       phase: 'starting',
-      code: backend === 'cpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
+      code: backend === 'cpu' || gpuMiner === 'zminer-gpu' ? 'POOL_CONNECTING' : (gpuMiner === 'classic-node' ? 'CLASSIC_STARTING' : 'CLASSIC_SYNCING'),
       message: '',
+      mineLabel: mineLabel,
+      syncPct: opts.syncPct == null ? null : opts.syncPct,
       startedAt: Date.now()
     })
     this.restarts = []
@@ -431,6 +468,7 @@ class ZpowManager extends EventEmitter {
     const spec = this.launchSpec
     const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
     this.proc = proc
+    this.livePid = proc.pid || 0
     proc.on('error', e => this.log('spawn error: ' + e.message))
     const onData = (buf) => {
       this.buf += buf.toString()
@@ -442,6 +480,7 @@ class ZpowManager extends EventEmitter {
     proc.stderr.on('data', onData)
     proc.on('exit', (code) => {
       if (this.proc === proc) this.proc = null
+      if (this.livePid === proc.pid) this.livePid = 0
       this.log('exited (code ' + code + ')')
       if (!this.wantRunning) return
       const message = formatExitMessage(code, this.state.logTail)
@@ -461,6 +500,7 @@ class ZpowManager extends EventEmitter {
     this.restarts = recent
     if (recent.length >= 6) {
       this.wantRunning = false
+      if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
       const stopped = message + ' — stopped after 6 exits in 10 min'
       this.set({ phase: 'error', code: 'CRASHING', lastError: stopped, message: stopped })
       return
@@ -487,7 +527,7 @@ class ZpowManager extends EventEmitter {
       const body = await (this.o.fetchJson || httpGetJson)(this.state.pool.stats, 8000)
       const stats = parsePoolMiner(body)
       const patch = { poolStats: stats, poolError: null }
-      if (stats && stats.hashrate != null && stats.hashrate > 0 && (!(this.state.hashrate > 0) || this.state.hashrateSource === 'pool')) {
+      if (this.state.backend !== 'zminer-gpu' && stats && stats.hashrate != null && stats.hashrate > 0 && (!(this.state.hashrate > 0) || this.state.hashrateSource === 'pool')) {
         patch.hashrate = stats.hashrate
         patch.hashrateSource = 'pool'
       }
@@ -504,19 +544,267 @@ class ZpowManager extends EventEmitter {
     if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null }
     const proc = this.proc
     this.proc = null
-    if (proc) {
-      const ctrl = this.state.backend === 'classic-node'
-      await stopMiner(proc, {
-        platform: this.o.platform,
-        graceMs: ctrl ? 60000 : 8000,
-        ctrlC: ctrl,
-        stdinStop: !ctrl,
-        ctrlCScript: ctrl ? ctrlCScript(path.join(this.o.dataRoot, 'tools')) : undefined
-      })
+    this.livePid = 0
+    // A wanted session with no OS process is already stopped. Do not taskkill.
+    if (proc && proc.exitCode == null && proc.signalCode == null && pidAlive(proc.pid)) {
+      await stopMiner(proc, { platform: this.o.platform || process.platform, execFile: this.o.execFile })
     }
-    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '' })
+    if (this.state.phase !== 'error') this.set({ phase: 'stopped', code: 'STOPPED', message: '', mineLabel: '', syncPct: null })
     else this.emit('status', this.status())
   }
 }
 
-module.exports = { ZpowManager, httpGetJson, rpcCall, formatExitMessage }
+function computerName (env) {
+  env = env || process.env
+  const raw = env.COMPUTERNAME || os.hostname() || 'wallet'
+  const name = String(raw).split('.')[0].replace(/[^A-Za-z0-9_-]/g, '')
+  return name || 'wallet'
+}
+
+// One graphics-card process per Classic shard. Stop closes every one of them.
+class GpuFleet extends EventEmitter {
+  constructor (opts) {
+    super()
+    this.o = opts || {}
+    this.kids = new Map()
+    this.probe = new ZpowManager(opts)
+    this._cuda = false
+  }
+
+  get wantRunning () {
+    for (const kid of this.kids.values()) if (kid.wantRunning) return true
+    return false
+  }
+
+  capabilities (env) { return this.probe.capabilities(env) }
+
+  childPids () {
+    const pids = []
+    for (const kid of this.kids.values()) pids.push(...kid.childPids())
+    return pids
+  }
+
+  status () {
+    const shards = []
+    for (const kid of this.kids.values()) {
+      const st = kid.status()
+      if (st.running || (st.phase && st.phase !== 'idle' && st.phase !== 'stopped')) shards.push(st)
+    }
+    const running = shards.filter(s => s.running)
+    const cuda = shards.find(s => s.cudaFailed || s.code === 'NO_NVIDIA')
+    if (!running.length) {
+      if (cuda) return Object.assign({}, cuda, { chain: 'classic', mode: 'gpu', running: false, shards, cudaFailed: true })
+      const last = shards[shards.length - 1]
+      return last ? Object.assign({}, last, { running: false, shards }) : { chain: 'classic', mode: 'gpu', running: false, code: 'IDLE', phase: 'idle', shards: [] }
+    }
+    let hash = 0
+    let anyHash = false
+    let accepted = 0
+    for (const s of running) {
+      accepted += Number(s.sharesAccepted) || 0
+      if (Number(s.sharesAccepted) > 0 && Number(s.hashrate) > 0 && s.hashrateSource !== 'pool') {
+        hash += Number(s.hashrate)
+        anyHash = true
+      }
+    }
+    const one = running.length === 1 ? running[0] : null
+    const pool = running.every(s => s.backend === 'zminer-gpu')
+    return {
+      chain: 'classic',
+      mode: 'gpu',
+      running: true,
+      backend: pool ? 'zminer-gpu' : running[0].backend,
+      shard: one ? one.shard : null,
+      wallet: one ? one.wallet : null,
+      phase: one ? one.phase : (running.some(s => s.phase === 'mining') ? 'mining' : running[0].phase),
+      code: one ? one.code : running[0].code,
+      hashrate: anyHash ? hash : null,
+      hashrateSource: anyHash ? 'status' : null,
+      sharesAccepted: accepted,
+      procs: running.reduce((acc, s) => acc.concat(s.procs || []), []),
+      shards: running,
+      localBlock: one ? one.localBlock : null,
+      networkBlock: one ? one.networkBlock : null,
+      gpuActive: running.some(s => s.gpuActive),
+      paused: running.every(s => s.paused),
+      cudaFailed: false,
+      message: one ? one.message : ''
+    }
+  }
+
+  watch (kid) {
+    kid.on('status', (st) => {
+      if (st && (st.cudaFailed || st.code === 'NO_NVIDIA')) this.noteCuda()
+      this.emit('status', this.status())
+    })
+  }
+
+  noteCuda () {
+    if (this._cuda) return
+    this._cuda = true
+    const jobs = []
+    for (const kid of this.kids.values()) if (kid.wantRunning) jobs.push(kid.stop())
+    Promise.all(jobs).then(() => this.emit('status', this.status())).catch(() => {})
+  }
+
+  async stopWhere (pred) {
+    const jobs = []
+    for (const [shard, kid] of this.kids) {
+      if (kid.wantRunning && pred(shard, kid)) jobs.push(kid.stop())
+    }
+    await Promise.all(jobs)
+  }
+
+  childUp (kid) {
+    const proc = kid && kid.proc
+    if (!proc || proc.exitCode != null || proc.signalCode != null) return false
+    return pidAlive(proc.pid)
+  }
+
+  async start (address, opts) {
+    opts = opts || {}
+    const parsed = parseClassicAddress(address)
+    if (!parsed) {
+      const err = new Error('Classic mining needs a 1S01 / 2S02 / 3S03 / 4S04 address')
+      err.code = 'BAD_ADDRESS'
+      throw err
+    }
+    const gpuMiner = resolveGpuMiner(opts)
+    // A pool start must not stop the other shards' zminer-gpu processes.
+    // An empty backend is a parallel start that has not spawned yet.
+    if (gpuMiner === 'zminer-gpu') await this.stopWhere((shard, kid) => kid.state.backend && kid.state.backend !== 'zminer-gpu')
+    else await this.stopWhere(shard => shard !== parsed.shard)
+    let kid = this.kids.get(parsed.shard)
+    // A previous start can still say it is running after the process has gone.
+    // That must not skip the pool miner while a solo node is still syncing.
+    if (kid && this.childUp(kid) && kid.wantRunning && kid.state.backend === gpuMiner && kid.state.wallet === parsed.address) return this.status()
+    if (kid && (kid.wantRunning || kid.proc)) await kid.stop()
+    kid = new ZpowManager(this.o)
+    this.kids.set(parsed.shard, kid)
+    this.watch(kid)
+    try {
+      await kid.start(address, Object.assign({}, opts, { backend: 'gpu', gpuMiner }))
+    } catch (e) {
+      this.kids.delete(parsed.shard)
+      throw e
+    }
+    return this.status()
+  }
+
+  async stop () {
+    const jobs = []
+    for (const kid of this.kids.values()) jobs.push(kid.stop())
+    await Promise.all(jobs)
+    this.emit('status', this.status())
+  }
+}
+
+function finitePct (v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  return Math.round(n)
+}
+
+// Solo (a saved 進階 choice, or an explicit classic-node request that already
+// carries a sync result) runs node.exe only when that shard is caught up.
+// A bare classic-node request with no sync decision still launches the node.
+// Anything still behind, including a saved solo choice, uses zminer-gpu.
+function resolveGpuMiner (opts) {
+  opts = opts || {}
+  if (opts.gpuMiner === 'external') return 'external'
+  const namedNode = opts.gpuMiner === 'classic-node'
+  const soloIntent = opts.solo === true || opts.miningMode === 'solo'
+  const pct = finitePct(opts.syncPct)
+  const lowPct = pct != null && pct < 100
+  if (soloIntent || opts.nodeSynced === false || lowPct) {
+    const caughtUp = opts.nodeSynced === true && !lowPct
+    return caughtUp ? 'classic-node' : 'zminer-gpu'
+  }
+  return namedNode ? 'classic-node' : 'zminer-gpu'
+}
+
+function poolFallbackLabel (opts, gpuMiner) {
+  opts = opts || {}
+  const asked = opts.gpuMiner === 'classic-node' || opts.solo === true || opts.miningMode === 'solo'
+  const current = opts.mineLabel || ''
+  if (gpuMiner !== 'zminer-gpu' || !asked) return current
+  const pct = finitePct(opts.syncPct)
+  const zh = opts.zh !== false
+  if (pct != null && pct < 100) {
+    return zh ? ('顯卡經礦池挖（本機節點同步 ' + pct + '%）') : ('Graphics card mining through the pool (local node sync ' + pct + '%)')
+  }
+  if (!current || current === '顯卡挖礦中' || current === 'Graphics card mining') {
+    return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
+  }
+  return current
+}
+
+function positiveHeight (info) {
+  if (!info || typeof info !== 'object') return null
+  const raw = info.CurrentBlockHeight != null ? info.CurrentBlockHeight : info.currentBlockHeight
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function higherHeight (a, b) {
+  if (a == null) return b == null ? null : b
+  if (b == null) return a
+  return a > b ? a : b
+}
+
+// Local getInfo against the public tip and the peer download target.
+// Pool chain_height is not used: it can sit next to the local height while
+// the public tip is still about twice as far (the 52% case).
+function syncFromHeights (local, network) {
+  if (local == null || network == null || !(network > 0)) return { synced: false, pct: null, local: local, network: network }
+  const pct = Math.max(0, Math.min(100, Math.round((local / network) * 100)))
+  const gap = network - local
+  return { synced: gap >= 0 && gap <= BEHIND_BLOCKS, pct: pct, local: local, network: network }
+}
+
+async function measureShardSync (shard, call, timeoutMs) {
+  const all = await measureAllShardSync(call, timeoutMs, shard)
+  return all[Number(shard)] || { synced: false, pct: null, local: null, network: null }
+}
+
+async function measureAllShardSync (call, timeoutMs, onlyShard) {
+  const rpc = call || rpcCall
+  const ms = timeoutMs || 1200
+  const wanted = onlyShard != null ? [Number(onlyShard)] : [1, 2, 3, 4]
+  const out = {}
+  await Promise.all(wanted.map(async (n) => {
+    const port = SHARD_PORTS[n]
+    out[n] = { synced: false, pct: null, local: null, network: null }
+    if (!port) return
+    const localUrl = 'http://127.0.0.1:' + port.http
+    let info = null
+    let dl = null
+    let pub = null
+    try { info = await rpc(localUrl, 'scdo_getInfo', [], ms) } catch (e) {}
+    try { dl = await rpc(localUrl, 'download_getStatus', [], ms) } catch (e) {}
+    try { pub = await rpc('https://scdoscan.io/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
+    const local = positiveHeight(info)
+    const network = higherHeight(peerTargetOf(dl), positiveHeight(pub))
+    out[n] = syncFromHeights(local, network)
+  }))
+  return out
+}
+
+async function localNodeHeights (call, timeoutMs) {
+  const rpc = call || rpcCall
+  const ms = timeoutMs || 800
+  const out = {}
+  await Promise.all([1, 2, 3, 4].map(async (n) => {
+    const port = SHARD_PORTS[n]
+    if (!port) return
+    try {
+      const info = await rpc('http://127.0.0.1:' + port.http, 'scdo_getInfo', [], ms)
+      const h = info && (info.CurrentBlockHeight != null ? info.CurrentBlockHeight : info.currentBlockHeight)
+      if (h != null && Number(h) > 0) out[n] = { local: Number(h) }
+    } catch (e) {}
+  }))
+  return out
+}
+
+module.exports = { ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }

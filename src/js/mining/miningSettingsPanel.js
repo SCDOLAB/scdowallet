@@ -10,7 +10,9 @@
     const err = h('div', { class: 'err', id: 'poolErr' })
     const poolIn = h('input', { class: 'inp mono', id: 'poolUrl', value: cfg.poolUrl || OFFICIAL_POOL, placeholder: OFFICIAL_POOL, autocomplete: 'off', spellcheck: 'false', disabled: running })
     const poolRow = h('div', { class: 'field', id: 'poolRow', style: mode === 'pool' ? '' : 'display:none' }, h('div', { class: 'lbl', text: M.L('Pool address') }), poolIn, h('div', { class: 'lbl', id: 'poolHelp', text: M.L('Official SCDO pool (default). You can change it to another pool.') }))
-    const radio = (v, label) => h('label', { class: 'm1-radio' }, h('input', { type: 'radio', name: 'miningMode', value: v, checked: mode === v, disabled: running, onchange: () => { mode = v; poolRow.style.display = v === 'pool' ? '' : 'none' } }), ' ' + label)
+    const remember = () => { if (handlers.onDraft) handlers.onDraft(mode, poolIn.value) }
+    const radio = (v, label) => h('label', { class: 'm1-radio' }, h('input', { type: 'radio', name: 'miningMode', value: v, checked: mode === v, disabled: running, onchange: () => { mode = v; poolRow.style.display = v === 'pool' ? '' : 'none'; remember() } }), ' ' + label)
+    poolIn.addEventListener('input', remember)
     const keep = h('input', { type: 'checkbox', id: 'keepMining', checked: !!cfg.keepMining, onchange: (e) => handlers.onKeepMining(!!e.target.checked) })
     const apply = h('button', { class: 'btn sec', id: 'miningApply', disabled: running, text: M.L('Apply mining mode'),
       onclick: async () => {

@@ -1,6 +1,6 @@
 {
     "name": "ScdoWallet",
-    "version": "3.0.10",
+    "version": "3.1.0",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
@@ -34,6 +34,7 @@
             "!**/node_modules/**/build/Release/**",
             "!**/node_modules/**/binding.gyp",
             "!miner-bin/**",
+            "!resources/miners/**",
             "!miner-zpow/**",
             "!scripts/**",
             "!legacy-1.1.1-index.html"
@@ -63,6 +64,11 @@
                 {
                     "from": "miner-bin/win32",
                     "to": "miner/bin"
+                },
+                {
+                    "from": "resources/miners/zminer-gpu",
+                    "to": "miners/zminer-gpu",
+                    "filter": ["zminer-gpu.exe", "zpowdet.dll", "cudart64_12.dll"]
                 },
                 {
                     "from": "miner-bin/scdo-shard0-genesis.json",

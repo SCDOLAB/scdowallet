@@ -12,6 +12,7 @@ const { dialog, BrowserWindow } = require('electron')
 const ScdoClient = require('../api/scdoClient')
 const { Shard0 } = require('../api/evm')
 const { normalizeHalfWidth } = require('../js/halfWidth')
+const { guardAmount, toUnits } = require('../js/amount')
 const { normLang } = require('../js/uiLang')
 
 const S0_CHAIN_ID = 5680
@@ -159,7 +160,14 @@ async function checkAddress (from, to, asset) {
 }
 
 function parseAmount (amount, decimals) {
-  const v = normalizeHalfWidth(amount).replace(/,/g, '')
+  const dec = Math.max(0, Number(decimals) || 0)
+  const g = guardAmount(normalizeHalfWidth(amount), Math.min(8, dec))
+  if (!g.ok) {
+    const err = new Error(g.code)
+    err.code = g.code
+    throw err
+  }
+  const v = g.value
   if (!/^\d+(\.\d+)?$/.test(v)) throw new Error('BAD_AMOUNT')
   const w = ethers.parseUnits(v, decimals)
   if (w <= 0n) throw new Error('BAD_AMOUNT')
@@ -397,8 +405,15 @@ async function oldSend (p) {
   if (!CLASSIC_RE.test(to)) throw new Error('BAD_ADDRESS')
   const cl = c()
   if (String(to[0]) !== String(a.shard) && !(cl.config && cl.config.allowCrossShard)) throw new Error('CROSS_SHARD')
-  const amount = String(p.amount || '')
-  if (!/^\d+(\.\d{1,8})?$/.test(amount) || Number(amount) <= 0) throw new Error('BAD_AMOUNT')
+  const guarded = guardAmount(normalizeHalfWidth(String(p.amount || '')))
+  if (!guarded.ok) {
+    const err = new Error(guarded.code)
+    err.code = guarded.code
+    throw err
+  }
+  const amount = guarded.value
+  if (Number(amount) <= 0) throw new Error('BAD_AMOUNT')
+  if (toUnits(amount, 8) == null || toUnits(amount, 8) <= 0n) throw new Error('BAD_AMOUNT')
   if (typeof p.password !== 'string' || !p.password) throw new Error('NO_PASSWORD')
   // 2.0.2 D-04 refused sends to the account's own address (a UI safeguard: the bug list flagged "self-send allowed").
   // 3.0.4: the chain processes it like any transfer (go-scdo has no from == to rule; the EVM path subtracts then adds
@@ -468,7 +483,7 @@ function saveUi (ui) {
   return true
 }
 
-// 3.0.8: UI language. Only 'EN' and 'CN' (= 繁體中文 / Traditional Chinese) are stored.
+// 3.0.8: UI language. Only 'EN' and 'CN' (= 華語繁體 / Traditional Chinese) are stored.
 // 'CN' stays the stored value so older wallets that share viewconfig_1.1.json keep reading it.
 // An unset language is CN. A saved EN or CN is kept. The operating-system language is not used.
 function setLang (v) {

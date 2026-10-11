@@ -3,6 +3,18 @@
 // also controls exactly one 0x address on shard0 (keccak256(pubkey)[12:]).
 'use strict'
 const { ethers } = require('ethers')
+const { guardAmount } = require('../js/amount')
+
+function sendAmount (amount, decimals) {
+  const dec = decimals == null ? 18 : Math.max(0, Number(decimals) || 0)
+  const g = guardAmount(amount == null || amount === '' ? '0' : amount, Math.min(8, dec))
+  if (!g.ok) {
+    const err = new Error(g.code)
+    err.code = g.code
+    throw err
+  }
+  return g.value
+}
 
 const DEFAULT_SHARD0 = {
   rpc: 'https://scdoscan.io/rpc/0',
@@ -63,11 +75,11 @@ class Shard0 {
 
   buildReq (to, amount, asset) {
     if (!Shard0.isAddress(to)) throw new Error('invalid shard0 address (0x + 40 hex): ' + to)
-    if (!asset || asset === 'SCDO') return { to, value: ethers.parseEther(String(amount)) }
+    if (!asset || asset === 'SCDO') return { to, value: ethers.parseEther(sendAmount(amount)) }
     const t = this.token(asset)
     if (!t) throw new Error('unknown token ' + asset)
     const iface = new ethers.Interface(ERC20)
-    return { to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(String(amount), t.decimals)]) }
+    return { to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(sendAmount(amount, t.decimals), t.decimals)]) }
   }
 
   // 2.0.2 rerun N-1: sign with an explicit nonce, no broadcast -> { raw, hash, tx }. The hash is known before broadcasting,
@@ -123,11 +135,11 @@ class Shard0 {
   // -> { gasLimit, maxFeePerGas, baseFee, tip, maxFeeWei (upper bound), estFeeWei (likely) }
   async estimateSend (from, to, amount, asset) {
     let req
-    if (!asset || asset === 'SCDO') req = { from, to, value: ethers.parseEther(String(amount || '0')) }
+    if (!asset || asset === 'SCDO') req = { from, to, value: ethers.parseEther(sendAmount(amount || '0')) }
     else {
       const t = this.token(asset); if (!t) throw new Error('unknown token ' + asset)
       const iface = new ethers.Interface(ERC20)
-      req = { from, to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(String(amount || '0'), t.decimals)]) }
+      req = { from, to: t.address, value: 0n, data: iface.encodeFunctionData('transfer', [to, ethers.parseUnits(sendAmount(amount || '0', t.decimals), t.decimals)]) }
     }
     const [fee, block] = await Promise.all([this.provider.getFeeData(), this.provider.getBlock('latest')])
     let gas

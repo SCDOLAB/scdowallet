@@ -1,6 +1,6 @@
-// Classic pool endpoints. Shard 1 is live; shards 2–4 use the same host and
-// the next ports, and may not be serving yet. Overrides come from the caller
-// (env SCDO_ZPOW_POOLS is a JSON object keyed by shard).
+// Classic pool endpoints. Shard1–Shard4 use the same host and the next ports.
+// Whether a pool is online is not stored here: the wallet reads /api/stats.
+// Overrides come from the caller (env SCDO_ZPOW_POOLS is a JSON object keyed by shard).
 'use strict'
 
 const DEFAULT_HOST = '82.223.19.88'
@@ -50,7 +50,6 @@ function poolForShard (shard, overrides) {
   }
   pool.stratum = pool.host + ':' + pool.port
   pool.statsBase = 'http://' + pool.host + ':' + pool.statsPort
-  pool.live = n === 1
   return pool
 }
 

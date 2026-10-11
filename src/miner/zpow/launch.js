@@ -1,7 +1,7 @@
 // Pluggable process launch: binary + argv template + stdout parser.
-// On Windows, windowsHide sets CREATE_NO_WINDOW. Stop closes stdin (zminer exits
-// on EOF or a "stop" line) and sends SIGTERM. The Classic node also gets Ctrl+C
-// so it can flush its database before a force-kill.
+// On Windows, windowsHide sets CREATE_NO_WINDOW. Stop kills the process tree
+// at once. zminer and zminer-gpu exit 0 when stdin hits EOF, so stdin must
+// stay an open pipe. Ending that pipe on stop can stall the main thread.
 'use strict'
 const fs = require('fs')
 const os = require('os')
@@ -73,6 +73,11 @@ function externalProfile (env) {
 }
 
 const ZMINER_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-threads', '{threads}']
+// zminer-gpu: Classic graphics-card pool miner. One process per shard, all on device 0.
+// zpowdet.dll and cudart64_12.dll must sit beside the exe. See doc/mining-modes.md.
+const ZMINER_GPU_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-device', '0', '-batch', '8192']
+// Solo only. go-scdo node has no stratum host flag. --pool on this binary is a
+// local coinbase-list switch, not 82.223.19.88:3341. The payout is basic.coinbase.
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
 function relaxMinerPriority (proc) {
@@ -88,41 +93,68 @@ function spawnMiner (spec) {
   const proc = spawn(spec.binary, spec.args, {
     cwd,
     windowsHide: true, // CREATE_NO_WINDOW on Windows
+    // Open stdin. 'ignore' is EOF, and zminer-gpu then prints its exit line
+    // and returns 0 before it logs in. Do not end this pipe on stop.
     stdio: ['pipe', 'pipe', 'pipe'],
     env: spec.env || process.env
   })
+  if (proc.stdin) proc.stdin.on('error', () => {})
   relaxMinerPriority(proc)
   return proc
 }
 
+// signal 0 checks the pid. A dead miner must not wait on taskkill.
+function pidAlive (pid) {
+  const n = Number(pid)
+  if (!n) return false
+  try {
+    process.kill(n, 0)
+    return true
+  } catch (e) {
+    return !!(e && e.code === 'EPERM')
+  }
+}
+
+function killTree (pid, platform, exec) {
+  return new Promise(resolve => {
+    if (!pid || !pidAlive(pid)) return resolve()
+    const cap = setTimeout(resolve, 1500)
+    const done = () => { clearTimeout(cap); resolve() }
+    const run = exec || execFile
+    if (platform === 'win32') {
+      run('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 1800 }, () => done())
+    } else {
+      try { process.kill(pid, 'SIGKILL') } catch (e) {}
+      done()
+    }
+  })
+}
+
+// Kill now. Do not write or end stdin (that stalls Windows, and EOF is how
+// these miners stop themselves). No live child settles at once, without
+// taskkill. A live process is killed and the promise always settles within
+// 2 seconds, even if taskkill never returns.
 function stopMiner (proc, opts) {
   opts = opts || {}
   const platform = opts.platform || process.platform
   return new Promise(resolve => {
-    if (!proc || proc.exitCode != null || proc.signalCode != null) return resolve('gone')
+    const pid = proc && proc.pid
+    if (!proc || !pid || proc.exitCode != null || proc.signalCode != null || !pidAlive(pid)) return resolve('gone')
     let finished = false
-    const finish = (how) => { if (finished) return; finished = true; clearTimeout(timer); resolve(how) }
-    const force = () => {
-      try {
-        if (platform === 'win32') execFile('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
-        else proc.kill('SIGKILL')
-      } catch (e) {}
-      setTimeout(() => finish('forced'), 2000)
+    let extra = null
+    const cap = setTimeout(() => finish('forced'), 2000)
+    const finish = (how) => {
+      if (finished) return
+      finished = true
+      clearTimeout(cap)
+      clearTimeout(extra)
+      resolve(how)
     }
-    const timer = setTimeout(force, opts.graceMs || 8000)
     proc.once('exit', () => finish('graceful'))
-    try {
-      if (opts.stdinStop !== false && proc.stdin && proc.stdin.writable) {
-        proc.stdin.write('stop\n')
-        proc.stdin.end()
-      }
-    } catch (e) {}
-    if (platform === 'win32' && opts.ctrlC && opts.ctrlCScript) {
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', opts.ctrlCScript, '-ProcessId', String(proc.pid)],
-        { windowsHide: true, timeout: 20000 }, (err) => { if (err) force() })
-    } else if (platform !== 'win32') {
-      try { proc.kill('SIGTERM') } catch (e) {}
-    }
+    try { proc.kill('SIGKILL') } catch (e) {}
+    killTree(pid, platform, opts.execFile).then(() => {
+      if (!finished) extra = setTimeout(() => finish('forced'), 200)
+    })
   })
 }
 
@@ -138,8 +170,11 @@ module.exports = {
   renderArgs,
   externalProfile,
   ZMINER_ARGS,
+  ZMINER_GPU_ARGS,
   CLASSIC_NODE_ARGS,
   spawnMiner,
   stopMiner,
+  killTree,
+  pidAlive,
   ctrlCScript
 }

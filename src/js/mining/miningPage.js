@@ -2,7 +2,11 @@
 // calls mount() with a placeholder element; everything here is DOM-built (no innerHTML).
 ;(function (M) {
   const h = (...a) => window.SafeDom.h(...a)
-  let cfg = null; let unsub = null
+  let cfg = null; let unsub = null; let draft = null
+  function viewCfg () {
+    if (!cfg || !draft) return cfg
+    return Object.assign({}, cfg, { miningMode: draft.mode || cfg.miningMode, poolUrl: draft.url != null ? draft.url : cfg.poolUrl })
+  }
   async function loadConfig () { try { cfg = await window.scdo.invoke('mining:getConfig') } catch (e) { cfg = { miningMode: 'solo', poolUrl: '', keepMining: false } } return cfg }
   function mount (root, ctx) {
     if (!root) return
@@ -15,8 +19,9 @@
     if (!isMac) {
       if (!cfg) loadConfig().then(() => ctx.rerender())
       else {
-        parts.push(M.MiningSettingsPanel.render(cfg, running, {
-          onApply: async (mode, url) => { const r = await window.scdo.invoke('mining:setConfig', { miningMode: mode, poolUrl: url }); if (r && r.ok) { cfg = Object.assign({}, cfg, { miningMode: r.miningMode, poolUrl: r.poolUrl || cfg.poolUrl }); ctx.toast(r.miningMode === 'pool' ? M.L('Pool mode saved: ') + r.poolUrl : M.L('Solo mode saved')); ctx.rerender() } return r },
+        parts.push(M.MiningSettingsPanel.render(viewCfg(), running, {
+          onDraft: (mode, url) => { draft = { mode: mode, url: url } },
+          onApply: async (mode, url) => { const r = await window.scdo.invoke('mining:setConfig', { miningMode: mode, poolUrl: url }); if (r && r.ok) { draft = null; cfg = Object.assign({}, cfg, { miningMode: r.miningMode, poolUrl: r.poolUrl || cfg.poolUrl }); ctx.toast(r.miningMode === 'pool' ? M.L('Pool mode saved: ') + r.poolUrl : M.L('Solo mode saved')); ctx.rerender() } return r },
           onKeepMining: async (on) => { const r = await window.scdo.invoke('mining:setKeepMining', on); cfg = Object.assign({}, cfg, { keepMining: !!(r && r.keepMining) }); ctx.toast(on ? M.L('Keep mining is on') : M.L('Keep mining is off')) }
         }))
       }
@@ -37,6 +42,6 @@
     root.replaceChildren(...parts)
   }
   function setKeep (on) { if (cfg) cfg.keepMining = !!on }
-  function unmount () { if (unsub) { unsub(); unsub = null } }
+  function unmount () { draft = null; if (unsub) { unsub(); unsub = null } }
   M.MiningPage = { mount, unmount, loadConfig, setKeep, getConfig: () => cfg }
 })(window.SCDOMining)

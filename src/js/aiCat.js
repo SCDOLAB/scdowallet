@@ -42,9 +42,9 @@ function liveShardSet (ctx) {
   if (pools && typeof pools === 'object') {
     for (const n of [1, 2, 3, 4]) {
       const p = pools[n] || pools[String(n)]
-      if (p && p.live) live.add(n)
+      if (p && (p.online === true || p.live === true)) live.add(n)
     }
-  } else live.add(1)
+  }
   const gpu = ctx && ctx.classicGpu
   if (gpu && gpu.running) {
     const shard = Number(gpu.shard)
@@ -66,6 +66,7 @@ function startFail (code) {
   const map = {
     NO_ZMINER: '找不到處理器挖礦程式。',
     NO_CLASSIC_NODE: '找不到顯卡挖礦程式。',
+    NO_ZMINER_GPU: '找不到顯卡礦池程式。',
     NO_CUDART: '顯卡挖礦程式缺少執行元件。',
     NO_NVIDIA: '這台電腦沒有可用的 NVIDIA 顯卡。',
     ALREADY_RUNNING: '這個挖礦程式已經在跑。',
@@ -193,7 +194,7 @@ function planHeal (ctx) {
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
         bits.push('準備重新啟動 Shard0 EVM')
-      } else if (!jobs.length) bits.push('先不要再啟動新的節點')
+      } else if (!jobs.length) bits.push('可以先等一下，再啟動新的節點')
     }
   }
   if (!jobs.length) return { say: bits.join('，') + '。', actions: [] }
@@ -208,13 +209,13 @@ function sayBalance (ctx) {
 
 function planBackup () {
   return {
-    say: '帳戶要靠帳戶檔案和密碼才能恢復。小貓不會顯示種子、私鑰或密碼，也不會把它寫進紀錄。請在接下來的清單裡自己按「立即備份」，並另外複製到隨身碟。',
+    say: '溫馨提醒：帳戶要靠帳戶檔案和密碼才能恢復。小貓不會顯示種子、私鑰或密碼，也不會把它寫進紀錄。接下來的清單裡可以自己按「立即備份」，並另外複製到隨身碟。',
     actions: [{ type: 'openBackup' }]
   }
 }
 
 function refuseSecret () {
-  return { say: '請不要把種子、私鑰或密碼貼在這裡。小貓不會顯示，也不會記錄。', actions: [] }
+  return { say: '溫馨提醒：助記詞、私鑰和密碼只存在你自己的設備，我們不會向你索取。小貓不會顯示，也不會記錄。', actions: [] }
 }
 
 function parseTransfer (text) {
@@ -280,7 +281,7 @@ function planTransfer (text, ctx) {
 // A private key is only ever typed into the masked import dialog, never into this chat.
 const OPEN_SAY = {
   create: '已開啟「建立新地址」視窗。同一個帳戶會有一個 Shard1–Shard4 的地址和一個 Shard0 EVM 地址。密碼請你自己輸入，小貓看不到。',
-  import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入；私鑰只在隱藏輸入視窗裡輸入，請不要貼在這裡。',
+  import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入。私鑰只在隱藏輸入視窗裡輸入。溫馨提醒：助記詞和私鑰只存在你自己的設備，貼在聊天裡小貓也看不到。',
   settings: '已開啟「設定」。',
   reward: '已開啟「挖礦設定」。要改出塊獎勵地址，請先停止挖礦，再選新的地址。',
   send: '已開啟轉帳表單。金額、收款人和哪條鏈都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
@@ -303,7 +304,7 @@ function planOpen (q, ctx) {
 // 3.0.4: official contacts (the same ones as Settings → About)
 const CONTACT = { channel: 't.me/SCDOLabor', group: 't.me/SCDOCommunity', email: 'admin@apeccapital.org' } // no URLs here: the cat never goes online; the links live in the window
 function sayContact () {
-  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。SCDO 實驗室不會向你索取種子、私鑰或密碼。', actions: [] }
+  return { say: '說明與聯絡：官方頻道 t.me/SCDOLabor，社群群組 t.me/SCDOCommunity，客服 Email admin@apeccapital.org。下面也有這三個連結。溫馨提醒：助記詞、私鑰和密碼只存在你自己的設備，我們不會向你索取。', actions: [] }
 }
 
 function wantsMine (q) {
@@ -329,7 +330,33 @@ function reply (text, ctx) {
   if (wantsMine(q) || /^開始[／/]停止挖礦$/.test(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
     return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|EVM|主鏈|main chain/i.test(q)) }))
   }
+  const site = planSite(q)
+  if (site) return site
   return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
+}
+
+function siteApi () {
+  if (typeof window !== 'undefined' && window.SCDOSiteNav) return window.SCDOSiteNav
+  if (typeof require === 'function') {
+    try { return require('./siteNavMap') } catch (e) { return null }
+  }
+  return null
+}
+
+function planSite (q) {
+  const nav = siteApi()
+  if (!nav) return null
+  const hit = nav.match(q)
+  if (!hit) return null
+  if (hit.children && hit.children.length && !hit.action && !hit.href) {
+    return { say: hit.cn + '：' + hit.children.map(c => c.cn).join('、') + '。', actions: [] }
+  }
+  return { say: '已開啟「' + hit.cn + '」。', actions: [{ type: 'openSite', id: hit.id }] }
+}
+
+function suggestions () {
+  const nav = siteApi()
+  return nav ? nav.flat() : []
 }
 
 function safePlan (plan) {
@@ -349,7 +376,8 @@ const api = {
   planOpen: function (text, ctx) { const p = planOpen(clean(text), ctx); return p ? safePlan(p) : null },
   looksLikeSecret: looksLikeSecret,
   startFail: startFail,
-  diagnose: diagnose
+  diagnose: diagnose,
+  suggestions: suggestions
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOCat = Object.freeze(api)

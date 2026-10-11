@@ -57,7 +57,16 @@ function parseStatusLine (line) {
   if (m) return { kind: 'chain-height', local: Number(m[1]) }
   m = /(?:mining block|new task for the pool|committing a new task to engine),?\s*height:\s*(\d+)/i.exec(s)
   if (m) return { kind: 'chain-height', local: Number(m[1]) }
+  // zminer-gpu summary, every 15s:
+  // hashrate 248000 H/s | batch 8192 | NVIDIA GeForce ... | accepted 12 rejected 0 dropped 0 blocks 1 | up 3m0s
+  m = /hashrate\s+([0-9]+(?:\.[0-9]+)?)\s*H\/s\b.*?accepted\s+(\d+)\s+rejected\s+(\d+)/i.exec(s)
+  if (m) return { kind: 'status', hashrate: Number(m[1]), accepted: Number(m[2]), rejected: Number(m[3]), connected: null, blocks: null }
   return null
+}
+
+// The graphics-card pool miner cannot start. The wallet shows one fallback, not a retry loop.
+function cudaInitFailed (line) {
+  return /CUDA driver version is insufficient|no CUDA device|zpow GPU library not found|CUDA device \d+ out of range/i.test(String(line || ''))
 }
 
 // download_getStatus: Amount = toNo - fromNo + 1, so the peer tip is StartNum + Amount - 1.
@@ -187,6 +196,7 @@ function parsePoolMiner (body) {
 
 module.exports = {
   parseStatusLine,
+  cudaInitFailed,
   blockRatePerHour,
   parsePoolMiner,
   looksLikeStatus,

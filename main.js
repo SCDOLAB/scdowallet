@@ -9,6 +9,7 @@ require('./src/main/safeLog') // 2.0.2: EPIPE-safe logging + crash guards, must 
 const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const mineResume = require('./src/main/mineResume')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
@@ -95,7 +96,7 @@ const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
-// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 繁體中文, 'EN')
+// 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 華語繁體, 'EN')
 function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
@@ -229,14 +230,19 @@ setInterval(pollPayout, 2 * 60 * 1000)
 
 // ---------------- built-in miners ----------------
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
-// Classic shards 1–4: zminer CPU to the pool, and the go-scdo CUDA node (libcudart.dll beside node.exe; no goGpuDet.dll).
+// Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
+// Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
 // Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// Shard0 GPU, Classic GPU and Classic CPU may all run together. Nothing here refuses a start.
+// Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
-const { ZpowManager } = require('./src/miner/zpow/manager')
+const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')
 function minerBinDir () {
   if (app.isPackaged) return path.join(process.resourcesPath, 'miner', 'bin')
   return path.join(__dirname, 'miner-bin', process.platform)
+}
+function zminerGpuDir () {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'miners', 'zminer-gpu')
+  return path.join(__dirname, 'resources', 'miners', 'zminer-gpu')
 }
 let miner = null
 let zpowCpu = null
@@ -244,15 +250,25 @@ let zpowGpu = null
 function zpowOptions () {
   return {
     binDir: minerBinDir(),
+    gpuDir: zminerGpuDir(),
     dataRoot: (!app.isPackaged && process.env.SCDO_MINER_DIR) || minerDataRoot(),
     root: __dirname
   }
 }
 function classicNote () {
   const parts = []
-  const shardOf = (z) => { const n = Number(z && z.state && z.state.shard); return n >= 1 && n <= 4 ? ' Shard' + n : '' }
-  if (zpowCpu && zpowCpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu))
-  if (zpowGpu && zpowGpu.wantRunning) parts.push((uiLang() === 'CN' ? 'Classic 顯示卡' : 'Classic graphics card') + shardOf(zpowGpu))
+  const cn = uiLang() === 'CN'
+  if (zpowCpu && zpowCpu.wantRunning) {
+    const n = Number(zpowCpu.state && zpowCpu.state.shard)
+    parts.push((cn ? 'Classic 處理器礦池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
+  }
+  if (zpowGpu && zpowGpu.wantRunning) {
+    const st = zpowGpu.status()
+    const shards = (st.shards || []).map(s => Number(s.shard)).filter(n => n >= 1 && n <= 4)
+    const solo = st.backend === 'classic-node'
+    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')
+    parts.push(label + (shards.length ? ' Shard' + shards.join(' ') : ''))
+  }
   return parts.join(' · ')
 }
 function refreshTray () {
@@ -275,7 +291,7 @@ function getZpow (kind) {
     return zpowCpu
   }
   if (!zpowGpu) {
-    zpowGpu = new ZpowManager(zpowOptions())
+    zpowGpu = new GpuFleet(zpowOptions())
     zpowGpu.on('status', st => publishClassic(st))
   }
   return zpowGpu
@@ -289,11 +305,36 @@ function classicSnapshot () {
     classicGpu: zpowGpu ? zpowGpu.status() : idleClassic('gpu')
   }
 }
+function withinMs (work, ms) {
+  return new Promise(resolve => {
+    let done = false
+    const t = setTimeout(() => { if (!done) { done = true; resolve('timeout') } }, ms)
+    Promise.resolve().then(work).then(v => {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      resolve(v)
+    }, () => {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      resolve('timeout')
+    })
+  })
+}
+function classicBusy (mgr) {
+  if (!mgr) return false
+  if (mgr.wantRunning) return true
+  try { return mgr.childPids().length > 0 } catch (e) { return false }
+}
+// No child: return at once. A live child is killed, and this promise settles
+// within 2s even when the kill itself does not.
 async function stopClassic (backend) {
   const jobs = []
-  if ((!backend || backend === 'cpu') && zpowCpu && zpowCpu.wantRunning) jobs.push(zpowCpu.stop())
-  if ((!backend || backend === 'gpu') && zpowGpu && zpowGpu.wantRunning) jobs.push(zpowGpu.stop())
-  await Promise.all(jobs)
+  if ((!backend || backend === 'cpu') && classicBusy(zpowCpu)) jobs.push(zpowCpu.stop())
+  if ((!backend || backend === 'gpu') && classicBusy(zpowGpu)) jobs.push(zpowGpu.stop())
+  if (!jobs.length) return
+  await withinMs(() => Promise.all(jobs), 2000)
 }
 function getMiner () {
   if (!miner) {
@@ -336,6 +377,18 @@ function writeIntent (patch) {
 // ---- 1.1.5: startup cleanup of the wallet's own leftover geth / proxy / rigel ----
 let startupCleanup = null
 function afterCleanup () { return startupCleanup ? startupCleanup.catch(() => {}) : Promise.resolve() }
+function minerProcessAlive () {
+  if (classicBusy(zpowCpu) || classicBusy(zpowGpu)) return true
+  if (!miner) return false
+  if (miner.wantRunning || miner.stopping || miner.cleaning) return true
+  try { if (miner.childPids().length) return true } catch (e) {}
+  try { return Object.values(miner.procs || {}).some(Boolean) } catch (e) { return false }
+}
+// Startup with nothing running: a leftover running* flag is a crashed session, not a request to mine.
+function settleStaleRunFlags () {
+  if (minerProcessAlive()) return
+  writeIntent(mineResume.afterStartup(readIntent() || {}, false))
+}
 
 // ---- 1.1.5: visible "stopping" window while the miner shuts down (Stop button and quit) ----
 let stopWin = null
@@ -377,7 +430,26 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
   if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
     try {
-      await getZpow(backend).start(wallet, Object.assign({}, opts, { chain: 'classic', backend }))
+      let startOpts = Object.assign({}, opts, { chain: 'classic', backend })
+      if (backend === 'gpu' && startOpts.gpuMiner !== 'external') {
+        const intent = readIntent() || {}
+        const askedSolo = startOpts.gpuMiner === 'classic-node' || startOpts.solo === true || startOpts.miningMode === 'solo' || intent.miningMode === 'solo'
+        if (askedSolo) {
+          if (!startOpts.miningMode && intent.miningMode) startOpts.miningMode = intent.miningMode
+          try {
+            const measured = await require('./src/miner/zpow/manager').measureShardSync(startOpts.shard)
+            startOpts.nodeSynced = !!(measured && measured.synced)
+            if (measured && measured.pct != null) startOpts.syncPct = measured.pct
+          } catch (err) {
+            startOpts.nodeSynced = false
+          }
+        }
+      }
+      await getZpow(backend).start(wallet, startOpts)
+      const cfgNow = readIntent() || {}
+      const runPatch = backend === 'cpu' ? { runningCpu: true } : { runningClassicGpu: true }
+      if (cfgNow.keepMining) runPatch.autoResume = true
+      writeIntent(runPatch)
       refreshTray()
       return { ok: true }
     } catch (err) {
@@ -393,7 +465,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
   try {
     await getMiner().start(wallet, startOpts)
     // 2.0.1: autoResume (start again on the next launch) only when the user turned on "Keep mining"
-    writeIntent(Object.assign({ autoResume: !!cfg.keepMining, mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
+    writeIntent(Object.assign({ autoResume: !!cfg.keepMining, runningShard0: mode !== 'node', mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
@@ -404,6 +476,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
 })
 ipcMain.handle('miner:intent', () => readIntent())
 ipcMain.handle('miner:intentClear', () => writeIntent({ autoResume: false }))
+ipcMain.handle('miner:clearRunning', () => writeIntent(mineResume.clearedRunning(readIntent() || {})))
 // one-time migration of the 1.1.1-1.1.4 localStorage values (only when no intent file exists yet)
 ipcMain.handle('miner:intentMigrate', (e, ls) => {
   if (readIntent()) return readIntent()
@@ -415,6 +488,7 @@ ipcMain.handle('miner:otherRigels', async () => { await afterCleanup(); try { re
 // everything the renderer needs to decide about auto-resume on launch
 ipcMain.handle('miner:resumeCheck', async () => {
   await afterCleanup()
+  try { settleStaleRunFlags() } catch (e) {}
   const it = readIntent() || {}
   const m = getMiner()
   let gpuOk = !app.isPackaged && !!process.env.SCDO_RIGEL_EXE // test hook (development runs only, 1.1.5b): a stand-in miner exe, no GPU check (same as MinerManager.start)
@@ -426,15 +500,22 @@ ipcMain.handle('miner:resumeCheck', async () => {
   // update always gives back the mining state the user had, whatever "Keep mining" says
   const once = !!it.resumeOnce
   if (once) writeIntent({ resumeOnce: false })
-  return { autoResume: !!((it.autoResume && it.keepMining) || once), mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning }
+  const autoResume = !!((it.autoResume && it.keepMining) || once)
+  return { autoResume, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? (it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async (e, src) => {
   if (src && typeof src === 'object' && src.chain === 'classic') {
     const backend = optsBackend(src)
-    try { await stopClassic(backend); refreshTray(); return { ok: true } } catch (err) { return { ok: false, error: err.message } }
+    // On disk before the kill. A hang must not leave runningClassicGpu set.
+    writeIntent(mineResume.afterStop(readIntent() || {}, backend === 'gpu' ? 'classicGpu' : 'cpu'))
+    try {
+      await stopClassic(backend)
+      refreshTray()
+      return { ok: true }
+    } catch (err) { return { ok: false, error: err.message } }
   }
-  writeIntent({ autoResume: false }) // the user's Stop is on disk before anything else happens
+  writeIntent(mineResume.afterStop(readIntent() || {}, 'shard0')) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
   try { getMiner().log('wallet', 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')') } catch (err) {}
   if (miner) await stopMinerVisibly(mainWindow)
@@ -470,6 +551,23 @@ ipcMain.handle('mining:setConfig', (e, cfg) => {
   return { ok: true, miningMode: mode, poolUrl }
 })
 ipcMain.handle('mining:setKeepMining', (e, on) => setKeepMining(!!on))
+ipcMain.handle('mining:localSync', async () => {
+  try { return await require('./src/miner/zpow/manager').localNodeHeights() } catch (e) { return {} }
+})
+ipcMain.handle('mining:shardSync', async () => {
+  try { return await require('./src/miner/zpow/manager').measureAllShardSync() } catch (e) { return {} }
+})
+ipcMain.handle('mining:poolStatus', async () => {
+  const poolStatus = require('./src/js/poolStatus')
+  const { poolForShard, poolsFromEnv } = require('./src/miner/zpow/pools')
+  let overrides = null
+  try { overrides = poolsFromEnv() } catch (e) { overrides = null }
+  return poolStatus.readAll(() => {
+    const out = {}
+    for (const n of [1, 2, 3, 4]) out[n] = poolForShard(n, overrides)
+    return out
+  })
+})
 function setKeepMining (on) {
   writeIntent({ keepMining: on, autoResume: on && !!(miner && miner.wantRunning) })
   if (tray) tray.rebuild()
@@ -492,7 +590,7 @@ function createTray () {
       lang: uiLang(),
       onStop: async () => {
         if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
-        writeIntent({ autoResume: false }); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
+        writeIntent(mineResume.afterStop(readIntent() || {}, 'all')); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
         if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
         try { await stopClassic() } catch (err) { console.error('classic stop failed', err) }
         refreshTray()
@@ -581,6 +679,8 @@ function createWindow () {
     minWidth: 1000,
     minHeight: 700,
     backgroundColor: '#E8F5E9',
+    // 3.1.0: the operating system's own title bar and window buttons. Do not draw a custom bar.
+    titleBarStyle: 'default',
     icon: path.join(ASSETS, process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
     resizable: true,
     title: windowTitle(),
@@ -665,7 +765,9 @@ if (!app.requestSingleInstanceLock()) {
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
     // 1.1.5: stop the wallet's own miner processes left over from an earlier session (never other Rigel/geth)
-    startupCleanup = getMiner().cleanupStale().catch(err => { console.error('miner cleanup failed', err); return [] })
+    startupCleanup = getMiner().cleanupStale().then(() => {
+      try { settleStaleRunFlags() } catch (e) { console.error('stale run flags', e) }
+    }).catch(err => { console.error('miner cleanup failed', err); return [] })
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
@@ -678,14 +780,18 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // 1.1.5: quitting while the miner runs (or is stopping / cleaning up) keeps a visible "Stopping miner, saving chain
-// data" window until rigel, proxy and geth have exited, and only then quits. The mining intent is NOT changed by a
-// quit, so mining resumes on the next launch if it was on.
+// data" window until rigel, proxy and geth have exited, and only then quits. A clean quit clears the running flags.
+// Auto-resume, when it is explicitly on, keeps a snapshot of what was running so the next launch can start only that.
 let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
 let hintShown = false
 const startHidden = process.argv.includes('--scdo-hidden')
 // 2.0.6: the one way to quit. confirm=true asks first while mining (Cancel is the default).
+async function clearPageRunFlags () {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  await mainWindow.webContents.executeJavaScript("try{localStorage.removeItem('minerRunClassicCpu');localStorage.removeItem('minerRunClassicGpu');localStorage.removeItem('minerRunShard0')}catch(e){}")
+}
 async function requestQuit ({ confirm, reason } = {}) {
   if (quitPromise) return quitPromise
   if (confirm && miningNow()) {
@@ -695,6 +801,9 @@ async function requestQuit ({ confirm, reason } = {}) {
     if (r.response !== 1) { try { getMiner().log('wallet', 'quit cancelled by the user (' + reason + ')') } catch (e) {} return }
   }
   quitting = true
+  try { writeIntent(mineResume.afterQuit(readIntent() || {})) } catch (e) { console.error('clear running flags on quit failed', e) }
+  try { await clearPageRunFlags() } catch (e) { console.error('clear page run flags failed', e) }
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', 'clearMineRunning') } catch (e) {}
   // 2.0.7: a quit stops mining on purpose; only an update quit is reported as "paused for an update"
   try { if (reason === 'update') getNotifier().markStopReason('update'); else getNotifier().markUserStop() } catch (e) {}
   try { if (miner) getMiner().log('wallet', 'quit (' + (reason || 'app') + ')') } catch (e) {}

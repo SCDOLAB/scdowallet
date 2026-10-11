@@ -85,7 +85,7 @@ for (const code of ['BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NO_ZMINE
   assert.strictEqual(err.full('EN', code, 'x'), err.FULL[code].EN)
 }
 assert.strictEqual(err.full('CN', 'BAD_POOLS', 'SCDO_ZPOW_POOLS is not JSON'), err.FULL.BAD_POOLS.CN)
-assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '下載的挖礦程式跟官方版本對不上，為了安全已經停止啟動。請重新安裝或再試一次。')
+assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '溫馨提醒：下載的挖礦程式跟官方版本對不上，所以這次沒有啟動。重新安裝或再試一次就可以。')
 assert.strictEqual(err.full('CN', 'NO_ZMINER', 'zminer binary not found ... set SCDO_ZMINER_EXE.'), '找不到處理器挖礦程式。請重新安裝 SCDO Wallet。')
 assert.ok(err.FULL.CRASHING.EN.includes('"Export mining logs (sanitized)"'))
 assert.ok(err.FULL.CRASHING.CN.includes('「匯出挖礦日誌」'))
@@ -142,6 +142,7 @@ assert.strictEqual(tooltipText('3.0.2', { running: false, classicNote: 'Classic 
 assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.2\n未在挖礦')
 assert.ok(tooltipText('3.0.2', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
 assert.ok(tooltipText('3.0.2', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('挖礦程式出錯：'))
-assert.ok(mainJs.includes("'Classic 處理器礦池' : 'Classic processor pool') + shardOf(zpowCpu)"))
+assert.ok(mainJs.includes("(cn ? 'Classic 處理器礦池' : 'Classic processor pool')"))
+assert.ok(mainJs.includes("(cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')"))
 
 console.log('miner-start-error: ok')
