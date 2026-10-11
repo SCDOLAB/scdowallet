@@ -161,7 +161,13 @@ Var oldQuietUninstall
     ${AndIf} ${UAC_IsAdmin}
       StrCpy $R2 $INSTDIR
       StrCpy $INSTDIR $oldInstallDir
-      !insertmacro customCheckAppRunning
+      ; Close the old all-users app without IS_POWERSHELL_AVAILABLE —
+      ; $PowerShellPath is only declared inside CHECK_APP_RUNNING, which
+      ; has not run yet when customInit elevates for the 3.0.x uninstall.
+      InitPluginsDir
+      File /oname=$PLUGINSDIR\scdo-close-wallet.ps1 "${BUILD_RESOURCES_DIR}\scdo-close-wallet.ps1"
+      nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\scdo-close-wallet.ps1" -InstDir "$INSTDIR" -AppExe "ScdoWalletBeta.exe" -MaxWait 60`
+      Pop $0
       StrCpy $INSTDIR $R2
       ${If} $oldQuietUninstall != ""
         ExecWait '$oldQuietUninstall --updated' $R1
