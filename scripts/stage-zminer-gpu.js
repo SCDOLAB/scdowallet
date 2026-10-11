@@ -164,30 +164,69 @@ function quotePs (p) {
   return "'" + String(p).replace(/'/g, "''") + "'"
 }
 
-function unpack (zip, dest) {
+function spawnOut (bin, args) {
+  return spawnSync(bin, args, { encoding: 'utf8', windowsHide: true })
+}
+
+function noteSpawn (bin, result, errors) {
+  if (result && result.error && result.error.code === 'ENOENT') return
+  const text = result && (result.stderr || result.error && result.error.message) || (bin + ' failed')
+  errors.push((bin + ': ' + String(text).trim()).trim())
+}
+
+function takeFlattened (sub, dest, errors) {
+  try { flattenWanted(sub, dest) } catch (e) { errors.push(e.message || String(e)) }
+  try { fs.rmSync(sub, { recursive: true, force: true }) } catch (e) {}
+}
+
+// Windows 10+ ships bsdtar as tar.exe, which unpacks zip. GNU tar does not.
+function tarCandidates () {
+  const list = []
+  if (process.platform === 'win32') {
+    const root = process.env.SystemRoot || 'C:\\Windows'
+    list.push(path.join(root, 'System32', 'tar.exe'))
+    list.push('tar.exe')
+  }
+  list.push('tar')
+  return list
+}
+
+function unpackExternal (zip, dest, errors) {
+  for (const bin of tarCandidates()) {
+    if (wantedReady(dest)) return
+    const sub = fs.mkdtempSync(path.join(dest, '.unpack-'))
+    const tar = spawnOut(bin, ['-xf', zip, '-C', sub])
+    if (tar.status === 0) takeFlattened(sub, dest, errors)
+    else {
+      noteSpawn(bin, tar, errors)
+      try { fs.rmSync(sub, { recursive: true, force: true }) } catch (e) {}
+    }
+  }
+  if (wantedReady(dest) || process.platform !== 'win32') return
+  const sub = fs.mkdtempSync(path.join(dest, '.unpack-'))
+  const ps = spawnOut('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    'Expand-Archive -LiteralPath ' + quotePs(zip) + ' -DestinationPath ' + quotePs(sub) + ' -Force'])
+  if (ps.status === 0) takeFlattened(sub, dest, errors)
+  else {
+    noteSpawn('Expand-Archive', ps, errors)
+    try { fs.rmSync(sub, { recursive: true, force: true }) } catch (e) {}
+  }
+}
+
+function unpack (zip, dest, opts) {
+  opts = opts || {}
   fs.mkdirSync(dest, { recursive: true })
   const errors = []
-  try {
-    placeWanted(dest, readZipEntries(fs.readFileSync(zip)))
-  } catch (e) { errors.push(e.message || String(e)) }
-  if (wantedReady(dest)) return
-  const sub = path.join(dest, '.unpack')
-  fs.mkdirSync(sub, { recursive: true })
-  const tar = spawnSync('tar', ['-xf', zip, '-C', sub], { encoding: 'utf8' })
-  if (tar.status === 0) {
-    try { flattenWanted(sub, dest) } catch (e) { errors.push(e.message || String(e)) }
-  } else errors.push((tar.stderr || tar.error && tar.error.message || 'tar failed').trim())
-  if (!wantedReady(dest) && process.platform === 'win32') {
-    const ps = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      'Expand-Archive -LiteralPath ' + quotePs(zip) + ' -DestinationPath ' + quotePs(sub) + ' -Force'], { encoding: 'utf8' })
-    if (ps.status === 0) {
-      try { flattenWanted(sub, dest) } catch (e) { errors.push(e.message || String(e)) }
-    } else errors.push((ps.stderr || 'Expand-Archive failed').trim())
+  if (!opts.skipBuiltin) {
+    try {
+      placeWanted(dest, readZipEntries(fs.readFileSync(zip)))
+    } catch (e) { errors.push(e.message || String(e)) }
   }
+  if (!wantedReady(dest)) unpackExternal(zip, dest, errors)
   if (!wantedReady(dest)) {
     const names = FILES.concat(FILES.map(n => '*/' + n))
-    const unzip = spawnSync('unzip', ['-o', '-j', zip, '-d', dest].concat(names), { encoding: 'utf8' })
-    if (unzip.status !== 0) errors.push((unzip.stderr || 'unzip failed').trim())
+    const unzip = spawnOut('unzip', ['-o', '-j', zip, '-d', dest].concat(names))
+    if (unzip.status !== 0) noteSpawn('unzip', unzip, errors)
   }
   if (!wantedReady(dest)) {
     const pyCode = [
@@ -202,12 +241,11 @@ function unpack (zip, dest) {
       '        z.extract(info, dest)'
     ].join('\n')
     for (const bin of ['python3', 'python']) {
-      const py = spawnSync(bin, ['-c', pyCode, zip, dest].concat(FILES), { encoding: 'utf8' })
-      if (py.status === 0) break
-      errors.push((py.stderr || py.error && py.error.message || bin + ' failed').trim())
+      const py = spawnOut(bin, ['-c', pyCode, zip, dest].concat(FILES))
+      if (py.status === 0 && wantedReady(dest)) break
+      noteSpawn(bin, py, errors)
     }
   }
-  try { fs.rmSync(sub, { recursive: true, force: true }) } catch (e) {}
   if (!wantedReady(dest)) {
     const err = new Error('could not unpack zminer-gpu zip: ' + errors.filter(Boolean).join(' | '))
     err.code = 'UNPACK_FAILED'
@@ -238,7 +276,7 @@ async function stageZminerGpu (opts) {
     err.code = 'SHA256_MISMATCH'
     throw err
   }
-  unpack(zip, dest)
+  unpack(zip, dest, { skipBuiltin: !!opts.skipBuiltin })
   const missing = FILES.filter(n => !fs.existsSync(path.join(dest, n)))
   if (missing.length) {
     const err = new Error('zminer-gpu zip did not contain ' + missing.join(', '))

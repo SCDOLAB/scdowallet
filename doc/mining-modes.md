@@ -8,7 +8,7 @@ The default is `zminer-gpu` 0.1.3. The Windows pack downloads
 
 `https://scdoscan.io/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip`
 
-and refuses the build unless the zip sha256 is `6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96`. It unpacks `zminer-gpu.exe`, `zpowdet.dll` and `cudart64_12.dll` into the same folder, `resources/miners/zminer-gpu/`. The zip is read in plain JavaScript. If that fails, the pack tries `tar`, then PowerShell `Expand-Archive` on Windows, then `unzip`, then Python. The program is Windows + NVIDIA only and needs a CUDA 12 driver (570 or newer). Shares are checked on the processor before they are sent. A 5060 Ti is about 175–210 kH/s.
+and refuses the build unless the zip sha256 is `6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96`. It unpacks `zminer-gpu.exe`, `zpowdet.dll` and `cudart64_12.dll` into the same folder, `resources/miners/zminer-gpu/`. The zip is read in plain JavaScript. If that fails, the pack tries Windows `tar.exe`, then PowerShell `Expand-Archive`, then `unzip`, then Python. The Windows build box has no `unzip` or `python3`. The program is Windows + NVIDIA only and needs a CUDA 12 driver (570 or newer). Shares are checked on the processor before they are sent. A 5060 Ti is about 175–210 kH/s.
 
 Start runs one process per selected Shard1–Shard4 Classic chain. Every process uses device 0, so the speed is split across them. The local node does not have to be synced. The row says 「顯卡經礦池挖」. `N` is the shard, 1–4, and `-user` is that shard's Classic address.
 
