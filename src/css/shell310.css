@@ -28,6 +28,14 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 
 .shell-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .home-lead { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -0.3px; color: #1c1c1e; }
+.home-backup-banner { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.home-backup-banner:hover { background: #ffefb0; }
+.home-backup-legacy { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 8px 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
+.home-backup-legacy span { flex: 1; min-width: 0; }
+.home-backup-x { flex: none; border: 0; background: transparent; color: #7a5b00; font-size: 16px; font-weight: 700; padding: 0 4px; line-height: 1; }
+.phrase-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.phrase-word { background: #fff; border: 1px solid #e5e5ea; border-radius: 10px; padding: 8px 10px; font-size: 18px; }
+.phrase-word b { color: #8e8e93; margin-right: 6px; font-weight: 700; }
 .home-state { font-size: 16px; color: #3a3a3c; margin: 6px 0 4px; }
 .home-chains .chain-rows { margin-top: 8px; }
 .home-invite-line { margin: 8px 14px; }

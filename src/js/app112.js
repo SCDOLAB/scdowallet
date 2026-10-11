@@ -195,8 +195,10 @@
     txMore: {},
     txFilter: {},
     poolStatus: null,
-    oldErr: {}
+    oldErr: {},
+    phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : []
   }
+  let phraseHold = null
   const shard0 = () => ({
     cfg: S0CFG,
     explorerTx: (h) => S0CFG.explorer + '/#/tx?txhash=' + encodeURIComponent(h),
@@ -698,9 +700,21 @@
     }
     return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><b class="${known ? '' : 'dash'}">${esc(last)}</b></div>`
   }
+  function phraseBannerHtml () {
+    if (!st.phrasePending || !st.phrasePending.length) return ''
+    return `<button type="button" class="home-backup-banner" id="phraseBanner" data-act="phraseOpen">${esc(T('phraseBanner'))}</button>`
+  }
+  function legacyHintHtml () {
+    if (ui.backupHintSeen) return ''
+    if (st.phrasePending && st.phrasePending.length) return ''
+    if (!st.accounts || !st.accounts.length) return ''
+    return `<div class="home-backup-legacy" id="legacyBackup"><span>${esc(T('phraseLegacy'))}</span><button type="button" class="home-backup-x" data-act="legacyBackupDismiss" aria-label="${esc(T('phraseLegacyDismiss'))}">✕</button></div>`
+  }
   function pageHome () {
     const link = referralLink()
     return `<div class="page shell-home" id="homePage">
+      ${phraseBannerHtml()}
+      ${legacyHintHtml()}
       <p class="home-lead">${esc(T('homeLead'))}</p>
       <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
       <div class="shell-actions">
@@ -2703,22 +2717,153 @@
       if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
       if (pw !== pw2) errs.push(T('pwMismatch'))
       if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
-      if (priv) { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
+      if (priv) {
+        const bits = priv.trim().toLowerCase().split(/\s+/).filter(Boolean)
+        if (bits.length === 12 && bits.every(x => /^[a-z]+$/.test(x))) priv = bits.join(' ')
+        else { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
+      }
       if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
       $('cGo').disabled = true; SD.spin($('cErr'), '')
       const no = name ? 0 : nextNo()
       const CERR = { EXISTS: 'errExist', BAD_KEY: 'errKey', BAD_NAME: 'errName', BAD_PASSWORD: 'pwRule', BAD_SHARD: 'errShard' }
       $('cPriv').value = ''; $('cPw1').value = ''; $('cPw2').value = ''
-      const r = await api.invoke('acct:create', { name, password: pw, shard, priv, no })
-      priv = null
+      const body = { name, password: pw, shard, priv, no }
+      const r = await api.invoke('acct:create', body)
+      body.password = ''; body.priv = ''; priv = null
       if (!r || !r.ok) { if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return }
       const file = r.file
+      const shown = r.phrase || ''
+      const evm = r.evm || ''
+      const date = r.date || ''
+      r.phrase = ''
       if (name) ui.names[file] = name; else ui.accNo[file] = no
       saveUi()
       st.sel = file; localStorage.setItem('selAcc112', file)
       await reloadAccounts()
+      if (shown) {
+        const card = { file, words: shown.trim().split(/\s+/), evm, date }
+        if (!st.phrasePending.includes(file)) st.phrasePending.push(file)
+        phraseHold = card
+        setTab('home')
+        showBackupPage(card)
+        refreshS0(); refreshOld()
+        return
+      }
       closeModal(); toast(T('createOk')); refreshS0(); refreshOld()
     }
+  }
+  function backupLines (card) {
+    const cardApi = window.SCDOBackupCard
+    const opts = { words: card.words, address: card.evm, date: card.date, reminder: T('phraseFileWarn'), dateLabel: T('phraseDate'), addrLabel: T('phraseAddr') }
+    return cardApi ? cardApi.lines(opts) : []
+  }
+  function utf8b64 (s) {
+    const bytes = new TextEncoder().encode(s)
+    let bin = ''
+    for (const b of bytes) bin += String.fromCharCode(b)
+    return btoa(bin)
+  }
+  function pngBase64 (lines) {
+    const canvas = document.createElement('canvas')
+    if (!canvas || !canvas.getContext) return ''
+    const scale = 2
+    const width = 960
+    const fontSize = 22
+    const lineH = 34
+    const pad = 40
+    const height = pad * 2 + Math.max(1, lines.length) * lineH
+    canvas.width = width * scale
+    canvas.height = height * scale
+    const g = canvas.getContext('2d')
+    if (!g) return ''
+    g.scale(scale, scale)
+    g.fillStyle = '#fffdf6'
+    g.fillRect(0, 0, width, height)
+    g.strokeStyle = '#f0d060'
+    g.lineWidth = 4
+    g.strokeRect(12, 12, width - 24, height - 24)
+    g.fillStyle = '#1c1c1e'
+    g.font = fontSize + 'px "PingFang SC", "Microsoft YaHei", "Noto Sans CJK TC", sans-serif'
+    lines.forEach((line, i) => g.fillText(line, pad, pad + fontSize + i * lineH))
+    const url = canvas.toDataURL('image/png')
+    const cut = url.indexOf(',')
+    return cut >= 0 ? url.slice(cut + 1) : ''
+  }
+  function laterLeave () {
+    setTab('home')
+    closeModal()
+  }
+  async function finishBackup (file) {
+    let r = null
+    try { r = await api.invoke('phrase:done', file) } catch (e) { r = { ok: false } }
+    if (!r || !r.ok) { const err = $('phraseErr'); if (err) err.textContent = T('phraseSaveFail'); return }
+    st.phrasePending = (st.phrasePending || []).filter(x => x !== file)
+    if (phraseHold && phraseHold.file === file) phraseHold = null
+    setTab('home')
+    closeModal()
+  }
+  async function saveBackup (kind, card) {
+    const lines = backupLines(card)
+    const err = $('phraseErr')
+    let data = ''
+    if (kind === 'png') {
+      data = pngBase64(lines)
+      if (!data) { if (err) err.textContent = T('phrasePngFail'); return }
+    } else data = utf8b64(lines.join('\n') + '\n')
+    let r = null
+    try { r = await api.invoke('phrase:save', { kind, data }) } catch (e) { r = { ok: false } }
+    data = ''
+    if (!r || !r.ok) { if (r && r.canceled) return; if (err) err.textContent = T('phraseSaveFail'); return }
+    await finishBackup(card.file)
+  }
+  function showBackupPage (card) {
+    phraseHold = { file: card.file, words: (card.words || []).slice(), evm: card.evm || '', date: card.date || '' }
+    const words = phraseHold.words.map((w, i) => `<div class="phrase-word"><b>${i + 1}</b> ${esc(w)}</div>`).join('')
+    modal(`<div class="mh"><h2>${esc(T('phraseTitle'))}</h2><button class="btn ghost small" data-act="phraseLater" aria-label="${esc(T('phraseLater'))}">✕</button></div>
+      <div class="warnbox">${esc(T('phraseFileWarn'))}</div>
+      <div class="lbl" style="margin-top:10px">${esc(T('phraseDate'))} ${esc(phraseHold.date)}</div>
+      <div class="mono" style="font-size:16px">${esc(T('phraseAddr'))} ${esc(phraseHold.evm)}</div>
+      <div class="phrase-grid">${words}</div>
+      <div class="err" id="phraseErr"></div>
+      <div class="foot" style="flex-wrap:wrap">
+        <button type="button" class="btn sec" id="phrasePng">${esc(T('phraseSavePng'))}</button>
+        <button type="button" class="btn sec" id="phraseTxt">${esc(T('phraseSaveTxt'))}</button>
+        <button type="button" class="btn sec" id="phraseWrote">${esc(T('phraseWrote'))}</button>
+        <button type="button" class="btn ghost" id="phraseLaterBtn">${esc(T('phraseLater'))}</button>
+      </div>`, { width: 760, noFocus: true })
+    const held = phraseHold
+    $('phrasePng').onclick = () => saveBackup('png', held)
+    $('phraseTxt').onclick = () => saveBackup('txt', held)
+    $('phraseWrote').onclick = () => finishBackup(held.file)
+    $('phraseLaterBtn').onclick = () => laterLeave()
+    const ov = $('ov'); if (ov) ov.onclick = (e) => { if (e.target && e.target.id === 'ov') laterLeave() }
+  }
+  function askPhrasePassword (file) {
+    modal(`<div class="mh"><h2>${esc(T('phraseTitle'))}</h2><button class="btn ghost small" data-act="phraseLater" aria-label="${esc(T('phraseLater'))}">✕</button></div>
+      <div class="lbl">${esc(T('phrasePwLead'))}</div>
+      <div class="field"><input class="inp" type="password" id="phrasePw" autocomplete="off"></div>
+      <div class="err" id="phraseErr"></div>
+      <div class="foot">
+        <button type="button" class="btn ghost" id="phraseLaterBtn">${esc(T('phraseLater'))}</button>
+        <button type="button" class="btn sec" id="phraseUnlock">${esc(T('phraseUnlock'))}</button>
+      </div>`, { width: 640 })
+    $('phraseLaterBtn').onclick = () => laterLeave()
+    const ov = $('ov'); if (ov) ov.onclick = (e) => { if (e.target && e.target.id === 'ov') laterLeave() }
+    $('phraseUnlock').onclick = async () => {
+      const pw = $('phrasePw').value
+      $('phrasePw').value = ''
+      let r = null
+      try { r = await api.invoke('phrase:show', file, pw) } catch (e) { r = { ok: false } }
+      if (!r || !r.ok || !r.phrase) { const err = $('phraseErr'); if (err) err.textContent = T(r && r.error === 'NO_PASSWORD' ? 'errPw' : 'wrongPw'); return }
+      const card = { file, words: String(r.phrase).trim().split(/\s+/), evm: r.evm || '', date: r.date || '' }
+      r.phrase = ''
+      showBackupPage(card)
+    }
+  }
+  function openBackupPage (file) {
+    if (!file) return
+    if (phraseHold && phraseHold.file === file && phraseHold.words && phraseHold.words.length === 12) { showBackupPage(phraseHold); return }
+    askPhrasePassword(file)
   }
   function renameModal (f) {
     const a = accByFile(f); if (!a) return
@@ -2837,6 +2982,8 @@
           return
         }
         ui.hidden.new = ui.hidden.new.filter(x => x !== a2.filename); ui.hidden.old = ui.hidden.old.filter(x => x !== a2.filename); saveUi()
+        st.phrasePending = (st.phrasePending || []).filter(x => x !== a2.filename)
+        if (phraseHold && phraseHold.file === a2.filename) phraseHold = null
         delete st.s0[a2.filename]
         if (st.sel === a2.filename) { st.sel = ''; localStorage.setItem('selAcc112', '') }
         await reloadAccounts()
@@ -3691,6 +3838,9 @@
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'create': createModal(); break
+      case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
+      case 'phraseLater': laterLeave(); break
+      case 'legacyBackupDismiss': ui.backupHintSeen = true; saveUi(); render(); break
       case 'import': if ($('md')) SD.clear($('modalRoot')); importKeyfiles(); break
       case 'unlock': unlock(f, el.getAttribute('data-in')); break
       case 'hide': setHidden(el.getAttribute('data-chain') || 'new', f, true); break
