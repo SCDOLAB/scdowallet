@@ -500,6 +500,7 @@ class ZpowManager extends EventEmitter {
     this.restarts = recent
     if (recent.length >= 6) {
       this.wantRunning = false
+      if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
       const stopped = message + ' — stopped after 6 exits in 10 min'
       this.set({ phase: 'error', code: 'CRASHING', lastError: stopped, message: stopped })
       return
@@ -669,6 +670,8 @@ class GpuFleet extends EventEmitter {
       throw err
     }
     const gpuMiner = resolveGpuMiner(opts)
+    // A pool start must not stop the other shards' zminer-gpu processes.
+    // An empty backend is a parallel start that has not spawned yet.
     if (gpuMiner === 'zminer-gpu') await this.stopWhere((shard, kid) => kid.state.backend && kid.state.backend !== 'zminer-gpu')
     else await this.stopWhere(shard => shard !== parsed.shard)
     let kid = this.kids.get(parsed.shard)

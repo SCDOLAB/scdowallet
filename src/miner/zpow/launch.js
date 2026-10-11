@@ -1,7 +1,7 @@
 // Pluggable process launch: binary + argv template + stdout parser.
 // On Windows, windowsHide sets CREATE_NO_WINDOW. Stop kills the process tree
-// at once. These miners do not exit on stdin, and a Ctrl+C helper can sit for
-// a minute without the process dying.
+// at once. zminer and zminer-gpu exit 0 when stdin hits EOF, so stdin must
+// stay an open pipe. Ending that pipe on stop can stall the main thread.
 'use strict'
 const fs = require('fs')
 const os = require('os')
@@ -93,10 +93,12 @@ function spawnMiner (spec) {
   const proc = spawn(spec.binary, spec.args, {
     cwd,
     windowsHide: true, // CREATE_NO_WINDOW on Windows
-    // No stdin pipe. Ending it on stop can stall the main thread on Windows.
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // Open stdin. 'ignore' is EOF, and zminer-gpu then prints its exit line
+    // and returns 0 before it logs in. Do not end this pipe on stop.
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: spec.env || process.env
   })
+  if (proc.stdin) proc.stdin.on('error', () => {})
   relaxMinerPriority(proc)
   return proc
 }
@@ -128,8 +130,10 @@ function killTree (pid, platform, exec) {
   })
 }
 
-// Kill now. No live child settles at once, without taskkill. A live process is
-// killed and the promise always settles within 2 seconds, even if taskkill never returns.
+// Kill now. Do not write or end stdin (that stalls Windows, and EOF is how
+// these miners stop themselves). No live child settles at once, without
+// taskkill. A live process is killed and the promise always settles within
+// 2 seconds, even if taskkill never returns.
 function stopMiner (proc, opts) {
   opts = opts || {}
   const platform = opts.platform || process.platform
