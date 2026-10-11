@@ -5,16 +5,58 @@ const powerHold = require('./powerHold')
 
 const TICK_MS = 5000
 
+function positiveInt (v) {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null
+}
+
 function argValue (args, flags) {
   if (!args) return null
   for (const flag of flags) {
     const i = args.indexOf(flag)
     if (i >= 0 && i + 1 < args.length) {
-      const n = Number(args[i + 1])
-      if (Number.isFinite(n) && n >= 1) return Math.floor(n)
+      const n = positiveInt(args[i + 1])
+      if (n) return n
     }
   }
   return null
+}
+
+// The configured count is the one the miner was started with. A later
+// set-threads writes a smaller number into the args; that must not become
+// the new base, or the next halve would cut the already-reduced count.
+function launchedThreadCount (mgr, gst) {
+  const declared = positiveInt(mgr && mgr.launchThreads)
+  const fromArgs = argValue(mgr && mgr.launchSpec && mgr.launchSpec.args, ['-threads', '--threads'])
+  const commanded = positiveInt(gst && gst.commanded)
+  if (declared && fromArgs && fromArgs > declared && fromArgs !== commanded) return fromArgs
+  if (declared) return declared
+  if (commanded && fromArgs === commanded) return positiveInt(gst.baseThreads) || commanded
+  return fromArgs
+}
+
+function minerStartToken (mgr) {
+  const pid = (mgr && mgr.childPids && mgr.childPids()[0]) || 0
+  if (pid) return 'p' + pid
+  const stamp = mgr && mgr.state && mgr.state.startedAt
+  if (stamp) return 't' + stamp
+  if (mgr && mgr.childAlive && mgr.childAlive()) return 'alive'
+  if (positiveInt(mgr && mgr.launchThreads) || argValue(mgr && mgr.launchSpec && mgr.launchSpec.args, ['-threads', '--threads'])) return 'cfg'
+  return ''
+}
+
+function adoptLaunchedThreads (gst, mgr) {
+  const token = minerStartToken(mgr)
+  const count = launchedThreadCount(mgr, gst)
+  if (!token || !count) return
+  const fresh = token !== gst.seenStart
+  if (!fresh && gst.baseThreads === count) return
+  gst.seenStart = token
+  gst.baseThreads = count
+  const fromArgs = argValue(mgr.launchSpec && mgr.launchSpec.args, ['-threads', '--threads'])
+  const commanded = positiveInt(gst.commanded)
+  if (commanded && fromArgs === commanded) gst.threads = fromArgs
+  else gst.threads = fromArgs && fromArgs <= count ? fromArgs : count
 }
 
 function chainStatus (mgr, gst) {
@@ -116,7 +158,7 @@ function start (deps) {
       if (!probe || probe.skipped) return
       let gpuTempC = null
       try { gpuTempC = deps.gpuTempC ? await deps.gpuTempC() : null } catch (e) { gpuTempC = null }
-      const now = Date.now()
+      const now = typeof deps.now === 'function' ? deps.now() : Date.now()
       const aliveAny = miners.some(m => { try { return m.mgr.childAlive && m.mgr.childAlive() } catch (e) { return false } })
       const hold = powerHold.flags(now, aliveAny)
       const plan = deps.threadPlan ? deps.threadPlan() : null
@@ -145,18 +187,24 @@ function start (deps) {
         if (mgr.wantRunning || mgr.guardHeld) engaged = true
         let gst = states.get(m.id)
         if (!gst) {
-          const fromArgs = argValue(mgr.launchSpec && mgr.launchSpec.args, ['-threads', '--threads'])
-          const base = fromArgs || (mgr.launchThreads) || 1
-          gst = freshGuard({ enabled, mineOnBattery, baseThreads: base, threads: base, lastMemCheck: now, lastProgressAt: now })
-          gst.pendingLaunch = !!(plan && plan.pending)
+          // The guard often starts with the wallet, before any miner exists.
+          // A placeholder of 1 must not stick: the real count is read below
+          // every time a child actually starts.
+          gst = freshGuard({ enabled, mineOnBattery, baseThreads: 1, threads: 1, lastMemCheck: now, lastProgressAt: now })
+          gst.seenStart = ''
+          gst.commanded = null
         }
         gst.enabled = enabled
         gst.mineOnBattery = mineOnBattery
-        if (enabled && plan && !plan.pending && gst.pendingLaunch) {
-          gst.pendingLaunch = false
-          gst.baseThreads = plan.threads
+        adoptLaunchedThreads(gst, mgr)
+        if (enabled && plan && !plan.pending) {
+          const planThreads = positiveInt(plan.threads)
+          if (planThreads && !gst.commanded && !minerStartToken(mgr) && gst.baseThreads !== planThreads) {
+            gst.baseThreads = planThreads
+            gst.threads = planThreads
+          }
+          if (planThreads && gst.baseThreads > planThreads) gst.baseThreads = planThreads
         }
-        if (enabled && plan && !plan.pending && gst.baseThreads > plan.threads) gst.baseThreads = plan.threads
         const pid = (mgr.childPids && mgr.childPids()[0]) || 0
         const proc = pid && probe.procs ? probe.procs[pid] : null
         const active = !!(mgr.wantRunning || mgr.guardHeld)
@@ -189,8 +237,17 @@ function start (deps) {
           handles: proc ? proc.handles : null
         }
         const out = stepGuard(gst, sample, now)
+        for (const a of out.actions) {
+          if (a.type === 'set-threads') out.state.commanded = a.threads
+        }
         states.set(m.id, out.state)
         const text = await applyActions(mgr, out.actions)
+        if (deps.applyPriority && (out.state.halved || out.state.memStage >= 1)) {
+          const ids = mgr.childPids ? mgr.childPids() : []
+          for (const id of ids) {
+            try { deps.applyPriority(id, true) } catch (e) {}
+          }
+        }
         if (text) note = text
         const ph = phaseOf(mgr, out.state, now)
         parts.push({ mgr, gst: out.state, view: trayView(ph) })
@@ -200,11 +257,17 @@ function start (deps) {
       if (deps.onChange) { try { deps.onChange() } catch (e) {} }
     } finally { ticking = false }
   }
-  const timer = setInterval(() => { tick().catch(() => {}) }, TICK_MS)
-  if (timer.unref) timer.unref()
-  tick().catch(() => {})
-  handle.stop = () => clearInterval(timer)
+  let pending = null
+  function runTick () {
+    if (!pending) pending = tick().finally(() => { pending = null })
+    return pending
+  }
+  const timer = deps.now ? null : setInterval(() => { runTick().catch(() => {}) }, TICK_MS)
+  if (timer && timer.unref) timer.unref()
+  runTick().catch(() => {})
+  handle.tick = runTick
+  handle.stop = () => { if (timer) clearInterval(timer) }
   return handle
 }
 
-module.exports = { start, applyActions, chainStatus, TICK_MS }
+module.exports = { start, applyActions, chainStatus, launchedThreadCount, TICK_MS }

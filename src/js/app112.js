@@ -3208,7 +3208,9 @@
     fillAboutHash()
     if (st.openAbout) {
       st.openAbout = false
+      const advanced = $('setAdvanced')
       const about = $('setAbout')
+      if (advanced) advanced.open = true
       if (about) {
         about.open = true
         try { about.scrollIntoView({ block: 'center' }) } catch (e) {}

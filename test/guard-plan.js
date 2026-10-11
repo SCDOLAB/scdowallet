@@ -449,6 +449,8 @@ guardWin.readSample().then(async sample => {
   assert.ok(html.includes("shellFold('setAdvanced'"))
   assert.ok(!html.includes('id="setGuard"'))
   assert.ok(html.indexOf('id="setResume"') < html.indexOf("shellFold('setAdvanced'"))
+  assert.ok(set.includes("const advanced = $('setAdvanced')") && set.includes('advanced.open = true'), 'About sits inside Advanced, so that section has to open too')
+  assert.ok(set.includes('about.open = true') && set.includes('about.scrollIntoView'))
   const tray = fs.readFileSync(path.join(root, 'src/main/trayStatus.js'), 'utf8')
   assert.ok(tray.includes('alwaysOnTop: false'))
   assert.ok(tray.includes('showInactive'))
@@ -523,6 +525,106 @@ guardWin.readSample().then(async sample => {
   while (!events.includes('pause') && Date.now() < tEnd) await new Promise(resolve => setTimeout(resolve, 20))
   handle.stop()
   assert.ok(events.includes('pause'))
+
+  // The guard used to freeze baseThreads at 1 because it sampled the miner
+  // before launch. A fake miner starts at 5, halves to 2, restarts at 2, then pauses.
+  function machine (sample, planThreads, initialThreads) {
+    let now = 1000000
+    const log = []
+    const pri = []
+    const mgr = {
+      wantRunning: true,
+      guardHeld: null,
+      launchThreads: null,
+      launchSpec: null,
+      pid: 0,
+      state: { shard: 1, hashrate: 10, hashrateSource: 'status', sharesAccepted: 1, phase: 'mining', startedAt: 0 },
+      childPids () { return this.pid ? [this.pid] : [] },
+      childAlive () { return this.pid > 0 },
+      setArg (flag, value) {
+        const args = this.launchSpec && this.launchSpec.args
+        if (!args) return false
+        const i = args.indexOf(flag)
+        if (i < 0 || i + 1 >= args.length) return false
+        if (String(args[i + 1]) === String(value)) return false
+        args[i + 1] = String(value)
+        log.push('set-threads:' + value)
+        return true
+      },
+      async restartChild () {
+        const args = this.launchSpec.args
+        const n = Number(args[args.indexOf('-threads') + 1])
+        this.pid += 1
+        this.state.startedAt = now
+        log.push('restart:' + n)
+        return true
+      },
+      async pauseForGuard () {
+        this.wantRunning = false
+        this.pid = 0
+        log.push('pause')
+      }
+    }
+    if (initialThreads) {
+      mgr.launchThreads = initialThreads
+      mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(initialThreads)] }
+      mgr.pid = 1
+      mgr.state.startedAt = now
+    }
+    const handle2 = pc.start({
+      platform: 'linux',
+      now: () => now,
+      readIntent: () => ({ guardSmooth: true, lowPriority: false }),
+      listMiners: () => [{ id: 'cpu', mgr }],
+      readSample: async () => sample,
+      gpuTempC: async () => 40,
+      threadPlan: () => ({ threads: planThreads, affinity: [0, 1, 2, 3, 4], pending: false }),
+      applyAffinity: async () => true,
+      applyPriority: (pid, low) => { pri.push(low) }
+    })
+    const launch = (n) => {
+      mgr.launchThreads = n
+      mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(n)] }
+      mgr.pid = 1
+      mgr.state.startedAt = now
+    }
+    return { now: () => now, add: (ms) => { now += ms }, log, pri, mgr, launch, tick: () => handle2.tick(), stop: () => handle2.stop() }
+  }
+
+  const calm = { platform: 'linux', skipped: false, inputAgeMs: 120000, cpuPct: 10, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
+  const mem = machine(calm, 5)
+  await mem.tick()
+  assert.deepStrictEqual(mem.log, [], 'before the miner starts the guard must not pretend it changed threads')
+  mem.launch(5)
+  await mem.tick()
+  assert.ok(!mem.log.some(e => e.startsWith('restart')), 'a miner already at 5 is left alone')
+  calm.ramFreePct = 10
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.includes('set-threads:2'), mem.log.join(','))
+  assert.ok(mem.log.includes('restart:2'), mem.log.join(','))
+  assert.strictEqual(mem.mgr.launchThreads, 5)
+  assert.strictEqual(mem.mgr.launchSpec.args[mem.mgr.launchSpec.args.indexOf('-threads') + 1], '2')
+  assert.strictEqual(pc.launchedThreadCount(mem.mgr, { commanded: 2, baseThreads: 5 }), 5)
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.filter(e => e === 'restart:2').length >= 1)
+  assert.ok(!mem.log.some(e => e === 'restart:5' || e === 'restart:1' || e === 'set-threads:1' || e === 'set-threads:5'), mem.log.join(','))
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.includes('pause'), mem.log.join(','))
+  assert.ok(mem.pri.includes(true), 'a reduced miner is actually put at low priority')
+  mem.stop()
+
+  const busy = { platform: 'linux', skipped: false, inputAgeMs: 1000, cpuPct: 90, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
+  const yieldRun = machine(busy, 5, 5)
+  await yieldRun.tick()
+  yieldRun.add(5000)
+  await yieldRun.tick()
+  assert.ok(yieldRun.log.includes('set-threads:2'), yieldRun.log.join(','))
+  assert.ok(yieldRun.log.includes('restart:2'), yieldRun.log.join(','))
+  assert.ok(yieldRun.pri.includes(true))
+  yieldRun.stop()
   console.log('guard-plan: ok')
 }).catch(err => {
   console.error(err)
