@@ -557,7 +557,7 @@ function boot () {
   // Traditional Chinese only; an old saved "CN" (or any zh / TW value) maps to the Traditional strings.
   return {
     config: { lang: normLang(cfg.lang), connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
-    shard0: { chainId: shard0().cfg.chainId, explorer: shard0().cfg.explorer, tokens: shard0().cfg.tokens.map(t => ({ symbol: t.symbol, address: t.address, decimals: t.decimals })) },
+    shard0: { chainId: shard0().cfg.chainId, explorer: shard0().cfg.explorer, tokens: shard0().cfg.tokens.map(t => ({ symbol: t.symbol, name: t.name || '', address: t.address, decimals: t.decimals, logo: t.logo || '' })) },
     ui: readJson(UI_PATH, {}),
     accounts: accounts(),
     phrasePending: mnemonic.listPending(MNEMONIC_DIR)

@@ -381,8 +381,9 @@
   }
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
-  function assetIconHtml (sym) {
+  function assetIconHtml (sym, logo) {
     if (sym === 'SCDO') return '<div class="ai"><img src="./assets/icon-64.png" alt=""></div>'
+    if (/^https:\/\/scdoscan\.io\/logos\/0x[0-9a-fA-F]{40}\.png$/.test(String(logo || ''))) return `<div class="ai"><img src="${esc(logo)}" alt=""></div>`
     return `<div class="ai" style="background:${esc(TOKEN_COLORS[sym] || '#8a8fa8')}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
   }
   // -> [{ symbol, name, bal: formatted balance | null (unknown yet) }]
@@ -391,12 +392,12 @@
     const out = [{ symbol: 'SCDO', name: T('assetScdo'), bal: b.nativeWei != null ? fmtWei(b.nativeWei) : null }]
     for (const t of (shard0().cfg.tokens || [])) {
       const bt = (b.tokens || []).find(x => x.symbol === t.symbol)
-      out.push({ symbol: t.symbol, name: T('assetTest'), bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
+      out.push({ symbol: t.symbol, name: t.name || T('assetTest'), logo: t.logo || '', bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
     }
     return out
   }
   function assetsHtml (a) {
-    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
+    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol, x.logo)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
       <div class="av">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div></div>`).join('')
   }
   // MetaMask-style asset dropdown used on the Send page: the button shows icon + symbol + balance of the chosen asset,
@@ -404,7 +405,7 @@
   function assetPickerHtml (a, cur) {
     const x = chainAssets(a).find(z => z.symbol === cur) || chainAssets(a)[0]
     return `<div class="assetsel" id="assetSel"><button type="button" class="assetbtn" id="assetBtn" aria-haspopup="listbox" aria-expanded="false" title="${esc(T('selectAsset'))}">
-      ${assetIconHtml(x.symbol)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
+      ${assetIconHtml(x.symbol, x.logo)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
       <div class="assetlist" id="assetList" role="listbox" hidden></div></div>`
   }
   function wireAssetPicker (a, getCur, onPick) {
@@ -413,7 +414,7 @@
     const open = () => {
       const cur = getCur()
       SD.html(list, `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
-        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol)}
+        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol, x.logo)}
           <div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
           <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join(''))
       list.hidden = false; btn.setAttribute('aria-expanded', 'true')
