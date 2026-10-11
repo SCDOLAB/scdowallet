@@ -26,6 +26,10 @@ const pay = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function paySh
 assert.strictEqual(I.CN.shellBoot, '啟動中')
 assert.strictEqual(I.CN.shellMineOn, '運算中')
 assert.strictEqual(I.CN.sessionEarn, '本次收益')
+assert.strictEqual(I.CN.sessionEarnShares, '份額 {n}')
+assert.strictEqual(I.CN.sessionEarnPaid, '收益 {n} SCDO')
+assert.strictEqual(I.EN.sessionEarnShares, 'Shares {n}')
+assert.strictEqual(I.EN.sessionEarnPaid, 'Paid {n} SCDO')
 assert.strictEqual(I.CN.shellDupAsk, '要再送一次一樣的轉帳嗎？')
 assert.strictEqual(I.CN.shellDupNo, '取消')
 assert.strictEqual(I.CN.shellDupYes, '確定再送一次')
@@ -71,7 +75,37 @@ const running = mine.minePageHtml({
 }, CN, esc)
 assert.ok(running.includes('運算中'))
 assert.ok(running.includes('每秒 180,000'))
-assert.ok(running.includes('2 · 0.5 SCDO'))
+assert.ok(running.includes('份額 2 · 收益 0.5 SCDO'))
+assert.ok(!running.includes('>2 · 0.5 SCDO<'))
+
+const zeroPay = mine.minePageHtml({
+  miners: {
+    classicGpu: {
+      running: true, mode: 'gpu', chain: 'classic', shard: 1, backend: 'zminer-gpu',
+      code: 'CLASSIC_MINING', phase: 'mining', procs: ['zminer-gpu'],
+      hashrate: 260000, hashrateSource: 'status', rateSeen: true, sharesAccepted: 109, sharesSeen: true,
+      sessionEarn: { exposed: true, shares: 109, paid: '0', earned: null }
+    }
+  },
+  chains: { cpu: [], gpu: [1] }
+}, CN, esc)
+assert.ok(zeroPay.includes('份額 109 · 收益 0 SCDO'))
+assert.ok(!zeroPay.includes('109 · 0 SCDO'))
+const unknownEarn = mine.minePageHtml({
+  miners: {
+    classicGpu: {
+      running: true, mode: 'gpu', chain: 'classic', shard: 1, backend: 'zminer-gpu',
+      code: 'CLASSIC_MINING', phase: 'mining', procs: ['zminer-gpu'],
+      hashrate: 1000, hashrateSource: 'status', rateSeen: true, sessionEarn: null
+    }
+  },
+  chains: { cpu: [], gpu: [1] }
+}, CN, esc)
+const unknownLine = unknownEarn.slice(unknownEarn.indexOf('class="mine-earn"'), unknownEarn.indexOf('</div>', unknownEarn.indexOf('class="mine-earn"')))
+assert.ok(unknownLine.includes('本次收益'))
+assert.ok(unknownLine.includes('class="dash"'))
+assert.ok(unknownLine.includes('\u2014'))
+assert.ok(!unknownLine.includes('份額'))
 assert.ok(running.includes('mine-load run'))
 assert.ok(running.includes('本機高度'))
 assert.ok(running.includes('網路難度'))
