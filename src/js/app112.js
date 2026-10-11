@@ -855,7 +855,9 @@
   }
   function mineAdvControlsHtml () {
     const mode = st.miningMode === 'solo' ? 'solo' : 'pool'
-    const threads = threadCount()
+    const cpu = st.miners && st.miners.classicCpu
+    const cpuRunning = !!(cpu && cpu.running)
+    const threads = displayedCpuThreads(cpuRunning)
     const max = cpuCount()
     const g = gpuParams()
     const chip = (id, on) => `<button type="button" class="${on ? 'on' : ''}" data-act="setMineMode" data-v="${id}">${esc(T(id === 'solo' ? 'mineModeSolo' : 'mineModePool'))}</button>`
@@ -873,7 +875,7 @@
     }
     return `<div class="mine-adv-controls">
       <div class="shardchips">${chip('pool', mode !== 'solo')}${chip('solo', mode === 'solo')}</div>
-      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}"></div>
+      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${cpuRunning ? 'disabled' : ''}></div>
       <div class="lbl" style="margin-top:8px">${esc(T('mineAdvBatch'))}</div>
       <div class="row" style="gap:12px;flex-wrap:wrap;margin-top:8px">
         <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}"></label>
@@ -1026,6 +1028,20 @@
     const n = Number.isFinite(saved) && saved >= 1 ? saved : ((st.caps && st.caps.threadsDefault) || max)
     return Math.max(1, Math.min(max, Math.floor(n)))
   }
+  // While a processor miner is running, the label shows the guard's count.
+  // The page never writes phase, threads, or tray colour.
+  function displayedCpuThreads (running) {
+    if (running) {
+      const g = st.guardView
+      if (g && typeof g === 'object') {
+        const seen = Number(g.observedThreads)
+        if (Number.isFinite(seen) && seen >= 1) return Math.floor(seen)
+        const intended = Number(g.threads)
+        if (Number.isFinite(intended) && intended >= 1) return Math.floor(intended)
+      }
+    }
+    return threadCount()
+  }
   function gpuParams () {
     let g = {}
     try { g = JSON.parse(localStorage.getItem('mineGpu112') || '{}') } catch (e) { g = {} }
@@ -1080,7 +1096,7 @@
       h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
     }
     if (backend === 'cpu') {
-      const threads = threadCount(); const max = cpuCount()
+      const threads = displayedCpuThreads(running); const max = cpuCount()
       const cores = T('cpuCoresLine', { n: threads, max: max })
       h += `<div class="field"><div class="lbl explain" id="mThreadsLab" tabindex="0" data-tip-name="${esc(T('cpuCoresName'))}" data-tip-value="${esc(cores)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(cores)}</div>
         <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
@@ -1851,6 +1867,18 @@
     }
     const ns = $('mNodeState')
     if (ns) set('mNodeState', nodeStateText(m))
+    const cpuOn = !!(st.miners && st.miners.classicCpu && st.miners.classicCpu.running)
+    if (cpuOn) {
+      const n = displayedCpuThreads(true)
+      const cores = T('cpuCoresLine', { n, max: cpuCount() })
+      const lab = $('mThreadsLab')
+      if (lab && lab.textContent !== cores) {
+        lab.textContent = cores
+        if (lab.setAttribute) lab.setAttribute('data-tip-value', cores)
+      }
+      const slider = $('mThreads')
+      if (slider && slider.disabled && String(slider.value) !== String(n)) slider.value = String(n)
+    }
     const lg = $('mLog')
     if (lg && st.logOpen) {
       const text = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n')
@@ -3880,6 +3908,7 @@
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
+    if (m && m.guard && typeof m.guard === 'object') st.guardView = m.guard
     const prev0 = st.miners && st.miners.shard0
     if (m && m.chain === 'classic' && m.mode !== 'cpu' && (m.code === 'NO_NVIDIA' || m.cudaFailed)) st.gpuFallback = true
     storeMiner(m)

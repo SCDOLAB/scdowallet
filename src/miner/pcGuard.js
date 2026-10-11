@@ -1,9 +1,10 @@
 // Applies guard decisions to miner children on Windows, Mac and Linux.
 'use strict'
-const { freshGuard, stepGuard, trayView, dominantColour } = require('./guardPlan')
+const { freshGuard, stepGuard, trayView, dominantColour, observeReadback } = require('./guardPlan')
 const powerHold = require('./powerHold')
 
 const TICK_MS = 5000
+const VERIFY_MS = 10000
 
 function positiveInt (v) {
   const n = Number(v)
@@ -70,6 +71,7 @@ function chainStatus (mgr, gst) {
 
 function phaseOf (mgr, gst, now) {
   const shareAgeMs = gst && gst.lastShareAt ? now - gst.lastShareAt : null
+  if (gst && gst.abnormal) return { phase: 'abnormal', reason: '異常', shareAgeMs, abnormal: true }
   if (gst && gst.gaveUp) return { phase: 'gave-up', reason: gst.reason || '異常', shareAgeMs, gaveUp: true }
   if (gst && gst.paused) return { phase: 'paused', reason: gst.reason || '', shareAgeMs }
   if (gst && gst.halved) return { phase: 'yielding', reason: '', shareAgeMs, yielding: true }
@@ -86,10 +88,17 @@ function combine (parts) {
   const reason = top ? (top.view.reason || '') : ''
   let lastAction = ''
   for (const p of parts) if (p.gst && p.gst.lastAction) lastAction = p.gst.lastAction
+  const abnormal = parts.some(p => p.gst && p.gst.abnormal)
+  const focus = parts.find(p => p.gst && p.gst.abnormal) || parts.find(p => p.mgr && (p.mgr.wantRunning || p.mgr.guardHeld)) || parts[0]
+  const gst = focus && focus.gst
   return {
-    colour,
-    reason,
+    colour: abnormal ? 'red' : colour,
+    reason: abnormal ? '異常' : reason,
     lastAction,
+    abnormal,
+    threads: gst ? gst.threads : null,
+    observedThreads: gst ? gst.observedThreads : null,
+    observedHashrate: gst ? gst.observedHashrate : null,
     active: parts.some(p => p.mgr.wantRunning || p.mgr.guardHeld),
     chains: parts.map(p => ({
       shard: (p.mgr.state && p.mgr.state.shard) || null,
@@ -97,6 +106,52 @@ function combine (parts) {
       hashrate: p.mgr.state ? p.mgr.state.hashrate : null,
       lastShareAt: p.gst && p.gst.lastShareAt ? p.gst.lastShareAt : null
     }))
+  }
+}
+
+function readActual (mgr) {
+  let obs = null
+  if (mgr && typeof mgr.liveObservation === 'function') {
+    try { obs = mgr.liveObservation() } catch (e) { obs = null }
+  }
+  obs = obs || {}
+  const alive = obs.running != null ? !!obs.running : !!(mgr && mgr.childAlive && mgr.childAlive())
+  let threads = positiveInt(obs.threads)
+  if (threads == null && alive) threads = positiveInt(mgr && mgr.spawnedThreads)
+  let hashrate = null
+  if (obs.hashrate != null && Number.isFinite(Number(obs.hashrate))) hashrate = Number(obs.hashrate)
+  else if (alive && mgr && mgr.state && mgr.state.hashrateSource !== 'pool' && mgr.state.hashrate != null && Number.isFinite(Number(mgr.state.hashrate))) hashrate = Number(mgr.state.hashrate)
+  return { running: alive, threads: alive ? threads : null, hashrate }
+}
+
+// Intended threads live only on the guard. After they change, the running
+// process or its status API has VERIFY_MS to report the same count.
+function noteReadback (state, mgr, now, log) {
+  const expect = {
+    running: !!(state && !state.paused && !state.gaveUp && mgr && (mgr.wantRunning || mgr.guardHeld)),
+    threads: state ? state.threads : 1
+  }
+  const actual = readActual(mgr)
+  state.observedThreads = actual.threads
+  state.observedHashrate = actual.hashrate
+  const sig = (expect.running ? 'run' : 'stop') + ':' + expect.threads
+  if (state.verifySig !== sig) {
+    state.verifySig = sig
+    state.verifySince = now
+    state.abnormal = false
+  }
+  const verdict = observeReadback(expect, actual)
+  if (verdict.match) {
+    state.abnormal = false
+    return
+  }
+  if (state.verifySince != null && now - state.verifySince >= VERIFY_MS && !state.abnormal) {
+    state.abnormal = true
+    state.lastAction = '異常'
+    const hr = actual.hashrate == null ? '' : ', hashrate ' + actual.hashrate
+    const seen = actual.threads == null ? 'none' : String(actual.threads)
+    const line = 'guard readback mismatch: threads ' + seen + ' != ' + expect.threads + hr
+    try { if (log) log(line) } catch (e) {}
   }
 }
 
@@ -240,8 +295,9 @@ function start (deps) {
         for (const a of out.actions) {
           if (a.type === 'set-threads') out.state.commanded = a.threads
         }
-        states.set(m.id, out.state)
         const text = await applyActions(mgr, out.actions)
+        noteReadback(out.state, mgr, now, deps.log)
+        states.set(m.id, out.state)
         if (deps.applyPriority && (out.state.halved || out.state.memStage >= 1)) {
           const ids = mgr.childPids ? mgr.childPids() : []
           for (const id of ids) {
@@ -270,4 +326,4 @@ function start (deps) {
   return handle
 }
 
-module.exports = { start, applyActions, chainStatus, launchedThreadCount, TICK_MS }
+module.exports = { start, applyActions, chainStatus, launchedThreadCount, noteReadback, TICK_MS, VERIFY_MS }

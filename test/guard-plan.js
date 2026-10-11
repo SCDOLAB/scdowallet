@@ -184,7 +184,17 @@ assert.deepStrictEqual(plan.trayView({ phase: 'mining', shareAgeMs: 11 * 60 * 10
 assert.deepStrictEqual(plan.trayView({ phase: 'yielding', yielding: true }), { colour: 'yellow', reason: '' })
 assert.deepStrictEqual(plan.trayView({ phase: 'mining', yielding: true }), { colour: 'yellow', reason: '' })
 assert.deepStrictEqual(plan.trayView({ phase: 'gave-up' }), { colour: 'red', reason: '異常' })
+assert.deepStrictEqual(plan.trayView({ phase: 'abnormal' }), { colour: 'red', reason: '異常' })
+assert.deepStrictEqual(plan.trayView({ abnormal: true, phase: 'mining' }), { colour: 'red', reason: '異常' })
 assert.deepStrictEqual(plan.trayView({ phase: 'restarting' }), { colour: 'blue', reason: '重新啟動' })
+assert.strictEqual(plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: 2, hashrate: 10 }).match, true)
+assert.strictEqual(plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: 5 }).match, false)
+const unchecked = plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: null })
+assert.strictEqual(unchecked.match, true)
+assert.strictEqual(unchecked.unchecked, true)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: true, threads: 2 }).match, false)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: false, hashrate: 4 }).match, false)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: false, threads: null, hashrate: 0 }).match, true)
 for (const reason of ['電池', '全螢幕', '記憶體']) {
   assert.deepStrictEqual(plan.trayView({ phase: 'paused', reason }), { colour: 'blue', reason })
 }
@@ -461,6 +471,12 @@ guardWin.readSample().then(async sample => {
   assert.ok(tray.includes('Pause for 1 hour'))
   assert.ok(tray.includes('今天暫停'))
   assert.ok(!tray.includes('算力'))
+  assert.ok(tray.includes("'異常': 'abnormal'"))
+  assert.ok(tray.includes('guard.colour'))
+  assert.ok(!tray.includes('stepGuard') && !tray.includes('freshGuard'))
+  assert.ok(ui.includes('st.guardView = m.guard'))
+  assert.ok(!ui.includes('st.guardView.threads ='))
+  assert.ok(!ui.includes('stepGuard('))
   const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
   assert.ok(preload.includes("'mining:setGuard'"))
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
@@ -528,7 +544,8 @@ guardWin.readSample().then(async sample => {
 
   // The guard used to freeze baseThreads at 1 because it sampled the miner
   // before launch. A fake miner starts at 5, halves to 2, restarts at 2, then pauses.
-  function machine (sample, planThreads, initialThreads) {
+  function machine (sample, planThreads, initialThreads, opts) {
+    opts = opts || {}
     let now = 1000000
     const log = []
     const pri = []
@@ -537,10 +554,17 @@ guardWin.readSample().then(async sample => {
       guardHeld: null,
       launchThreads: null,
       launchSpec: null,
+      spawnedThreads: null,
+      freeze: opts.freeze || null,
       pid: 0,
       state: { shard: 1, hashrate: 10, hashrateSource: 'status', sharesAccepted: 1, phase: 'mining', startedAt: 0 },
       childPids () { return this.pid ? [this.pid] : [] },
       childAlive () { return this.pid > 0 },
+      liveObservation () {
+        if (this.freeze) return { running: true, threads: this.freeze.threads, hashrate: this.freeze.hashrate }
+        const alive = this.pid > 0
+        return { running: alive, threads: alive ? this.spawnedThreads : null, hashrate: null }
+      },
       setArg (flag, value) {
         const args = this.launchSpec && this.launchSpec.args
         if (!args) return false
@@ -555,6 +579,7 @@ guardWin.readSample().then(async sample => {
         const args = this.launchSpec.args
         const n = Number(args[args.indexOf('-threads') + 1])
         this.pid += 1
+        this.spawnedThreads = n
         this.state.startedAt = now
         log.push('restart:' + n)
         return true
@@ -568,12 +593,14 @@ guardWin.readSample().then(async sample => {
     if (initialThreads) {
       mgr.launchThreads = initialThreads
       mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(initialThreads)] }
+      mgr.spawnedThreads = initialThreads
       mgr.pid = 1
       mgr.state.startedAt = now
     }
     const handle2 = pc.start({
       platform: 'linux',
       now: () => now,
+      log: (line) => { log.push(line) },
       readIntent: () => ({ guardSmooth: true, lowPriority: false }),
       listMiners: () => [{ id: 'cpu', mgr }],
       readSample: async () => sample,
@@ -585,10 +612,11 @@ guardWin.readSample().then(async sample => {
     const launch = (n) => {
       mgr.launchThreads = n
       mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(n)] }
+      mgr.spawnedThreads = n
       mgr.pid = 1
       mgr.state.startedAt = now
     }
-    return { now: () => now, add: (ms) => { now += ms }, log, pri, mgr, launch, tick: () => handle2.tick(), stop: () => handle2.stop() }
+    return { now: () => now, add: (ms) => { now += ms }, log, pri, mgr, launch, snap: () => handle2.snapshot(), tick: () => handle2.tick(), stop: () => handle2.stop() }
   }
 
   const calm = { platform: 'linux', skipped: false, inputAgeMs: 120000, cpuPct: 10, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
@@ -614,6 +642,7 @@ guardWin.readSample().then(async sample => {
   await mem.tick()
   assert.ok(mem.log.includes('pause'), mem.log.join(','))
   assert.ok(mem.pri.includes(true), 'a reduced miner is actually put at low priority')
+  assert.ok(!mem.log.some(e => String(e).includes('guard readback mismatch')))
   mem.stop()
 
   const busy = { platform: 'linux', skipped: false, inputAgeMs: 1000, cpuPct: 90, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
@@ -624,7 +653,40 @@ guardWin.readSample().then(async sample => {
   assert.ok(yieldRun.log.includes('set-threads:2'), yieldRun.log.join(','))
   assert.ok(yieldRun.log.includes('restart:2'), yieldRun.log.join(','))
   assert.ok(yieldRun.pri.includes(true))
+  assert.ok(!yieldRun.log.some(e => String(e).includes('guard readback mismatch')))
+  assert.strictEqual(yieldRun.snap().abnormal, false)
+  assert.strictEqual(yieldRun.snap().colour, 'yellow')
+  assert.strictEqual(yieldRun.snap().observedThreads, 2)
   yieldRun.stop()
+
+  assert.strictEqual(pc.VERIFY_MS, 10000)
+  const stuck = machine(busy, 5, 5, { freeze: { threads: 5, hashrate: 1200 } })
+  await stuck.tick()
+  stuck.add(5000)
+  await stuck.tick()
+  assert.ok(stuck.log.includes('set-threads:2'), stuck.log.join(','))
+  assert.strictEqual(!!stuck.snap().abnormal, false)
+  stuck.add(9999)
+  await stuck.tick()
+  assert.strictEqual(!!stuck.snap().abnormal, false)
+  assert.notStrictEqual(stuck.snap().colour, 'red')
+  stuck.add(1)
+  await stuck.tick()
+  const mismatch = stuck.log.filter(e => String(e).includes('guard readback mismatch'))
+  assert.strictEqual(mismatch.length, 1, mismatch.join(','))
+  assert.ok(mismatch[0].includes('threads 5 != 2'), mismatch[0])
+  assert.ok(mismatch[0].includes('hashrate 1200'), mismatch[0])
+  assert.strictEqual(stuck.snap().colour, 'red')
+  assert.strictEqual(stuck.snap().reason, '異常')
+  assert.strictEqual(stuck.snap().abnormal, true)
+  stuck.add(5000)
+  await stuck.tick()
+  assert.strictEqual(stuck.log.filter(e => String(e).includes('guard readback mismatch')).length, 1)
+  stuck.mgr.freeze = { threads: 2, hashrate: 1200 }
+  await stuck.tick()
+  assert.strictEqual(stuck.snap().abnormal, false)
+  assert.strictEqual(stuck.snap().colour, 'yellow')
+  stuck.stop()
   console.log('guard-plan: ok')
 }).catch(err => {
   console.error(err)

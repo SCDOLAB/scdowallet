@@ -197,10 +197,28 @@ function rotateFile (file, fsImpl, opts) {
   return true
 }
 
+// The guard decides the intended threads and whether the miner should be running.
+// A readback from the process or its status API matches when those agree.
+// Hashrate is included when the miner has reported one. A missing thread count
+// (a graphics-card miner that has no thread argument) is not a mismatch.
+function observeReadback (expect, actual) {
+  expect = expect || {}
+  actual = actual || {}
+  const hashrate = actual.hashrate == null || !Number.isFinite(Number(actual.hashrate)) ? null : Number(actual.hashrate)
+  const threads = actual.threads == null || !Number.isFinite(Number(actual.threads)) ? null : Math.floor(Number(actual.threads))
+  if (!expect.running) {
+    const still = !!actual.running || (hashrate != null && hashrate > 0)
+    return { match: !still, threads, hashrate }
+  }
+  if (threads == null) return { match: true, threads: null, hashrate, unchecked: true }
+  return { match: !!actual.running && threads === Math.floor(Number(expect.threads) || 0), threads, hashrate }
+}
+
 function trayView (input) {
   input = input || {}
   const phase = input.phase
   const reason = input.reason || ''
+  if (input.abnormal || phase === 'abnormal') return { colour: 'red', reason: '異常' }
   if (input.gaveUp || phase === 'gave-up') return { colour: 'red', reason: reason || '異常' }
   if (input.yielding || phase === 'yielding') return { colour: 'yellow', reason: '' }
   if (phase === 'paused') return { colour: 'blue', reason }
@@ -565,6 +583,7 @@ module.exports = {
   shouldRotate,
   rotateFile,
   trayView,
+  observeReadback,
   freshGuard,
   plannedThreads,
   stepGuard

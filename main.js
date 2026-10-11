@@ -305,17 +305,26 @@ function classicNote () {
   }
   return parts.join(' · ')
 }
+function guardSnapshot () {
+  const g = guardRun && guardRun.snapshot && guardRun.snapshot()
+  return g && (g.active || g.colour === 'grey' || g.colour === 'yellow' || g.colour === 'green' || g.colour === 'red') ? g : null
+}
+function attachGuard (st) {
+  const g = guardSnapshot()
+  if (g && st) st.guard = g
+  return st
+}
 function refreshTray () {
   if (!tray) return
   const st = miner ? Object.assign({}, miner.status()) : { running: false }
   const note = classicNote()
   if (note) st.classicNote = note
-  const g = guardRun && guardRun.snapshot && guardRun.snapshot()
-  if (g && (g.active || g.colour === 'grey' || g.colour === 'yellow' || g.colour === 'green' || g.colour === 'red')) st.guard = g
+  attachGuard(st)
   tray.update(st)
 }
 function publishClassic (st) {
   refreshTray()
+  if (st) attachGuard(st)
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:classic', st)
 }
 function getZpow (kind) {
@@ -387,6 +396,7 @@ function getMiner () {
       onSpawn: (proc) => pinMiner(proc)
     })
     miner.on('status', st => {
+      if (st) attachGuard(st)
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st)
       refreshTray()
       try { getNotifier().onStatus(st) } catch (e) { console.error('notifier', e) } // 2.0.7 (P1)
@@ -629,6 +639,7 @@ ipcMain.handle('mining:setGuard', (e, patch) => {
     next.lowPriority = true
     next.guardPauseUntil = 0
   }
+  // Intent only. Phase, thread count and tray colour are written by the guard.
   writeIntent(next)
   const it = readIntent() || {}
   const low = it.lowPriority !== false
@@ -691,7 +702,11 @@ function ensureGuard () {
     applyPriority: (pid, low) => guardHost.applyPriority(pid, low),
     pinProcess: (pid, plan) => guardHost.pinProcess(pid, plan),
     note: (text) => { if (tray) tray.balloon('SCDO Wallet', text) },
-    onChange: () => refreshTray()
+    onChange: () => refreshTray(),
+    log: (line) => {
+      try { console.error(line) } catch (e) {}
+      try { if (zpowCpu && zpowCpu.log) zpowCpu.log(line) } catch (e) {}
+    }
   })
 }
 function createTray () {
