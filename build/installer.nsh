@@ -210,4 +210,7 @@ Var oldInstallDir
 ; Uninstall removes the program folder only. Account files stay in the home directory.
 !macro customUnInstall
   ; Do not delete account files.
+  ; The uninstaller pass never runs customInit/customInstall, so reference
+  ; oldInstallDir here too; otherwise makensis warning 6001 fails the pack (-WX).
+  StrCpy $oldInstallDir ""
 !macroend
