@@ -999,7 +999,7 @@ function rateOfList (list) {
   return any ? sum : null
 }
 
-function sessionEarnText (list) {
+function sessionEarnText (list, T) {
   let shares = 0
   let paid = 0
   let anyShare = false
@@ -1015,8 +1015,8 @@ function sessionEarnText (list) {
   }
   if (!exposed) return null
   const parts = []
-  if (anyShare) parts.push(String(shares))
-  if (anyPay) parts.push(scdoCount(paid) + ' SCDO')
+  if (anyShare) parts.push(tr(T, 'sessionEarnShares', { n: String(shares) }))
+  if (anyPay) parts.push(tr(T, 'sessionEarnPaid', { n: scdoCount(paid) }))
   return parts.length ? parts.join(' · ') : DASH
 }
 
@@ -1209,7 +1209,7 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
     model.status = rate == null ? tr(T, 'shellBoot') : tr(T, 'shellMineOn')
     model.view.statusTone = rate == null ? 'busy' : 'on'
     const rateText = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
-    const earn = sessionEarnText(zpow)
+    const earn = sessionEarnText(zpow, T)
     const earnText = earn == null ? DASH : earn
     const mode = rate == null ? 'wait' : 'run'
     load = `<div class="mine-load ${mode}" data-mine-load="${device}"><div class="mine-load-bar"></div></div>
