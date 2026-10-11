@@ -183,26 +183,28 @@ Var oldInstallDir
   ${If} ${FileExists} "$R1"
     System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$R1", i 0)'
   ${EndIf}
-  ; Drop leftover all-users and old-name shortcuts. Never remove the links just created.
-  ${If} "$COMMONDESKTOP\SCDO Wallet.lnk" != "$newDesktopLink"
-    Delete "$COMMONDESKTOP\SCDO Wallet.lnk"
-  ${EndIf}
+  ; Drop leftover old-name per-user shortcuts. Never remove the links just created.
   ${If} "$DESKTOP\ScdoWalletBeta.lnk" != "$newDesktopLink"
     Delete "$DESKTOP\ScdoWalletBeta.lnk"
   ${EndIf}
-  Delete "$COMMONDESKTOP\ScdoWalletBeta.lnk"
   ${If} "$SMPROGRAMS\SCDO Wallet.lnk" != "$newStartMenuLink"
     Delete "$SMPROGRAMS\SCDO Wallet.lnk"
   ${EndIf}
   Delete "$SMPROGRAMS\ScdoWalletBeta.lnk"
-  Delete "$COMMONPROGRAMS\SCDO Wallet.lnk"
-  Delete "$COMMONPROGRAMS\ScdoWalletBeta.lnk"
+  ; All-users leftovers. NSIS has no $COMMONDESKTOP / $COMMONPROGRAMS constants;
+  ; $DESKTOP and $SMPROGRAMS point at the all-users folders under
+  ; SetShellVarContext all. Without admin rights these deletes just fail quietly.
+  SetShellVarContext all
+  Delete "$DESKTOP\SCDO Wallet.lnk"
+  Delete "$DESKTOP\ScdoWalletBeta.lnk"
+  Delete "$SMPROGRAMS\SCDO Wallet.lnk"
+  Delete "$SMPROGRAMS\ScdoWalletBeta.lnk"
   !ifdef MENU_FILENAME
-    ${If} "$COMMONPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk" != "$newStartMenuLink"
-      Delete "$COMMONPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk"
-    ${EndIf}
-    Delete "$COMMONPROGRAMS\${MENU_FILENAME}\ScdoWalletBeta.lnk"
+    Delete "$SMPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk"
+    Delete "$SMPROGRAMS\${MENU_FILENAME}\ScdoWalletBeta.lnk"
   !endif
+  SetShellVarContext current
+  ClearErrors
   Pop $R1
   Pop $R0
 !macroend
