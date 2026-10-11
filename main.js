@@ -15,6 +15,7 @@ const pcGuard = require('./src/miner/pcGuard')
 const { applyPriority } = require('./src/miner/priority')
 const powerHold = require('./src/miner/powerHold')
 const { FIRST_RUN } = require('./src/miner/guardPlan')
+const { VERSION, checkRuntime } = require('./src/version')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
@@ -72,9 +73,11 @@ function minerDataRoot () {
   try { require('fs').mkdirSync(alt, { recursive: true }); return alt } catch (e) { return def }
 }
 
-const DISPLAY_VERSION = (() => { try { return require('./package.json').displayVersion || app.getVersion() } catch (e) { return app.getVersion() } })() // 1.1.5b/1.1.6: optional display label from package.json
+const DISPLAY_VERSION = VERSION
+const versionCheck = checkRuntime((() => { try { return app.getVersion() } catch (e) { return '' } })())
+if (!versionCheck.ok) console.error(versionCheck.error + '; reporting ' + VERSION)
 const BUILD_COMMIT = (() => { try { const b = require('./build-info.json'); return /^[0-9a-f]{7,40}$/.test(String(b.commit || '')) ? String(b.commit) : '' } catch (e) { return '' } })() // 3.0.2: written by scripts/build-info.js before packing
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), displayVersion: DISPLAY_VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
+ipcMain.handle('app:info', () => ({ version: VERSION, displayVersion: VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
 ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
@@ -146,7 +149,7 @@ const ASSETS = path.join(__dirname, 'assets')
 const { Updater, CHECK_DELAY_MS, CHECK_INTERVAL_MS } = require('./src/updater')
 let updater = null
 function getUpdater () {
-  if (!updater) updater = new Updater({ currentVersion: app.getVersion(), windowProvider: () => mainWindow, quit: () => requestQuit({ confirm: false, reason: 'update' }), urlProvider: () => updateChannel.manifestUrls(updateChannel.getChannel(settingsStore)) })
+  if (!updater) updater = new Updater({ currentVersion: VERSION, windowProvider: () => mainWindow, quit: () => requestQuit({ confirm: false, reason: 'update' }), urlProvider: () => updateChannel.manifestUrls(updateChannel.getChannel(settingsStore)) })
   return updater
 }
 function scheduleAutoCheck () {
@@ -190,8 +193,8 @@ ipcMain.handle('update:setChannel', (e, ch) => {
 })
 ipcMain.handle('about:buildHash', async () => {
   try {
-    return await updateChannel.buildHashInfo({ version: app.getVersion(), platform: process.platform, userData: app.getPath('userData'), manifest: getUpdater().lastManifest, fetchText: (u) => miningService.httpsGetText(u, 10000, 64 * 1024) })
-  } catch (err) { return { version: app.getVersion(), sha256: null, source: null, error: err.message } }
+    return await updateChannel.buildHashInfo({ version: VERSION, platform: process.platform, userData: app.getPath('userData'), manifest: getUpdater().lastManifest, fetchText: (u) => miningService.httpsGetText(u, 10000, 64 * 1024) })
+  } catch (err) { return { version: VERSION, sha256: null, source: null, error: err.message } }
 })
 const { MiningNotifier } = require('./src/main/miningNotifier')
 let notifier = null
@@ -599,7 +602,7 @@ ipcMain.handle('mining:networkStats', async () => {
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0
   try { return Object.assign({ ok: true }, await miningService.networkStats(lh)) } catch (err) { return { ok: false, error: err.message } }
 })
-ipcMain.handle('mining:exportLogs', () => miningService.exportLogs(mainWindow, getMiner(), { version: app.getVersion() }))
+ipcMain.handle('mining:exportLogs', () => miningService.exportLogs(mainWindow, getMiner(), { version: VERSION }))
 ipcMain.handle('mining:getConfig', () => {
   const it = readIntent() || {}
   return { miningMode: it.miningMode === 'pool' ? 'pool' : 'solo', poolUrl: it.poolUrl || '', keepMining: !!it.keepMining, guardSmooth: it.guardSmooth !== false, mineOnBattery: !!it.mineOnBattery, lowPriority: it.lowPriority !== false }

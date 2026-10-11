@@ -18,13 +18,13 @@ Var pid
   !insertmacro _CHECK_APP_RUNNING
 !macroend
 
-; All-users 2.0.12 is recorded at
+; 3.1.2 installs for the current user under %LOCALAPPDATA%\Programs.
+; An older all-users copy is recorded at
 ; HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\<guid>
-; (UNINSTALL_REGISTRY_KEY). electron-builder's assisted installer only looks at
-; HKLM\Software\<guid> (INSTALL_REGISTRY_KEY) and otherwise stays per-user, so a
-; wizard or the in-app updater (setup.exe /S --force-run, not elevated) would
-; add a second Apps entry. If that uninstall key exists, upgrade that directory
-; and elevate. A machine with no HKLM install stays per-user.
+; (UNINSTALL_REGISTRY_KEY). Remember that folder so customInstall can run its
+; uninstaller, then keep the new files in the per-user directory.
+; Account files stay in the home directory, outside both install folders.
+Var oldInstallDir
 
 !macro scdoReadPerMachineUninstall
   ReadRegStr $R8 HKLM "${UNINSTALL_REGISTRY_KEY}" "InstallLocation"
@@ -99,51 +99,16 @@ Var pid
     SetRegView 64
   ${EndIf}
 
-  ${If} $R6 == "1"
-    StrCpy $hasPerMachineInstallation "1"
-    StrCpy $hasPerUserInstallation "0"
+  ${If} $R7 != ""
+    StrCpy $oldInstallDir $R7
+  ${ElseIf} $perMachineInstallationFolder != ""
+    StrCpy $oldInstallDir $perMachineInstallationFolder
   ${EndIf}
 
-  ${If} $hasPerMachineInstallation == "1"
-    ${IfNot} ${UAC_IsAdmin}
-      ShowWindow $HWNDPARENT ${SW_HIDE}
-      !insertmacro UAC_RunElevated
-      ${Switch} $0
-        ${Case} 0
-          ${If} $1 = 1
-            Quit
-          ${EndIf}
-          ${Break}
-        ${Case} 1223
-          ; /SD IDOK: a silent (/S) install must not wait on this box. UAC cancel
-          ; or timeout is error 1223; leave a non-zero exit code and stop.
-          MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet is installed for all users. Administrator approval is required to upgrade that installation." /SD IDOK
-          SetErrorLevel 1223
-          Quit
-        ${Default}
-          MessageBox MB_ICONSTOP|MB_TOPMOST "Unable to elevate, error $0" /SD IDOK
-          SetErrorLevel 1
-          Quit
-      ${EndSwitch}
-      Quit
-    ${Else}
-      ${If} $R7 != ""
-      ${AndIf} ${FileExists} "$R7"
-        ReadRegStr $R8 HKLM "${INSTALL_REGISTRY_KEY}" "InstallLocation"
-        ${If} $R8 == ""
-          WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "InstallLocation" "$R7"
-        ${EndIf}
-      ${EndIf}
-      !ifmacrodef setInstallModePerAllUsers
-        !insertmacro setInstallModePerAllUsers
-      !endif
-      ${If} $R7 != ""
-      ${AndIf} ${FileExists} "$R7"
-        StrCpy $INSTDIR $R7
-        StrCpy $perMachineInstallationFolder $R7
-      ${EndIf}
-    ${EndIf}
-  ${EndIf}
+  ; Do not reuse the old Program Files directory and do not elevate this installer.
+  StrCpy $hasPerMachineInstallation "0"
+  StrCpy $hasPerUserInstallation "1"
+  !insertmacro setInstallModePerUser
   ClearErrors
   Pop $R9
   Pop $R8
@@ -156,9 +121,8 @@ Var pid
 
 !macro customInstallMode
   !ifndef BUILD_UNINSTALLER
-    ${If} $hasPerMachineInstallation == "1"
-      StrCpy $isForceMachineInstall "1"
-    ${EndIf}
+    StrCpy $isForceCurrentInstall "1"
+    StrCpy $isForceMachineInstall "0"
   !endif
 !macroend
 
@@ -166,7 +130,31 @@ Var pid
 ; icon in the shortcut and the taskbar cache. Recreate both shortcuts against
 ; icon index 0, then SHCNE_ASSOCCHANGED (flush) and SHCNE_UPDATEITEM.
 !macro customInstall
+  Push $R0
   Push $R1
+  ${If} $oldInstallDir == ""
+    ${If} ${FileExists} "$PROGRAMFILES64\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES64\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\ScdoWalletBeta"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\ScdoWalletBeta"
+    ${EndIf}
+  ${EndIf}
+  ; A silent update may not be an administrator, so removing Program Files can fail.
+  ; The new per-user copy and its shortcuts are still written.
+  ${If} $oldInstallDir != ""
+  ${AndIf} $oldInstallDir != $INSTDIR
+    StrCpy $R0 "$oldInstallDir\Uninstall SCDO Wallet.exe"
+    ${IfNot} ${FileExists} "$R0"
+      StrCpy $R0 "$oldInstallDir\Uninstall ScdoWalletBeta.exe"
+    ${EndIf}
+    ${If} ${FileExists} "$R0"
+      ExecWait '"$R0" /S' $R0
+    ${EndIf}
+  ${EndIf}
   !ifdef MENU_FILENAME
     CreateDirectory "$SMPROGRAMS\${MENU_FILENAME}"
     ClearErrors
@@ -195,7 +183,28 @@ Var pid
   ${If} ${FileExists} "$R1"
     System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$R1", i 0)'
   ${EndIf}
+  ; Drop leftover all-users and old-name shortcuts. Never remove the links just created.
+  ${If} "$COMMONDESKTOP\SCDO Wallet.lnk" != "$newDesktopLink"
+    Delete "$COMMONDESKTOP\SCDO Wallet.lnk"
+  ${EndIf}
+  ${If} "$DESKTOP\ScdoWalletBeta.lnk" != "$newDesktopLink"
+    Delete "$DESKTOP\ScdoWalletBeta.lnk"
+  ${EndIf}
+  Delete "$COMMONDESKTOP\ScdoWalletBeta.lnk"
+  ${If} "$SMPROGRAMS\SCDO Wallet.lnk" != "$newStartMenuLink"
+    Delete "$SMPROGRAMS\SCDO Wallet.lnk"
+  ${EndIf}
+  Delete "$SMPROGRAMS\ScdoWalletBeta.lnk"
+  Delete "$COMMONPROGRAMS\SCDO Wallet.lnk"
+  Delete "$COMMONPROGRAMS\ScdoWalletBeta.lnk"
+  !ifdef MENU_FILENAME
+    ${If} "$COMMONPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk" != "$newStartMenuLink"
+      Delete "$COMMONPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk"
+    ${EndIf}
+    Delete "$COMMONPROGRAMS\${MENU_FILENAME}\ScdoWalletBeta.lnk"
+  !endif
   Pop $R1
+  Pop $R0
 !macroend
 
 ; Uninstall removes the program folder only. Account files stay in the home directory.

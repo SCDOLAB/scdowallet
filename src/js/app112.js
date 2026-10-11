@@ -686,7 +686,8 @@
       const sum = window.SCDOChainHome.summarize(c)
       const dash = sum.text === '\u2014'
       const shown = dash ? '\u2014' : (sum.text + ' SCDO')
-      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}">${esc(shown)}</b></div>`
+      const tip = !dash && sum.full ? (sum.full + ' SCDO') : shown
+      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}" title="${esc(tip)}">${esc(shown)}</b></div>`
     }).join('')
     const hit = window.SCDOChainHome.latestTx ? window.SCDOChainHome.latestTx(chains) : null
     let last = '\u2014'
@@ -804,9 +805,20 @@
   function accRow (a, chain) {
     const addr = chain === 'new' ? a.evm : ((parseClassicAddress(a.pubkey) || {}).address || a.pubkey)
     let bal
-    if (chain === 'new') { const b = st.s0[a.filename]; bal = !a.evm ? '' : (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') } else { const v = fmtOld(a.pubkey); bal = v != null ? v : '…' }
+    let balFull = ''
+    if (chain === 'new') {
+      const b = st.s0[a.filename]
+      if (!a.evm) bal = ''
+      else if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); bal = view.short; balFull = view.full }
+      else bal = '…'
+    } else {
+      const raw = oldRaw(a.pubkey)
+      if (raw == null) bal = '…'
+      else { const view = AMT.fmtBalance(raw, 8); bal = view.short; balFull = view.full }
+    }
     const tools = addr ? `<span class="mono">${esc(addr)}</span><button type="button" class="ico" data-act="copy" data-v="${esc(addr)}" title="${esc(T('d_copyAddr'))}" aria-label="${esc(T('d_copyAddr'))}">${window.SCDODash.COPY_SVG}</button><button type="button" class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="${chain}" title="${esc(T('d_showQr'))}" aria-label="${esc(T('d_showQr'))}">${window.SCDODash.QR_SVG}</button>` : `<span class="muted">${esc(T('d_addrLocked'))}</span>`
-    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b>${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
+    const balTip = balFull ? esc(balFull + ' SCDO') : ''
+    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b title="${balTip}">${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
   }
   function accListHtml () {
     let h = ''
@@ -1296,7 +1308,8 @@
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
       if (!g.children || !g.children.length) return btn(g)
-      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary>${g.children.map(btn).join('')}</details>`
+      if (g.id === 'about') return `<button type="button" class="site-link" data-act="aboutOpen">${esc(cn ? g.cn : g.en)}</button>`
+      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
     const html = primary.map(group).join('') + more
@@ -1372,20 +1385,25 @@
     }
     return x
   }
-  function headerBalanceText () {
+  function headerBalanceParts () {
     const a = headerAccount()
-    if (!a) return T('noAccount')
+    if (!a) return { text: T('noAccount'), full: '' }
     const name = String(accLabel(a) || '').trim()
-    let amt
+    let amt = '…'
+    let full = ''
     if (headerChain() === 'old') {
-      const v = fmtOld(a.pubkey)
-      amt = (v != null ? v : '…') + ' SCDO'
+      const raw = oldRaw(a.pubkey)
+      if (raw != null) { const view = AMT.fmtBalance(raw, 8); amt = view.short; full = view.full }
     } else if (!a.evm) amt = T('lockedShort')
     else {
       const b = st.s0[a.filename]
-      amt = (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+      if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); amt = view.short; full = view.full }
     }
-    return (name ? name + ' ' : '') + amt
+    const text = (name ? name + ' ' : '') + amt + (amt === T('lockedShort') ? '' : ' SCDO')
+    return { text: text, full: full ? full + ' SCDO' : '' }
+  }
+  function headerBalanceText () {
+    return headerBalanceParts().text
   }
   function headerBalanceName () {
     const a = headerAccount()
@@ -1427,6 +1445,7 @@
       earnLog: earn,
       now: Date.now(),
       balanceText: headerBalanceText(),
+      balanceFull: headerBalanceParts().full,
       balanceMark: headerBalanceMark(),
       balanceName: headerBalanceName(),
       T,
@@ -2319,22 +2338,43 @@
       const amount = nhw(text == null ? (($('payAmt') && $('payAmt').value) || s.amount) : text)
       if (shard >= 1) {
         const bal = oldRaw(payer.pubkey)
-        if (bal == null) return null
-        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8 }
+        if (bal == null) return { amount: amount, known: false }
+        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8, known: true }
       }
       const b = st.s0[payer.filename]
-      if (!b || b.nativeWei == null || s.feeWei == null || s.feeFor !== 0) return null
-      let fee
-      try { fee = BigInt(s.feeWei) } catch (e) { return null }
-      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18 }
+      if (!b || b.nativeWei == null) return { amount: amount, known: false }
+      let fee = null
+      if (s.feeWei != null && s.feeFor === 0) {
+        try { fee = BigInt(s.feeWei) } catch (e) { fee = null }
+      }
+      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18, known: true }
+    }
+    function spendableText (room) {
+      const fee = room.fee == null ? 0n : room.fee
+      const plain = AMT.maxAmount(room.bal, fee, room.dec)
+      if (plain == null) return ''
+      const units = AMT.toUnits(plain, room.dec)
+      if (units == null) return plain
+      return AMT.fmtBalance(units, room.dec).short
     }
     function paintAmtRoom (text) {
       const hint = $('payAmtHint')
       const btn = $('wizNext2')
+      const send = $('btnRemitSign')
+      const err = $('payErr2')
       const room = amountRoom(text)
-      const over = !!(room && AMT.exceedsBalance(room.amount, room.bal, room.fee, room.dec))
-      if (hint) hint.textContent = over ? T('shellAmtRoom') : ''
+      const fee = room && room.known ? (room.fee == null ? 0n : room.fee) : null
+      const over = !!(room && room.known && AMT.exceedsBalance(room.amount, room.bal, fee, room.dec))
+      if (hint) {
+        if (room && room.known) hint.textContent = T('available', { v: spendableText(room) + ' SCDO' })
+        else if (!over) hint.textContent = ''
+      }
+      if (err) {
+        if (over) err.textContent = T('shellAmtRoom')
+        else if (err.textContent === T('shellAmtRoom')) err.textContent = ''
+      }
       if (btn) btn.disabled = over
+      if (send && over) send.disabled = true
       return over
     }
     async function ensureRoomFee () {
@@ -2484,8 +2524,10 @@
       if (picked && picked.file) s.payerFile = picked.file
       const bal = $('payFromBal')
       if (bal) {
-        const text = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text : '\u2014'
+        const one = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }) : null
+        const text = one ? one.text : '\u2014'
         bal.textContent = text === '\u2014' ? '\u2014' : text + ' SCDO'
+        bal.title = one && one.full ? one.full + ' SCDO' : ''
       }
     }
     paintFromPick()
@@ -2577,6 +2619,13 @@
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      await ensureRoomFee()
+      if (paintAmtRoom(s.amount)) {
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       const guarded = AMT.guardAmount(s.amount)
       if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
       s.amount = guarded.value
@@ -2613,6 +2662,7 @@
           s.confirmedKey = payKey(route)
         }
         if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); const pwBox = $('remitPw'); if (pwBox) pwBox.focus(); return }
+        if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
         if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
@@ -2676,6 +2726,13 @@
         if (pwBox) pwBox.focus()
         return
       }
+      if (paintAmtRoom(route.amount)) {
+        if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       if ($('remitPw')) $('remitPw').value = ''
       lockSend(btn)
       if (err) SD.spin(err, TC('sending'))
@@ -2729,7 +2786,8 @@
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
-      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
+      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); paintAmtRoom(route.amount); showStep(2); return }
+      if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
       if (s.confirmedKey !== payKey(route)) {
         if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
         s.confirmedKey = payKey(route)
@@ -3148,6 +3206,14 @@
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
     else modal(setHtml, { width: 820, noFocus: true })
     fillAboutHash()
+    if (st.openAbout) {
+      st.openAbout = false
+      const about = $('setAbout')
+      if (about) {
+        about.open = true
+        try { about.scrollIntoView({ block: 'center' }) } catch (e) {}
+      }
+    }
   }
   // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
   async function fillAboutHash () {
@@ -3914,6 +3980,7 @@
       case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': goPage('settings'); break
+      case 'aboutOpen': openAboutPanel(); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
@@ -4051,7 +4118,7 @@
       const hint = $('payAmtHint')
       let over = false
       if (t.id === 'payAmt' && typeof t._paintAmtRoom === 'function') over = t._paintAmtRoom(next)
-      if (hint && !over) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+      if (hint && !over && clip.blocked) hint.textContent = T('shellAmtLimit')
     }
     if (next !== t.value) {
       const pos = t.selectionStart
@@ -4076,6 +4143,10 @@
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
   function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
   // 3.0.2: every action is reachable by hand from the window menu (the fallback if AI小貓 misbehaves).
+  function openAboutPanel () {
+    st.openAbout = true
+    goPage('settings')
+  }
   function goPage (v) {
     if ($('md')) SD.clear($('modalRoot'))
     setTab(v); render()
@@ -4110,6 +4181,7 @@
       case 'remit': openRemittance(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': goPage('settings'); break
+      case 'about': openAboutPanel(); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
       default:
@@ -4566,7 +4638,7 @@
   api.on('miner:classic', (m) => onMinerStatus(m))
   async function boot () {
     let info = null
-    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.displayVersion || info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
+    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
     try { storeMiner(await api.invoke('miner:status')) } catch (e) {}
     try { const c = await api.invoke('miner:classicStatus'); if (c) { st.miners.classicCpu = c.classicCpu; st.miners.classicGpu = c.classicGpu } } catch (e) {}
     st.miner = viewMiner()

@@ -93,7 +93,14 @@
     const cut = (bal - fee) / factor * factor
     return fmtUnits(cut, dec, dp).replace(/,/g, '')
   }
-  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, classicFeeUnits, exceedsBalance, maxAmount }
+  // Balances on screen use one width: at most 4 decimals, trailing zeros removed.
+  // full keeps every decimal the chain has, for the hover text.
+  const SHOW_DP = 4
+  function fmtBalance (raw, decimals) {
+    const dec = Math.max(0, Number(decimals) || 0)
+    return { short: fmtUnits(raw, dec, SHOW_DP), full: fmtUnits(raw, dec, dec) }
+  }
+  const api = { MAX_DP, SHOW_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, classicFeeUnits, exceedsBalance, maxAmount, fmtBalance }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOAmount = Object.freeze(api)
 })()
