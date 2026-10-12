@@ -1,0 +1,44 @@
+name: windows-nsis
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'release/**'
+      - 'cursor/**'
+jobs:
+  unsigned-nsis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y wine wine32 wine64
+      - name: Build NSIS installer
+        env:
+          USE_SYSTEM_WINE: 'true'
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: node scripts/build-info.js && node scripts/stage-zminer.js && node scripts/dist-win.js
+      - name: Record SHA-256
+        run: |
+          mkdir -p nsis-out
+          cp ../dist/SCDOWallet-*-win-x64-setup.exe nsis-out/
+          (cd nsis-out && sha256sum SCDOWallet-*-win-x64-setup.exe | tee SHA256SUMS)
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCDOWallet-3.0.2-win-x64-setup
+          path: nsis-out/*
+          if-no-files-found: error

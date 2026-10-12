@@ -96,8 +96,6 @@ function switchLanguage() {
           }
         },
         // Specify validation error messages
-        // publickey: 0xe1e3f55628ac137f34da83b2d24aa55066247f81
-        // privatekey: 0x95adf50a30eceaf5e6d615ffbfcddf7a1ac1f99677f4e132d52dddc2e8ac2638
         messages: {
             txpublicKey:json[lang]["warning_txpublicKey"],
             to: {
