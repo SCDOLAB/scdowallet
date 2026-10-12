@@ -2,6 +2,10 @@
 'use strict'
 ;(function () {
 const HEAT_C = 85
+// 3.1.4: the miner guard (guardPlan) already lowers intensity above 85°C and pauses above 90°C, then resumes
+// by itself when the card cools. The cat watcher only hard-stops when the card is still hotter than that,
+// i.e. the guard could not hold it. Stopping at 85°C turned a normal eGPU warm-up into a permanent stop.
+const HEAT_STOP_C = 95
 const STALL_MS = 3 * 60 * 1000
 const PEER_WAIT_MS = 60 * 1000
 const LOW_FREE = 512 * 1024 * 1024
@@ -140,7 +144,10 @@ function heatGuard (ctx) {
   const classicHot = ctx.classicGpu && ctx.classicGpu.running && ctx.classicGpu.mode !== 'cpu'
   const shard0Hot = ctx.shard0 && ctx.shard0.running && ctx.shard0.mode !== 'node'
   if (!classicHot && !shard0Hot) return null
-  return { say: '顯卡溫度 ' + temp + '°C，已經過熱。75°C 以下才安全，超過 85°C 會自動暫停，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
+  if (temp < HEAT_STOP_C) {
+    return { say: '顯卡溫度 ' + temp + '°C，偏熱。挖礦保護會先降低強度，超過 90°C 暫停，降溫後自動繼續。', actions: [] }
+  }
+  return { say: '顯卡溫度 ' + temp + '°C，已經過熱，降低強度和暫停都壓不下來，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
 }
 
 function diagnose (ctx) {
@@ -370,6 +377,7 @@ const api = {
   reply: function (text, ctx) { return safePlan(reply(text, ctx)) },
   planMine: function (ctx) { return safePlan(planMine(ctx)) },
   planHeal: function (ctx) { return safePlan(planHeal(ctx)) },
+  HEAT_STOP_C: HEAT_STOP_C,
   heatGuard: function (ctx) { const p = heatGuard(ctx); return p ? safePlan(p) : null },
   parseTransfer: parseTransfer,
   CONTACT: CONTACT,

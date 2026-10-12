@@ -192,7 +192,16 @@ function start (deps) {
   const handle = {
     started: true,
     get view () { return view },
-    snapshot () { return view }
+    snapshot () { return view },
+    // AI Agent Ledger v1: the ops agent freed the cause (e.g. a duplicate Rigel on 5055); retry on the next
+    // guard tick instead of waiting out the 10/30/60 min give-up cool-down. Returns how many chains were cleared.
+    clearGiveUp () {
+      let n = 0
+      for (const st of states.values()) {
+        if (st && st.gaveUp) { st.gaveUpAt = 0; n++ } // the guard's own auto-recover path runs on the next tick
+      }
+      return n
+    }
   }
   async function tick () {
     if (ticking) return

@@ -1,0 +1,16 @@
+[Unit]
+Description=SCDO AI Agent Ledger v1 API (no private keys)
+After=network.target
+[Service]
+User=scdoledger
+Environment=PORT=8147 HOST=127.0.0.1 DATA_DIR=/var/lib/scdo-agent-ledger
+WorkingDirectory=/opt/scdo-agent-ledger
+ExecStart=/usr/bin/node /opt/scdo-agent-ledger/server.js
+Restart=always
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/scdo-agent-ledger
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

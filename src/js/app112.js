@@ -3224,7 +3224,7 @@
         <div class="row" style="flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
           <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
-      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-10</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
+      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-12</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
       ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
         <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}`
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
@@ -4559,7 +4559,7 @@
     if (action.type === 'stopGpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
       const s0 = (st.miners && st.miners.shard0) || st.miner
-      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
+      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'heat') } catch (e) {} }
       return { ok: true }
     }
     if (action.type === 'startJobs' || action.type === 'restartJobs') {
@@ -4705,7 +4705,8 @@
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
     ensureCaps().catch(() => {})
-    ensureGpu().then(async () => {
+    // 3.1.4 AI Agent Ledger: the ops agent in main can ask for the same resume after a restart lost the mining state
+    const tryResume = async () => {
       let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
       // A leftover localStorage run flag is not a miner. Only an armed resume snapshot may start one.
       const alive = !!(rc && rc.running) || !!(st.miner && st.miner.running)
@@ -4744,7 +4745,9 @@
         const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
         if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
       }
-    })
+    }
+    ensureGpu().then(tryResume)
+    try { api.on('agent:resume', () => { ensureGpu().then(tryResume).catch(() => {}) }) } catch (e) {}
     if (st.tab === 'mineSet') render()
   }
   boot()

@@ -63,7 +63,21 @@ assert.ok(hot.say.includes('86'))
 assert.ok(hot.say.includes('85'))
 assert.ok(!hot.say.includes('挖礦中'))
 assert.strictEqual(cat.planMine(Object.assign({}, base, { tempC: 84 })).actions[0].type, 'startJobs')
-assert.strictEqual(cat.heatGuard({ tempC: 90, classicGpu: { running: true, mode: 'gpu' } }).actions[0].type, 'stopGpu')
+// 3.1.4: 85-94°C is advisory only (the miner guard lowers intensity / pauses and resumes); hard stop from 95°C
+assert.strictEqual(cat.HEAT_STOP_C, 95)
+assert.deepStrictEqual(cat.heatGuard({ tempC: 85, shard0: { running: true, mode: 'mine' } }).actions, [])
+assert.deepStrictEqual(cat.heatGuard({ tempC: 90, classicGpu: { running: true, mode: 'gpu' } }).actions, [])
+assert.ok(cat.heatGuard({ tempC: 87, shard0: { running: true, mode: 'mine' } }).say.includes('87'))
+assert.strictEqual(cat.heatGuard({ tempC: 95, classicGpu: { running: true, mode: 'gpu' } }).actions[0].type, 'stopGpu')
+assert.strictEqual(cat.heatGuard({ tempC: 96, shard0: { running: true, mode: 'mine' } }).actions[0].type, 'stopGpu')
+{
+  const fs = require('fs'); const path = require('path')
+  const app = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
+  const stopGpu = app.slice(app.indexOf("action.type === 'stopGpu'"), app.indexOf("action.type === 'startJobs'"))
+  assert.ok(stopGpu.includes("'miner:stop', 'heat'"))
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+  assert.ok(main.includes("src === 'heat'"))
+}
 assert.strictEqual(cat.heatGuard({ tempC: 90, classicGpu: { running: false } }), null)
 assert.strictEqual(cat.heatGuard({ tempC: 70, classicGpu: { running: true, mode: 'gpu' } }), null)
 
@@ -98,7 +112,9 @@ assert.strictEqual(mem.actions[0].type, 'restartJobs')
 assert.ok(mem.say.includes('MB'))
 assert.deepStrictEqual(cat.planHeal({ mem: { free: 8 * 1024 * 1024 * 1024 } }).actions, [])
 
-const hotHeal = cat.planHeal({ tempC: 90, classicGpu: { running: true, mode: 'gpu', shard: 1, wallet: CLASSIC } })
+const warmHeal = cat.planHeal({ tempC: 90, classicGpu: { running: true, mode: 'gpu', shard: 1, wallet: CLASSIC } })
+assert.deepStrictEqual(warmHeal.actions, [])
+const hotHeal = cat.planHeal({ tempC: 96, classicGpu: { running: true, mode: 'gpu', shard: 1, wallet: CLASSIC } })
 assert.deepStrictEqual(hotHeal.actions.map(a => a.type), ['stopGpu'])
 
 const bal = cat.reply('餘額多少', { balances: [{ label: '小明', text: '1.5 SCDO' }, { label: '收款', text: '3 SCDO' }] })

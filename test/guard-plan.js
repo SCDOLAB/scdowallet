@@ -352,6 +352,38 @@ r = plan.stepGuard(r.state, alive({ childAlive: false }), 60000)
 assert.strictEqual(r.state.paused, true)
 assert.strictEqual(r.state.reason, '異常')
 assert.ok(!r.actions.some(a => a.type === 'restart-child' || a.type === 'resume'))
+// 3.1.4: a give-up recovers by itself after the cool-down while the user still wants to mine
+{
+  assert.deepStrictEqual(plan.GAVE_UP_RETRY_MIN, [10, 30, 60])
+  assert.strictEqual(plan.gaveUpRetryMs(0), 10 * 60 * 1000)
+  assert.strictEqual(plan.gaveUpRetryMs(5), 60 * 60 * 1000)
+  let g = r
+  assert.strictEqual(g.state.gaveUpCount, 1)
+  g = plan.stepGuard(g.state, alive({ childAlive: false }), 50000 + 9 * 60 * 1000)
+  assert.strictEqual(g.state.gaveUp, true)
+  g = plan.stepGuard(g.state, alive({ childAlive: false }), 50000 + 10 * 60 * 1000)
+  assert.strictEqual(g.state.gaveUp, false)
+  assert.strictEqual(g.state.paused, false)
+  assert.strictEqual(g.state.quickDeaths, 0)
+  assert.ok(g.actions.some(a => a.type === 'resume'))
+  const t0 = 50000 + 10 * 60 * 1000
+  g = plan.stepGuard(g.state, alive({ childAlive: false }), t0 + 60 * 1000)
+  assert.ok(g.actions.some(a => a.type === 'restart-child'))
+  // still broken: second give-up waits 30 min
+  g = quickDie(g.state, t0 + 61000, t0 + 62000)
+  g = quickDie(g.state, t0 + 63000, t0 + 64000)
+  g = quickDie(g.state, t0 + 65000, t0 + 66000)
+  assert.strictEqual(g.state.gaveUp, true)
+  assert.strictEqual(g.state.gaveUpCount, 2)
+  g = plan.stepGuard(g.state, alive({ childAlive: false }), t0 + 66000 + 29 * 60 * 1000)
+  assert.strictEqual(g.state.gaveUp, true)
+  g = plan.stepGuard(g.state, alive({ childAlive: false }), t0 + 66000 + 30 * 60 * 1000)
+  assert.strictEqual(g.state.gaveUp, false)
+  // user stopped mining: no auto-retry
+  let u = quickDie(quiet(), 0, 1000); u = quickDie(u.state, 2000, 3000); u = quickDie(u.state, 4000, 5000)
+  u = plan.stepGuard(u.state, alive({ childAlive: false, userRunning: false }), 5000 + 61 * 60 * 1000)
+  assert.strictEqual(u.state.gaveUp, true)
+}
 r = plan.stepGuard(r.state, alive({ childAlive: false, userRunning: false, active: true }), 61000)
 assert.strictEqual(r.state.paused, true)
 r = plan.stepGuard(r.state, alive({ childAlive: true, hashrate: 10, userRunning: true, active: true }), 62000)
@@ -509,11 +541,11 @@ guardWin.readSample().then(async sample => {
   const woke = hold.flags(2000 + 30000, false)
   assert.strictEqual(woke.wakeHold, false)
   assert.strictEqual(woke.childDiedInSleep, true)
-  assert.strictEqual(CN.relNotes[0].v, '3.1.3')
-  assert.strictEqual(EN.relNotes[0].v, '3.1.3')
+  assert.strictEqual(CN.relNotes[0].v, '3.1.4')
+  assert.strictEqual(EN.relNotes[0].v, '3.1.4')
   assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')))
   assert.ok(!/收益|價格|年化|報酬|yield|return|price|幣安|binance|okx/i.test(EN.relNotes[0].items[0]))
-  assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.3')
+  assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.4')
   const pc = require('../src/miner/pcGuard')
   const events = []
   const mgr = {
