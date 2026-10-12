@@ -521,6 +521,10 @@ class MinerManager extends EventEmitter {
   }
 
   startRigel () {
+    // 3.1.3: two overlapping polls (or a restart racing a poll) used to start a second Rigel on the same GPU,
+    // which halved the hashrate. One live Rigel per manager.
+    const cur = this.procs.rigel
+    if (cur && cur.exitCode === null && cur.signalCode === null && !cur.killed) return cur
     return this.spawnChild('rigel', this.rigelPath(), [
       '-a', 'ethash', '-o', this.state.mode === 'pool' && this.state.poolUrl ? this.state.poolUrl : 'ethproxy+tcp://127.0.0.1:' + PORTS.stratum, '-u', this.state.wallet, '-w', this.state.worker,
       '--api-bind', '127.0.0.1:' + PORTS.rigelApi, '--no-tui', '--no-colour', '--log-file', path.join(this.logDir, 'rigel-own.log')
@@ -610,7 +614,7 @@ class MinerManager extends EventEmitter {
         this.log('wallet', 'pool mode: connecting Rigel to ' + poolUrl)
         if (!opts.noRigel) this.startRigel()
         this.set({ phase: 'mining', code: 'MINING_STARTING', message: 'Connecting to the pool and starting the GPU miner ...' })
-        this.poller = setInterval(() => this.poll().catch(() => {}), 3000)
+        this.poller = setInterval(() => { if (this._polling) return; this._polling = true; this.poll().catch(() => {}).then(() => { this._polling = false }) }, 3000)
       } catch (e) {
         this.set({ phase: 'error', code: e.code || 'ERROR', lastError: e.code || e.message, message: e.message })
         this.stop({ keepError: true })

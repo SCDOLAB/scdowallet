@@ -17,3 +17,15 @@ fs.writeFileSync(path.join(root, 'team-payout.txt'), ' ' + t + '\r\n')
 assert.strictEqual(m.teamPayout(), t)
 assert.ok(!fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8').includes('team-payout'))
 console.log('team-payout: ok')
+// One live Rigel only.
+const fake = { exitCode: null, signalCode: null, killed: false }
+m.procs.rigel = fake
+let spawned = 0
+m.spawnChild = () => { spawned++; return {} }
+assert.strictEqual(m.startRigel(), fake)
+assert.strictEqual(spawned, 0)
+fake.exitCode = 1
+m.state = Object.assign(m.state || {}, { wallet: '0x' + 'ab'.repeat(20), worker: 'w', mode: 'mine' })
+m.startRigel()
+assert.strictEqual(spawned, 1)
+console.log('single-rigel: ok')
