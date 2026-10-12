@@ -71,13 +71,15 @@ function launchTargets (intent) {
   return out
 }
 
-// A killed or hung session leaves running* set. With no live process those flags are stale:
-// forget them and do not resume. A clean quit already cleared running*, so an armed resume snapshot stays.
+// A killed or hung session (reboot, power loss, crash, task kill) leaves running* set with no live process.
+// 3.1.4: with "Keep mining" on (armed), turn those flags into the resume snapshot, the same as a clean quit,
+// so the chains that were mining start again on launch. With "Keep mining" off, forget them and do not resume.
+// A clean quit already cleared running*, so an armed resume snapshot stays.
 function afterStartup (intent, processAlive) {
   const it = Object.assign({}, intent || {})
   if (processAlive) return it
   const stale = !!(it.runningCpu || it.runningClassicGpu || it.runningShard0)
-  if (stale) return afterStop(it, 'all')
+  if (stale) return armed(it) ? afterQuit(it) : afterStop(it, 'all')
   return clearedRunning(it)
 }
 

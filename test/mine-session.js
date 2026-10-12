@@ -136,19 +136,38 @@ assert.strictEqual(flags.minerRunClassicGpu, '')
 assert.strictEqual(flags.minerRunShard0, '')
 assert.strictEqual(flags.minerPickClassicGpu, 'gpu')
 
-// A killed session leaves runningClassicGpu set. With no process, startup forgets it and does not resume.
+// 3.1.4: a killed session (reboot/crash) with Keep mining on resumes the chains that were running.
 const stale = resume.afterStartup({
   autoResume: true,
   keepMining: true,
   runningClassicGpu: true,
-  resume: { cpu: false, classicGpu: true, shard0: false }
+  runningShard0: true,
+  resume: { cpu: false, classicGpu: false, shard0: false }
 }, false)
 assert.strictEqual(stale.runningClassicGpu, false)
 assert.strictEqual(stale.runningCpu, false)
 assert.strictEqual(stale.runningShard0, false)
-assert.strictEqual(stale.autoResume, false)
-assert.deepStrictEqual(stale.resume, { cpu: false, classicGpu: false, shard0: false })
-assert.deepStrictEqual(resume.launchTargets(stale), [])
+assert.strictEqual(stale.autoResume, true)
+assert.deepStrictEqual(stale.resume, { cpu: false, classicGpu: true, shard0: true })
+assert.deepStrictEqual(resume.launchTargets(stale), ['classicGpu', 'shard0'])
+// a second startup pass (launchState runs it again) keeps the snapshot
+assert.deepStrictEqual(resume.launchTargets(resume.afterStartup(stale, false)), ['classicGpu', 'shard0'])
+
+// Keep mining off: a killed session forgets its flags and does not resume.
+const staleOff = resume.afterStartup({
+  autoResume: false,
+  keepMining: false,
+  runningClassicGpu: true,
+  resume: { cpu: false, classicGpu: true, shard0: false }
+}, false)
+assert.strictEqual(staleOff.runningClassicGpu, false)
+assert.strictEqual(staleOff.autoResume, false)
+assert.deepStrictEqual(staleOff.resume, { cpu: false, classicGpu: false, shard0: false })
+assert.deepStrictEqual(resume.launchTargets(staleOff), [])
+
+// Keep mining on but the user had stopped (autoResume false): no resume either.
+const staleStopped = resume.afterStartup({ autoResume: false, keepMining: true, runningCpu: true }, false)
+assert.deepStrictEqual(resume.launchTargets(staleStopped), [])
 
 // A clean quit already cleared running*. Startup keeps the armed resume snapshot.
 const clean = resume.afterStartup({
