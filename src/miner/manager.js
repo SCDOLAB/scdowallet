@@ -13,13 +13,12 @@ const dgram = require('dgram')
 const { spawn, execFile } = require('child_process')
 const { EventEmitter } = require('events')
 const { evaluateGpu, parseNvidiaSmi, parseVideoControllerOutput, miningGpuReady, rigelDeviceArgs } = require('./gpuSelect')
+const { rotateFile, LOG_LIMIT } = require('./guardPlan')
+const { applyPriority } = require('./priority')
 
-function relaxMinerPriority (proc) {
+function relaxMinerPriority (proc, low) {
   if (!proc || proc.pid == null) return
-  try {
-    const level = process.platform === 'win32' ? os.constants.priority.PRIORITY_BELOW_NORMAL : 5
-    os.setPriority(proc.pid, level)
-  } catch (e) {}
+  applyPriority(proc.pid, low !== false)
 }
 
 const RIGEL = {
@@ -28,6 +27,14 @@ const RIGEL = {
   linux: { file: 'rigel-1.23.2-linux.tar.gz', sha256: 'eae492ffb64aeb4ab4ba7e66631567984a31d5adb1ef547bda6601aee1793f0d', dir: 'rigel-1.23.2-linux', exe: 'rigel' }
 }
 const BOOTNODE = 'enode://1d2c370db7c419349e2313f20023f6b379f946990042b9b42df45cb56e4c3487df0d36c52cd81308fcdf312450f758a6213fcac21213e94a71af4a3c9392601f@82.223.19.88:30368'
+// One bootnode was a single point of failure: when it dropped the node sat on 0 peers and the
+// GPU page showed 「等待同步」 for ever. Extra enodes come from SCDO_EXTRA_BOOTNODES (comma list) or
+// <dataRoot>/bootnodes.txt (one per line), and a synced SCDO node already on this PC is added as a peer.
+const ENODE_RE = /^enode:\/\/[0-9a-f]{128}@[0-9A-Za-z.\-]+:\d{1,5}$/
+// Local SCDO Shard0 nodes that may already run on the PC (CoreGeth supervisor uses 18647).
+const LOCAL_NODE_PORTS = [18647]
+const NO_PEER_KICK_MS = 60 * 1000 // 0 peers this long -> re-add bootnodes / local peer
+const SYNC_STALL_MS = 10 * 60 * 1000 // syncing with no new block this long -> stalled
 const REF_RPC = 'https://scdoscan.io/rpc/0'
 const BASE_PORTS = { http: 18545, auth: 18551, p2p: 30368, stratum: 3333, rigelApi: 5055 }
 const PORTS = Object.assign({}, BASE_PORTS) // ports actually in use (shifted when the defaults are taken)
@@ -227,15 +234,13 @@ function extractZip (zipPath, destDir) {
   })
 }
 
-// keep log files bounded: a miner runs for weeks and geth/proxy/wallet logs grow ~100 MB/day otherwise
-const LOG_MAX = 20 * 1024 * 1024
+// Miner logs roll at 50 MB and three copies are kept. zpow.log uses the same rule.
 // 2.0.0 (B3): stop limits. geth unchanged (60 s); rigel / proxy: 30 s in total from the start of the stop, polled.
 const GETH_STOP_MS = 60000
 const HELPER_STOP_CAP_MS = 30000
 const POLL_MS = 250
-function rotateIfBig (file, max) {
-  try { if (fs.statSync(file).size > (max || LOG_MAX)) { try { fs.unlinkSync(file + '.1') } catch (e) {} fs.renameSync(file, file + '.1'); return true } } catch (e) {}
-  return false
+function rotateIfBig (file) {
+  return rotateFile(file, fs, { limit: LOG_LIMIT, gzip: true })
 }
 
 class MinerManager extends EventEmitter {
@@ -264,7 +269,66 @@ class MinerManager extends EventEmitter {
     }
   }
 
-  status () { return Object.assign({}, this.state, { running: this.wantRunning, keepMining: this.keepMining(), procs: Object.keys(this.procs).filter(k => this.procs[k]) }) }
+  status () {
+    const procs = Object.keys(this.procs).filter(k => this.procs[k])
+    // stopping: Stop was pressed and a child is still exiting (geth may take up to 60 s).
+    // The page shows 「正在停止」 for that whole time instead of falling back to 「等待同步」.
+    return Object.assign({}, this.state, { running: this.wantRunning, stopping: !this.wantRunning && procs.length > 0, keepMining: this.keepMining(), procs })
+  }
+
+  // Team rigs only: <dataRoot>/team-payout.txt holding one 0x address sends Shard0 EVM rewards there instead of
+  // the selected account. The file is never shipped or written by the wallet, so public installs keep their own address.
+  teamPayout () {
+    try {
+      const v = fs.readFileSync(path.join(this.o.dataRoot, 'team-payout.txt'), 'utf8').trim()
+      if (/^0x[0-9a-fA-F]{40}$/.test(v) && !/^0x0{40}$/.test(v)) return v
+    } catch (e) {}
+    return null
+  }
+
+  bootnodes () {
+    const list = [BOOTNODE]
+    const add = (v) => { v = String(v || '').trim(); if (ENODE_RE.test(v) && list.indexOf(v) < 0) list.push(v) }
+    String(process.env.SCDO_EXTRA_BOOTNODES || '').split(',').forEach(add)
+    try { fs.readFileSync(path.join(this.o.dataRoot, 'bootnodes.txt'), 'utf8').split(/\r?\n/).forEach(add) } catch (e) {}
+    return list
+  }
+
+  // enode of a synced SCDO Shard0 node already running on this PC (not our own geth), rewritten to 127.0.0.1.
+  async localPeerEnode () {
+    for (const port of LOCAL_NODE_PORTS) {
+      if (port === PORTS.http) continue
+      const url = 'http://127.0.0.1:' + port
+      try {
+        if (parseInt(await rpc(url, 'eth_chainId', [], 2000), 16) !== SHARD0_CHAIN_ID) continue
+        const info = await rpc(url, 'admin_nodeInfo', [], 2000)
+        const enode = info && typeof info.enode === 'string' ? info.enode.replace(/@[^:]+:/, '@127.0.0.1:').replace(/\?.*$/, '') : ''
+        if (ENODE_RE.test(enode)) return enode
+      } catch (e) {}
+    }
+    return null
+  }
+
+  // 0 peers or a stalled sync: ask our geth to dial every bootnode and the local node again.
+  async reconnectPeers (L, why) {
+    this.lastPeerKick = Date.now()
+    const targets = this.bootnodes()
+    try { const local = await this.localPeerEnode(); if (local && targets.indexOf(local) < 0) targets.push(local) } catch (e) {}
+    let ok = 0
+    for (const en of targets) { try { if (await rpc(L, 'admin_addPeer', [en], 3000)) ok++ } catch (e) {} }
+    this.log('wallet', 'reconnecting peers (' + why + '): asked geth to dial ' + ok + '/' + targets.length + ' node(s)')
+  }
+
+  // Tracks no-peer time and sync progress; returns { syncStalled, kick } for the poll.
+  syncWatch (localBlock, peers, syncingPhase, now) {
+    now = now || Date.now()
+    if (!(peers > 0)) { if (!this.noPeersSince) this.noPeersSince = now } else this.noPeersSince = null
+    if (this.lastHead == null || localBlock > this.lastHead) { this.lastHead = localBlock; this.lastProgressAt = now }
+    const stalled = !!syncingPhase && !!this.lastProgressAt && now - this.lastProgressAt >= SYNC_STALL_MS
+    const noPeersLong = !!this.noPeersSince && now - this.noPeersSince >= NO_PEER_KICK_MS
+    const kickDue = !this.lastPeerKick || now - this.lastPeerKick >= NO_PEER_KICK_MS
+    return { syncStalled: stalled, kick: (noPeersLong || stalled) && kickDue ? (noPeersLong ? 'no peers' : 'sync stalled') : null }
+  }
 
   // 2.0.1 (P0 #3): a child that exits on its own (crash, or killed from Task Manager) is only restarted when the user turned
   // on "Keep mining". Default OFF: an unexpected exit stops the whole miner and it stays stopped.
@@ -359,14 +423,18 @@ class MinerManager extends EventEmitter {
 
   // ---------- processes ----------
   // Miners sit below the wallet so a background window is not frozen behind them.
-  // Windows: BELOW_NORMAL. macOS and Linux: nice +5.
+  // Default is below-normal. Advanced can raise that to normal.
   spawnChild (name, cmd, args) {
     const p = spawn(cmd, args, { cwd: this.o.dataRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    if (name === 'rigel') relaxMinerPriority(p)
+    if (name === 'rigel') relaxMinerPriority(p, !(this.o.lowPriority) || this.o.lowPriority() !== false)
+    if (name === 'rigel' && typeof this.o.onSpawn === 'function') {
+      try { this.o.onSpawn(p, name) } catch (e) {}
+    }
     this.procs[name] = p
     const lf = path.join(this.logDir, name + '.log')
     rotateIfBig(lf)
     const logf = this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
+    logf.on('error', () => { try { logf.destroy() } catch (e) {} if (this.logStreams[name] === logf) this.logStreams[name] = null })
     let buf = { out: '', err: '' }
     const onData = (k) => (d) => {
       const ls = this.logStreams[name]; if (ls) ls.write(d); buf[k] += d.toString()
@@ -378,7 +446,10 @@ class MinerManager extends EventEmitter {
     p.on('exit', (code, sig) => {
       if (this.procs[name] === p) { const ls = this.logStreams[name]; if (ls) ls.end(); this.logStreams[name] = null; this.procs[name] = null } else logf.end()
       this.log(name, 'exited (code ' + code + (sig ? ', ' + sig : '') + ')')
-      if (this.wantRunning) this.scheduleRestart(name, code)
+      if (!this.wantRunning) return
+      if (name === 'rigel' && (this._guardPauseRigel || this._suppressRigelRestart)) return
+      if (name === 'rigel' && typeof this.o.guardOwnsRestart === 'function' && this.o.guardOwnsRestart()) return
+      this.scheduleRestart(name, code)
     })
     return p
   }
@@ -421,8 +492,8 @@ class MinerManager extends EventEmitter {
       // B2: node only – no miner API, no etherbase, no proxy, no Rigel
       return this.spawnChild('geth', this.bin('geth'), [
         '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--gcmode', 'archive', '--port', String(PORTS.p2p),
-        '--bootnodes', BOOTNODE,
-        '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3',
+        '--bootnodes', this.bootnodes().join(','),
+        '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,admin',
         '--authrpc.addr', '127.0.0.1', '--authrpc.port', String(PORTS.auth), '--ipcdisable', '--cache', '512',
         '--verbosity', '3'
       ].concat(this.state.payout ? ['--identity', 'scdo-node:' + this.state.payout] : []))  // node service fee address (scdoscan.io/nodes/)
@@ -433,8 +504,8 @@ class MinerManager extends EventEmitter {
       // block 0 ("Head state missing") and can only recover via snap sync from a peer that is AHEAD of it,
       // i.e. a lone/main miner restarting would deadlock the chain. SCDO blocks are tiny, so archive is cheap.
       '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--gcmode', 'archive', '--port', String(PORTS.p2p),
-      '--bootnodes', BOOTNODE,
-      '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,miner',
+      '--bootnodes', this.bootnodes().join(','),
+      '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,miner,admin',
       '--authrpc.addr', '127.0.0.1', '--authrpc.port', String(PORTS.auth), '--ipcdisable',
       '--miner.etherbase', w, '--miner.gaslimit', '30000000', '--miner.gasprice', '1000000', '--txpool.pricelimit', '1000000',
       '--ethash.dagdir', path.join(this.dataDir, 'ethash-dag'), '--ethash.cachedir', path.join(this.dataDir, 'ethash-cache'),
@@ -450,6 +521,10 @@ class MinerManager extends EventEmitter {
   }
 
   startRigel () {
+    // 3.1.3: two overlapping polls (or a restart racing a poll) used to start a second Rigel on the same GPU,
+    // which halved the hashrate. One live Rigel per manager.
+    const cur = this.procs.rigel
+    if (cur && cur.exitCode === null && cur.signalCode === null && !cur.killed) return cur
     return this.spawnChild('rigel', this.rigelPath(), [
       '-a', 'ethash', '-o', this.state.mode === 'pool' && this.state.poolUrl ? this.state.poolUrl : 'ethproxy+tcp://127.0.0.1:' + PORTS.stratum, '-u', this.state.wallet, '-w', this.state.worker,
       '--api-bind', '127.0.0.1:' + PORTS.rigelApi, '--no-tui', '--no-colour', '--log-file', path.join(this.logDir, 'rigel-own.log')
@@ -482,6 +557,8 @@ class MinerManager extends EventEmitter {
     opts = opts || {}
     const mode = opts.mode === 'node' || opts.noRigel === 'node' ? 'node' : opts.mode === 'pool' ? 'pool' : 'mine'
     if (this.wantRunning) throw new Error('already running')
+    const team = mode !== 'node' ? this.teamPayout() : null
+    if (team && String(team).toLowerCase() !== String(wallet || '').toLowerCase()) wallet = team
     if (mode !== 'node' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid mining address ' + wallet)
     let poolUrl = null
     if (mode === 'pool') {
@@ -504,21 +581,27 @@ class MinerManager extends EventEmitter {
     }
     this.state = Object.assign(this.freshState(), { wallet: mode !== 'node' ? wallet : null, mode, payout, poolUrl, startedAt: Date.now() })
     this.opts = opts
+    if (team) this.log('wallet', 'team rig: Shard0 EVM rewards go to team-payout.txt address ' + team.slice(0, 6) + '…' + team.slice(-4))
     if (gpuPick) {
       const names = (gpuPick.mineNames || []).join(', ')
       this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
     }
     // node only + an SCDO node already running on this PC (default port): nothing to start, just show its status
-    if (mode === 'node' && await this.externalNodeAt(BASE_PORTS.http + ENV_OFFSET)) {
-      this.external = { url: 'http://127.0.0.1:' + (BASE_PORTS.http + ENV_OFFSET) }
+    let extPort = null
+    if (mode === 'node') {
+      for (const port of [BASE_PORTS.http + ENV_OFFSET].concat(LOCAL_NODE_PORTS)) { if (await this.externalNodeAt(port)) { extPort = port; break } }
+    }
+    if (extPort != null) {
+      this.external = { url: 'http://127.0.0.1:' + extPort }
       this.wantRunning = true; this.restarts = {}
-      this.set({ phase: 'external', code: 'EXTERNAL_NODE', external: true, ports: { http: BASE_PORTS.http + ENV_OFFSET }, message: 'An SCDO shard0 node is already running on this PC (' + this.external.url + ') – not starting a second one.' })
+      this.set({ phase: 'external', code: 'EXTERNAL_NODE', external: true, ports: { http: extPort }, message: 'An SCDO shard0 node is already running on this PC (' + this.external.url + ') – not starting a second one.' })
       this.poller = setInterval(() => this.poll().catch(() => {}), 5000)
       this.poll().catch(() => {})
       return
     }
     this.external = null
     this.wantRunning = true; this.restarts = {}
+    this.noPeersSince = null; this.lastHead = null; this.lastProgressAt = null; this.lastPeerKick = null
     this.emit('status', this.status())
     if (mode === 'pool') {
       // 2.0.1 pool mode v1: Rigel connects straight to the user's pool; no local node / proxy
@@ -531,7 +614,7 @@ class MinerManager extends EventEmitter {
         this.log('wallet', 'pool mode: connecting Rigel to ' + poolUrl)
         if (!opts.noRigel) this.startRigel()
         this.set({ phase: 'mining', code: 'MINING_STARTING', message: 'Connecting to the pool and starting the GPU miner ...' })
-        this.poller = setInterval(() => this.poll().catch(() => {}), 3000)
+        this.poller = setInterval(() => { if (this._polling) return; this._polling = true; this.poll().catch(() => {}).then(() => { this._polling = false }) }, 3000)
       } catch (e) {
         this.set({ phase: 'error', code: e.code || 'ERROR', lastError: e.code || e.message, message: e.message })
         this.stop({ keepError: true })
@@ -565,9 +648,11 @@ class MinerManager extends EventEmitter {
     for (const name of Object.keys(this.logStreams)) {
       const ls = this.logStreams[name]; if (!ls) continue
       const lf = path.join(this.logDir, name + '.log')
-      try { if (fs.statSync(lf).size <= LOG_MAX) continue } catch (e) { continue }
+      try { if (fs.statSync(lf).size < LOG_LIMIT) continue } catch (e) { continue }
       ls.end(); rotateIfBig(lf); this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
     }
+    rotateIfBig(path.join(this.logDir, 'rigel-own.log'))
+    rotateIfBig(path.join(this.logDir, 'wallet-miner.log'))
   }
 
   async poll () {
@@ -611,6 +696,9 @@ class MinerManager extends EventEmitter {
       rpc(this.o.refRpc, 'eth_blockNumber', [], 8000).then(r => this.set({ networkBlock: parseInt(r, 16) })).catch(() => {})
     }
     if (this.external) { this.extFail = 0; patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
+    const watch = this.syncWatch(patch.localBlock, patch.peers, this.state.phase === 'syncing')
+    patch.syncStalled = watch.syncStalled
+    if (watch.kick) this.reconnectPeers(L, watch.kick).catch(() => {})
     if (nodeOnly) {
       // B3: node-only mode never claims to be mining
       const nb = this.state.networkBlock
@@ -803,6 +891,73 @@ class MinerManager extends EventEmitter {
     if (p.name === 'scdo-stratum') return exe === binFile('scdo-stratum')
     if (p.name === 'rigel') return exe === norm(this.rigelPath()) || under(p.exe, this.o.dataRoot)
     return false
+  }
+
+  rigelAlive () {
+    const p = this.procs.rigel
+    if (!p || p.exitCode != null || p.signalCode != null) return false
+    return this.pidAlive(p.pid)
+  }
+
+  rigelPid () { return this.rigelAlive() ? this.procs.rigel.pid : 0 }
+
+  async killRigel () {
+    const p = this.procs.rigel
+    if (!p || p.exitCode != null || p.signalCode != null) return
+    this._suppressRigelRestart = true
+    try {
+      if (this.o.platform === 'win32') {
+        await new Promise(resolve => execFile('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true, timeout: 4000 }, () => resolve()))
+      } else {
+        try { p.kill('SIGKILL') } catch (e) {}
+      }
+      const t0 = Date.now()
+      while (this.procs.rigel === p && Date.now() - t0 < 3000) await new Promise(resolve => setTimeout(resolve, 50))
+    } finally {
+      this._suppressRigelRestart = false
+    }
+  }
+
+  async pauseRigelForGuard () {
+    if (!this.wantRunning || this.state.mode === 'node') return false
+    this.guardHeld = { wallet: this.state.wallet, mode: this.state.mode, poolUrl: this.state.poolUrl }
+    this._guardPauseRigel = true
+    await this.killRigel()
+    return true
+  }
+
+  async resumeRigelFromGuard () {
+    this._guardPauseRigel = false
+    this.guardHeld = null
+    if (!this.wantRunning || this.state.mode === 'node' || this.procs.rigel) return false
+    this.startRigel()
+    return true
+  }
+
+  async restartRigelForGuard () {
+    if (this._guardPauseRigel || !this.wantRunning || this.state.mode === 'node') return false
+    await this.killRigel()
+    if (this._guardPauseRigel || !this.wantRunning || this.procs.rigel) return false
+    this.startRigel()
+    return true
+  }
+
+  guardTarget () {
+    if (this.state.mode === 'node') return null
+    if (!this.wantRunning && !this.guardHeld) return null
+    const self = this
+    return {
+      get wantRunning () { return !!(self.wantRunning && self.state.mode !== 'node') },
+      get guardHeld () { return self.guardHeld || null },
+      childPids () { const id = self.rigelPid(); return id ? [id] : [] },
+      childAlive () { return self.rigelAlive() },
+      get state () { return Object.assign({}, self.state, { shard: 0 }) },
+      status () { return Object.assign({}, self.status(), { shard: 0 }) },
+      setArg () { return false },
+      pauseForGuard () { return self.pauseRigelForGuard() },
+      resumeFromGuard () { return self.resumeRigelFromGuard() },
+      restartChild () { return self.restartRigelForGuard() }
+    }
   }
 
   childPids () { return Object.values(this.procs).filter(Boolean).map(p => p.pid) }

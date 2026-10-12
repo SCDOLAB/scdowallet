@@ -338,7 +338,7 @@ function buildIsland (opts) {
       text: tr('isleAcctBal', { text: balanceText }),
       mark: balanceMark,
       name: balanceName,
-      tip: tipOf(tr('isleLegBalName'), balanceText, tr('isleTipBalExplain'), balanceName ? balanceName : '')
+      tip: tipOf(tr('isleLegBalName'), opts.balanceFull || balanceText, tr('isleTipBalExplain'), balanceName ? balanceName : '')
     })
   }
   const compactTop = chips.map(c => c.text).join(' · ')

@@ -31,6 +31,7 @@ function formatExitMessage (code, logTail) {
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
 const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, pidAlive } = require('./launch')
+const { rotateFile } = require('../guardPlan')
 
 function httpGetJson (url, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -139,7 +140,9 @@ class ZpowManager extends EventEmitter {
     try {
       const dir = path.join(this.o.dataRoot, 'logs')
       fs.mkdirSync(dir, { recursive: true })
-      fs.appendFileSync(path.join(dir, 'zpow.log'), shown + '\n')
+      const file = path.join(dir, 'zpow.log')
+      rotateFile(file, fs, { gzip: true })
+      fs.appendFileSync(file, shown + '\n')
     } catch (e) {}
     this.emit('log', shown)
   }
@@ -221,8 +224,18 @@ class ZpowManager extends EventEmitter {
       external: external && external.binary ? { available: fs.existsSync(external.binary), path: external.binary, solo: !!external.solo, id: external.id } : null,
       pools,
       cpuCount: Math.max(1, (os.cpus() || []).length || 1),
-      threadsDefault: defaultCpuThreads((os.cpus() || []).length || 1)
+      threadsDefault: this.threadsDefault(defaultCpuThreads((os.cpus() || []).length || 1))
     }
+  }
+
+  threadsDefault (fallback) {
+    if (typeof this.o.threadsDefault === 'function') {
+      try {
+        const n = Number(this.o.threadsDefault())
+        if (Number.isFinite(n) && n >= 1) return Math.floor(n)
+      } catch (e) {}
+    }
+    return fallback
   }
 
   childAlive () {
@@ -233,6 +246,18 @@ class ZpowManager extends EventEmitter {
 
   childPids () {
     return this.childAlive() ? [this.proc.pid] : []
+  }
+
+  // Threads the current process was spawned with, plus hashrate when the
+  // miner has reported one. The guard reads this; it is not a second writer.
+  liveObservation () {
+    const alive = this.childAlive()
+    const hr = this.state && this.state.hashrateSource !== 'pool' && this.state.rateSeen ? Number(this.state.hashrate) : null
+    return {
+      running: alive,
+      threads: alive ? this.spawnedThreads : null,
+      hashrate: alive && hr != null && Number.isFinite(hr) ? hr : null
+    }
   }
 
   pushSyncSample (h, now) {
@@ -361,7 +386,13 @@ class ZpowManager extends EventEmitter {
       const n = Number(normalizeMiningInput(v))
       return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback
     }
-    const threads = asInt(opts.threads, caps.threadsDefault || 1)
+    let threads = asInt(opts.threads, caps.threadsDefault || 1)
+    if (typeof this.o.clampThreads === 'function') {
+      try {
+        const capped = Number(this.o.clampThreads(threads))
+        if (Number.isFinite(capped) && capped >= 1) threads = Math.floor(capped)
+      } catch (e) {}
+    }
     const threadblocks = asInt(opts.threadblocks, 100)
     const blockthreads = asInt(opts.blockthreads, 100)
     const pool = poolForShard(parsed.shard, poolsFromEnv(env) || this.o.pools)
@@ -393,6 +424,10 @@ class ZpowManager extends EventEmitter {
         user: parsed.address,
         worker: workerName
       })
+      if (opts.batch != null && Number(opts.batch) >= 1) {
+        const bi = args.indexOf('-batch')
+        if (bi >= 0) args[bi + 1] = String(Math.floor(Number(opts.batch)))
+      }
       cwd = path.dirname(binary)
     } else if (gpuMiner === 'external') {
       const profile = externalProfile(env)
@@ -457,6 +492,17 @@ class ZpowManager extends EventEmitter {
     this.etaHoldAt = 0
     this.wantRunning = true
     this.launchSpec = { binary, args, cwd, env: nodeEnv, ctrlC }
+    this.launchThreads = threads
+    const batchAt = args.indexOf('-batch')
+    this.lastStart = {
+      address: parsed.address,
+      opts: Object.assign({}, opts, {
+        threads,
+        shard: parsed.shard,
+        backend,
+        batch: batchAt >= 0 ? Number(args[batchAt + 1]) : opts.batch
+      })
+    }
     this.emit('status', this.status())
     this.armChild()
     if (this.state.pool) this.poller = setInterval(() => this.pollPool().catch(() => {}), 15000)
@@ -471,9 +517,20 @@ class ZpowManager extends EventEmitter {
 
   armChild () {
     const spec = this.launchSpec
-    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
+    const low = typeof this.o.lowPriority === 'function' ? this.o.lowPriority() !== false : true
+    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined, lowPriority: low })
     this.proc = proc
     this.livePid = proc.pid || 0
+    this.spawnedThreads = null
+    const spawnedArgs = spec.args || []
+    for (const flag of ['-threads', '--threads']) {
+      const i = spawnedArgs.indexOf(flag)
+      if (i >= 0 && i + 1 < spawnedArgs.length) {
+        const n = Number(spawnedArgs[i + 1])
+        if (Number.isFinite(n) && n >= 1) this.spawnedThreads = Math.floor(n)
+      }
+    }
+    try { if (typeof this.o.onSpawn === 'function') this.o.onSpawn(proc, this) } catch (e) {}
     proc.on('error', e => this.log('spawn error: ' + e.message))
     const onData = (buf) => {
       this.buf += buf.toString()
@@ -487,6 +544,7 @@ class ZpowManager extends EventEmitter {
       if (this.proc === proc) this.proc = null
       if (this.livePid === proc.pid) this.livePid = 0
       this.log('exited (code ' + code + ')')
+      if (this.suppressExitRestart) return
       if (!this.wantRunning) return
       const message = formatExitMessage(code, this.state.logTail)
       if (code === 2 || code === 3) {
@@ -494,8 +552,58 @@ class ZpowManager extends EventEmitter {
         this.set({ phase: 'error', code: code === 3 ? 'SELFTEST' : 'LOGIN', lastError: message, message })
         return
       }
+      if (typeof this.o.guardOwnsRestart === 'function' && this.o.guardOwnsRestart()) {
+        this.set({ phase: 'starting', code: 'RESTARTING', lastError: message, message })
+        return
+      }
       this.scheduleRestart(code, message)
     })
+  }
+
+  setArg (flag, value) {
+    const args = this.launchSpec && this.launchSpec.args
+    if (!args) return false
+    const i = args.indexOf(flag)
+    if (i < 0 || i + 1 >= args.length) return false
+    const next = String(value)
+    if (String(args[i + 1]) === next) return false
+    args[i + 1] = next
+    if (this.lastStart && this.lastStart.opts) {
+      if (flag === '-threads' || flag === '--threads') this.lastStart.opts.threads = Number(value)
+      if (flag === '-batch') this.lastStart.opts.batch = Number(value)
+    }
+    return true
+  }
+
+  async restartChild () {
+    if (!this.wantRunning || !this.launchSpec) return false
+    this.suppressExitRestart = true
+    const proc = this.proc
+    this.proc = null
+    this.livePid = 0
+    try {
+      if (proc && proc.exitCode == null && proc.signalCode == null && pidAlive(proc.pid)) {
+        await stopMiner(proc, { platform: this.o.platform || process.platform, execFile: this.o.execFile })
+      }
+    } catch (e) {}
+    this.suppressExitRestart = false
+    if (!this.wantRunning || !this.launchSpec) return false
+    this.armChild()
+    return true
+  }
+
+  async pauseForGuard () {
+    if (this.lastStart) this.guardHeld = this.lastStart
+    this._guardPausing = true
+    try { await this.stop() } finally { this._guardPausing = false }
+  }
+
+  async resumeFromGuard () {
+    const held = this.guardHeld
+    if (!held || !held.address || this.wantRunning) return false
+    this.guardHeld = null
+    await this.start(held.address, held.opts || {})
+    return true
   }
 
   scheduleRestart (code, message) {
@@ -556,6 +664,7 @@ class ZpowManager extends EventEmitter {
 
   async stop () {
     this.wantRunning = false
+    if (!this._guardPausing) this.guardHeld = null
     this.earnBase = null
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
     if (this.poller) { clearInterval(this.poller); this.poller = null }

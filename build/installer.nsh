@@ -18,13 +18,16 @@ Var pid
   !insertmacro _CHECK_APP_RUNNING
 !macroend
 
-; All-users 2.0.12 is recorded at
+; 3.1.2 installs for the current user under %LOCALAPPDATA%\Programs.
+; An older all-users copy is recorded at
 ; HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\<guid>
-; (UNINSTALL_REGISTRY_KEY). electron-builder's assisted installer only looks at
-; HKLM\Software\<guid> (INSTALL_REGISTRY_KEY) and otherwise stays per-user, so a
-; wizard or the in-app updater (setup.exe /S --force-run, not elevated) would
-; add a second Apps entry. If that uninstall key exists, upgrade that directory
-; and elevate. A machine with no HKLM install stays per-user.
+; (UNINSTALL_REGISTRY_KEY). That copy is removed before any new files or
+; per-user uninstall key are written. Running it afterwards, and without
+; /allusers, deletes the install that was just registered and still exits 0.
+; --updated tells that uninstaller to leave app data in place.
+; Account files stay outside both install folders.
+Var oldInstallDir
+Var oldQuietUninstall
 
 !macro scdoReadPerMachineUninstall
   ReadRegStr $R8 HKLM "${UNINSTALL_REGISTRY_KEY}" "InstallLocation"
@@ -78,6 +81,13 @@ Var pid
       StrCpy $R6 "1"
     ${EndIf}
   ${EndIf}
+  ${If} $R6 == "1"
+  ${AndIf} $oldQuietUninstall == ""
+    ReadRegStr $R8 HKLM "${UNINSTALL_REGISTRY_KEY}" "QuietUninstallString"
+    ${If} $R8 != ""
+      StrCpy $oldQuietUninstall $R8
+    ${EndIf}
+  ${EndIf}
 !macroend
 
 !macro customInit
@@ -90,6 +100,7 @@ Var pid
   Push $R9
   StrCpy $R6 ""
   StrCpy $R7 ""
+  StrCpy $oldQuietUninstall ""
 
   SetRegView 64
   !insertmacro scdoReadPerMachineUninstall
@@ -99,48 +110,77 @@ Var pid
     SetRegView 64
   ${EndIf}
 
-  ${If} $R6 == "1"
-    StrCpy $hasPerMachineInstallation "1"
-    StrCpy $hasPerUserInstallation "0"
+  ${If} $R7 != ""
+    StrCpy $oldInstallDir $R7
+  ${ElseIf} $perMachineInstallationFolder != ""
+    StrCpy $oldInstallDir $perMachineInstallationFolder
   ${EndIf}
 
-  ${If} $hasPerMachineInstallation == "1"
+  ${If} $oldInstallDir == ""
+    ${If} ${FileExists} "$PROGRAMFILES64\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\SCDO Wallet\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\SCDO Wallet"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES64\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES64\ScdoWalletBeta"
+    ${ElseIf} ${FileExists} "$PROGRAMFILES\ScdoWalletBeta\ScdoWalletBeta.exe"
+      StrCpy $oldInstallDir "$PROGRAMFILES\ScdoWalletBeta"
+    ${EndIf}
+  ${EndIf}
+
+  ; Never put this install back into Program Files.
+  StrCpy $hasPerMachineInstallation "0"
+  StrCpy $hasPerUserInstallation "1"
+  !insertmacro setInstallModePerUser
+
+  ; Cross-scope: an all-users 3.0.x copy must be removed before the per-user
+  ; files exist. Elevation is only for that uninstall. If it is declined, the
+  ; new copy is installed beside it and the old shortcuts are removed later.
+  ${If} $oldInstallDir != ""
+  ${AndIf} $oldInstallDir != $INSTDIR
     ${IfNot} ${UAC_IsAdmin}
       ShowWindow $HWNDPARENT ${SW_HIDE}
       !insertmacro UAC_RunElevated
       ${Switch} $0
         ${Case} 0
           ${If} $1 = 1
+            SetErrorLevel $2
             Quit
           ${EndIf}
           ${Break}
         ${Case} 1223
-          ; /SD IDOK: a silent (/S) install must not wait on this box. UAC cancel
-          ; or timeout is error 1223; leave a non-zero exit code and stop.
-          MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet is installed for all users. Administrator approval is required to upgrade that installation." /SD IDOK
-          SetErrorLevel 1223
-          Quit
+          StrCpy $oldInstallDir ""
+          ${Break}
         ${Default}
-          MessageBox MB_ICONSTOP|MB_TOPMOST "Unable to elevate, error $0" /SD IDOK
-          SetErrorLevel 1
-          Quit
+          StrCpy $oldInstallDir ""
+          ${Break}
       ${EndSwitch}
-      Quit
-    ${Else}
-      ${If} $R7 != ""
-      ${AndIf} ${FileExists} "$R7"
-        ReadRegStr $R8 HKLM "${INSTALL_REGISTRY_KEY}" "InstallLocation"
-        ${If} $R8 == ""
-          WriteRegStr HKLM "${INSTALL_REGISTRY_KEY}" "InstallLocation" "$R7"
+      ShowWindow $HWNDPARENT ${SW_SHOW}
+    ${EndIf}
+    ${If} $oldInstallDir != ""
+    ${AndIf} ${UAC_IsAdmin}
+      StrCpy $R2 $INSTDIR
+      StrCpy $INSTDIR $oldInstallDir
+      ; Close the old all-users app without IS_POWERSHELL_AVAILABLE —
+      ; $PowerShellPath is only declared inside CHECK_APP_RUNNING, which
+      ; has not run yet when customInit elevates for the 3.0.x uninstall.
+      InitPluginsDir
+      File /oname=$PLUGINSDIR\scdo-close-wallet.ps1 "${BUILD_RESOURCES_DIR}\scdo-close-wallet.ps1"
+      nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\scdo-close-wallet.ps1" -InstDir "$INSTDIR" -AppExe "ScdoWalletBeta.exe" -MaxWait 60`
+      Pop $0
+      StrCpy $INSTDIR $R2
+      ${If} $oldQuietUninstall != ""
+        ExecWait '$oldQuietUninstall --updated' $R1
+      ${Else}
+        StrCpy $R0 "$oldInstallDir\Uninstall ScdoWalletBeta.exe"
+        ${IfNot} ${FileExists} "$R0"
+          StrCpy $R0 "$oldInstallDir\Uninstall SCDO Wallet.exe"
         ${EndIf}
-      ${EndIf}
-      !ifmacrodef setInstallModePerAllUsers
-        !insertmacro setInstallModePerAllUsers
-      !endif
-      ${If} $R7 != ""
-      ${AndIf} ${FileExists} "$R7"
-        StrCpy $INSTDIR $R7
-        StrCpy $perMachineInstallationFolder $R7
+        ${If} ${FileExists} "$R0"
+          InitPluginsDir
+          CopyFiles /SILENT "$R0" "$PLUGINSDIR\old-uninstaller.exe"
+          ExecWait '"$PLUGINSDIR\old-uninstaller.exe" /S /allusers --updated _?=$oldInstallDir' $R1
+        ${EndIf}
       ${EndIf}
     ${EndIf}
   ${EndIf}
@@ -156,9 +196,8 @@ Var pid
 
 !macro customInstallMode
   !ifndef BUILD_UNINSTALLER
-    ${If} $hasPerMachineInstallation == "1"
-      StrCpy $isForceMachineInstall "1"
-    ${EndIf}
+    StrCpy $isForceCurrentInstall "1"
+    StrCpy $isForceMachineInstall "0"
   !endif
 !macroend
 
@@ -166,7 +205,15 @@ Var pid
 ; icon in the shortcut and the taskbar cache. Recreate both shortcuts against
 ; icon index 0, then SHCNE_ASSOCCHANGED (flush) and SHCNE_UPDATEITEM.
 !macro customInstall
+  Push $R0
   Push $R1
+  ; The old all-users uninstaller already ran in customInit, before this
+  ; install was registered. Do not run it again from here.
+  ${IfNot} ${FileExists} "$appExe"
+    MessageBox MB_ICONSTOP|MB_TOPMOST "SCDO Wallet was not installed. ScdoWalletBeta.exe is missing, so this setup did not succeed." /SD IDOK
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
   !ifdef MENU_FILENAME
     CreateDirectory "$SMPROGRAMS\${MENU_FILENAME}"
     ClearErrors
@@ -195,5 +242,37 @@ Var pid
   ${If} ${FileExists} "$R1"
     System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x1005, w "$R1", i 0)'
   ${EndIf}
+  ; Drop leftover old-name per-user shortcuts. Never remove the links just created.
+  ${If} "$DESKTOP\ScdoWalletBeta.lnk" != "$newDesktopLink"
+    Delete "$DESKTOP\ScdoWalletBeta.lnk"
+  ${EndIf}
+  ${If} "$SMPROGRAMS\SCDO Wallet.lnk" != "$newStartMenuLink"
+    Delete "$SMPROGRAMS\SCDO Wallet.lnk"
+  ${EndIf}
+  Delete "$SMPROGRAMS\ScdoWalletBeta.lnk"
+  ; All-users leftovers. NSIS has no $COMMONDESKTOP / $COMMONPROGRAMS constants;
+  ; $DESKTOP and $SMPROGRAMS point at the all-users folders under
+  ; SetShellVarContext all. Without admin rights these deletes just fail quietly.
+  SetShellVarContext all
+  Delete "$DESKTOP\SCDO Wallet.lnk"
+  Delete "$DESKTOP\ScdoWalletBeta.lnk"
+  Delete "$SMPROGRAMS\SCDO Wallet.lnk"
+  Delete "$SMPROGRAMS\ScdoWalletBeta.lnk"
+  !ifdef MENU_FILENAME
+    Delete "$SMPROGRAMS\${MENU_FILENAME}\SCDO Wallet.lnk"
+    Delete "$SMPROGRAMS\${MENU_FILENAME}\ScdoWalletBeta.lnk"
+  !endif
+  SetShellVarContext current
+  ClearErrors
   Pop $R1
+  Pop $R0
+!macroend
+
+; Uninstall removes the program folder only. Account files stay in the home directory.
+!macro customUnInstall
+  ; Do not delete account files.
+  ; The uninstaller pass never runs customInit/customInstall, so reference
+  ; oldInstallDir here too; otherwise makensis warning 6001 fails the pack (-WX).
+  StrCpy $oldInstallDir ""
+  StrCpy $oldQuietUninstall ""
 !macroend

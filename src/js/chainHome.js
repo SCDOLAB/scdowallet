@@ -24,11 +24,19 @@
     return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
   }
 
-  function showUnits (units, decimals) {
-    if (units == null) return DASH
+  function balanceView (units, decimals) {
+    if (units == null) return { short: DASH, full: '' }
     const api = amountApi()
-    if (!api) return String(units)
-    try { return api.fmtUnits(units, decimals) } catch (e) { return DASH }
+    if (!api) return { short: String(units), full: '' }
+    try {
+      if (api.fmtBalance) return api.fmtBalance(units, decimals)
+      const t = api.fmtUnits(units, decimals)
+      return { short: t, full: t }
+    } catch (e) { return { short: DASH, full: '' } }
+  }
+
+  function showUnits (units, decimals) {
+    return balanceView(units, decimals).short
   }
 
   function sortEntries (entries) {
@@ -57,12 +65,17 @@
       try { sum += BigInt(e.units); known++ } catch (err) { failed++ }
     }
     let text = DASH
-    if (known) text = showUnits(sum, dec)
-    else if (!entries.length) text = '0'
+    let full = ''
+    if (known) {
+      const view = balanceView(sum, dec)
+      text = view.short
+      full = view.full
+    } else if (!entries.length) text = '0'
     return {
       n: chain && chain.n,
       title: chainTitle(chain && chain.n),
       text: text,
+      full: full,
       partial: failed > 0 && known > 0,
       failed: failed > 0,
       pending: pending > 0 && !known,
@@ -88,6 +101,27 @@
   function optionLabel (e) {
     const bal = e.units == null ? DASH : showUnits(e.units, e.decimals)
     return (e.name || DASH) + ' · ' + shortAddr(e.address) + ' · ' + scdoText(bal)
+  }
+
+  function accountMenuHtml (id, entries, selected, esc) {
+    const sorted = sortEntries(entries)
+    const cur = selected ? String(selected).toLowerCase() : ''
+    const row = (e, tag, on) => {
+      const view = balanceView(e.units, e.decimals)
+      const bal = e.units == null ? DASH : scdoText(view.short)
+      const tip = e.units == null ? '' : scdoText(view.full || view.short)
+      const dash = e.units == null ? ' dash' : ''
+      const attr = tag === 'button' ? ' type="button" data-pay-addr="' + esc(e.address || '') + '"' : ''
+      return '<' + tag + ' class="pay-acct-row' + (on ? ' on' : '') + '"' + attr + '>' +
+        '<span class="pay-acct-name">' + esc(e.name || DASH) + '</span>' +
+        '<span class="pay-acct-addr">' + esc(shortAddr(e.address)) + '</span>' +
+        '<b class="pay-acct-bal' + dash + '" title="' + esc(tip) + '">' + esc(bal) + '</b>' +
+        '</' + tag + '>'
+    }
+    const picked = sorted.find(e => e.address && String(e.address).toLowerCase() === cur) || null
+    const head = picked ? row(picked, 'span', false) : '<span class="pay-acct-row"><span class="pay-acct-name">' + esc(DASH) + '</span></span>'
+    const list = sorted.map(e => row(e, 'button', !!(e.address && String(e.address).toLowerCase() === cur))).join('')
+    return '<details class="pay-acct" id="' + esc(id) + '"><summary>' + head + '</summary><div class="pay-acct-list">' + list + '</div></details>'
   }
 
   function selectHtml (id, entries, selected, esc) {
@@ -120,9 +154,11 @@
     const list = sum.entries
     const scroll = list.length > PAGE ? ' addr-scroll' : ''
     const rows = list.map(e => {
-      const bal = e.failed || e.units == null ? DASH : showUnits(e.units, e.decimals)
+      const view = e.failed || e.units == null ? { short: DASH, full: '' } : balanceView(e.units, e.decimals)
+      const bal = view.short
+      const tip = view.full ? scdoText(view.full) : ''
       const addr = e.address || ''
-      return '<div class="addr-line" data-addr="' + esc(addr) + '"><div class="addr-main"><b>' + esc(e.name || DASH) + '</b><span class="mono">' + esc(shortAddr(addr)) + '</span><button type="button" class="link" data-act="copy" data-v="' + esc(addr) + '">' + esc(T('copy')) + '</button></div><div class="addr-bal">' + esc(scdoText(bal)) + '</div><div class="addr-go"><button type="button" class="link" data-act="recvAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellRecvShort')) + '</button><button type="button" class="link" data-act="remitAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellSendShort')) + '</button></div></div>'
+      return '<div class="addr-line" data-addr="' + esc(addr) + '"><div class="addr-main"><b>' + esc(e.name || DASH) + '</b><span class="mono">' + esc(shortAddr(addr)) + '</span><button type="button" class="link" data-act="copy" data-v="' + esc(addr) + '">' + esc(T('copy')) + '</button></div><div class="addr-bal" title="' + esc(tip) + '">' + esc(scdoText(bal)) + '</div><div class="addr-go"><button type="button" class="link" data-act="recvAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellRecvShort')) + '</button><button type="button" class="link" data-act="remitAddr" data-v="' + esc(addr) + '" data-shard="' + esc(String(sum.n)) + '">' + esc(T('shellSendShort')) + '</button></div></div>'
     }).join('')
     return '<div class="addr-list' + scroll + '">' + rows + '</div>'
   }
@@ -171,7 +207,8 @@
       const open = !!(chain && chain.open)
       const partial = sum.partial ? '<div class="chain-partial">' + esc(T('shellPartial')) + '</div>' : ''
       const body = open ? (addrBlock(chain, sum, T, esc) + historyHtml(Object.assign({}, chain, { n: sum.n, entries: sum.entries }), T, esc)) : ''
-      return '<details class="shell-fold chain-card" data-chain-row="' + sum.n + '"' + (open ? ' open' : '') + '><summary><span class="chain-id"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span><span class="chain-name">' + esc(sum.title) + '</span></span><b class="chain-bal">' + esc(scdoText(sum.text)) + '</b></summary>' + partial + body + '</details>'
+      const tip = sum.full ? scdoText(sum.full) : scdoText(sum.text)
+      return '<details class="shell-fold chain-card" data-chain-row="' + sum.n + '"' + (open ? ' open' : '') + '><summary><span class="chain-id"><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span><span class="chain-name">' + esc(sum.title) + '</span></span><b class="chain-bal" title="' + esc(tip) + '">' + esc(scdoText(sum.text)) + '</b></summary>' + partial + body + '</details>'
     }).join('')
   }
 
@@ -184,6 +221,7 @@
     sortEntries: sortEntries,
     pickDefault: pickDefault,
     selectHtml: selectHtml,
+    accountMenuHtml: accountMenuHtml,
     rowsHtml: rowsHtml,
     historyHtml: historyHtml,
     txRows: txRows,

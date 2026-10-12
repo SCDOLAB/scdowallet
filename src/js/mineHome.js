@@ -173,8 +173,17 @@ function syncPctOf (m) {
   return Math.max(0, Math.min(100, Math.round((local / network) * 100)))
 }
 
+// The miner was told to stop and its children are still exiting (geth can take up
+// to 60 s to save the chain). That is 「正在停止」, never 「等待同步」.
+function shuttingDown (m) {
+  if (!m) return false
+  if (m.stopping === true) return true
+  return m.code === 'STOPPING' && (procsAlive(m) || (Array.isArray(m.shards) && m.shards.some(s => s && procsAlive(s))))
+}
+
 function stillSyncing (m) {
   if (!m) return false
+  if (shuttingDown(m)) return false
   if (m.phase === 'syncing' || m.paused) return true
   if (m.code === 'CLASSIC_SYNCING' || m.code === 'CLASSIC_PAUSED' || m.code === 'CLASSIC_CHECKING' || m.code === 'CLASSIC_STARTING' || m.code === 'SYNCING') return true
   const local = knownHeight(m.localBlock)
@@ -196,6 +205,7 @@ function nodeSyncOf (input) {
 
 function waitingSync (m, kind) {
   if (!m || liveMiner(m, kind) || m.mode === 'node' || m.mode === 'cpu') return false
+  if (shuttingDown(m)) return false
   if (!(m.running || procsAlive(m))) return false
   return stillSyncing(m)
 }
@@ -289,6 +299,20 @@ function anyLive (miners) {
   return liveMiner(miners.shard0, 'shard0') || liveMiner(miners.classicCpu, 'classic') || liveMiner(miners.classicGpu, 'classic')
 }
 
+function anyShuttingDown (miners) {
+  miners = miners || {}
+  return shuttingDown(miners.shard0) || shuttingDown(miners.classicCpu) || shuttingDown(miners.classicGpu)
+}
+
+// Shard0 EVM needs its own miner:stop when it is wanted, or when its node/proxy are
+// still alive and no stop is already running. A cleared running flag alone is not
+// "already stopped": the processes can outlive it.
+function shard0NeedsStop (s0) {
+  if (!s0 || s0.mode === 'node' || s0.chain === 'classic') return false
+  if (s0.running) return true
+  return procsAlive(s0) && !shuttingDown(s0)
+}
+
 function anyEngaged (miners) {
   miners = miners || {}
   return engaged(miners.shard0, 'shard0') || engaged(miners.classicCpu, 'classic') || engaged(miners.classicGpu, 'classic')
@@ -330,6 +354,7 @@ function statusPhase (input) {
   const p = input && input.phase
   if (p === 'starting' || p === 'stopping') return p
   const miners = input && input.miners
+  if (anyShuttingDown(miners)) return 'stopping'
   if (anyLive(miners)) return 'mining'
   if (input && input.liveOnly) {
     if (p === 'mining') return 'mining'
@@ -343,7 +368,9 @@ function statusPhase (input) {
 function buttonPhase (input) {
   const p = input && input.phase
   if (p === 'starting' || p === 'stopping') return p
-  return statusPhase(input) === 'stopped' ? 'stopped' : 'mining'
+  const sp = statusPhase(input)
+  if (sp === 'stopping') return 'stopping'
+  return sp === 'stopped' ? 'stopped' : 'mining'
 }
 
 // Click moves stopped → starting and mining → stopping.
@@ -545,10 +572,21 @@ function jobsForHome (input) {
   return jobs
 }
 
+// Why a waiting session is not hashing yet: no peers, sync stopped moving, or plain syncing.
+function waitReason (m) {
+  if (!m) return 'syncing'
+  if (m.code === 'NO_PEERS' || (m.peers != null && Number(m.peers) === 0 && m.phase === 'syncing')) return 'noPeers'
+  if (m.syncStalled === true) return 'stalled'
+  return 'syncing'
+}
+
 function waitDetail (sessions, T) {
   const sep = tr(T, 'd_listSep')
   return sessions.map(s => {
+    const why = waitReason(s.m)
     const pct = syncPctOf(s.m)
+    if (why === 'noPeers') return tr(T, 'homeMineWaitNoPeers', { chain: s.chain })
+    if (why === 'stalled') return tr(T, pct == null ? 'homeMineWaitStalled' : 'homeMineWaitStalledPct', { chain: s.chain, pct: pct })
     return pct == null ? tr(T, 'homeMineWaitChain', { chain: s.chain }) : tr(T, 'homeMineWaitPct', { chain: s.chain, pct: pct })
   }).join(sep)
 }
@@ -740,7 +778,7 @@ function defaultChainPick (saved, caps, targets, miners) {
   else if (saved.classic === 'gpu' || saved.classic === 'external') {
     gpu = [gpuShard]
     if (saved.cpu) cpu = [cpuShard]
-  } else if (gpuAvail) gpu = [gpuShard]
+  } else if (gpuAvail) gpu = [0] // 3.1.3: a graphics card with nothing saved mines Shard0 EVM
   else cpu = [cpuShard]
   if (saved.shard0 && gpu.indexOf(0) < 0) gpu.unshift(0)
   return sanitizeChainPick({ cpu: cpu, gpu: gpu }, caps)
@@ -846,6 +884,7 @@ function devicePhase (input, device) {
   const press = input && input.press && input.press[device]
   if (press === 'starting' || press === 'stopping') return press
   const miners = minersForDevice(input && input.miners, device)
+  if (anyShuttingDown(miners)) return 'stopping'
   if (anyLive(miners)) return 'mining'
   if (device === 'gpu' && gpuPoolUp(miners.classicGpu)) return 'mining'
   if (armedWithProcess(miners)) return 'waiting'
@@ -1179,7 +1218,7 @@ function homeLine (input, T) {
     else if (s0 && s0.mode !== 'node' && (s0.running || procsAlive(s0))) base = tr(T, 'homeLineShard0')
     else base = tr(T, 'homeLineIdle')
   }
-  return base + ' · ' + heightTicker(input.pools)
+  return base
 }
 
 function heightTicker (pools) {
@@ -1259,7 +1298,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

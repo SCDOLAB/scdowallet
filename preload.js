@@ -13,6 +13,7 @@ const INVOKE = Object.freeze([
   // wallet (main-process wallet service: keyfiles, balances, signing)
   'wallet:boot', 'wallet:accounts', 'wallet:saveUi', 'wallet:setLang',
   'acct:create', 'acct:unlock', 'acct:import',
+  'phrase:show', 'phrase:done', 'phrase:save',
   's0:chainInfo', 's0:balances', 's0:activity', 's0:refreshPending', 's0:waitReceipt', 's0:checkAddress', 's0:estimate', 's0:review', 's0:send', 's0:cancelReview',
   'old:balance', 'old:records', 'old:activity', 'old:estimateGas', 'old:send',
   // keyfile backup / delete
@@ -24,7 +25,7 @@ const INVOKE = Object.freeze([
   'miner:otherRigels', 'miner:resumeCheck', 'miner:clearRunning', 'miner:defender', 'miner:openLogs',
   'miner:caps', 'miner:classicStatus',
   // mining batch 1
-  'mining:gpuPreflight', 'mining:gpuTemp', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining', 'mining:poolStatus', 'mining:localSync',
+  'mining:gpuPreflight', 'mining:gpuTemp', 'mining:networkStats', 'mining:exportLogs', 'mining:getConfig', 'mining:setConfig', 'mining:setKeepMining', 'mining:setGuard', 'mining:poolStatus', 'mining:localSync',
   // 2.0.7: mining notification toggles, pool payout card
   'notify:get', 'notify:set', 'pool:account',
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)

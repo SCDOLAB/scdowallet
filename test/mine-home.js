@@ -707,8 +707,9 @@ assert.strictEqual(mine.chooseMinePath({
       }
     }
   }, CN)
-  const idleHeights = ' · Shard1 \u2014 · Shard2 \u2014 · Shard3 \u2014 · Shard4 \u2014'
-  assert.strictEqual(poolLine, I.CN.homeLineGpuPool + idleHeights)
+  const idleHeights = 'Shard1 \u2014 · Shard2 \u2014 · Shard3 \u2014 · Shard4 \u2014'
+  assert.strictEqual(poolLine, I.CN.homeLineGpuPool)
+  assert.strictEqual(mine.heightTicker(undefined), idleHeights)
   const ghostLine = mine.homeLine({
     miners: {
       classicGpu: {
@@ -717,7 +718,7 @@ assert.strictEqual(mine.chooseMinePath({
       }
     }
   }, CN)
-  assert.strictEqual(ghostLine, I.CN.homeLineIdle + idleHeights)
+  assert.strictEqual(ghostLine, I.CN.homeLineIdle)
   assert.ok(shown.includes('先用 CPU 經礦池挖'))
   assert.ok(shown.includes('data-act="mineCpuFirst"'))
   assert.ok(shown.includes('class="wait"'))

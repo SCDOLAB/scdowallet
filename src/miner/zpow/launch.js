@@ -4,9 +4,9 @@
 // stay an open pipe. Ending that pipe on stop can stall the main thread.
 'use strict'
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { spawn, execFile } = require('child_process')
+const { applyPriority } = require('../priority')
 
 const CTRL_C_PS1 = [
   'param([int]$ProcessId)',
@@ -80,12 +80,9 @@ const ZMINER_GPU_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{work
 // local coinbase-list switch, not 82.223.19.88:3341. The payout is basic.coinbase.
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
-function relaxMinerPriority (proc) {
+function relaxMinerPriority (proc, low) {
   if (!proc || proc.pid == null) return
-  try {
-    const level = process.platform === 'win32' ? os.constants.priority.PRIORITY_BELOW_NORMAL : 5
-    os.setPriority(proc.pid, level)
-  } catch (e) {}
+  applyPriority(proc.pid, low !== false)
 }
 
 function spawnMiner (spec) {
@@ -99,7 +96,7 @@ function spawnMiner (spec) {
     env: spec.env || process.env
   })
   if (proc.stdin) proc.stdin.on('error', () => {})
-  relaxMinerPriority(proc)
+  relaxMinerPriority(proc, spec.lowPriority)
   return proc
 }
 

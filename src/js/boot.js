@@ -30,7 +30,7 @@
   api.invoke('app:info').then(info => {
     if (!info) return
     lang = info.lang === 'EN' ? 'EN' : 'CN'; L = TX[lang]
-    const t = $('bootTitle'); if (t) t.textContent = 'SCDO Wallet ' + (info.displayVersion || info.version || '')
+    const t = $('bootTitle'); if (t) t.textContent = 'SCDO Wallet ' + (info.version || '')
     const m = $('bootMsg'); if (m) m.textContent = L.loading
     paintMine(last)
   }).catch(() => {})

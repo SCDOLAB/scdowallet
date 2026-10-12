@@ -118,6 +118,12 @@
     st.keepMining = on
     settingsModal()
   }
+  async function setGuardUi (el, key) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { await api.invoke('mining:setGuard', { [key]: on }) } catch (e) {}
+    settingsModal()
+  }
   function avatar (name) {
     let h = 0; for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) >>> 0
     const hue = h % 360
@@ -189,8 +195,10 @@
     txMore: {},
     txFilter: {},
     poolStatus: null,
-    oldErr: {}
+    oldErr: {},
+    phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : []
   }
+  let phraseHold = null
   const shard0 = () => ({
     cfg: S0CFG,
     explorerTx: (h) => S0CFG.explorer + '/#/tx?txhash=' + encodeURIComponent(h),
@@ -373,8 +381,9 @@
   }
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
-  function assetIconHtml (sym) {
+  function assetIconHtml (sym, logo) {
     if (sym === 'SCDO') return '<div class="ai"><img src="./assets/icon-64.png" alt=""></div>'
+    if (/^https:\/\/scdoscan\.io\/logos\/0x[0-9a-fA-F]{40}\.png$/.test(String(logo || ''))) return `<div class="ai"><img src="${esc(logo)}" alt=""></div>`
     return `<div class="ai" style="background:${esc(TOKEN_COLORS[sym] || '#8a8fa8')}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
   }
   // -> [{ symbol, name, bal: formatted balance | null (unknown yet) }]
@@ -383,12 +392,12 @@
     const out = [{ symbol: 'SCDO', name: T('assetScdo'), bal: b.nativeWei != null ? fmtWei(b.nativeWei) : null }]
     for (const t of (shard0().cfg.tokens || [])) {
       const bt = (b.tokens || []).find(x => x.symbol === t.symbol)
-      out.push({ symbol: t.symbol, name: T('assetTest'), bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
+      out.push({ symbol: t.symbol, name: t.name || T('assetTest'), logo: t.logo || '', bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
     }
     return out
   }
   function assetsHtml (a) {
-    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
+    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol, x.logo)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
       <div class="av">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div></div>`).join('')
   }
   // MetaMask-style asset dropdown used on the Send page: the button shows icon + symbol + balance of the chosen asset,
@@ -396,7 +405,7 @@
   function assetPickerHtml (a, cur) {
     const x = chainAssets(a).find(z => z.symbol === cur) || chainAssets(a)[0]
     return `<div class="assetsel" id="assetSel"><button type="button" class="assetbtn" id="assetBtn" aria-haspopup="listbox" aria-expanded="false" title="${esc(T('selectAsset'))}">
-      ${assetIconHtml(x.symbol)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
+      ${assetIconHtml(x.symbol, x.logo)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
       <div class="assetlist" id="assetList" role="listbox" hidden></div></div>`
   }
   function wireAssetPicker (a, getCur, onPick) {
@@ -405,7 +414,7 @@
     const open = () => {
       const cur = getCur()
       SD.html(list, `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
-        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol)}
+        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol, x.logo)}
           <div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
           <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join(''))
       list.hidden = false; btn.setAttribute('aria-expanded', 'true')
@@ -667,6 +676,10 @@
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
     return window.SCDOMineHome.homeLine(mineHomeInput(), T)
   }
+  function homeHeightLine () {
+    if (!window.SCDOMineHome || !window.SCDOMineHome.heightTicker) return ''
+    return window.SCDOMineHome.heightTicker(mineHomeInput().pools)
+  }
   function homeSnapHtml () {
     if (!window.SCDOChainHome) return ''
     const chains = chainRowModel({})
@@ -674,7 +687,8 @@
       const sum = window.SCDOChainHome.summarize(c)
       const dash = sum.text === '\u2014'
       const shown = dash ? '\u2014' : (sum.text + ' SCDO')
-      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}">${esc(shown)}</b></div>`
+      const tip = !dash && sum.full ? (sum.full + ' SCDO') : shown
+      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}" title="${esc(tip)}">${esc(shown)}</b></div>`
     }).join('')
     const hit = window.SCDOChainHome.latestTx ? window.SCDOChainHome.latestTx(chains) : null
     let last = '\u2014'
@@ -690,19 +704,45 @@
         known = true
       }
     }
-    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><b class="${known ? '' : 'dash'}">${esc(last)}</b></div>`
+    let extra = ''
+    if (hit && hit.tx) {
+      const n = Number(hit.tx.t) || Number(hit.t) || 0
+      let when = ''
+      if (n) {
+        try { when = new Date(n).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB') } catch (e) { when = '' }
+      }
+      const stt = hit.tx.status
+      const ok = stt === 'done'
+      const fail = stt === 'fail' || stt === 'error'
+      const tag = ok ? T('homeTxOk') : (fail ? T('d_txFail') : T('homeTxWait'))
+      extra = (when ? `<span class="home-tx-when">${esc(when)}</span>` : '') + `<span class="home-tx-tag ${ok ? 'ok' : 'wait'}">${esc(tag)}</span>`
+    }
+    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
+  }
+  function phraseBannerHtml () {
+    if (!st.phrasePending || !st.phrasePending.length) return ''
+    return `<button type="button" class="home-backup-banner" id="phraseBanner" data-act="phraseOpen">${esc(T('phraseBanner'))}</button>`
+  }
+  function legacyHintHtml () {
+    if (ui.backupHintSeen) return ''
+    if (st.phrasePending && st.phrasePending.length) return ''
+    if (!st.accounts || !st.accounts.length) return ''
+    return `<div class="home-backup-legacy" id="legacyBackup"><span>${esc(T('phraseLegacy'))}</span><button type="button" class="home-backup-x" data-act="legacyBackupDismiss" aria-label="${esc(T('phraseLegacyDismiss'))}">✕</button></div>`
   }
   function pageHome () {
     const link = referralLink()
     return `<div class="page shell-home" id="homePage">
+      ${phraseBannerHtml()}
+      ${legacyHintHtml()}
       <p class="home-lead">${esc(T('homeLead'))}</p>
       <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
+      <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
       </div>
-      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
+      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
@@ -725,6 +765,11 @@
       if (line) {
         const text = homeMineLine()
         if (line.textContent !== text) line.textContent = text
+      }
+      const heights = $('homeHeightLine')
+      if (heights) {
+        const text = homeHeightLine()
+        if (heights.textContent !== text) heights.textContent = text
       }
       const ref = $('homeRefLink')
       if (ref) {
@@ -761,9 +806,20 @@
   function accRow (a, chain) {
     const addr = chain === 'new' ? a.evm : ((parseClassicAddress(a.pubkey) || {}).address || a.pubkey)
     let bal
-    if (chain === 'new') { const b = st.s0[a.filename]; bal = !a.evm ? '' : (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') } else { const v = fmtOld(a.pubkey); bal = v != null ? v : '…' }
+    let balFull = ''
+    if (chain === 'new') {
+      const b = st.s0[a.filename]
+      if (!a.evm) bal = ''
+      else if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); bal = view.short; balFull = view.full }
+      else bal = '…'
+    } else {
+      const raw = oldRaw(a.pubkey)
+      if (raw == null) bal = '…'
+      else { const view = AMT.fmtBalance(raw, 8); bal = view.short; balFull = view.full }
+    }
     const tools = addr ? `<span class="mono">${esc(addr)}</span><button type="button" class="ico" data-act="copy" data-v="${esc(addr)}" title="${esc(T('d_copyAddr'))}" aria-label="${esc(T('d_copyAddr'))}">${window.SCDODash.COPY_SVG}</button><button type="button" class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="${chain}" title="${esc(T('d_showQr'))}" aria-label="${esc(T('d_showQr'))}">${window.SCDODash.QR_SVG}</button>` : `<span class="muted">${esc(T('d_addrLocked'))}</span>`
-    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b>${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
+    const balTip = balFull ? esc(balFull + ' SCDO') : ''
+    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b title="${balTip}">${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
   }
   function accListHtml () {
     let h = ''
@@ -800,7 +856,9 @@
   }
   function mineAdvControlsHtml () {
     const mode = st.miningMode === 'solo' ? 'solo' : 'pool'
-    const threads = threadCount()
+    const cpu = st.miners && st.miners.classicCpu
+    const cpuRunning = !!(cpu && cpu.running)
+    const threads = displayedCpuThreads(cpuRunning)
     const max = cpuCount()
     const g = gpuParams()
     const chip = (id, on) => `<button type="button" class="${on ? 'on' : ''}" data-act="setMineMode" data-v="${id}">${esc(T(id === 'solo' ? 'mineModeSolo' : 'mineModePool'))}</button>`
@@ -818,7 +876,7 @@
     }
     return `<div class="mine-adv-controls">
       <div class="shardchips">${chip('pool', mode !== 'solo')}${chip('solo', mode === 'solo')}</div>
-      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}"></div>
+      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${cpuRunning ? 'disabled' : ''}></div>
       <div class="lbl" style="margin-top:8px">${esc(T('mineAdvBatch'))}</div>
       <div class="row" style="gap:12px;flex-wrap:wrap;margin-top:8px">
         <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}"></label>
@@ -847,7 +905,6 @@
       const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
-    const chainPick = `<select class="inp" id="recvChain">${[0, 1, 2, 3, 4].map(i => `<option value="${i}"${i === n ? ' selected' : ''}>${esc(i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic'))}</option>`).join('')}</select>`
     const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
     const locked = n === 0 ? visible('new').find(a => !a.evm) : null
     let body
@@ -857,7 +914,7 @@
       body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
     const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('shellRecvChains'))}</div>${chainPick}</div><div class="field">${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
   }
   function paintRecvQr () {
     const box = $('qrBox')
@@ -972,6 +1029,20 @@
     const n = Number.isFinite(saved) && saved >= 1 ? saved : ((st.caps && st.caps.threadsDefault) || max)
     return Math.max(1, Math.min(max, Math.floor(n)))
   }
+  // While a processor miner is running, the label shows the guard's count.
+  // The page never writes phase, threads, or tray colour.
+  function displayedCpuThreads (running) {
+    if (running) {
+      const g = st.guardView
+      if (g && typeof g === 'object') {
+        const seen = Number(g.observedThreads)
+        if (Number.isFinite(seen) && seen >= 1) return Math.floor(seen)
+        const intended = Number(g.threads)
+        if (Number.isFinite(intended) && intended >= 1) return Math.floor(intended)
+      }
+    }
+    return threadCount()
+  }
   function gpuParams () {
     let g = {}
     try { g = JSON.parse(localStorage.getItem('mineGpu112') || '{}') } catch (e) { g = {} }
@@ -1026,7 +1097,7 @@
       h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
     }
     if (backend === 'cpu') {
-      const threads = threadCount(); const max = cpuCount()
+      const threads = displayedCpuThreads(running); const max = cpuCount()
       const cores = T('cpuCoresLine', { n: threads, max: max })
       h += `<div class="field"><div class="lbl explain" id="mThreadsLab" tabindex="0" data-tip-name="${esc(T('cpuCoresName'))}" data-tip-value="${esc(cores)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(cores)}</div>
         <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
@@ -1254,7 +1325,8 @@
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
       if (!g.children || !g.children.length) return btn(g)
-      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary>${g.children.map(btn).join('')}</details>`
+      if (g.id === 'about') return `<button type="button" class="site-link" data-act="aboutOpen">${esc(cn ? g.cn : g.en)}</button>`
+      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
     const html = primary.map(group).join('') + more
@@ -1330,20 +1402,25 @@
     }
     return x
   }
-  function headerBalanceText () {
+  function headerBalanceParts () {
     const a = headerAccount()
-    if (!a) return T('noAccount')
+    if (!a) return { text: T('noAccount'), full: '' }
     const name = String(accLabel(a) || '').trim()
-    let amt
+    let amt = '…'
+    let full = ''
     if (headerChain() === 'old') {
-      const v = fmtOld(a.pubkey)
-      amt = (v != null ? v : '…') + ' SCDO'
+      const raw = oldRaw(a.pubkey)
+      if (raw != null) { const view = AMT.fmtBalance(raw, 8); amt = view.short; full = view.full }
     } else if (!a.evm) amt = T('lockedShort')
     else {
       const b = st.s0[a.filename]
-      amt = (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+      if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); amt = view.short; full = view.full }
     }
-    return (name ? name + ' ' : '') + amt
+    const text = (name ? name + ' ' : '') + amt + (amt === T('lockedShort') ? '' : ' SCDO')
+    return { text: text, full: full ? full + ' SCDO' : '' }
+  }
+  function headerBalanceText () {
+    return headerBalanceParts().text
   }
   function headerBalanceName () {
     const a = headerAccount()
@@ -1385,6 +1462,7 @@
       earnLog: earn,
       now: Date.now(),
       balanceText: headerBalanceText(),
+      balanceFull: headerBalanceParts().full,
       balanceMark: headerBalanceMark(),
       balanceName: headerBalanceName(),
       T,
@@ -1790,6 +1868,18 @@
     }
     const ns = $('mNodeState')
     if (ns) set('mNodeState', nodeStateText(m))
+    const cpuOn = !!(st.miners && st.miners.classicCpu && st.miners.classicCpu.running)
+    if (cpuOn) {
+      const n = displayedCpuThreads(true)
+      const cores = T('cpuCoresLine', { n, max: cpuCount() })
+      const lab = $('mThreadsLab')
+      if (lab && lab.textContent !== cores) {
+        lab.textContent = cores
+        if (lab.setAttribute) lab.setAttribute('data-tip-value', cores)
+      }
+      const slider = $('mThreads')
+      if (slider && slider.disabled && String(slider.value) !== String(n)) slider.value = String(n)
+    }
     const lg = $('mLog')
     if (lg && st.logOpen) {
       const text = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n')
@@ -2184,6 +2274,7 @@
       if (s.confirmedKey && s.confirmedKey !== payKey(route)) s.confirmedKey = ''
       if (st.payReview && (st.payReview.to !== route.to || st.payReview.amount !== route.amount || st.payReview.file !== s.payerFile)) dropReview()
       paint(route)
+      paintAmtRoom()
       clearTimeout(feeTimer)
       if (route.kind !== 'chain') return
       const gen = ++feeGen
@@ -2210,12 +2301,14 @@
         if (text) { s.feeText = text; s.feeReady = true }
         if (gas) s.gas = gas
         paint()
+        paintAmtRoom()
       }, 350)
     }
     const chip = (n) => `<button type="button" class="wiz-chip" data-wiz-chain="${n}">${esc(n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic'))}</button>`
     mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}">
       <div class="wiz-dots"><span data-wiz-dot="1">1 ${esc(TC('wizAddr'))}</span><span data-wiz-dot="2">2 ${esc(TC('wizAmount'))}</span><span data-wiz-dot="3">3 ${esc(TC('wizConfirm'))}</span></div>
       <div id="wizStep1" class="wiz-step">
+        <div class="lbl wiz-step-hint">${esc(TC('wizNextAmt'))}</div>
         <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
@@ -2266,7 +2359,73 @@
       if (inferShard(s.to) == null && !nameLike(s.to)) { stepErr('payErr1', TC('wizNeedFull')); const box = $('payChain'); if (box) box.hidden = false; return }
       showStep(2)
     }
-    function next2 () {
+    function amountRoom (text) {
+      const route = currentRoute()
+      const payer = chosenPayer(route) || accByFile(s.payerFile)
+      const shard = maxShard(route)
+      if (!payer || shard == null) return null
+      const amount = nhw(text == null ? (($('payAmt') && $('payAmt').value) || s.amount) : text)
+      if (shard >= 1) {
+        const bal = oldRaw(payer.pubkey)
+        if (bal == null) return { amount: amount, known: false }
+        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8, known: true }
+      }
+      const b = st.s0[payer.filename]
+      if (!b || b.nativeWei == null) return { amount: amount, known: false }
+      let fee = null
+      if (s.feeWei != null && s.feeFor === 0) {
+        try { fee = BigInt(s.feeWei) } catch (e) { fee = null }
+      }
+      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18, known: true }
+    }
+    function spendableText (room) {
+      const fee = room.fee == null ? 0n : room.fee
+      const plain = AMT.maxAmount(room.bal, fee, room.dec)
+      if (plain == null) return ''
+      const units = AMT.toUnits(plain, room.dec)
+      if (units == null) return plain
+      return AMT.fmtBalance(units, room.dec).short
+    }
+    function paintAmtRoom (text) {
+      const hint = $('payAmtHint')
+      const btn = $('wizNext2')
+      const send = $('btnRemitSign')
+      const err = $('payErr2')
+      const room = amountRoom(text)
+      const fee = room && room.known ? (room.fee == null ? 0n : room.fee) : null
+      const over = !!(room && room.known && AMT.exceedsBalance(room.amount, room.bal, fee, room.dec))
+      if (hint) {
+        if (room && room.known) hint.textContent = T('available', { v: spendableText(room) + ' SCDO' })
+        else if (!over) hint.textContent = ''
+      }
+      if (err) {
+        if (over) err.textContent = T('shellAmtRoom')
+        else if (err.textContent === T('shellAmtRoom')) err.textContent = ''
+      }
+      if (btn) btn.disabled = over
+      if (send && over) send.disabled = true
+      return over
+    }
+    async function ensureRoomFee () {
+      const route = currentRoute()
+      const shard = maxShard(route)
+      if (shard == null || shard >= 1) return
+      if (s.feeWei != null && s.feeFor === 0) return
+      const payer = chosenPayer(route) || accByFile(s.payerFile)
+      const dest = (route && route.to) || s.to
+      if (!payer || !payer.evm || !/^0x[0-9a-fA-F]{40}$/.test(dest)) return
+      try {
+        const est = await api.invoke('s0:estimate', payer.evm, dest, s.amount || '0.00000001', 'SCDO')
+        if (est && est.estFeeWei != null) {
+          const fee = BigInt(est.estFeeWei)
+          s.feeWei = est.estFeeWei
+          s.feeFor = 0
+          s.feeText = fmtWei(fee) + ' SCDO'
+          s.feeReady = true
+        }
+      } catch (e) {}
+    }
+    async function next2 () {
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
       stepErr('payErr2', '')
       const g = AMT.guardAmount(s.amount)
@@ -2275,6 +2434,8 @@
       if ($('payAmt')) $('payAmt').value = g.value
       const units = AMT.toUnits(s.amount, 18)
       if (units == null || units <= 0n) { stepErr('payErr2', TC('wizNeedAmt')); return }
+      await ensureRoomFee()
+      if (paintAmtRoom(s.amount)) return
       showStep(3)
       sync()
     }
@@ -2348,7 +2509,7 @@
       }
     }
     if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
-    if (amtEl) { amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
+    if (amtEl) { amtEl._paintAmtRoom = paintAmtRoom; amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
     if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
     if (go) go.onclick = () => { confirmPay() }
     const n1 = $('wizNext1'); if (n1) n1.onclick = next1
@@ -2374,24 +2535,28 @@
       let last = s.payAddr || ''
       try { if (!last) last = localStorage.getItem('payAddr310-' + n) || '' } catch (e) {}
       const picked = window.SCDOChainHome.pickDefault(entries, last)
-      const html = window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
+      const html = window.SCDOChainHome.accountMenuHtml ? window.SCDOChainHome.accountMenuHtml('payAddr', entries, picked && picked.address, esc) : window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
       if (box.getAttribute('data-html') !== html) {
         box.setAttribute('data-html', html)
         SD.html(box, html)
-        const sel = $('payAddr')
-        if (sel) sel.onchange = () => {
-          s.payAddr = sel.value
-          try { localStorage.setItem('payAddr310-' + n, sel.value) } catch (e) {}
-          const hit = entries.find(e => String(e.address).toLowerCase() === String(sel.value).toLowerCase())
-          if (hit && hit.file) s.payerFile = hit.file
-          sync()
-        }
+        box.querySelectorAll('[data-pay-addr]').forEach(b => {
+          b.onclick = () => {
+            s.payAddr = b.getAttribute('data-pay-addr') || ''
+            try { localStorage.setItem('payAddr310-' + n, s.payAddr) } catch (e) {}
+            const hit = entries.find(e => String(e.address).toLowerCase() === String(s.payAddr).toLowerCase())
+            if (hit && hit.file) s.payerFile = hit.file
+            sync()
+            paintFromPick()
+          }
+        })
       }
       if (picked && picked.file) s.payerFile = picked.file
       const bal = $('payFromBal')
       if (bal) {
-        const text = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text : '\u2014'
+        const one = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }) : null
+        const text = one ? one.text : '\u2014'
         bal.textContent = text === '\u2014' ? '\u2014' : text + ' SCDO'
+        bal.title = one && one.full ? one.full + ' SCDO' : ''
       }
     }
     paintFromPick()
@@ -2483,6 +2648,13 @@
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      await ensureRoomFee()
+      if (paintAmtRoom(s.amount)) {
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       const guarded = AMT.guardAmount(s.amount)
       if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
       s.amount = guarded.value
@@ -2519,6 +2691,7 @@
           s.confirmedKey = payKey(route)
         }
         if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); const pwBox = $('remitPw'); if (pwBox) pwBox.focus(); return }
+        if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
         if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
@@ -2582,6 +2755,13 @@
         if (pwBox) pwBox.focus()
         return
       }
+      if (paintAmtRoom(route.amount)) {
+        if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       if ($('remitPw')) $('remitPw').value = ''
       lockSend(btn)
       if (err) SD.spin(err, TC('sending'))
@@ -2635,7 +2815,8 @@
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
-      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
+      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); paintAmtRoom(route.amount); showStep(2); return }
+      if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
       if (s.confirmedKey !== payKey(route)) {
         if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
         s.confirmedKey = payKey(route)
@@ -2697,22 +2878,153 @@
       if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
       if (pw !== pw2) errs.push(T('pwMismatch'))
       if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
-      if (priv) { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
+      if (priv) {
+        const bits = priv.trim().toLowerCase().split(/\s+/).filter(Boolean)
+        if (bits.length === 12 && bits.every(x => /^[a-z]+$/.test(x))) priv = bits.join(' ')
+        else { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
+      }
       if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
       $('cGo').disabled = true; SD.spin($('cErr'), '')
       const no = name ? 0 : nextNo()
       const CERR = { EXISTS: 'errExist', BAD_KEY: 'errKey', BAD_NAME: 'errName', BAD_PASSWORD: 'pwRule', BAD_SHARD: 'errShard' }
       $('cPriv').value = ''; $('cPw1').value = ''; $('cPw2').value = ''
-      const r = await api.invoke('acct:create', { name, password: pw, shard, priv, no })
-      priv = null
+      const body = { name, password: pw, shard, priv, no }
+      const r = await api.invoke('acct:create', body)
+      body.password = ''; body.priv = ''; priv = null
       if (!r || !r.ok) { if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return }
       const file = r.file
+      const shown = r.phrase || ''
+      const evm = r.evm || ''
+      const date = r.date || ''
+      r.phrase = ''
       if (name) ui.names[file] = name; else ui.accNo[file] = no
       saveUi()
       st.sel = file; localStorage.setItem('selAcc112', file)
       await reloadAccounts()
+      if (shown) {
+        const card = { file, words: shown.trim().split(/\s+/), evm, date }
+        if (!st.phrasePending.includes(file)) st.phrasePending.push(file)
+        phraseHold = card
+        setTab('home')
+        showBackupPage(card)
+        refreshS0(); refreshOld()
+        return
+      }
       closeModal(); toast(T('createOk')); refreshS0(); refreshOld()
     }
+  }
+  function backupLines (card) {
+    const cardApi = window.SCDOBackupCard
+    const opts = { words: card.words, address: card.evm, date: card.date, reminder: T('phraseFileWarn'), dateLabel: T('phraseDate'), addrLabel: T('phraseAddr') }
+    return cardApi ? cardApi.lines(opts) : []
+  }
+  function utf8b64 (s) {
+    const bytes = new TextEncoder().encode(s)
+    let bin = ''
+    for (const b of bytes) bin += String.fromCharCode(b)
+    return btoa(bin)
+  }
+  function pngBase64 (lines) {
+    const canvas = document.createElement('canvas')
+    if (!canvas || !canvas.getContext) return ''
+    const scale = 2
+    const width = 960
+    const fontSize = 22
+    const lineH = 34
+    const pad = 40
+    const height = pad * 2 + Math.max(1, lines.length) * lineH
+    canvas.width = width * scale
+    canvas.height = height * scale
+    const g = canvas.getContext('2d')
+    if (!g) return ''
+    g.scale(scale, scale)
+    g.fillStyle = '#fffdf6'
+    g.fillRect(0, 0, width, height)
+    g.strokeStyle = '#f0d060'
+    g.lineWidth = 4
+    g.strokeRect(12, 12, width - 24, height - 24)
+    g.fillStyle = '#1c1c1e'
+    g.font = fontSize + 'px "PingFang SC", "Microsoft YaHei", "Noto Sans CJK TC", sans-serif'
+    lines.forEach((line, i) => g.fillText(line, pad, pad + fontSize + i * lineH))
+    const url = canvas.toDataURL('image/png')
+    const cut = url.indexOf(',')
+    return cut >= 0 ? url.slice(cut + 1) : ''
+  }
+  function laterLeave () {
+    setTab('home')
+    closeModal()
+  }
+  async function finishBackup (file) {
+    let r = null
+    try { r = await api.invoke('phrase:done', file) } catch (e) { r = { ok: false } }
+    if (!r || !r.ok) { const err = $('phraseErr'); if (err) err.textContent = T('phraseSaveFail'); return }
+    st.phrasePending = (st.phrasePending || []).filter(x => x !== file)
+    if (phraseHold && phraseHold.file === file) phraseHold = null
+    setTab('home')
+    closeModal()
+  }
+  async function saveBackup (kind, card) {
+    const lines = backupLines(card)
+    const err = $('phraseErr')
+    let data = ''
+    if (kind === 'png') {
+      data = pngBase64(lines)
+      if (!data) { if (err) err.textContent = T('phrasePngFail'); return }
+    } else data = utf8b64(lines.join('\n') + '\n')
+    let r = null
+    try { r = await api.invoke('phrase:save', { kind, data }) } catch (e) { r = { ok: false } }
+    data = ''
+    if (!r || !r.ok) { if (r && r.canceled) return; if (err) err.textContent = T('phraseSaveFail'); return }
+    await finishBackup(card.file)
+  }
+  function showBackupPage (card) {
+    phraseHold = { file: card.file, words: (card.words || []).slice(), evm: card.evm || '', date: card.date || '' }
+    const words = phraseHold.words.map((w, i) => `<div class="phrase-word"><b>${i + 1}</b> ${esc(w)}</div>`).join('')
+    modal(`<div class="mh"><h2>${esc(T('phraseTitle'))}</h2><button class="btn ghost small" data-act="phraseLater" aria-label="${esc(T('phraseLater'))}">✕</button></div>
+      <div class="warnbox">${esc(T('phraseFileWarn'))}</div>
+      <div class="lbl" style="margin-top:10px">${esc(T('phraseDate'))} ${esc(phraseHold.date)}</div>
+      <div class="mono" style="font-size:16px">${esc(T('phraseAddr'))} ${esc(phraseHold.evm)}</div>
+      <div class="phrase-grid">${words}</div>
+      <div class="err" id="phraseErr"></div>
+      <div class="foot" style="flex-wrap:wrap">
+        <button type="button" class="btn sec" id="phrasePng">${esc(T('phraseSavePng'))}</button>
+        <button type="button" class="btn sec" id="phraseTxt">${esc(T('phraseSaveTxt'))}</button>
+        <button type="button" class="btn sec" id="phraseWrote">${esc(T('phraseWrote'))}</button>
+        <button type="button" class="btn ghost" id="phraseLaterBtn">${esc(T('phraseLater'))}</button>
+      </div>`, { width: 760, noFocus: true })
+    const held = phraseHold
+    $('phrasePng').onclick = () => saveBackup('png', held)
+    $('phraseTxt').onclick = () => saveBackup('txt', held)
+    $('phraseWrote').onclick = () => finishBackup(held.file)
+    $('phraseLaterBtn').onclick = () => laterLeave()
+    const ov = $('ov'); if (ov) ov.onclick = (e) => { if (e.target && e.target.id === 'ov') laterLeave() }
+  }
+  function askPhrasePassword (file) {
+    modal(`<div class="mh"><h2>${esc(T('phraseTitle'))}</h2><button class="btn ghost small" data-act="phraseLater" aria-label="${esc(T('phraseLater'))}">✕</button></div>
+      <div class="lbl">${esc(T('phrasePwLead'))}</div>
+      <div class="field"><input class="inp" type="password" id="phrasePw" autocomplete="off"></div>
+      <div class="err" id="phraseErr"></div>
+      <div class="foot">
+        <button type="button" class="btn ghost" id="phraseLaterBtn">${esc(T('phraseLater'))}</button>
+        <button type="button" class="btn sec" id="phraseUnlock">${esc(T('phraseUnlock'))}</button>
+      </div>`, { width: 640 })
+    $('phraseLaterBtn').onclick = () => laterLeave()
+    const ov = $('ov'); if (ov) ov.onclick = (e) => { if (e.target && e.target.id === 'ov') laterLeave() }
+    $('phraseUnlock').onclick = async () => {
+      const pw = $('phrasePw').value
+      $('phrasePw').value = ''
+      let r = null
+      try { r = await api.invoke('phrase:show', file, pw) } catch (e) { r = { ok: false } }
+      if (!r || !r.ok || !r.phrase) { const err = $('phraseErr'); if (err) err.textContent = T(r && r.error === 'NO_PASSWORD' ? 'errPw' : 'wrongPw'); return }
+      const card = { file, words: String(r.phrase).trim().split(/\s+/), evm: r.evm || '', date: r.date || '' }
+      r.phrase = ''
+      showBackupPage(card)
+    }
+  }
+  function openBackupPage (file) {
+    if (!file) return
+    if (phraseHold && phraseHold.file === file && phraseHold.words && phraseHold.words.length === 12) { showBackupPage(phraseHold); return }
+    askPhrasePassword(file)
   }
   function renameModal (f) {
     const a = accByFile(f); if (!a) return
@@ -2831,6 +3143,8 @@
           return
         }
         ui.hidden.new = ui.hidden.new.filter(x => x !== a2.filename); ui.hidden.old = ui.hidden.old.filter(x => x !== a2.filename); saveUi()
+        st.phrasePending = (st.phrasePending || []).filter(x => x !== a2.filename)
+        if (phraseHold && phraseHold.file === a2.filename) phraseHold = null
         delete st.s0[a2.filename]
         if (st.sel === a2.filename) { st.sel = ''; localStorage.setItem('selAcc112', '') }
         await reloadAccounts()
@@ -2883,7 +3197,14 @@
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
-    const advancedInner = `${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+    const guardOn = mineCfg.guardSmooth !== false
+    const batOn = !!mineCfg.mineOnBattery
+    const lowOn = mineCfg.lowPriority !== false
+    let showGuardIntro = true
+    try { showGuardIntro = !localStorage.getItem('scdoGuardIntro'); if (showGuardIntro) localStorage.setItem('scdoGuardIntro', '1') } catch (e) {}
+    const guardIntro = showGuardIntro ? `<div class="lbl" id="guardFirst">${esc(T('guardFirst'))}</div>` : ''
+    const advancedInner = `<div class="set-open" id="setGuard">${guardIntro}<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div><button class="btn ghost" data-act="guardReset" id="guardReset">${esc(T('guardReset'))}</button></div>
+      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
           <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
@@ -2914,6 +3235,16 @@
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
     else modal(setHtml, { width: 820, noFocus: true })
     fillAboutHash()
+    if (st.openAbout) {
+      st.openAbout = false
+      const advanced = $('setAdvanced')
+      const about = $('setAbout')
+      if (advanced) advanced.open = true
+      if (about) {
+        about.open = true
+        try { about.scrollIntoView({ block: 'center' }) } catch (e) {}
+      }
+    }
   }
   // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
   async function fillAboutHash () {
@@ -2964,7 +3295,7 @@
   function backupPickModal () {
     const l = st.accounts
     modal(`<div class="mh"><h2>${esc(T('backupKeyfile'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>
-      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(accLabel(a))}</div><div class="lbl" style="font-size:15px">${esc(T('keyfileName'))}${PU.c()}${esc(a.filename)}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
+      ${l.map(a => `<div class="acc" style="margin:8px 0">${avatar(accLabel(a))}<div style="flex:1;min-width:0"><div class="wrap" style="font-weight:700">${esc(accLabel(a))}</div><div class="lbl" style="font-size:15px">${esc(T('keyfileName'))}${PU.c()}${esc(a.filename)}</div><div class="lbl" style="font-size:15px">${esc(T('acctId'))}</div><div class="mono" style="font-size:15px">${esc(a.pubkey)}</div></div><button class="btn sec small" data-act="backupOne" data-f="${esc(a.filename)}">${esc(T('backupNow'))}</button></div>`).join('') || esc(T('noAccount'))}
       <div class="foot"><button class="btn pri" data-act="closeModal">${esc(T('done'))}</button></div>`, { width: 820, noFocus: true })
   }
 
@@ -3323,8 +3654,10 @@
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     } else {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      // Stop Shard0 EVM whenever it is wanted or its node/proxy are still alive.
+      // A cleared running flag is not enough: geth can still be exiting.
       const s0 = st.miners && st.miners.shard0
-      if (s0 && s0.running && s0.mode !== 'node') {
+      if (window.SCDOMineHome.shard0NeedsStop(s0)) {
         try { await api.invoke('miner:stop', 'mine') } catch (e) {}
       }
     }
@@ -3479,6 +3812,11 @@
         clearMineRunningFlags()
         const backend = device === 'cpu' ? 'cpu' : 'gpu'
         try { api.invoke('miner:stop', { chain: 'classic', backend: backend }) } catch (e) {}
+        // The deadline used to resend only the Classic stop. Shard0 EVM gets it too.
+        const s0 = st.miners && st.miners.shard0
+        if (device === 'gpu' && window.SCDOMineHome.shard0NeedsStop(s0)) {
+          try { api.invoke('miner:stop', 'mine') } catch (e) {}
+        }
       }
       refreshDash()
     }, ms)
@@ -3578,6 +3916,7 @@
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
+    if (m && m.guard && typeof m.guard === 'object') st.guardView = m.guard
     const prev0 = st.miners && st.miners.shard0
     if (m && m.chain === 'classic' && m.mode !== 'cpu' && (m.code === 'NO_NVIDIA' || m.cudaFailed)) st.gpuFallback = true
     storeMiner(m)
@@ -3659,6 +3998,13 @@
       case 'shareRef': shareReferral(v); break
       case 'setMineMode': setMineMode(v); break
       case 'keepMining': setKeepMiningUi(el); break
+      case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
+      case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
+      case 'lowPriority': setGuardUi(el, 'lowPriority'); break
+      case 'guardReset':
+        try { await api.invoke('mining:setGuard', { resetGuard: true }) } catch (e) {}
+        settingsModal()
+        break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)
@@ -3673,12 +4019,16 @@
       case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': goPage('settings'); break
+      case 'aboutOpen': openAboutPanel(); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'create': createModal(); break
+      case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
+      case 'phraseLater': laterLeave(); break
+      case 'legacyBackupDismiss': ui.backupHintSeen = true; saveUi(); render(); break
       case 'import': if ($('md')) SD.clear($('modalRoot')); importKeyfiles(); break
       case 'unlock': unlock(f, el.getAttribute('data-in')); break
       case 'hide': setHidden(el.getAttribute('data-chain') || 'new', f, true); break
@@ -3781,10 +4131,6 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
-    if (t.id === 'recvChain') {
-      st.recvShard = [0, 1, 2, 3, 4].includes(Number(t.value)) ? Number(t.value) : 0
-      render(); return
-    }
     if (t.id === 'recvPick') {
       const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
@@ -3809,7 +4155,9 @@
       const clip = AMT.clipDecimals(next, 8)
       next = clip.value
       const hint = $('payAmtHint')
-      if (hint) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+      let over = false
+      if (t.id === 'payAmt' && typeof t._paintAmtRoom === 'function') over = t._paintAmtRoom(next)
+      if (hint && !over && clip.blocked) hint.textContent = T('shellAmtLimit')
     }
     if (next !== t.value) {
       const pos = t.selectionStart
@@ -3834,6 +4182,10 @@
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
   function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
   // 3.0.2: every action is reachable by hand from the window menu (the fallback if AI小貓 misbehaves).
+  function openAboutPanel () {
+    st.openAbout = true
+    goPage('settings')
+  }
   function goPage (v) {
     if ($('md')) SD.clear($('modalRoot'))
     setTab(v); render()
@@ -3868,6 +4220,7 @@
       case 'remit': openRemittance(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': goPage('settings'); break
+      case 'about': openAboutPanel(); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
       default:
@@ -4324,7 +4677,7 @@
   api.on('miner:classic', (m) => onMinerStatus(m))
   async function boot () {
     let info = null
-    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.displayVersion || info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
+    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
     try { storeMiner(await api.invoke('miner:status')) } catch (e) {}
     try { const c = await api.invoke('miner:classicStatus'); if (c) { st.miners.classicCpu = c.classicCpu; st.miners.classicGpu = c.classicGpu } } catch (e) {}
     st.miner = viewMiner()

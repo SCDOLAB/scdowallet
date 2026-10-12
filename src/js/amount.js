@@ -69,6 +69,18 @@
     return 21000n
   }
   // balance − fee, cut toward zero at 8 decimal places. Null when the balance is unknown.
+  // True when the typed amount is more than balance − fee. Unknown balance or fee does not block.
+  function exceedsBalance (amountText, balUnits, feeUnits, decimals) {
+    if (balUnits == null || feeUnits == null) return false
+    const g = guardAmount(String(amountText == null ? '' : amountText))
+    if (!g.ok) return false
+    const units = toUnits(g.value, decimals)
+    if (units == null || units <= 0n) return false
+    let bal
+    let fee
+    try { bal = BigInt(balUnits); fee = BigInt(feeUnits) } catch (e) { return false }
+    return units + fee > bal
+  }
   function maxAmount (balUnits, feeUnits, decimals) {
     if (balUnits == null) return null
     let bal
@@ -81,7 +93,14 @@
     const cut = (bal - fee) / factor * factor
     return fmtUnits(cut, dec, dp).replace(/,/g, '')
   }
-  const api = { MAX_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, classicFeeUnits, maxAmount }
+  // Balances on screen use one width: at most 4 decimals, trailing zeros removed.
+  // full keeps every decimal the chain has, for the hover text.
+  const SHOW_DP = 4
+  function fmtBalance (raw, decimals) {
+    const dec = Math.max(0, Number(decimals) || 0)
+    return { short: fmtUnits(raw, dec, SHOW_DP), full: fmtUnits(raw, dec, dec) }
+  }
+  const api = { MAX_DP, SHOW_DP, fmtUnits, toUnits, fmtDec, plainUnits, guardAmount, clipDecimals, classicFeeUnits, exceedsBalance, maxAmount, fmtBalance }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOAmount = Object.freeze(api)
 })()
