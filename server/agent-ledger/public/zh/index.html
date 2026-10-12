@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCDO AI 代理帳本</title>
+<style>body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3}main{max-width:1100px;margin:auto;padding:24px}a{color:#58a6ff}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid #30363d;text-align:left}code{font-size:12px}.on{color:#3fb950}.off{color:#8b949e}.kpi{display:flex;gap:24px;margin:16px 0}.kpi b{font-size:28px;display:block}footer{text-align:center;color:#8b949e;padding:24px}</style></head>
+<body><main><p style="text-align:right"><a href="../">English</a></p><h1>SCDO AI 代理帳本</h1><p>每個錢包和礦機都以自己的金鑰註冊為代理。每台機器自行簽署心跳和自我修復紀錄；伺服器只驗證簽章，不持有任何私鑰。</p>
+<div class="kpi"><div><b id="total">–</b>代理數</div><div><b id="online">–</b>在線</div></div>
+<table><thead><tr><th>代理</th><th>狀態</th><th>算力</th><th>顯示卡溫度</th><th>節點連線</th><th>區塊</th><th>自我修復</th><th>最近修復</th><th>最後回報</th></tr></thead><tbody id="rows"></tbody></table>
+<p id="msg"></p><p><a href="/agent-ledger/api/agents">公開 JSON</a></p></main><footer>SCDO Laboratory</footer>
+<script>
+const T={"yes":"在線","no":"離線","none":"目前還沒有代理註冊。","err":"無法載入帳本。","ago":" 分鐘前"};
+const esc=s=>String(s==null?'–':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hr=h=>h==null?'–':h>=1e6?(h/1e6).toFixed(2)+' MH/s':h>=1e3?(h/1e3).toFixed(1)+' kH/s':h+' H/s';
+fetch('/agent-ledger/api/agents',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+ document.getElementById('total').textContent=d.total;document.getElementById('online').textContent=d.online;
+ if(!d.agents.length){document.getElementById('msg').textContent=T.none;return}
+ document.getElementById('rows').innerHTML=d.agents.map(a=>'<tr><td><a href="https://scdoscan.io/#/address?address='+esc(a.agent)+'"><code>'+esc(a.agent.slice(0,10)+'…'+a.agent.slice(-6))+'</code></a></td><td class="'+(a.online?'on':'off')+'">'+(a.online?T.yes:T.no)+(a.problems.length?' · '+esc(a.problems.join(', ')):'')+'</td><td>'+hr(a.hashrate)+'</td><td>'+(a.gpuTempC==null?'–':esc(a.gpuTempC)+' °C')+'</td><td>'+esc(a.peers)+'</td><td>'+esc(a.localBlock)+'</td><td>'+esc(a.heals)+'</td><td>'+(a.lastHeal?esc(a.lastHeal.action):'–')+'</td><td>'+(a.lastSeen?Math.round((d.time-a.lastSeen)/60000)+T.ago:'–')+'</td></tr>').join('')
+}).catch(()=>{document.getElementById('msg').textContent=T.err})
+</script></body></html>

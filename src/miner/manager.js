@@ -962,6 +962,27 @@ class MinerManager extends EventEmitter {
 
   childPids () { return Object.values(this.procs).filter(Boolean).map(p => p.pid) }
 
+  // 3.1.4 AI Agent Ledger ops agent hooks.
+  async agentReconnectPeers (why) {
+    if (!this.procs.geth && !this.external) return false
+    const L = this.external ? this.external.url : 'http://127.0.0.1:' + PORTS.http
+    await this.reconnectPeers(L, 'ops agent: ' + (why || 'heal'))
+    return true
+  }
+
+  // Stop Rigel instances that are not ours (e.g. a second wallet's) so our Rigel can bind the API port.
+  async agentFreeRigelPort (pids) {
+    const others = await this.otherRigels()
+    const allowed = Array.isArray(pids) ? others.filter(p => pids.includes(p.pid)) : others
+    for (const p of allowed) {
+      this.log('wallet', 'ops agent: stopping duplicate rigel (pid ' + p.pid + ') holding the API port ' + PORTS.rigelApi)
+      await this.stopPid('rigel', p.pid, 15000)
+    }
+    return allowed.length > 0
+  }
+
+  recentExits (name) { const now = Date.now(); return ((this.restarts && this.restarts[name]) || []).filter(t => now - t < 10 * 60 * 1000).length }
+
   // Rigel instances that are NOT the wallet's own (e.g. the SCDO-Mining task of the standalone miner package).
   async otherRigels () {
     const mine = this.childPids()

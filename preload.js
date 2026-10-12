@@ -29,9 +29,11 @@ const INVOKE = Object.freeze([
   // 2.0.7: mining notification toggles, pool payout card
   'notify:get', 'notify:set', 'pool:account',
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)
-  'remit:info', 'remit:login', 'remit:ledger', 'remit:logout'
+  'remit:info', 'remit:login', 'remit:ledger', 'remit:logout',
+  // 3.1.4: AI Agent Ledger (ops agent status + local heal log; the agent key never leaves main)
+  'agent:status', 'agent:setReporting'
 ])
-const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step'])
+const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))
