@@ -1027,9 +1027,13 @@ async function agentSnapshot () {
   const zRunning = !!((zpowCpu && zpowCpu.wantRunning) || (zpowGpu && zpowGpu.wantRunning))
   const armed = !!((it.autoResume && it.keepMining) || it.resumeOnce)
   const resumeChains = it.resume ? Object.keys(it.resume).filter(k => it.resume[k]) : []
+  // the manager's status can be empty (e.g. IDLE while Rigel / the node run on alternate ports): read them directly
+  let pr = {}
+  if (st.hashrate == null || st.peers == null || st.localBlock == null || st.networkBlock == null) { try { pr = (m.agentProbe && await m.agentProbe()) || {} } catch (e) {} }
+  const num = (a, b) => (a != null && Number.isFinite(Number(a))) ? Number(a) : ((b != null && Number.isFinite(Number(b))) ? Number(b) : null)
   return {
-    wantMining, running: !!st.running || zRunning, code: st.code || null, hashrate: st.hashrate == null ? null : Number(st.hashrate),
-    peers: st.peers == null ? null : Number(st.peers), localBlock: st.localBlock ?? null, networkBlock: st.networkBlock ?? null,
+    wantMining, running: !!st.running || zRunning, code: st.code || null, hashrate: num(st.hashrate, pr.hashrate),
+    peers: num(st.peers, pr.peers), localBlock: num(st.localBlock, pr.localBlock), networkBlock: num(st.networkBlock, pr.networkBlock),
     nodeRunning: !!(st.procs && st.procs.includes('geth')), paused: !!st.paused, procs: st.procs || [],
     otherRigels, gaveUp, quickExits: m.recentExits ? m.recentExits('rigel') : 0, gpuTempC,
     armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000)
