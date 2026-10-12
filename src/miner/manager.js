@@ -984,6 +984,28 @@ class MinerManager extends EventEmitter {
   recentExits (name) { const now = Date.now(); return ((this.restarts && this.restarts[name]) || []).filter(t => now - t < 10 * 60 * 1000).length }
 
   // Rigel instances that are NOT the wallet's own (e.g. the SCDO-Mining task of the standalone miner package).
+  // 3.1.4 agent ledger: live figures straight from whichever local ports answer (in-use port first, then the
+  // defaults and the +100 alternates such as 5155 / 18645). Read-only; used to fill the signed heartbeat.
+  async agentProbe () {
+    const uniq = (a) => [...new Set(a.filter(n => Number.isFinite(n) && n > 0))]
+    const out = { hashrate: null, peers: null, localBlock: null, networkBlock: null, rigelPort: null, rpcPort: null }
+    for (const port of uniq([PORTS.rigelApi, BASE_PORTS.rigelApi, BASE_PORTS.rigelApi + 100, BASE_PORTS.rigelApi + 200])) {
+      try {
+        const hr = MinerManager.rigelHashrate(await httpGetJson('http://127.0.0.1:' + port + '/', 2000))
+        if (hr != null) { out.hashrate = Number(hr); out.rigelPort = port; break }
+      } catch (e) {}
+    }
+    for (const port of uniq([PORTS.http, BASE_PORTS.http, BASE_PORTS.http + 100, BASE_PORTS.http + 200])) {
+      const L = 'http://127.0.0.1:' + port
+      try {
+        const [bn, pc] = await Promise.all([rpc(L, 'eth_blockNumber', [], 2000), rpc(L, 'net_peerCount', [], 2000)])
+        out.localBlock = parseInt(bn, 16); out.peers = parseInt(pc, 16); out.rpcPort = port; break
+      } catch (e) {}
+    }
+    try { out.networkBlock = parseInt(await rpc(REF_RPC, 'eth_blockNumber', [], 5000), 16) } catch (e) { out.networkBlock = null }
+    return out
+  }
+
   async otherRigels () {
     const mine = this.childPids()
     return (await this.listMinerProcs()).filter(p => p.name === 'rigel' && !mine.includes(p.pid) && !this.isOwnProc(p)).map(p => ({ pid: p.pid, exe: p.exe }))
