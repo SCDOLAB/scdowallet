@@ -18,6 +18,10 @@ const LEAK_GROWTH = 0.5
 const HOUR_MS = 60 * MIN
 const QUICK_LIFE_MS = 30 * 1000
 const QUICK_DEATHS = 3
+// After a give-up, try again by itself (10, 30, then every 60 min) while the user still wants to mine.
+// A give-up is usually caused by something outside the wallet (a second wallet/rigel holding the
+// GPU or API port, a driver reset) that goes away on its own; staying stopped forever loses the night.
+const GAVE_UP_RETRY_MIN = [10, 30, 60]
 const AC_STABLE_MS = 15 * 1000
 const DISK_MIN_BYTES = 500 * 1024 * 1024
 const TEMP_LOW = 85
@@ -159,6 +163,11 @@ function threadPlan (cpu) {
   return { threads: Math.max(1, threads), affinity, priority: 'below-normal', unsuitable, qos: null, virtual, arch }
 }
 
+function gaveUpRetryMs (index) {
+  const i = Math.max(0, Math.floor(Number(index) || 0))
+  return GAVE_UP_RETRY_MIN[Math.min(i, GAVE_UP_RETRY_MIN.length - 1)] * MIN
+}
+
 function backoffMs (index) {
   const i = Math.max(0, Math.floor(Number(index) || 0))
   const mins = i >= BACKOFF_MIN.length ? BACKOFF_MIN[BACKOFF_MIN.length - 1] : BACKOFF_MIN[i]
@@ -257,6 +266,8 @@ function freshGuard (opts) {
     childBornAt: null,
     quickDeaths: 0,
     gaveUp: false,
+    gaveUpAt: null,
+    gaveUpCount: 0,
     acSince: null,
     onBatteryPrev: null,
     remoteCap: false,
@@ -368,6 +379,20 @@ function stepGuard (state, sample, now) {
   }
   s.wasUserRunning = !!sample.userRunning
 
+  // Auto-recover from a give-up after a cool-down instead of waiting for a manual restart.
+  if (s.gaveUp && sample.userRunning && s.gaveUpAt != null && now - s.gaveUpAt >= gaveUpRetryMs(Math.max(0, (s.gaveUpCount || 1) - 1))) {
+    s.gaveUp = false
+    s.gaveUpAt = null
+    if (s.reason === '異常') s.reason = ''
+    s.quickDeaths = 0
+    s.restarts = []
+    s.restartIndex = 0
+    s.restartDue = 0
+    s.childBornAt = null
+    s.lastProgressAt = now
+    s.lastAction = '自動重試挖礦'
+  }
+
   if (s.sleepHeld && !sample.suspended && !sample.wakeHold) {
     s.sleepHeld = false
     s.restarts = []
@@ -477,6 +502,7 @@ function stepGuard (state, sample, now) {
       s.lastProgressAt = now
       s.lastShareAt = now
       s.restartIndex = 0
+      s.gaveUpCount = 0
     } else if (s.lastHashrate != null && hashrate !== s.lastHashrate) {
       s.lastProgressAt = now
     }
@@ -519,6 +545,8 @@ function stepGuard (state, sample, now) {
     else s.quickDeaths = 0
     if (s.quickDeaths >= QUICK_DEATHS) {
       s.gaveUp = true
+      s.gaveUpAt = now
+      s.gaveUpCount = (s.gaveUpCount || 0) + 1
       enterPause(s, actions, '異常')
       return { state: s, actions }
     }
@@ -562,6 +590,8 @@ module.exports = {
   HOUR_MS,
   QUICK_LIFE_MS,
   QUICK_DEATHS,
+  GAVE_UP_RETRY_MIN,
+  gaveUpRetryMs,
   AC_STABLE_MS,
   DISK_MIN_BYTES,
   TEMP_LOW,
