@@ -374,10 +374,10 @@ function classicBusy (mgr) {
 }
 // No child: return at once. A live child is killed, and this promise settles
 // within 2s even when the kill itself does not.
-async function stopClassic (backend) {
+async function stopClassic (backend, opts) {
   const jobs = []
-  if ((!backend || backend === 'cpu') && classicBusy(zpowCpu)) jobs.push(zpowCpu.stop())
-  if ((!backend || backend === 'gpu') && classicBusy(zpowGpu)) jobs.push(zpowGpu.stop())
+  if ((!backend || backend === 'cpu') && classicBusy(zpowCpu)) jobs.push(zpowCpu.stop(opts))
+  if ((!backend || backend === 'gpu') && classicBusy(zpowGpu)) jobs.push(zpowGpu.stop(opts))
   if (!jobs.length) return
   await withinMs(() => Promise.all(jobs), 2000)
 }
@@ -577,7 +577,7 @@ ipcMain.handle('miner:stop', async (e, src) => {
     // On disk before the kill. A hang must not leave runningClassicGpu set.
     writeIntent(mineResume.afterStop(readIntent() || {}, backend === 'gpu' ? 'classicGpu' : 'cpu'))
     try {
-      await stopClassic(backend)
+      await stopClassic(backend, { endSession: true })
       refreshTray()
       return { ok: true }
     } catch (err) { return { ok: false, error: err.message } }
@@ -726,7 +726,7 @@ function createTray () {
         if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
         writeIntent(mineResume.afterStop(readIntent() || {}, 'all')); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
         if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
-        try { await stopClassic() } catch (err) { console.error('classic stop failed', err) }
+        try { await stopClassic(undefined, { endSession: true }) } catch (err) { console.error('classic stop failed', err) }
         refreshTray()
       },
       onQuit: () => requestQuit({ confirm: true, reason: 'tray' }),
