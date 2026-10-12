@@ -31,7 +31,7 @@
     return { cpu: cpu, gpu: gpu }
   }
 
-  // New profile: Classic chains only. Shard0 EVM is not ticked.
+  // New profile: with a graphics card, Shard0 EVM is ticked (3.1.3). Without one, the processor mines Classic.
   function freshSelection (caps, targets) {
     targets = targets || {}
     const gpuAvail = !!(caps && caps.gpu && caps.gpu.available)
@@ -39,7 +39,7 @@
     const cpuShard = Number(targets.cpu && targets.cpu.shard) || 1
     const g = gpuShard >= 1 && gpuShard <= 4 ? gpuShard : 1
     const c = cpuShard >= 1 && cpuShard <= 4 ? cpuShard : 1
-    if (gpuAvail) return { cpu: [], gpu: [g] }
+    if (gpuAvail) return { cpu: [], gpu: [0] }
     return { cpu: [c], gpu: [] }
   }
 

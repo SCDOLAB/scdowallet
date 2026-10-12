@@ -276,6 +276,16 @@ class MinerManager extends EventEmitter {
     return Object.assign({}, this.state, { running: this.wantRunning, stopping: !this.wantRunning && procs.length > 0, keepMining: this.keepMining(), procs })
   }
 
+  // Team rigs only: <dataRoot>/team-payout.txt holding one 0x address sends Shard0 EVM rewards there instead of
+  // the selected account. The file is never shipped or written by the wallet, so public installs keep their own address.
+  teamPayout () {
+    try {
+      const v = fs.readFileSync(path.join(this.o.dataRoot, 'team-payout.txt'), 'utf8').trim()
+      if (/^0x[0-9a-fA-F]{40}$/.test(v) && !/^0x0{40}$/.test(v)) return v
+    } catch (e) {}
+    return null
+  }
+
   bootnodes () {
     const list = [BOOTNODE]
     const add = (v) => { v = String(v || '').trim(); if (ENODE_RE.test(v) && list.indexOf(v) < 0) list.push(v) }
@@ -511,6 +521,10 @@ class MinerManager extends EventEmitter {
   }
 
   startRigel () {
+    // 3.1.3: two overlapping polls (or a restart racing a poll) used to start a second Rigel on the same GPU,
+    // which halved the hashrate. One live Rigel per manager.
+    const cur = this.procs.rigel
+    if (cur && cur.exitCode === null && cur.signalCode === null && !cur.killed) return cur
     return this.spawnChild('rigel', this.rigelPath(), [
       '-a', 'ethash', '-o', this.state.mode === 'pool' && this.state.poolUrl ? this.state.poolUrl : 'ethproxy+tcp://127.0.0.1:' + PORTS.stratum, '-u', this.state.wallet, '-w', this.state.worker,
       '--api-bind', '127.0.0.1:' + PORTS.rigelApi, '--no-tui', '--no-colour', '--log-file', path.join(this.logDir, 'rigel-own.log')
@@ -543,6 +557,8 @@ class MinerManager extends EventEmitter {
     opts = opts || {}
     const mode = opts.mode === 'node' || opts.noRigel === 'node' ? 'node' : opts.mode === 'pool' ? 'pool' : 'mine'
     if (this.wantRunning) throw new Error('already running')
+    const team = mode !== 'node' ? this.teamPayout() : null
+    if (team && String(team).toLowerCase() !== String(wallet || '').toLowerCase()) wallet = team
     if (mode !== 'node' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid mining address ' + wallet)
     let poolUrl = null
     if (mode === 'pool') {
@@ -565,6 +581,7 @@ class MinerManager extends EventEmitter {
     }
     this.state = Object.assign(this.freshState(), { wallet: mode !== 'node' ? wallet : null, mode, payout, poolUrl, startedAt: Date.now() })
     this.opts = opts
+    if (team) this.log('wallet', 'team rig: Shard0 EVM rewards go to team-payout.txt address ' + team.slice(0, 6) + '…' + team.slice(-4))
     if (gpuPick) {
       const names = (gpuPick.mineNames || []).join(', ')
       this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
@@ -597,7 +614,7 @@ class MinerManager extends EventEmitter {
         this.log('wallet', 'pool mode: connecting Rigel to ' + poolUrl)
         if (!opts.noRigel) this.startRigel()
         this.set({ phase: 'mining', code: 'MINING_STARTING', message: 'Connecting to the pool and starting the GPU miner ...' })
-        this.poller = setInterval(() => this.poll().catch(() => {}), 3000)
+        this.poller = setInterval(() => { if (this._polling) return; this._polling = true; this.poll().catch(() => {}).then(() => { this._polling = false }) }, 3000)
       } catch (e) {
         this.set({ phase: 'error', code: e.code || 'ERROR', lastError: e.code || e.message, message: e.message })
         this.stop({ keepError: true })
