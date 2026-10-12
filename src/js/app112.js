@@ -3654,8 +3654,10 @@
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'cpu' }) } catch (e) {}
     } else {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
+      // Stop Shard0 EVM whenever it is wanted or its node/proxy are still alive.
+      // A cleared running flag is not enough: geth can still be exiting.
       const s0 = st.miners && st.miners.shard0
-      if (s0 && s0.running && s0.mode !== 'node') {
+      if (window.SCDOMineHome.shard0NeedsStop(s0)) {
         try { await api.invoke('miner:stop', 'mine') } catch (e) {}
       }
     }
@@ -3810,6 +3812,11 @@
         clearMineRunningFlags()
         const backend = device === 'cpu' ? 'cpu' : 'gpu'
         try { api.invoke('miner:stop', { chain: 'classic', backend: backend }) } catch (e) {}
+        // The deadline used to resend only the Classic stop. Shard0 EVM gets it too.
+        const s0 = st.miners && st.miners.shard0
+        if (device === 'gpu' && window.SCDOMineHome.shard0NeedsStop(s0)) {
+          try { api.invoke('miner:stop', 'mine') } catch (e) {}
+        }
       }
       refreshDash()
     }, ms)

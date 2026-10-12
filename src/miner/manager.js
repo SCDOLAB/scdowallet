@@ -27,6 +27,14 @@ const RIGEL = {
   linux: { file: 'rigel-1.23.2-linux.tar.gz', sha256: 'eae492ffb64aeb4ab4ba7e66631567984a31d5adb1ef547bda6601aee1793f0d', dir: 'rigel-1.23.2-linux', exe: 'rigel' }
 }
 const BOOTNODE = 'enode://1d2c370db7c419349e2313f20023f6b379f946990042b9b42df45cb56e4c3487df0d36c52cd81308fcdf312450f758a6213fcac21213e94a71af4a3c9392601f@82.223.19.88:30368'
+// One bootnode was a single point of failure: when it dropped the node sat on 0 peers and the
+// GPU page showed 「等待同步」 for ever. Extra enodes come from SCDO_EXTRA_BOOTNODES (comma list) or
+// <dataRoot>/bootnodes.txt (one per line), and a synced SCDO node already on this PC is added as a peer.
+const ENODE_RE = /^enode:\/\/[0-9a-f]{128}@[0-9A-Za-z.\-]+:\d{1,5}$/
+// Local SCDO Shard0 nodes that may already run on the PC (CoreGeth supervisor uses 18647).
+const LOCAL_NODE_PORTS = [18647]
+const NO_PEER_KICK_MS = 60 * 1000 // 0 peers this long -> re-add bootnodes / local peer
+const SYNC_STALL_MS = 10 * 60 * 1000 // syncing with no new block this long -> stalled
 const REF_RPC = 'https://scdoscan.io/rpc/0'
 const BASE_PORTS = { http: 18545, auth: 18551, p2p: 30368, stratum: 3333, rigelApi: 5055 }
 const PORTS = Object.assign({}, BASE_PORTS) // ports actually in use (shifted when the defaults are taken)
@@ -261,7 +269,56 @@ class MinerManager extends EventEmitter {
     }
   }
 
-  status () { return Object.assign({}, this.state, { running: this.wantRunning, keepMining: this.keepMining(), procs: Object.keys(this.procs).filter(k => this.procs[k]) }) }
+  status () {
+    const procs = Object.keys(this.procs).filter(k => this.procs[k])
+    // stopping: Stop was pressed and a child is still exiting (geth may take up to 60 s).
+    // The page shows 「正在停止」 for that whole time instead of falling back to 「等待同步」.
+    return Object.assign({}, this.state, { running: this.wantRunning, stopping: !this.wantRunning && procs.length > 0, keepMining: this.keepMining(), procs })
+  }
+
+  bootnodes () {
+    const list = [BOOTNODE]
+    const add = (v) => { v = String(v || '').trim(); if (ENODE_RE.test(v) && list.indexOf(v) < 0) list.push(v) }
+    String(process.env.SCDO_EXTRA_BOOTNODES || '').split(',').forEach(add)
+    try { fs.readFileSync(path.join(this.o.dataRoot, 'bootnodes.txt'), 'utf8').split(/\r?\n/).forEach(add) } catch (e) {}
+    return list
+  }
+
+  // enode of a synced SCDO Shard0 node already running on this PC (not our own geth), rewritten to 127.0.0.1.
+  async localPeerEnode () {
+    for (const port of LOCAL_NODE_PORTS) {
+      if (port === PORTS.http) continue
+      const url = 'http://127.0.0.1:' + port
+      try {
+        if (parseInt(await rpc(url, 'eth_chainId', [], 2000), 16) !== SHARD0_CHAIN_ID) continue
+        const info = await rpc(url, 'admin_nodeInfo', [], 2000)
+        const enode = info && typeof info.enode === 'string' ? info.enode.replace(/@[^:]+:/, '@127.0.0.1:').replace(/\?.*$/, '') : ''
+        if (ENODE_RE.test(enode)) return enode
+      } catch (e) {}
+    }
+    return null
+  }
+
+  // 0 peers or a stalled sync: ask our geth to dial every bootnode and the local node again.
+  async reconnectPeers (L, why) {
+    this.lastPeerKick = Date.now()
+    const targets = this.bootnodes()
+    try { const local = await this.localPeerEnode(); if (local && targets.indexOf(local) < 0) targets.push(local) } catch (e) {}
+    let ok = 0
+    for (const en of targets) { try { if (await rpc(L, 'admin_addPeer', [en], 3000)) ok++ } catch (e) {} }
+    this.log('wallet', 'reconnecting peers (' + why + '): asked geth to dial ' + ok + '/' + targets.length + ' node(s)')
+  }
+
+  // Tracks no-peer time and sync progress; returns { syncStalled, kick } for the poll.
+  syncWatch (localBlock, peers, syncingPhase, now) {
+    now = now || Date.now()
+    if (!(peers > 0)) { if (!this.noPeersSince) this.noPeersSince = now } else this.noPeersSince = null
+    if (this.lastHead == null || localBlock > this.lastHead) { this.lastHead = localBlock; this.lastProgressAt = now }
+    const stalled = !!syncingPhase && !!this.lastProgressAt && now - this.lastProgressAt >= SYNC_STALL_MS
+    const noPeersLong = !!this.noPeersSince && now - this.noPeersSince >= NO_PEER_KICK_MS
+    const kickDue = !this.lastPeerKick || now - this.lastPeerKick >= NO_PEER_KICK_MS
+    return { syncStalled: stalled, kick: (noPeersLong || stalled) && kickDue ? (noPeersLong ? 'no peers' : 'sync stalled') : null }
+  }
 
   // 2.0.1 (P0 #3): a child that exits on its own (crash, or killed from Task Manager) is only restarted when the user turned
   // on "Keep mining". Default OFF: an unexpected exit stops the whole miner and it stays stopped.
@@ -425,8 +482,8 @@ class MinerManager extends EventEmitter {
       // B2: node only – no miner API, no etherbase, no proxy, no Rigel
       return this.spawnChild('geth', this.bin('geth'), [
         '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--gcmode', 'archive', '--port', String(PORTS.p2p),
-        '--bootnodes', BOOTNODE,
-        '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3',
+        '--bootnodes', this.bootnodes().join(','),
+        '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,admin',
         '--authrpc.addr', '127.0.0.1', '--authrpc.port', String(PORTS.auth), '--ipcdisable', '--cache', '512',
         '--verbosity', '3'
       ].concat(this.state.payout ? ['--identity', 'scdo-node:' + this.state.payout] : []))  // node service fee address (scdoscan.io/nodes/)
@@ -437,8 +494,8 @@ class MinerManager extends EventEmitter {
       // block 0 ("Head state missing") and can only recover via snap sync from a peer that is AHEAD of it,
       // i.e. a lone/main miner restarting would deadlock the chain. SCDO blocks are tiny, so archive is cheap.
       '--datadir', this.dataDir, '--networkid', '5680', '--syncmode', 'full', '--gcmode', 'archive', '--port', String(PORTS.p2p),
-      '--bootnodes', BOOTNODE,
-      '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,miner',
+      '--bootnodes', this.bootnodes().join(','),
+      '--http', '--http.addr', '127.0.0.1', '--http.port', String(PORTS.http), '--http.api', 'eth,net,web3,miner,admin',
       '--authrpc.addr', '127.0.0.1', '--authrpc.port', String(PORTS.auth), '--ipcdisable',
       '--miner.etherbase', w, '--miner.gaslimit', '30000000', '--miner.gasprice', '1000000', '--txpool.pricelimit', '1000000',
       '--ethash.dagdir', path.join(this.dataDir, 'ethash-dag'), '--ethash.cachedir', path.join(this.dataDir, 'ethash-cache'),
@@ -513,16 +570,21 @@ class MinerManager extends EventEmitter {
       this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
     }
     // node only + an SCDO node already running on this PC (default port): nothing to start, just show its status
-    if (mode === 'node' && await this.externalNodeAt(BASE_PORTS.http + ENV_OFFSET)) {
-      this.external = { url: 'http://127.0.0.1:' + (BASE_PORTS.http + ENV_OFFSET) }
+    let extPort = null
+    if (mode === 'node') {
+      for (const port of [BASE_PORTS.http + ENV_OFFSET].concat(LOCAL_NODE_PORTS)) { if (await this.externalNodeAt(port)) { extPort = port; break } }
+    }
+    if (extPort != null) {
+      this.external = { url: 'http://127.0.0.1:' + extPort }
       this.wantRunning = true; this.restarts = {}
-      this.set({ phase: 'external', code: 'EXTERNAL_NODE', external: true, ports: { http: BASE_PORTS.http + ENV_OFFSET }, message: 'An SCDO shard0 node is already running on this PC (' + this.external.url + ') – not starting a second one.' })
+      this.set({ phase: 'external', code: 'EXTERNAL_NODE', external: true, ports: { http: extPort }, message: 'An SCDO shard0 node is already running on this PC (' + this.external.url + ') – not starting a second one.' })
       this.poller = setInterval(() => this.poll().catch(() => {}), 5000)
       this.poll().catch(() => {})
       return
     }
     this.external = null
     this.wantRunning = true; this.restarts = {}
+    this.noPeersSince = null; this.lastHead = null; this.lastProgressAt = null; this.lastPeerKick = null
     this.emit('status', this.status())
     if (mode === 'pool') {
       // 2.0.1 pool mode v1: Rigel connects straight to the user's pool; no local node / proxy
@@ -617,6 +679,9 @@ class MinerManager extends EventEmitter {
       rpc(this.o.refRpc, 'eth_blockNumber', [], 8000).then(r => this.set({ networkBlock: parseInt(r, 16) })).catch(() => {})
     }
     if (this.external) { this.extFail = 0; patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
+    const watch = this.syncWatch(patch.localBlock, patch.peers, this.state.phase === 'syncing')
+    patch.syncStalled = watch.syncStalled
+    if (watch.kick) this.reconnectPeers(L, watch.kick).catch(() => {})
     if (nodeOnly) {
       // B3: node-only mode never claims to be mining
       const nb = this.state.networkBlock
