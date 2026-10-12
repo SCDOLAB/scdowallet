@@ -471,7 +471,8 @@ class ZpowManager extends EventEmitter {
     await assertSha256(binary, shaOpts)
 
     fs.mkdirSync(path.join(this.o.dataRoot, 'logs'), { recursive: true })
-    this.earnBase = null
+    // 3.1.4 (bug #5): 本次收益 survives restarts / relaunch / auto-resume; only the user's Stop ends the session
+    this.earnBase = loadEarnBase(this.o.dataRoot, backend, parsed.address, parsed.shard)
     this.state = Object.assign(this.fresh(), {
       wallet: parsed.address,
       shard: parsed.shard,
@@ -653,7 +654,13 @@ class ZpowManager extends EventEmitter {
       }
       if (!fig) patch.sessionEarn = null
       else {
-        if (!this.earnBase) this.earnBase = { shares: fig.shares, paid: fig.paid, earned: fig.earned }
+        const b = this.earnBase
+        // a pool-side reset (counters below the base) starts a new baseline; anything else keeps it
+        const lower = (x, y) => x != null && y != null && Number.isFinite(Number(x)) && Number.isFinite(Number(y)) && Number(x) < Number(y) - 1e-9
+        if (!b || lower(fig.shares, b.shares) || lower(fig.paid, b.paid) || lower(fig.earned, b.earned)) {
+          this.earnBase = { shares: fig.shares, paid: fig.paid, earned: fig.earned, startedAt: Date.now() }
+          saveEarnBase(this.o.dataRoot, this.state.mode, this.state.wallet, this.state.shard, this.earnBase)
+        }
         patch.sessionEarn = sessionDelta(this.earnBase, fig)
       }
       this.set(patch)
@@ -662,9 +669,12 @@ class ZpowManager extends EventEmitter {
     }
   }
 
-  async stop () {
+  // opts.endSession: the user pressed Stop, so the next Start counts 本次收益 from zero again.
+  // Every other stop (quit, restart, guard pause, sleep) keeps the session baseline on disk.
+  async stop (opts) {
     this.wantRunning = false
     if (!this._guardPausing) this.guardHeld = null
+    if (opts && opts.endSession && this.state && this.state.wallet) clearEarnBase(this.o.dataRoot, this.state.mode, this.state.wallet, this.state.shard)
     this.earnBase = null
     if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null }
     if (this.poller) { clearInterval(this.poller); this.poller = null }
@@ -840,12 +850,33 @@ class GpuFleet extends EventEmitter {
     return this.status()
   }
 
-  async stop () {
+  async stop (opts) {
     const jobs = []
-    for (const kid of this.kids.values()) jobs.push(kid.stop())
+    for (const kid of this.kids.values()) jobs.push(kid.stop(opts))
     await Promise.all(jobs)
     this.emit('status', this.status())
   }
+}
+
+// ---- 3.1.4 bug #5: session earnings baseline persisted per (backend, address, shard) ----
+function earnFile (root, mode, address, shard) {
+  return path.join(root || os.tmpdir(), 'session-earn-' + String(mode || 'cpu') + '-' + String(shard) + '-' + String(address || '').toLowerCase().replace(/[^0-9a-z]/g, '') + '.json')
+}
+function loadEarnBase (root, mode, address, shard) {
+  try {
+    const j = JSON.parse(fs.readFileSync(earnFile(root, mode, address, shard), 'utf8'))
+    const ok = (v) => v == null || Number.isFinite(Number(v))
+    if (j && typeof j === 'object' && ok(j.shares) && ok(j.paid) && ok(j.earned) && (j.shares != null || j.paid != null || j.earned != null)) {
+      return { shares: j.shares == null ? null : Number(j.shares), paid: j.paid == null ? null : String(j.paid), earned: j.earned == null ? null : String(j.earned), startedAt: Number(j.startedAt) || null }
+    }
+  } catch (e) {}
+  return null
+}
+function saveEarnBase (root, mode, address, shard, base) {
+  try { fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(earnFile(root, mode, address, shard), JSON.stringify(base)) } catch (e) {}
+}
+function clearEarnBase (root, mode, address, shard) {
+  try { fs.unlinkSync(earnFile(root, mode, address, shard)) } catch (e) {}
 }
 
 function finitePct (v) {
@@ -956,4 +987,4 @@ async function localNodeHeights (call, timeoutMs) {
   return out
 }
 
-module.exports = { ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }
+module.exports = { loadEarnBase, saveEarnBase, clearEarnBase, earnFile, ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }
