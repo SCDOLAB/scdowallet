@@ -584,7 +584,9 @@ ipcMain.handle('miner:stop', async (e, src) => {
   }
   writeIntent(mineResume.afterStop(readIntent() || {}, 'shard0')) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
-  try { getMiner().log('wallet', 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')') } catch (err) {}
+  // 3.1.4: say who stopped it. The cat's GPU heat guard is not the user.
+  const stopWho = src === 'heat' ? 'stop requested by the GPU heat guard (AI cat, card still too hot after the miner guard)' : 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')'
+  try { getMiner().log('wallet', stopWho) } catch (err) {}
   if (miner) await stopMinerVisibly(mainWindow)
   return { ok: true }
 })

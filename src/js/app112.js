@@ -4559,7 +4559,7 @@
     if (action.type === 'stopGpu') {
       try { await api.invoke('miner:stop', { chain: 'classic', backend: 'gpu' }) } catch (e) {}
       const s0 = (st.miners && st.miners.shard0) || st.miner
-      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'mine') } catch (e) {} }
+      if (s0 && s0.running && s0.mode !== 'node') { try { await api.invoke('miner:stop', 'heat') } catch (e) {} }
       return { ok: true }
     }
     if (action.type === 'startJobs' || action.type === 'restartJobs') {
