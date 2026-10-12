@@ -778,7 +778,7 @@ function defaultChainPick (saved, caps, targets, miners) {
   else if (saved.classic === 'gpu' || saved.classic === 'external') {
     gpu = [gpuShard]
     if (saved.cpu) cpu = [cpuShard]
-  } else if (gpuAvail) gpu = [gpuShard]
+  } else if (gpuAvail) gpu = [0] // 3.1.3: a graphics card with nothing saved mines Shard0 EVM
   else cpu = [cpuShard]
   if (saved.shard0 && gpu.indexOf(0) < 0) gpu.unshift(0)
   return sanitizeChainPick({ cpu: cpu, gpu: gpu }, caps)
