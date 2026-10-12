@@ -4705,7 +4705,8 @@
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
     ensureCaps().catch(() => {})
-    ensureGpu().then(async () => {
+    // 3.1.4 AI Agent Ledger: the ops agent in main can ask for the same resume after a restart lost the mining state
+    const tryResume = async () => {
       let rc = null; try { rc = await api.invoke('miner:resumeCheck') } catch (e) {}
       // A leftover localStorage run flag is not a miner. Only an armed resume snapshot may start one.
       const alive = !!(rc && rc.running) || !!(st.miner && st.miner.running)
@@ -4744,7 +4745,9 @@
         const r = await api.invoke('miner:start', rc.reward, { mode: 'mine' })
         if (r && !r.ok) toast(window.SCDOStartError.full(lang(), r.code, r.error), 7000)
       }
-    })
+    }
+    ensureGpu().then(tryResume)
+    try { api.on('agent:resume', () => { ensureGpu().then(tryResume).catch(() => {}) }) } catch (e) {}
     if (st.tab === 'mineSet') render()
   }
   boot()

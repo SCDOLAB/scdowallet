@@ -930,6 +930,7 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     createMenu(mainWindow, uiLang())
     createTray()
+    startOpsAgent()
     // 1.1.6: first update check 1 minute after launch, then every 6 hours
     scheduleAutoCheck()
   })
@@ -1003,6 +1004,71 @@ function killMinerChildrenSync () {
     } catch (e) {}
   }
 }
+// ---------------- 3.1.4 AI Agent Ledger: the AI kitten as ops agent ----------------
+// Reads this miner's live status, self-heals known incidents (duplicate Rigel on 5055, lost mining state after a
+// reboot, 0 peers / stalled sync, stuck 0 H/s, GPU heat), keeps a local event log, and sends heartbeats signed with
+// this machine's own agent key (userData/agent/agent-key.json). The key is never sent; the server holds no keys.
+// Reporting can be turned off ("agentReporting": false in miner-intent.json); local self-heal still runs.
+let opsAgent = null
+async function agentSnapshot () {
+  const m = getMiner()
+  const st = m.status() || {}
+  const it = readIntent() || {}
+  const node = st.mode === 'node'
+  const wantMining = !!st.running && !node
+  let otherRigels = []
+  if (wantMining || (it.autoResume && it.keepMining)) { try { otherRigels = await m.otherRigels() } catch (e) {} }
+  let gpuTempC = null
+  try { const t = await guardHost.gpuTempC(); gpuTempC = typeof t === 'number' ? t : (t && Number.isFinite(t.tempC) ? t.tempC : null) } catch (e) {}
+  let gaveUp = false
+  try { const v = guardRun && guardRun.snapshot && guardRun.snapshot(); gaveUp = !!(v && v.chains && v.chains.some(c => c.status && c.status.gaveUp)) } catch (e) {}
+  const zRunning = !!((zpowCpu && zpowCpu.wantRunning) || (zpowGpu && zpowGpu.wantRunning))
+  const armed = !!((it.autoResume && it.keepMining) || it.resumeOnce)
+  const resumeChains = it.resume ? Object.keys(it.resume).filter(k => it.resume[k]) : []
+  return {
+    wantMining, running: !!st.running || zRunning, code: st.code || null, hashrate: st.hashrate == null ? null : Number(st.hashrate),
+    peers: st.peers == null ? null : Number(st.peers), localBlock: st.localBlock ?? null, networkBlock: st.networkBlock ?? null,
+    nodeRunning: !!(st.procs && st.procs.includes('geth')), paused: !!st.paused, procs: st.procs || [],
+    otherRigels, gaveUp, quickExits: m.recentExits ? m.recentExits('rigel') : 0, gpuTempC,
+    armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000)
+  }
+}
+function startOpsAgent () {
+  if (opsAgent) return
+  try {
+    const { AgentService } = require('./src/agent/agentService')
+    opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
+      version: VERSION, platform: process.platform, label: '',
+      enabled: () => (readIntent() || {}).agentReporting !== false,
+      snapshot: agentSnapshot,
+      handlers: {
+        'free-port': async (a) => {
+          const freed = await getMiner().agentFreeRigelPort(a.pids)
+          if (freed && guardRun && guardRun.clearGiveUp) guardRun.clearGiveUp()
+          return freed
+        },
+        'restart-miner': async () => {
+          if (guardRun && guardRun.clearGiveUp) guardRun.clearGiveUp()
+          return getMiner().restartRigelForGuard()
+        },
+        'reconnect-peers': (a) => getMiner().agentReconnectPeers(a.reason),
+        'resume-mining': async () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return false
+          mainWindow.webContents.send('agent:resume'); return true
+        },
+        // GPU heat is enforced by the miner guard's temperature rule (85 °C slow down, 90 °C pause);
+        // the agent records and reports it, and nudges the guard to re-evaluate.
+        throttle: async () => { refreshTray(); return true },
+        'pause-gpu': async () => { refreshTray(); return true },
+        unthrottle: async () => { refreshTray(); return true }
+      }
+    })
+    opsAgent.start()
+  } catch (e) { console.error('ops agent failed to start', e && e.message) }
+}
+ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
+ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
+
 app.on('will-quit', () => { killMinerChildrenSync(); if (tray) tray.destroy() })
 process.on('exit', () => killMinerChildrenSync())
 
