@@ -9,7 +9,7 @@
   const ATTRS = new Set(['class', 'id', 'style', 'title', 'type', 'placeholder', 'value', 'disabled', 'selected', 'checked', 'readonly',
     'maxlength', 'min', 'max', 'step', 'inputmode', 'autocomplete', 'src', 'alt', 'role', 'hidden', 'open', 'for', 'name', 'width', 'height', 'tabindex', 'colspan', 'rowspan', 'spellcheck', 'lang', 'autocapitalize'])
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-  const okSrc = (v) => /^\.\/src\/img\/[\w./-]+$/.test(v) || /^\.\/assets\/[\w./-]+$/.test(v) || /^data:image\/(png|gif|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)
+  const okSrc = (v) => /^\.\/src\/img\/[\w./-]+$/.test(v) || /^\.\/assets\/[\w./-]+$/.test(v) || /^data:image\/(png|gif|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v) || /^https:\/\/scdoscan\.io\/logos\/0x[0-9a-fA-F]{40}\.png$/.test(v)
   const tt = window.trustedTypes
   // private pass-through policy: only used below to parse markup into an inert <template> before it is cleaned
   const parsePolicy = tt ? tt.createPolicy('scdo-parse', { createHTML: (s) => s }) : { createHTML: (s) => s }

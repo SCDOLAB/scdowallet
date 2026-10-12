@@ -34,7 +34,10 @@ assert.strictEqual(mnemonic.saveDefaultPath('/home/me/Documents', 'txt', day), p
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-phrase-'))
 function finish (sealedJson) {
-  g.words.forEach(w => assert.ok(!sealedJson.includes(w)))
+  // The seal is hex, so a short word can appear inside the ciphertext.
+  // The phrase contains spaces, and a word counts only as its own token.
+  assert.ok(!sealedJson.includes(g.phrase))
+  g.words.forEach(w => assert.ok(!new RegExp('\\b' + w + '\\b').test(sealedJson), w))
   return mnemonic.open(sealedJson, 'Aa1!aaaa').then(opened => {
     assert.strictEqual(opened, g.phrase)
     assert.strictEqual(mnemonic.meta(sealedJson).created, day)
@@ -84,8 +87,10 @@ assert.ok(main.includes('removeSeal'))
 const nsh = read('build/installer.nsh')
 const pkg = require('../package.json')
 assert.strictEqual(pkg.build.nsis.oneClick, false)
-assert.notStrictEqual(pkg.build.nsis.deleteAppDataOnUninstall, true)
+assert.strictEqual(pkg.build.nsis.deleteAppDataOnUninstall, false)
 assert.ok(!nsh.includes('RMDir') && !nsh.includes('deleteAppData') && !nsh.includes('.ScdoWallet'))
+assert.ok(nsh.includes('!macro customUnInstall'))
+assert.ok(nsh.includes('Do not delete account files.'))
 const preload = read('preload.js')
 assert.ok(preload.includes("'phrase:show'") && preload.includes("'phrase:save'") && preload.includes("'phrase:done'"))
 

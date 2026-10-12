@@ -16,6 +16,7 @@ const { execFile } = require('child_process')
 // electron is unavailable in plain-node tests; injection points below cover it
 let electron = null
 try { electron = require('electron') } catch (e) {}
+const { VERSION } = require('./version')
 
 // ---- update channel (build-time constants; 1.1.6 review: nothing here can be changed at run time) ----
 // BEGIN-UPDATE-CHANNEL
@@ -139,14 +140,14 @@ function sha256File (file) {
   })
 }
 function httpsGetJSON (url, timeoutMs) {
-  return httpGet(url, { 'User-Agent': 'SCDO-Wallet/' + (electron ? electron.app.getVersion() : 'test'), Accept: 'application/json' }, timeoutMs)
+  return httpGet(url, { 'User-Agent': 'SCDO-Wallet/' + VERSION, Accept: 'application/json' }, timeoutMs)
     .then(r => { try { return JSON.parse(r.body.toString('utf8')) } catch (e) { throw new Error('invalid JSON: ' + e.message) } })
 }
 
 class Updater {
   constructor (opts) {
     opts = opts || {}
-    this.currentVersion = opts.currentVersion || (electron ? electron.app.getVersion() : '0.0.0')
+    this.currentVersion = opts.currentVersion || VERSION
     this.url = opts.url || UPDATER_URL
     this.urlProvider = opts.urlProvider || null // 2.0.7: () => [manifest URLs] for the chosen channel (main.js: updateChannel.manifestUrls)
     this.lastManifest = null

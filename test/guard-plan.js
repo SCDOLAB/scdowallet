@@ -12,12 +12,27 @@ const guardWin = require('../src/miner/guardWin')
 const MB = 1024 * 1024
 assert.strictEqual(plan.LOG_LIMIT, 50 * MB)
 assert.strictEqual(plan.LOG_KEEP, 3)
-assert.deepStrictEqual(plan.BACKOFF_MIN, [1, 2, 5, 10])
+assert.deepStrictEqual(plan.BACKOFF_MIN, [1, 2, 4, 8, 16, 30])
 assert.strictEqual(plan.backoffMs(0), 60 * 1000)
 assert.strictEqual(plan.backoffMs(1), 2 * 60 * 1000)
-assert.strictEqual(plan.backoffMs(2), 5 * 60 * 1000)
-assert.strictEqual(plan.backoffMs(3), 10 * 60 * 1000)
-assert.strictEqual(plan.backoffMs(4), 10 * 60 * 1000)
+assert.strictEqual(plan.backoffMs(2), 4 * 60 * 1000)
+assert.strictEqual(plan.backoffMs(3), 8 * 60 * 1000)
+assert.strictEqual(plan.backoffMs(4), 16 * 60 * 1000)
+assert.strictEqual(plan.backoffMs(5), 30 * 60 * 1000)
+assert.strictEqual(plan.backoffMs(8), 30 * 60 * 1000)
+assert.strictEqual(plan.STALL_MS, 5 * 60 * 1000)
+assert.strictEqual(plan.IDLE_RESTORE_MS, 45 * 1000)
+assert.strictEqual(plan.HIGH_CPU_HOLD_MS, 5 * 1000)
+assert.strictEqual(plan.BATTERY_STOP, 20)
+assert.strictEqual(plan.ARCH_RULES.amd, 'physical-minus-one')
+assert.strictEqual(plan.ARCH_RULES['apple-silicon'], 'qos-utility')
+assert.strictEqual(plan.ARCH_RULES['intel-hybrid'], 'p-core-affinity')
+assert.strictEqual(plan.archKind({ vendor: 'amd', hybrid: false }), 'amd')
+assert.strictEqual(plan.archKind({ hybrid: true }), 'intel-hybrid')
+assert.strictEqual(plan.archKind({ qos: 'utility' }), 'apple-silicon')
+assert.strictEqual(plan.archKind({ virtual: true, hybrid: true }), 'virtual')
+assert.strictEqual(plan.dominantColour(['green', 'blue', 'yellow']), 'yellow')
+assert.strictEqual(plan.dominantColour(['green', 'blue', 'red']), 'red')
 
 const groups = []
 for (let i = 0; i < 8; i++) groups.push({ efficiencyClass: 0, logical: [16 + i] })
@@ -32,19 +47,99 @@ assert.strictEqual(hybrid.threads, 7)
 assert.deepStrictEqual(hybrid.affinity, cores.pLogical)
 assert.strictEqual(hybrid.priority, 'below-normal')
 
-const amd = plan.threadPlan({ physicalPCores: 8, logical: 16, hybrid: false })
+const amd = plan.threadPlan({ physicalPCores: 8, logical: 16, hybrid: false, vendor: 'amd' })
 assert.strictEqual(amd.threads, 7)
-assert.strictEqual(amd.affinity.length, 14)
-assert.deepStrictEqual(amd.affinity, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+assert.strictEqual(amd.arch, 'amd')
+assert.strictEqual(amd.affinity.length, 16)
+assert.deepStrictEqual(amd.affinity, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 assert.strictEqual(amd.priority, 'below-normal')
+assert.strictEqual(amd.unsuitable, false)
 const tiny = plan.threadPlan({ physicalPCores: 2, logical: 2, hybrid: false })
 assert.strictEqual(tiny.threads, 1)
 assert.strictEqual(tiny.affinity, null)
+assert.strictEqual(tiny.unsuitable, true)
 assert.strictEqual(plan.threadPlan({ physicalPCores: 1, logical: 1, hybrid: false }).threads, 1)
 assert.strictEqual(plan.threadPlan({ physicalPCores: 0, logical: 0 }).threads, 1)
 const same = plan.classifyCores([{ efficiencyClass: 0, logical: [0, 1] }, { efficiencyClass: 0, logical: [2, 3] }])
 assert.strictEqual(same.hybrid, false)
 assert.strictEqual(same.physicalPCores, 2)
+const i5Groups = []
+for (let i = 0; i < 6; i++) i5Groups.push({ efficiencyClass: 1, logical: [i * 2, i * 2 + 1] })
+for (let i = 0; i < 4; i++) i5Groups.push({ efficiencyClass: 0, logical: [12 + i] })
+const i5 = plan.classifyCores(i5Groups)
+assert.strictEqual(i5.hybrid, true)
+assert.strictEqual(i5.physicalPCores, 6)
+assert.strictEqual(i5.pLogical.length, 12)
+const i5Plan = plan.threadPlan({ physicalPCores: 6, logical: 16, hybrid: true, pLogical: i5.pLogical })
+assert.strictEqual(i5Plan.threads, 5)
+assert.deepStrictEqual(i5Plan.affinity, i5.pLogical)
+assert.ok(!i5Plan.affinity.includes(12) && !i5Plan.affinity.includes(15))
+const intelMac = plan.threadPlan({ physicalPCores: 8, logical: 8, hybrid: false, vendor: 'apple-intel' })
+assert.strictEqual(intelMac.threads, 7)
+assert.strictEqual(intelMac.affinity.length, 8)
+assert.strictEqual(intelMac.arch, 'apple-intel')
+const silicon = plan.threadPlan({ physicalPCores: 4, logical: 8, hybrid: false, qos: 'utility', vendor: 'apple-silicon' })
+assert.strictEqual(silicon.threads, 3)
+assert.strictEqual(silicon.affinity, null)
+assert.strictEqual(silicon.qos, 'utility')
+assert.strictEqual(silicon.unsuitable, false)
+assert.strictEqual(plan.threadPlan({ physicalPCores: 2, logical: 8, hybrid: false, qos: 'utility' }).unsuitable, true)
+const pending = plan.pendingPlan()
+assert.strictEqual(pending.pending, true)
+assert.strictEqual(pending.threads, 1)
+assert.strictEqual(pending.affinity, null)
+const fallback = plan.fallbackPlan(16)
+assert.strictEqual(fallback.fallback, true)
+assert.strictEqual(fallback.pending, false)
+assert.ok(fallback.affinity.includes(0) && !fallback.affinity.includes(12) && !fallback.affinity.includes(15))
+assert.ok(fallback.threads >= 1 && fallback.threads <= 8)
+const hostProbe = require('../src/miner/hostProbe')
+const byType = plan.classifyCores(hostProbe.groupsFromCpuList([
+  { id: 0, coreId: 0, packageId: 0, coreType: '0', capacity: 100 },
+  { id: 1, coreId: 0, packageId: 0, coreType: '0', capacity: 100 },
+  { id: 2, coreId: 1, packageId: 0, coreType: '1', capacity: 100 },
+  { id: 3, coreId: 2, packageId: 0, coreType: '1', capacity: 100 }
+]))
+assert.strictEqual(byType.hybrid, true)
+assert.deepStrictEqual(byType.pLogical, [0, 1])
+const byCap = plan.classifyCores(hostProbe.groupsFromCpuList([
+  { id: 0, coreId: 0, capacity: 1024 },
+  { id: 1, coreId: 0, capacity: 1024 },
+  { id: 4, coreId: 2, capacity: 400 }
+]))
+assert.strictEqual(byCap.hybrid, true)
+assert.deepStrictEqual(byCap.pLogical, [0, 1])
+const memInfo = hostProbe.parseMeminfo('MemTotal: 100000 kB\nMemAvailable: 10000 kB\nCommitLimit: 200000 kB\nCommitted_AS: 190000 kB\n')
+assert.ok(memInfo.ramFreePct < 15)
+assert.ok(memInfo.commitPct > 90)
+const batt = hostProbe.parsePmset("Now drawing from 'Battery Power'\n -InternalBattery-0 29%; discharging\n")
+assert.strictEqual(batt.onBattery, true)
+assert.strictEqual(batt.batteryPct, 29)
+const ac = hostProbe.parsePmset("Now drawing from 'AC Power'\n -InternalBattery-0 100%; charged\n")
+assert.strictEqual(ac.onBattery, false)
+assert.strictEqual(hostProbe.parsePowerSupply('Discharging', '28').onBattery, true)
+assert.strictEqual(hostProbe.parseHidIdle('HIDIdleTime" = 30000000000'), 30000)
+assert.strictEqual(hostProbe.parseDbusIdle('uint32 12'), 12000)
+assert.strictEqual(hostProbe.parseFullscreen('_NET_WM_STATE_FULLSCREEN'), true)
+assert.strictEqual(hostProbe.parseMacFullscreen('true'), true)
+assert.strictEqual(hostProbe.parseNoteState(2), true)
+assert.strictEqual(hostProbe.parseNoteState(3), true)
+assert.strictEqual(hostProbe.parseNoteState(4), true)
+assert.strictEqual(hostProbe.parseNoteState(5), false)
+assert.strictEqual(hostProbe.parseVendor('AuthenticAMD'), 'amd')
+assert.strictEqual(hostProbe.parseVendor('Advanced Micro Devices, Inc.'), 'amd')
+assert.strictEqual(hostProbe.parseVendor('GenuineIntel'), 'intel')
+assert.strictEqual(hostProbe.parseRemoteSession('RDP-Tcp#2'), true)
+assert.strictEqual(hostProbe.parseRemoteSession('Console'), false)
+assert.strictEqual(hostProbe.parseVirtBlob('VMware, Inc. VMware Virtual Platform'), true)
+assert.strictEqual(hostProbe.parseVirtBlob('Dell Inc. XPS'), false)
+assert.strictEqual(hostProbe.parseProcRoute('Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\neth0 00000000 0101A8C0 0003 0 0 0 00000000 0 0 0\n'), false)
+assert.strictEqual(hostProbe.parseProcRoute('Iface Destination Gateway\neth0 0101A8C0 00000000 0003 0 0 0 00FFFFFF 0 0 0\n'), true)
+assert.strictEqual(hostProbe.parsePmsetAssertions('PreventUserIdleDisplaySleep    1'), true)
+assert.strictEqual(hostProbe.parsePmsetAssertions('PreventUserIdleDisplaySleep    0'), false)
+assert.strictEqual(hostProbe.parseGpuTemp('72\n'), 72)
+assert.strictEqual(hostProbe.parseMemoryPressure('System-wide memory free percentage: 42%'), 42)
+assert.strictEqual(guardWin.parseCores('1:0,1,2,3;0:12,13;').length, 2)
 
 assert.strictEqual(plan.shouldRotate(50 * MB - 1), false)
 assert.strictEqual(plan.shouldRotate(50 * MB), true)
@@ -85,14 +180,35 @@ assert.strictEqual(fsMem.files[log + '.2'].body, 'C')
 assert.strictEqual(fsMem.files[log + '.3'].body, 'B')
 assert.ok(!Object.values(fsMem.files).some(f => f.body === 'A'))
 
-assert.deepStrictEqual(plan.trayView({ phase: 'mining', shareAgeMs: 5 * 60 * 1000 }), { colour: 'green', reason: '' })
-assert.deepStrictEqual(plan.trayView({ phase: 'running', shareAgeMs: 11 * 60 * 1000 }), { colour: 'yellow', reason: '' })
-assert.deepStrictEqual(plan.trayView({ phase: 'mining', shareAgeMs: null }), { colour: 'yellow', reason: '' })
-assert.deepStrictEqual(plan.trayView({ phase: 'stopped' }), { colour: 'red', reason: '' })
-assert.deepStrictEqual(plan.trayView({ phase: 'restarting' }), { colour: 'red', reason: '' })
+assert.deepStrictEqual(plan.trayView({ phase: 'mining', shareAgeMs: 11 * 60 * 1000 }), { colour: 'green', reason: '' })
+assert.deepStrictEqual(plan.trayView({ phase: 'yielding', yielding: true }), { colour: 'yellow', reason: '' })
+assert.deepStrictEqual(plan.trayView({ phase: 'mining', yielding: true }), { colour: 'yellow', reason: '' })
+assert.deepStrictEqual(plan.trayView({ phase: 'gave-up' }), { colour: 'red', reason: '異常' })
+assert.deepStrictEqual(plan.trayView({ phase: 'abnormal' }), { colour: 'red', reason: '異常' })
+assert.deepStrictEqual(plan.trayView({ abnormal: true, phase: 'mining' }), { colour: 'red', reason: '異常' })
+assert.deepStrictEqual(plan.trayView({ phase: 'restarting' }), { colour: 'blue', reason: '重新啟動' })
+assert.strictEqual(plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: 2, hashrate: 10 }).match, true)
+assert.strictEqual(plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: 5 }).match, false)
+const unchecked = plan.observeReadback({ running: true, threads: 2 }, { running: true, threads: null })
+assert.strictEqual(unchecked.match, true)
+assert.strictEqual(unchecked.unchecked, true)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: true, threads: 2 }).match, false)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: false, hashrate: 4 }).match, false)
+assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { running: false, threads: null, hashrate: 0 }).match, true)
 for (const reason of ['電池', '全螢幕', '記憶體']) {
-  assert.deepStrictEqual(plan.trayView({ phase: 'paused', reason }), { colour: 'grey', reason })
+  assert.deepStrictEqual(plan.trayView({ phase: 'paused', reason }), { colour: 'blue', reason })
 }
+assert.strictEqual(plan.TRAY_COPY.green.CN, '正在挖礦 · 已自動避開你的使用高峰')
+assert.strictEqual(plan.TRAY_COPY.yellow.CN, '你在忙，我先緩緩，空閒了自動繼續')
+assert.strictEqual(plan.TRAY_COPY.blue.CN, '已暫停(全螢幕/電池/記憶體原因)，條件恢復後自動繼續')
+assert.strictEqual(plan.TRAY_COPY.red.CN, '挖礦遇到麻煩，已停止重試 — 點我查看詳情')
+assert.strictEqual(plan.TRAY_COPY.green.EN, 'Mining · automatically stays out of your way')
+assert.strictEqual(plan.TRAY_COPY.yellow.EN, "You're busy — I've slowed down and will resume when you're idle")
+assert.strictEqual(plan.TRAY_COPY.blue.EN, 'Paused (fullscreen / on battery / low memory) — resumes automatically')
+assert.strictEqual(plan.TRAY_COPY.red.EN, 'Mining hit a snag and stopped retrying — click for details')
+assert.strictEqual(plan.FIRST_RUN.CN, '開啟挖礦後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。')
+assert.strictEqual(plan.FIRST_RUN.EN, 'Once enabled, mining automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.')
+assert.ok(!/CPU/.test(plan.TRAY_COPY.green.EN + plan.TRAY_COPY.yellow.EN + plan.TRAY_COPY.blue.EN + plan.TRAY_COPY.red.EN))
 
 function alive (over) {
   return Object.assign({
@@ -111,9 +227,9 @@ let st = quiet()
 let r = plan.stepGuard(st, alive({ inputAgeMs: 1000, cpuPct: 90 }), 0)
 assert.strictEqual(r.state.halved, false)
 assert.strictEqual(r.state.threads, 8)
-r = plan.stepGuard(r.state, alive({ inputAgeMs: 1000, cpuPct: 90 }), 9999)
+r = plan.stepGuard(r.state, alive({ inputAgeMs: 1000, cpuPct: 90 }), 4999)
 assert.strictEqual(r.state.halved, false)
-r = plan.stepGuard(r.state, alive({ inputAgeMs: 1000, cpuPct: 90 }), 10000)
+r = plan.stepGuard(r.state, alive({ inputAgeMs: 1000, cpuPct: 90 }), 5000)
 assert.strictEqual(r.state.halved, true)
 assert.strictEqual(r.state.threads, 4)
 assert.strictEqual(r.state.lastAction, '執行緒減半')
@@ -133,6 +249,14 @@ assert.strictEqual(r.state.reason, '全螢幕')
 assert.strictEqual(r.state.lastAction, '因全螢幕暫停')
 assert.ok(r.actions.some(a => a.type === 'pause' && a.reason === '全螢幕'))
 assert.ok(!r.actions.some(a => a.type === 'tray-note'))
+r = plan.stepGuard(r.state, alive({ fullscreen: true }), 6000)
+assert.strictEqual(r.state.paused, true)
+assert.strictEqual(r.state.reason, '全螢幕')
+assert.ok(!r.actions.some(a => a.type === 'pause' || a.type === 'resume'))
+r = plan.stepGuard(quiet(), alive({ platform: 'darwin', fullscreen: true }), 1000)
+assert.strictEqual(r.state.reason, '全螢幕')
+r = plan.stepGuard(quiet(), alive({ platform: 'linux', onBattery: true, batteryPct: 19 }), 1000)
+assert.strictEqual(r.state.reason, '電池')
 
 r = plan.stepGuard(quiet(), alive({ onBattery: true, batteryPct: 80 }), 1000)
 assert.strictEqual(r.state.reason, '電池')
@@ -141,7 +265,7 @@ const opted = plan.freshGuard({ baseThreads: 8, threads: 8, lastMemCheck: 1e15, 
 r = plan.stepGuard(opted, alive({ onBattery: true, batteryPct: 80 }), 1000)
 assert.strictEqual(r.state.paused, false)
 const off = plan.freshGuard({ enabled: false, baseThreads: 8, threads: 8, lastMemCheck: 1e15, mineOnBattery: true })
-r = plan.stepGuard(off, alive({ onBattery: true, batteryPct: 29, fullscreen: true }), 1000)
+r = plan.stepGuard(off, alive({ onBattery: true, batteryPct: 19, fullscreen: true }), 1000)
 assert.strictEqual(r.state.reason, '電池')
 r = plan.stepGuard(plan.freshGuard({ enabled: false, baseThreads: 8, threads: 8, lastMemCheck: 1e15 }), alive({ fullscreen: true, batteryPct: 90 }), 1000)
 assert.strictEqual(r.state.paused, false)
@@ -187,25 +311,95 @@ r = plan.stepGuard(quiet(), alive({ workingSet: 1000, handles: 100 }), 0)
 r = plan.stepGuard(r.state, alive({ workingSet: 1000, handles: 151 }), 30 * 60 * 1000)
 assert.ok(r.actions.some(a => a.type === 'restart-child' && a.cause === 'leak'))
 
+r = plan.stepGuard(quiet(), alive({ hashrate: 1000, shares: 0 }), 0)
+r = plan.stepGuard(r.state, alive({ hashrate: 1000, shares: 0 }), 5 * 60 * 1000)
+assert.ok(r.state.restartDue > 0)
+r = plan.stepGuard(quiet(), alive({ hashrate: 1000, shares: 0 }), 0)
+r = plan.stepGuard(r.state, alive({ hashrate: 1100, shares: 0 }), 5 * 60 * 1000)
+assert.strictEqual(r.state.restartDue, 0)
+assert.ok(!r.actions.some(a => a.type === 'restart-child'))
+r = plan.stepGuard(quiet(), alive({ hashrate: 0, shares: 0, networkDown: true }), 5000)
+r = plan.stepGuard(r.state, alive({ hashrate: 0, shares: 0, networkDown: true }), 5000 + 10 * 60 * 1000)
+assert.strictEqual(r.state.restartDue, 0)
+assert.ok(!r.actions.some(a => a.type === 'restart-child'))
 r = plan.stepGuard(quiet(), alive({ hashrate: 0, shares: 0 }), 5000)
 assert.ok(!r.actions.some(a => a.type === 'restart-child'))
-r = plan.stepGuard(r.state, alive({ hashrate: 0, shares: 0 }), 5000 + 15 * 60 * 1000)
-assert.strictEqual(r.state.restartDue, 5000 + 15 * 60 * 1000 + 60 * 1000)
+r = plan.stepGuard(r.state, alive({ hashrate: 0, shares: 0 }), 5000 + 5 * 60 * 1000)
+assert.strictEqual(r.state.restartDue, 5000 + 5 * 60 * 1000 + 60 * 1000)
 assert.ok(!r.actions.some(a => a.type === 'restart-child'))
-r = plan.stepGuard(r.state, alive({ hashrate: 0, shares: 0 }), 5000 + 15 * 60 * 1000 + 60 * 1000)
+r = plan.stepGuard(r.state, alive({ hashrate: 0, shares: 0 }), 5000 + 5 * 60 * 1000 + 60 * 1000)
 assert.ok(r.actions.some(a => a.type === 'restart-child' && a.cause === 'backoff'))
 assert.strictEqual(r.state.restarts.length, 1)
 assert.strictEqual(r.state.restartIndex, 1)
 
-const many = quiet()
-many.restarts = [9000, 9000, 9000, 9000, 9000]
-r = plan.stepGuard(many, alive({ childAlive: false }), 10000)
-assert.strictEqual(r.state.reason, '重新啟動')
-assert.strictEqual(r.state.lastAction, '重新啟動太多次，已暫停')
+function quickDie (state, born, dead) {
+  let out = plan.stepGuard(state, alive({ childAlive: true, hashrate: 5 }), born)
+  out = plan.stepGuard(out.state, alive({ childAlive: false, hashrate: 0 }), dead)
+  return out
+}
+r = quickDie(quiet(), 0, 10000)
+assert.strictEqual(r.state.quickDeaths, 1)
+assert.strictEqual(r.state.gaveUp, false)
+r = quickDie(r.state, 20000, 30000)
+assert.strictEqual(r.state.quickDeaths, 2)
+r = quickDie(r.state, 40000, 50000)
+assert.strictEqual(r.state.gaveUp, true)
+assert.strictEqual(r.state.reason, '異常')
 assert.ok(r.actions.some(a => a.type === 'pause'))
 assert.ok(r.actions.some(a => a.type === 'tray-note'))
 assert.ok(!r.actions.some(a => a.type === 'restart-child'))
-assert.strictEqual(r.state.restarts.length, 5)
+r = plan.stepGuard(r.state, alive({ childAlive: false }), 60000)
+assert.strictEqual(r.state.paused, true)
+assert.strictEqual(r.state.reason, '異常')
+assert.ok(!r.actions.some(a => a.type === 'restart-child' || a.type === 'resume'))
+r = plan.stepGuard(r.state, alive({ childAlive: false, userRunning: false, active: true }), 61000)
+assert.strictEqual(r.state.paused, true)
+r = plan.stepGuard(r.state, alive({ childAlive: true, hashrate: 10, userRunning: true, active: true }), 62000)
+assert.strictEqual(r.state.paused, false)
+assert.strictEqual(r.state.gaveUp, false)
+assert.strictEqual(r.state.quickDeaths, 0)
+
+r = plan.stepGuard(quiet(), alive({ fullscreen: true, remoteSession: true }), 1000)
+assert.strictEqual(r.state.paused, false)
+assert.strictEqual(r.state.remoteCap, true)
+assert.strictEqual(r.state.threads, 1)
+r = plan.stepGuard(quiet(), alive({ virtualMachine: true }), 1000)
+assert.ok(r.actions.some(a => a.type === 'tray-note' && a.reason === '虛擬機'))
+r = plan.stepGuard(r.state, alive({ virtualMachine: true }), 2000)
+assert.ok(!r.actions.some(a => a.reason === '虛擬機'))
+r = plan.stepGuard(quiet(), alive({ unsuitable: true }), 1000)
+assert.ok(r.actions.some(a => a.type === 'tray-note' && a.text === '此裝置不適合挖礦'))
+r = plan.stepGuard(quiet(), alive({ diskLow: true }), 1000)
+assert.strictEqual(r.state.reason, '磁碟')
+r = plan.stepGuard(quiet(), alive({ suspended: true }), 1000)
+assert.strictEqual(r.state.reason, '睡眠')
+assert.strictEqual(r.state.sleepHeld, true)
+r = plan.stepGuard(r.state, alive({ wakeHold: true }), 2000)
+assert.strictEqual(r.state.reason, '睡眠')
+r = plan.stepGuard(r.state, alive({}), 30000)
+assert.strictEqual(r.state.paused, false)
+assert.ok(r.actions.some(a => a.type === 'resume'))
+r = plan.stepGuard(quiet(), alive({ onBattery: true, batteryPct: 80 }), 1000)
+assert.strictEqual(r.state.reason, '電池')
+r = plan.stepGuard(r.state, alive({ onBattery: false, batteryPct: 80 }), 2000)
+assert.strictEqual(r.state.paused, true)
+assert.strictEqual(r.state.reason, '電池')
+r = plan.stepGuard(r.state, alive({ onBattery: false, batteryPct: 80 }), 2000 + 15000)
+assert.strictEqual(r.state.paused, false)
+const lowBat = plan.freshGuard({ baseThreads: 8, threads: 8, lastMemCheck: 1e15, mineOnBattery: true })
+r = plan.stepGuard(lowBat, alive({ onBattery: true, batteryPct: 19 }), 1000)
+assert.strictEqual(r.state.reason, '電池')
+r = plan.stepGuard(plan.freshGuard({ baseThreads: 8, threads: 8, lastMemCheck: 1e15, mineOnBattery: true }), alive({ onBattery: true, batteryPct: 25 }), 1000)
+assert.strictEqual(r.state.paused, false)
+r = plan.stepGuard(quiet(), alive({ manualPauseUntil: 50000 }), 1000)
+assert.strictEqual(r.state.reason, '手動')
+r = plan.stepGuard(r.state, alive({ manualPauseUntil: 50000 }), 50000)
+assert.strictEqual(r.state.paused, false)
+r = plan.stepGuard(quiet(), alive({ planSig: '4:0,1,2,3' }), 1000)
+assert.ok(!r.actions.some(a => a.cause === 'topology'))
+r = plan.stepGuard(r.state, alive({ planSig: '2:0,1' }), 2000)
+assert.ok(r.actions.some(a => a.type === 'restart-child' && a.cause === 'topology'))
+assert.strictEqual(r.state.restarts.length, 0)
 
 r = plan.stepGuard(quiet(), alive({ gpuTempC: 85 }), 1000)
 assert.strictEqual(r.state.intensity, 'normal')
@@ -232,17 +426,25 @@ r = plan.stepGuard(before, { platform: 'linux', fullscreen: true, batteryPct: 1,
 assert.deepStrictEqual(r.actions, [])
 assert.deepStrictEqual(before, snap)
 assert.deepStrictEqual(r.state, snap)
+const held = quiet()
+held.paused = true
+held.reason = '記憶體'
+held.memStage = 3
+r = plan.stepGuard(held, { skipped: true, platform: 'win32', active: true, fullscreen: false }, 5)
+assert.strictEqual(r.state.paused, true)
+assert.strictEqual(r.state.reason, '記憶體')
+assert.deepStrictEqual(r.actions, [])
 r = plan.stepGuard(quiet(), alive({ childAlive: false }), 1000)
 assert.ok(!JSON.stringify(r.actions).includes('reboot'))
 assert.ok(r.actions.every(a => a.type !== 'reboot'))
 
 assert.strictEqual(guardWin.supported(), process.platform === 'win32')
-guardWin.readSample().then(sample => {
+guardWin.readSample().then(async sample => {
   if (process.platform !== 'win32') {
     assert.strictEqual(sample.skipped, true)
     assert.strictEqual(sample.platform, process.platform)
   }
-  for (const rel of ['src/miner/guardPlan.js', 'src/miner/guardWin.js', 'src/miner/pcGuard.js']) {
+  for (const rel of ['src/miner/guardPlan.js', 'src/miner/guardWin.js', 'src/miner/pcGuard.js', 'src/miner/guardHost.js', 'src/miner/hostProbe.js', 'src/miner/priority.js', 'src/miner/powerHold.js']) {
     const src = fs.readFileSync(path.join(root, rel), 'utf8')
     assert.ok(!/Restart-Computer/i.test(src), rel)
     assert.ok(!/\bshutdown\b/i.test(src), rel)
@@ -250,33 +452,241 @@ guardWin.readSample().then(sample => {
   }
   const ui = fs.readFileSync(path.join(root, 'src/js/app112.js'), 'utf8')
   const set = ui.slice(ui.indexOf('async function settingsModal'), ui.indexOf('async function fillAboutHash'))
-  const resumeAt = set.indexOf('id="setResume"')
-  const guardAt = set.indexOf('id="setGuard"')
-  const advAt = set.indexOf("shellFold('setAdvanced'")
-  assert.ok(resumeAt >= 0 && resumeAt < guardAt && guardAt < advAt)
-  assert.ok(set.includes('data-act="guardSmooth"') && set.includes('data-act="mineOnBattery"'))
+  const inner = set.slice(set.indexOf('const advancedInner'), set.indexOf('const setHtml'))
+  const html = set.slice(set.indexOf('const setHtml'), set.indexOf('const setHost'))
+  assert.ok(inner.includes('id="setGuard"'))
+  assert.ok(inner.includes('data-act="guardSmooth"') && inner.includes('data-act="mineOnBattery"') && inner.includes('data-act="lowPriority"'))
+  assert.ok(html.includes("shellFold('setAdvanced'"))
+  assert.ok(!html.includes('id="setGuard"'))
+  assert.ok(html.indexOf('id="setResume"') < html.indexOf("shellFold('setAdvanced'"))
+  assert.ok(set.includes("const advanced = $('setAdvanced')") && set.includes('advanced.open = true'), 'About sits inside Advanced, so that section has to open too')
+  assert.ok(set.includes('about.open = true') && set.includes('about.scrollIntoView'))
   const tray = fs.readFileSync(path.join(root, 'src/main/trayStatus.js'), 'utf8')
   assert.ok(tray.includes('alwaysOnTop: false'))
+  assert.ok(tray.includes('showInactive'))
+  assert.ok(tray.includes('workArea'))
   assert.ok(tray.includes('openPanel'))
+  assert.ok(tray.includes('blue: solid'))
+  assert.ok(tray.includes('暫停 1 小時'))
+  assert.ok(tray.includes('Pause for 1 hour'))
+  assert.ok(tray.includes('今天暫停'))
   assert.ok(!tray.includes('算力'))
+  assert.ok(tray.includes("'異常': 'abnormal'"))
+  assert.ok(tray.includes('guard.colour'))
+  assert.ok(!tray.includes('stepGuard') && !tray.includes('freshGuard'))
+  assert.ok(ui.includes('st.guardView = m.guard'))
+  assert.ok(!ui.includes('st.guardView.threads ='))
+  assert.ok(!ui.includes('stepGuard('))
   const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
   assert.ok(preload.includes("'mining:setGuard'"))
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
   assert.ok(main.includes('guardSmooth !== false'))
   assert.ok(main.includes('guardOwnsRestart'))
+  assert.ok(main.includes('guardHost.ready'))
+  assert.ok(main.includes('lowPriority'))
   const box = { window: {} }
   vm.runInNewContext(fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8'), box)
   const CN = box.window.I18N112.CN
   const EN = box.window.I18N112.EN
   assert.strictEqual(CN.guardSmooth, '保護電腦流暢（建議開啟）')
   assert.strictEqual(CN.guardSmoothHint, '溫馨提醒：挖礦時我們會讓出部分 CPU，讓電腦保持順暢。')
+  assert.strictEqual(CN.guardLow, '較低的程式優先順序（建議開啟）')
   assert.strictEqual(EN.guardSmooth, 'Keep the computer responsive (recommended)')
+  assert.strictEqual(EN.guardLow, 'Lower program priority (recommended)')
   assert.ok(!/CPU/.test(EN.guardSmoothHint))
+  assert.ok(!/CPU/.test(EN.guardLowHint))
+  assert.strictEqual(CN.guardFirst, plan.FIRST_RUN.CN)
+  assert.strictEqual(EN.guardFirst, plan.FIRST_RUN.EN)
+  assert.ok(!/CPU/.test(EN.guardFirst))
+  assert.strictEqual(CN.guardBatteryHint, '溫馨提醒：預設在用電池時暫停。電量低於 20% 時一定停下。')
+  const hold = require('../src/miner/powerHold')
+  hold.reset()
+  hold.onSuspend(1000, true)
+  assert.strictEqual(hold.flags(1500, true).suspended, true)
+  hold.onResume(2000)
+  assert.strictEqual(hold.flags(2000, true).wakeHold, true)
+  assert.strictEqual(hold.flags(2000 + 29999, false).wakeHold, true)
+  const woke = hold.flags(2000 + 30000, false)
+  assert.strictEqual(woke.wakeHold, false)
+  assert.strictEqual(woke.childDiedInSleep, true)
   assert.strictEqual(CN.relNotes[0].v, '3.1.2')
   assert.strictEqual(EN.relNotes[0].v, '3.1.2')
   assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')))
   assert.ok(!/收益|價格|年化|報酬|yield|return|price|幣安|binance|okx/i.test(EN.relNotes[0].items[0]))
   assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.2')
+  const pc = require('../src/miner/pcGuard')
+  const events = []
+  const mgr = {
+    wantRunning: true,
+    guardHeld: null,
+    childPids () { return [] },
+    childAlive () { return true },
+    state: { shard: 1, hashrate: 10, hashrateSource: 'status', sharesAccepted: 0, phase: 'mining' },
+    launchSpec: { args: ['-threads', '4'] },
+    setArg () { return false },
+    async pauseForGuard () { events.push('pause') },
+    async resumeFromGuard () { events.push('resume') },
+    async restartChild () { events.push('restart') }
+  }
+  const handle = pc.start({
+    platform: 'linux',
+    readIntent: () => ({ guardSmooth: true }),
+    listMiners: () => [{ id: 'cpu', mgr }],
+    readSample: async () => ({ platform: 'linux', skipped: false, inputAgeMs: 100000, cpuPct: 10, fullscreen: true, onBattery: false, batteryPct: 90, ramFreePct: 40, commitPct: 20, procs: {} }),
+    gpuTempC: async () => null,
+    threadPlan: () => ({ threads: 4, affinity: [0, 1, 2], pending: false }),
+    applyAffinity: async () => true
+  })
+  const tEnd = Date.now() + 1000
+  while (!events.includes('pause') && Date.now() < tEnd) await new Promise(resolve => setTimeout(resolve, 20))
+  handle.stop()
+  assert.ok(events.includes('pause'))
+
+  // The guard used to freeze baseThreads at 1 because it sampled the miner
+  // before launch. A fake miner starts at 5, halves to 2, restarts at 2, then pauses.
+  function machine (sample, planThreads, initialThreads, opts) {
+    opts = opts || {}
+    let now = 1000000
+    const log = []
+    const pri = []
+    const mgr = {
+      wantRunning: true,
+      guardHeld: null,
+      launchThreads: null,
+      launchSpec: null,
+      spawnedThreads: null,
+      freeze: opts.freeze || null,
+      pid: 0,
+      state: { shard: 1, hashrate: 10, hashrateSource: 'status', sharesAccepted: 1, phase: 'mining', startedAt: 0 },
+      childPids () { return this.pid ? [this.pid] : [] },
+      childAlive () { return this.pid > 0 },
+      liveObservation () {
+        if (this.freeze) return { running: true, threads: this.freeze.threads, hashrate: this.freeze.hashrate }
+        const alive = this.pid > 0
+        return { running: alive, threads: alive ? this.spawnedThreads : null, hashrate: null }
+      },
+      setArg (flag, value) {
+        const args = this.launchSpec && this.launchSpec.args
+        if (!args) return false
+        const i = args.indexOf(flag)
+        if (i < 0 || i + 1 >= args.length) return false
+        if (String(args[i + 1]) === String(value)) return false
+        args[i + 1] = String(value)
+        log.push('set-threads:' + value)
+        return true
+      },
+      async restartChild () {
+        const args = this.launchSpec.args
+        const n = Number(args[args.indexOf('-threads') + 1])
+        this.pid += 1
+        this.spawnedThreads = n
+        this.state.startedAt = now
+        log.push('restart:' + n)
+        return true
+      },
+      async pauseForGuard () {
+        this.wantRunning = false
+        this.pid = 0
+        log.push('pause')
+      }
+    }
+    if (initialThreads) {
+      mgr.launchThreads = initialThreads
+      mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(initialThreads)] }
+      mgr.spawnedThreads = initialThreads
+      mgr.pid = 1
+      mgr.state.startedAt = now
+    }
+    const handle2 = pc.start({
+      platform: 'linux',
+      now: () => now,
+      log: (line) => { log.push(line) },
+      readIntent: () => ({ guardSmooth: true, lowPriority: false }),
+      listMiners: () => [{ id: 'cpu', mgr }],
+      readSample: async () => sample,
+      gpuTempC: async () => 40,
+      threadPlan: () => ({ threads: planThreads, affinity: [0, 1, 2, 3, 4], pending: false }),
+      applyAffinity: async () => true,
+      applyPriority: (pid, low) => { pri.push(low) }
+    })
+    const launch = (n) => {
+      mgr.launchThreads = n
+      mgr.launchSpec = { args: ['-pool', 'x', '-threads', String(n)] }
+      mgr.spawnedThreads = n
+      mgr.pid = 1
+      mgr.state.startedAt = now
+    }
+    return { now: () => now, add: (ms) => { now += ms }, log, pri, mgr, launch, snap: () => handle2.snapshot(), tick: () => handle2.tick(), stop: () => handle2.stop() }
+  }
+
+  const calm = { platform: 'linux', skipped: false, inputAgeMs: 120000, cpuPct: 10, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
+  const mem = machine(calm, 5)
+  await mem.tick()
+  assert.deepStrictEqual(mem.log, [], 'before the miner starts the guard must not pretend it changed threads')
+  mem.launch(5)
+  await mem.tick()
+  assert.ok(!mem.log.some(e => e.startsWith('restart')), 'a miner already at 5 is left alone')
+  calm.ramFreePct = 10
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.includes('set-threads:2'), mem.log.join(','))
+  assert.ok(mem.log.includes('restart:2'), mem.log.join(','))
+  assert.strictEqual(mem.mgr.launchThreads, 5)
+  assert.strictEqual(mem.mgr.launchSpec.args[mem.mgr.launchSpec.args.indexOf('-threads') + 1], '2')
+  assert.strictEqual(pc.launchedThreadCount(mem.mgr, { commanded: 2, baseThreads: 5 }), 5)
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.filter(e => e === 'restart:2').length >= 1)
+  assert.ok(!mem.log.some(e => e === 'restart:5' || e === 'restart:1' || e === 'set-threads:1' || e === 'set-threads:5'), mem.log.join(','))
+  mem.add(60000)
+  await mem.tick()
+  assert.ok(mem.log.includes('pause'), mem.log.join(','))
+  assert.ok(mem.pri.includes(true), 'a reduced miner is actually put at low priority')
+  assert.ok(!mem.log.some(e => String(e).includes('guard readback mismatch')))
+  mem.stop()
+
+  const busy = { platform: 'linux', skipped: false, inputAgeMs: 1000, cpuPct: 90, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
+  const yieldRun = machine(busy, 5, 5)
+  await yieldRun.tick()
+  yieldRun.add(5000)
+  await yieldRun.tick()
+  assert.ok(yieldRun.log.includes('set-threads:2'), yieldRun.log.join(','))
+  assert.ok(yieldRun.log.includes('restart:2'), yieldRun.log.join(','))
+  assert.ok(yieldRun.pri.includes(true))
+  assert.ok(!yieldRun.log.some(e => String(e).includes('guard readback mismatch')))
+  assert.strictEqual(yieldRun.snap().abnormal, false)
+  assert.strictEqual(yieldRun.snap().colour, 'yellow')
+  assert.strictEqual(yieldRun.snap().observedThreads, 2)
+  yieldRun.stop()
+
+  assert.strictEqual(pc.VERIFY_MS, 10000)
+  const stuck = machine(busy, 5, 5, { freeze: { threads: 5, hashrate: 1200 } })
+  await stuck.tick()
+  stuck.add(5000)
+  await stuck.tick()
+  assert.ok(stuck.log.includes('set-threads:2'), stuck.log.join(','))
+  assert.strictEqual(!!stuck.snap().abnormal, false)
+  stuck.add(9999)
+  await stuck.tick()
+  assert.strictEqual(!!stuck.snap().abnormal, false)
+  assert.notStrictEqual(stuck.snap().colour, 'red')
+  stuck.add(1)
+  await stuck.tick()
+  const mismatch = stuck.log.filter(e => String(e).includes('guard readback mismatch'))
+  assert.strictEqual(mismatch.length, 1, mismatch.join(','))
+  assert.ok(mismatch[0].includes('threads 5 != 2'), mismatch[0])
+  assert.ok(mismatch[0].includes('hashrate 1200'), mismatch[0])
+  assert.strictEqual(stuck.snap().colour, 'red')
+  assert.strictEqual(stuck.snap().reason, '異常')
+  assert.strictEqual(stuck.snap().abnormal, true)
+  stuck.add(5000)
+  await stuck.tick()
+  assert.strictEqual(stuck.log.filter(e => String(e).includes('guard readback mismatch')).length, 1)
+  stuck.mgr.freeze = { threads: 2, hashrate: 1200 }
+  await stuck.tick()
+  assert.strictEqual(stuck.snap().abnormal, false)
+  assert.strictEqual(stuck.snap().colour, 'yellow')
+  stuck.stop()
   console.log('guard-plan: ok')
 }).catch(err => {
   console.error(err)

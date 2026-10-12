@@ -141,7 +141,7 @@ class ZpowManager extends EventEmitter {
       const dir = path.join(this.o.dataRoot, 'logs')
       fs.mkdirSync(dir, { recursive: true })
       const file = path.join(dir, 'zpow.log')
-      rotateFile(file, fs)
+      rotateFile(file, fs, { gzip: true })
       fs.appendFileSync(file, shown + '\n')
     } catch (e) {}
     this.emit('log', shown)
@@ -246,6 +246,18 @@ class ZpowManager extends EventEmitter {
 
   childPids () {
     return this.childAlive() ? [this.proc.pid] : []
+  }
+
+  // Threads the current process was spawned with, plus hashrate when the
+  // miner has reported one. The guard reads this; it is not a second writer.
+  liveObservation () {
+    const alive = this.childAlive()
+    const hr = this.state && this.state.hashrateSource !== 'pool' && this.state.rateSeen ? Number(this.state.hashrate) : null
+    return {
+      running: alive,
+      threads: alive ? this.spawnedThreads : null,
+      hashrate: alive && hr != null && Number.isFinite(hr) ? hr : null
+    }
   }
 
   pushSyncSample (h, now) {
@@ -505,9 +517,19 @@ class ZpowManager extends EventEmitter {
 
   armChild () {
     const spec = this.launchSpec
-    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined })
+    const low = typeof this.o.lowPriority === 'function' ? this.o.lowPriority() !== false : true
+    const proc = spawnMiner({ binary: spec.binary, args: spec.args, cwd: spec.cwd, env: spec.env || undefined, lowPriority: low })
     this.proc = proc
     this.livePid = proc.pid || 0
+    this.spawnedThreads = null
+    const spawnedArgs = spec.args || []
+    for (const flag of ['-threads', '--threads']) {
+      const i = spawnedArgs.indexOf(flag)
+      if (i >= 0 && i + 1 < spawnedArgs.length) {
+        const n = Number(spawnedArgs[i + 1])
+        if (Number.isFinite(n) && n >= 1) this.spawnedThreads = Math.floor(n)
+      }
+    }
     try { if (typeof this.o.onSpawn === 'function') this.o.onSpawn(proc, this) } catch (e) {}
     proc.on('error', e => this.log('spawn error: ' + e.message))
     const onData = (buf) => {

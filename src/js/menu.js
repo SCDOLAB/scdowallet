@@ -1,9 +1,10 @@
 // SCDO Wallet: application menu follows wallet language (EN / CN = 華語繁體).
 // Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
 // The site list is src/js/siteNavMap.js, shared with the in-app bar and AI小貓.
-const { Menu, app, shell } = require('electron')
+const { Menu, shell } = require('electron')
 const { menuLang } = require('./uiLang')
 const siteNav = require('./siteNavMap')
+const { VERSION } = require('../version')
 
 const LABELS = {
   EN: {
@@ -103,6 +104,10 @@ function buildTemplate (mainWindow, lang) {
   }
   function group (g) {
     const label = cn ? g.cn : g.en
+    if (g.id === 'about') {
+      const aboutThis = { label: cn ? '關於這個錢包' : 'About this wallet', click: act('about') }
+      return { label: label, click: act('about'), submenu: [aboutThis].concat(g.children.map(leaf)) }
+    }
     if (g.children && g.children.length) return { label: label, submenu: g.children.map(leaf) }
     return { label: label, submenu: [leaf(g)] }
   }
@@ -110,7 +115,7 @@ function buildTemplate (mainWindow, lang) {
     label: L.app,
     submenu: [
       { label: L.toggleDevTools, accelerator: 'CmdOrCtrl+Shift+I', role: 'toggleDevTools' },
-      { label: L.version(app.getVersion()), enabled: false },
+      { label: L.version(VERSION), enabled: false },
       { type: 'separator' },
       { label: L.minimize, accelerator: 'CmdOrCtrl+M', role: 'minimize' },
       { label: L.fullscreen, accelerator: 'CmdOrCtrl+Shift+F', role: 'togglefullscreen' },

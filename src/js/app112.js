@@ -381,8 +381,9 @@
   }
   // ----- assets of the current chain (shard0): native SCDO first, then the tokens configured for this chain -----
   const TOKEN_COLORS = { tUSDT: '#26a17b', tAUD: '#e8a317' }
-  function assetIconHtml (sym) {
+  function assetIconHtml (sym, logo) {
     if (sym === 'SCDO') return '<div class="ai"><img src="./assets/icon-64.png" alt=""></div>'
+    if (/^https:\/\/scdoscan\.io\/logos\/0x[0-9a-fA-F]{40}\.png$/.test(String(logo || ''))) return `<div class="ai"><img src="${esc(logo)}" alt=""></div>`
     return `<div class="ai" style="background:${esc(TOKEN_COLORS[sym] || '#8a8fa8')}">${esc(String(sym).replace(/^t/, '').slice(0, 2))}</div>`
   }
   // -> [{ symbol, name, bal: formatted balance | null (unknown yet) }]
@@ -391,12 +392,12 @@
     const out = [{ symbol: 'SCDO', name: T('assetScdo'), bal: b.nativeWei != null ? fmtWei(b.nativeWei) : null }]
     for (const t of (shard0().cfg.tokens || [])) {
       const bt = (b.tokens || []).find(x => x.symbol === t.symbol)
-      out.push({ symbol: t.symbol, name: T('assetTest'), bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
+      out.push({ symbol: t.symbol, name: t.name || T('assetTest'), logo: t.logo || '', bal: bt && bt.balance != null ? (bt.balance === '?' ? '?' : fmtNum(bt.balance, bt.decimals)) : null })
     }
     return out
   }
   function assetsHtml (a) {
-    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
+    return chainAssets(a).map(x => `<div class="asset">${assetIconHtml(x.symbol, x.logo)}<div><div class="an">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
       <div class="av">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div></div>`).join('')
   }
   // MetaMask-style asset dropdown used on the Send page: the button shows icon + symbol + balance of the chosen asset,
@@ -404,7 +405,7 @@
   function assetPickerHtml (a, cur) {
     const x = chainAssets(a).find(z => z.symbol === cur) || chainAssets(a)[0]
     return `<div class="assetsel" id="assetSel"><button type="button" class="assetbtn" id="assetBtn" aria-haspopup="listbox" aria-expanded="false" title="${esc(T('selectAsset'))}">
-      ${assetIconHtml(x.symbol)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
+      ${assetIconHtml(x.symbol, x.logo)}<div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(T('balanceIs', { v: x.bal == null ? '…' : x.bal + ' ' + x.symbol }))}</div></div><span class="caret">▾</span></button>
       <div class="assetlist" id="assetList" role="listbox" hidden></div></div>`
   }
   function wireAssetPicker (a, getCur, onPick) {
@@ -413,7 +414,7 @@
     const open = () => {
       const cur = getCur()
       SD.html(list, `<div class="lbl" style="padding:6px 14px">${esc(T('selectAsset'))}</div>` + chainAssets(a).map(x =>
-        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol)}
+        `<button type="button" class="ait ${x.symbol === cur ? 'on' : ''}" role="option" aria-selected="${x.symbol === cur}" data-pick="${esc(x.symbol)}">${assetIconHtml(x.symbol, x.logo)}
           <div class="at"><div class="as">${esc(x.symbol)}</div><div class="lbl">${esc(x.name)}</div></div>
           <div class="ab">${x.bal == null ? '…' : esc(x.bal)} <span class="lbl">${esc(x.symbol)}</span></div><span class="ck">${x.symbol === cur ? '✓' : ''}</span></button>`).join(''))
       list.hidden = false; btn.setAttribute('aria-expanded', 'true')
@@ -686,7 +687,8 @@
       const sum = window.SCDOChainHome.summarize(c)
       const dash = sum.text === '\u2014'
       const shown = dash ? '\u2014' : (sum.text + ' SCDO')
-      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}">${esc(shown)}</b></div>`
+      const tip = !dash && sum.full ? (sum.full + ' SCDO') : shown
+      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}" title="${esc(tip)}">${esc(shown)}</b></div>`
     }).join('')
     const hit = window.SCDOChainHome.latestTx ? window.SCDOChainHome.latestTx(chains) : null
     let last = '\u2014'
@@ -804,9 +806,20 @@
   function accRow (a, chain) {
     const addr = chain === 'new' ? a.evm : ((parseClassicAddress(a.pubkey) || {}).address || a.pubkey)
     let bal
-    if (chain === 'new') { const b = st.s0[a.filename]; bal = !a.evm ? '' : (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') } else { const v = fmtOld(a.pubkey); bal = v != null ? v : '…' }
+    let balFull = ''
+    if (chain === 'new') {
+      const b = st.s0[a.filename]
+      if (!a.evm) bal = ''
+      else if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); bal = view.short; balFull = view.full }
+      else bal = '…'
+    } else {
+      const raw = oldRaw(a.pubkey)
+      if (raw == null) bal = '…'
+      else { const view = AMT.fmtBalance(raw, 8); bal = view.short; balFull = view.full }
+    }
     const tools = addr ? `<span class="mono">${esc(addr)}</span><button type="button" class="ico" data-act="copy" data-v="${esc(addr)}" title="${esc(T('d_copyAddr'))}" aria-label="${esc(T('d_copyAddr'))}">${window.SCDODash.COPY_SVG}</button><button type="button" class="ico" data-act="receive" data-f="${esc(a.filename)}" data-chain="${chain}" title="${esc(T('d_showQr'))}" aria-label="${esc(T('d_showQr'))}">${window.SCDODash.QR_SVG}</button>` : `<span class="muted">${esc(T('d_addrLocked'))}</span>`
-    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b>${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
+    const balTip = balFull ? esc(balFull + ' SCDO') : ''
+    return `<div class="acc-ro">${avatar(accLabel(a))}<div class="acc-ro-main"><div class="nm wrap">${esc(accLabel(a))}</div><div class="addr-row"><span class="lbl">${esc(T('d_addr'))}</span>${tools}</div></div>${bal ? `<div class="acc-ro-bal"><span class="lbl">${esc(T('d_balance'))}</span><b title="${balTip}">${esc(bal)}</b> <span class="lbl">SCDO</span></div>` : ''}</div>`
   }
   function accListHtml () {
     let h = ''
@@ -843,7 +856,9 @@
   }
   function mineAdvControlsHtml () {
     const mode = st.miningMode === 'solo' ? 'solo' : 'pool'
-    const threads = threadCount()
+    const cpu = st.miners && st.miners.classicCpu
+    const cpuRunning = !!(cpu && cpu.running)
+    const threads = displayedCpuThreads(cpuRunning)
     const max = cpuCount()
     const g = gpuParams()
     const chip = (id, on) => `<button type="button" class="${on ? 'on' : ''}" data-act="setMineMode" data-v="${id}">${esc(T(id === 'solo' ? 'mineModeSolo' : 'mineModePool'))}</button>`
@@ -861,7 +876,7 @@
     }
     return `<div class="mine-adv-controls">
       <div class="shardchips">${chip('pool', mode !== 'solo')}${chip('solo', mode === 'solo')}</div>
-      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}"></div>
+      <div class="field"><div class="lbl" id="mThreadsLab">${esc(cores)}</div><input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${cpuRunning ? 'disabled' : ''}></div>
       <div class="lbl" style="margin-top:8px">${esc(T('mineAdvBatch'))}</div>
       <div class="row" style="gap:12px;flex-wrap:wrap;margin-top:8px">
         <label class="lbl">${esc(T('gpuThreads'))}<br><input class="inp half" id="mGpuThreads" inputmode="numeric" value="${g.threads}"></label>
@@ -1014,6 +1029,20 @@
     const n = Number.isFinite(saved) && saved >= 1 ? saved : ((st.caps && st.caps.threadsDefault) || max)
     return Math.max(1, Math.min(max, Math.floor(n)))
   }
+  // While a processor miner is running, the label shows the guard's count.
+  // The page never writes phase, threads, or tray colour.
+  function displayedCpuThreads (running) {
+    if (running) {
+      const g = st.guardView
+      if (g && typeof g === 'object') {
+        const seen = Number(g.observedThreads)
+        if (Number.isFinite(seen) && seen >= 1) return Math.floor(seen)
+        const intended = Number(g.threads)
+        if (Number.isFinite(intended) && intended >= 1) return Math.floor(intended)
+      }
+    }
+    return threadCount()
+  }
   function gpuParams () {
     let g = {}
     try { g = JSON.parse(localStorage.getItem('mineGpu112') || '{}') } catch (e) { g = {} }
@@ -1068,7 +1097,7 @@
       h += `<div class="lbl explain" tabindex="0" data-tip-name="${esc(T('poolEndpoint'))}" data-tip-value="${esc(pool.stratum)}" data-tip-explain="${esc(T('poolTip'))}" data-tip-detail="">${esc(T('poolEndpoint'))}${PU.c()}${esc(pool.stratum)}</div>`
     }
     if (backend === 'cpu') {
-      const threads = threadCount(); const max = cpuCount()
+      const threads = displayedCpuThreads(running); const max = cpuCount()
       const cores = T('cpuCoresLine', { n: threads, max: max })
       h += `<div class="field"><div class="lbl explain" id="mThreadsLab" tabindex="0" data-tip-name="${esc(T('cpuCoresName'))}" data-tip-value="${esc(cores)}" data-tip-explain="${esc(T('mineTipCpu'))}" data-tip-detail="">${esc(cores)}</div>
         <input type="range" class="threads" id="mThreads" min="1" max="${max}" step="1" value="${threads}" ${running ? 'disabled' : ''}></div>
@@ -1296,7 +1325,8 @@
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
       if (!g.children || !g.children.length) return btn(g)
-      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary>${g.children.map(btn).join('')}</details>`
+      if (g.id === 'about') return `<button type="button" class="site-link" data-act="aboutOpen">${esc(cn ? g.cn : g.en)}</button>`
+      return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
     const html = primary.map(group).join('') + more
@@ -1372,20 +1402,25 @@
     }
     return x
   }
-  function headerBalanceText () {
+  function headerBalanceParts () {
     const a = headerAccount()
-    if (!a) return T('noAccount')
+    if (!a) return { text: T('noAccount'), full: '' }
     const name = String(accLabel(a) || '').trim()
-    let amt
+    let amt = '…'
+    let full = ''
     if (headerChain() === 'old') {
-      const v = fmtOld(a.pubkey)
-      amt = (v != null ? v : '…') + ' SCDO'
+      const raw = oldRaw(a.pubkey)
+      if (raw != null) { const view = AMT.fmtBalance(raw, 8); amt = view.short; full = view.full }
     } else if (!a.evm) amt = T('lockedShort')
     else {
       const b = st.s0[a.filename]
-      amt = (b && b.nativeWei != null ? fmtWei(b.nativeWei) : '…') + ' SCDO'
+      if (b && b.nativeWei != null) { const view = AMT.fmtBalance(b.nativeWei, 18); amt = view.short; full = view.full }
     }
-    return (name ? name + ' ' : '') + amt
+    const text = (name ? name + ' ' : '') + amt + (amt === T('lockedShort') ? '' : ' SCDO')
+    return { text: text, full: full ? full + ' SCDO' : '' }
+  }
+  function headerBalanceText () {
+    return headerBalanceParts().text
   }
   function headerBalanceName () {
     const a = headerAccount()
@@ -1427,6 +1462,7 @@
       earnLog: earn,
       now: Date.now(),
       balanceText: headerBalanceText(),
+      balanceFull: headerBalanceParts().full,
       balanceMark: headerBalanceMark(),
       balanceName: headerBalanceName(),
       T,
@@ -1832,6 +1868,18 @@
     }
     const ns = $('mNodeState')
     if (ns) set('mNodeState', nodeStateText(m))
+    const cpuOn = !!(st.miners && st.miners.classicCpu && st.miners.classicCpu.running)
+    if (cpuOn) {
+      const n = displayedCpuThreads(true)
+      const cores = T('cpuCoresLine', { n, max: cpuCount() })
+      const lab = $('mThreadsLab')
+      if (lab && lab.textContent !== cores) {
+        lab.textContent = cores
+        if (lab.setAttribute) lab.setAttribute('data-tip-value', cores)
+      }
+      const slider = $('mThreads')
+      if (slider && slider.disabled && String(slider.value) !== String(n)) slider.value = String(n)
+    }
     const lg = $('mLog')
     if (lg && st.logOpen) {
       const text = window.SCDOMining.minerLogger.displayLines(m.logTail, 80).join('\n')
@@ -2319,22 +2367,43 @@
       const amount = nhw(text == null ? (($('payAmt') && $('payAmt').value) || s.amount) : text)
       if (shard >= 1) {
         const bal = oldRaw(payer.pubkey)
-        if (bal == null) return null
-        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8 }
+        if (bal == null) return { amount: amount, known: false }
+        return { amount: amount, bal: bal, fee: AMT.classicFeeUnits(s.gas), dec: 8, known: true }
       }
       const b = st.s0[payer.filename]
-      if (!b || b.nativeWei == null || s.feeWei == null || s.feeFor !== 0) return null
-      let fee
-      try { fee = BigInt(s.feeWei) } catch (e) { return null }
-      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18 }
+      if (!b || b.nativeWei == null) return { amount: amount, known: false }
+      let fee = null
+      if (s.feeWei != null && s.feeFor === 0) {
+        try { fee = BigInt(s.feeWei) } catch (e) { fee = null }
+      }
+      return { amount: amount, bal: b.nativeWei, fee: fee, dec: 18, known: true }
+    }
+    function spendableText (room) {
+      const fee = room.fee == null ? 0n : room.fee
+      const plain = AMT.maxAmount(room.bal, fee, room.dec)
+      if (plain == null) return ''
+      const units = AMT.toUnits(plain, room.dec)
+      if (units == null) return plain
+      return AMT.fmtBalance(units, room.dec).short
     }
     function paintAmtRoom (text) {
       const hint = $('payAmtHint')
       const btn = $('wizNext2')
+      const send = $('btnRemitSign')
+      const err = $('payErr2')
       const room = amountRoom(text)
-      const over = !!(room && AMT.exceedsBalance(room.amount, room.bal, room.fee, room.dec))
-      if (hint) hint.textContent = over ? T('shellAmtRoom') : ''
+      const fee = room && room.known ? (room.fee == null ? 0n : room.fee) : null
+      const over = !!(room && room.known && AMT.exceedsBalance(room.amount, room.bal, fee, room.dec))
+      if (hint) {
+        if (room && room.known) hint.textContent = T('available', { v: spendableText(room) + ' SCDO' })
+        else if (!over) hint.textContent = ''
+      }
+      if (err) {
+        if (over) err.textContent = T('shellAmtRoom')
+        else if (err.textContent === T('shellAmtRoom')) err.textContent = ''
+      }
       if (btn) btn.disabled = over
+      if (send && over) send.disabled = true
       return over
     }
     async function ensureRoomFee () {
@@ -2484,8 +2553,10 @@
       if (picked && picked.file) s.payerFile = picked.file
       const bal = $('payFromBal')
       if (bal) {
-        const text = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }).text : '\u2014'
+        const one = picked ? window.SCDOChainHome.summarize({ n: n, entries: [picked] }) : null
+        const text = one ? one.text : '\u2014'
         bal.textContent = text === '\u2014' ? '\u2014' : text + ' SCDO'
+        bal.title = one && one.full ? one.full + ' SCDO' : ''
       }
     }
     paintFromPick()
@@ -2577,6 +2648,13 @@
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       s.amount = nhw($('payAmt') ? $('payAmt').value : s.amount)
+      await ensureRoomFee()
+      if (paintAmtRoom(s.amount)) {
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       const guarded = AMT.guardAmount(s.amount)
       if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
       s.amount = guarded.value
@@ -2613,6 +2691,7 @@
           s.confirmedKey = payKey(route)
         }
         if (!pw) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errPw'); const pwBox = $('remitPw'); if (pwBox) pwBox.focus(); return }
+        if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
         if (!st.payReview) { if (btn) btn.disabled = false; return }
         const token = st.payReview.token
         st.payReview = null
@@ -2676,6 +2755,13 @@
         if (pwBox) pwBox.focus()
         return
       }
+      if (paintAmtRoom(route.amount)) {
+        if (rev.token) api.invoke('s0:cancelReview', rev.token).catch(() => {})
+        if (btn) btn.disabled = true
+        if (err) err.textContent = TC('shellAmtRoom')
+        showStep(2)
+        return
+      }
       if ($('remitPw')) $('remitPw').value = ''
       lockSend(btn)
       if (err) SD.spin(err, TC('sending'))
@@ -2729,7 +2815,8 @@
       try { const g = await api.invoke('old:estimateGas', payer.pubkey, route.to); if (g) gas = Number(g) } catch (e) {}
       const feeU = BigInt(gas || 21000) // gas price 1 unit; 8 decimals
       const bal = oldRaw(payer.pubkey)
-      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = false; if (err) err.textContent = TC('errTooMuch'); return }
+      if (bal != null && units + feeU > bal) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); paintAmtRoom(route.amount); showStep(2); return }
+      if (paintAmtRoom(route.amount)) { if (btn) btn.disabled = true; if (err) err.textContent = TC('shellAmtRoom'); showStep(2); return }
       if (s.confirmedKey !== payKey(route)) {
         if (!(await confirmTx({ title: T('cf_title'), warn: self ? T('cf_warnSelf') : '', rows: cfRows(route, payer, [[T('cf_fee'), AMT.fmtUnits(feeU, 8) + ' SCDO'], [T('cf_total'), AMT.fmtUnits(units + feeU, 8) + ' SCDO']]) }))) { if (btn) btn.disabled = false; if (err) err.textContent = T('cf_canceled'); return }
         s.confirmedKey = payKey(route)
@@ -3112,8 +3199,12 @@
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
-    const guardRow = `<div class="set-open" id="setGuard"><button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div></div>`
-    const advancedInner = `${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
+    const lowOn = mineCfg.lowPriority !== false
+    let showGuardIntro = true
+    try { showGuardIntro = !localStorage.getItem('scdoGuardIntro'); if (showGuardIntro) localStorage.setItem('scdoGuardIntro', '1') } catch (e) {}
+    const guardIntro = showGuardIntro ? `<div class="lbl" id="guardFirst">${esc(T('guardFirst'))}</div>` : ''
+    const advancedInner = `<div class="set-open" id="setGuard">${guardIntro}<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div><button class="btn ghost" data-act="guardReset" id="guardReset">${esc(T('guardReset'))}</button></div>
+      ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
           <button class="btn sec" data-act="backup">${esc(T('setBackup'))}</button>
@@ -3139,12 +3230,21 @@
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
       ${langRow}
       ${resumeRow}
-      ${guardRow}
       ${shellFold('setAdvanced', T('advanced'), advancedInner)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
     else modal(setHtml, { width: 820, noFocus: true })
     fillAboutHash()
+    if (st.openAbout) {
+      st.openAbout = false
+      const advanced = $('setAdvanced')
+      const about = $('setAbout')
+      if (advanced) advanced.open = true
+      if (about) {
+        about.open = true
+        try { about.scrollIntoView({ block: 'center' }) } catch (e) {}
+      }
+    }
   }
   // 2.0.7 (P3): installer SHA-256 of the running version + link to the published .sha256 file
   async function fillAboutHash () {
@@ -3809,6 +3909,7 @@
     if (!ext) toast(T('stopped'))
   }
   function onMinerStatus (m) {
+    if (m && m.guard && typeof m.guard === 'object') st.guardView = m.guard
     const prev0 = st.miners && st.miners.shard0
     if (m && m.chain === 'classic' && m.mode !== 'cpu' && (m.code === 'NO_NVIDIA' || m.cudaFailed)) st.gpuFallback = true
     storeMiner(m)
@@ -3892,6 +3993,11 @@
       case 'keepMining': setKeepMiningUi(el); break
       case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
       case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
+      case 'lowPriority': setGuardUi(el, 'lowPriority'); break
+      case 'guardReset':
+        try { await api.invoke('mining:setGuard', { resetGuard: true }) } catch (e) {}
+        settingsModal()
+        break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
         if (hit && hit.withAddress) openAccountSite(hit.id)
@@ -3906,6 +4012,7 @@
       case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': goPage('settings'); break
+      case 'aboutOpen': openAboutPanel(); break
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
@@ -4043,7 +4150,7 @@
       const hint = $('payAmtHint')
       let over = false
       if (t.id === 'payAmt' && typeof t._paintAmtRoom === 'function') over = t._paintAmtRoom(next)
-      if (hint && !over) hint.textContent = clip.blocked ? T('shellAmtLimit') : ''
+      if (hint && !over && clip.blocked) hint.textContent = T('shellAmtLimit')
     }
     if (next !== t.value) {
       const pos = t.selectionStart
@@ -4068,6 +4175,10 @@
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
   function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
   // 3.0.2: every action is reachable by hand from the window menu (the fallback if AI小貓 misbehaves).
+  function openAboutPanel () {
+    st.openAbout = true
+    goPage('settings')
+  }
   function goPage (v) {
     if ($('md')) SD.clear($('modalRoot'))
     setTab(v); render()
@@ -4102,6 +4213,7 @@
       case 'remit': openRemittance(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': goPage('settings'); break
+      case 'about': openAboutPanel(); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
       default:
@@ -4558,7 +4670,7 @@
   api.on('miner:classic', (m) => onMinerStatus(m))
   async function boot () {
     let info = null
-    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.displayVersion || info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
+    try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
     try { storeMiner(await api.invoke('miner:status')) } catch (e) {}
     try { const c = await api.invoke('miner:classicStatus'); if (c) { st.miners.classicCpu = c.classicCpu; st.miners.classicGpu = c.classicGpu } } catch (e) {}
     st.miner = viewMiner()
