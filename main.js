@@ -243,7 +243,7 @@ setInterval(pollPayout, 2 * 60 * 1000)
 // Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
 // Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
-const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')
+const { ZpowManager, GpuFleet, CpuFleet } = require('./src/miner/zpow/manager')
 function minerBinDir () {
   if (app.isPackaged) return path.join(process.resourcesPath, 'miner', 'bin')
   return path.join(__dirname, 'miner-bin', process.platform)
@@ -293,8 +293,9 @@ function classicNote () {
   const parts = []
   const cn = uiLang() === 'CN'
   if (zpowCpu && zpowCpu.wantRunning) {
-    const n = Number(zpowCpu.state && zpowCpu.state.shard)
-    parts.push((cn ? 'Classic 處理器礦池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
+    const shards = (zpowCpu.status().shards || []).map(s => Number(s && s.shard)).filter(n => n >= 1 && n <= 4)
+    const label = (cn ? 'Classic 處理器礦池' : 'Classic processor pool')
+    parts.push(shards.length ? label + ' Shard' + shards.sort((a, b) => a - b).join(' ') : label)
   }
   if (zpowGpu && zpowGpu.wantRunning) {
     const st = zpowGpu.status()
@@ -329,8 +330,9 @@ function publishClassic (st) {
 }
 function getZpow (kind) {
   if (kind === 'cpu') {
+    // 3.1.5: the processor switch is a fleet — one zminer per Classic shard.
     if (!zpowCpu) {
-      zpowCpu = new ZpowManager(zpowOptions())
+      zpowCpu = new CpuFleet(zpowOptions())
       zpowCpu.on('status', st => publishClassic(st))
     }
     return zpowCpu

@@ -14,12 +14,13 @@ const { parseClassicAddress, normalizeMiningInput } = require('./address')
 const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
 const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, workerFigure, sessionDelta, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
+const { splitThreads } = require('../../js/mineSession')
 
 // Last stderr/stdout lines, not a bare "exit 0". go-scdo exits 0 after a bad data path.
 function formatExitMessage (code, logTail) {
   const lines = []
   for (const raw of logTail || []) {
-    const line = String(raw).replace(/^\d\d:\d\d:\d\d \[zpow\] /, '').trim()
+    const line = String(raw).replace(/^\d\d:\d\d:\d\d \[zpow( s[1-4])?\] /, '').trim()
     if (!line || /^exited \(code /.test(line)) continue
     lines.push(line)
   }
@@ -116,6 +117,7 @@ class ZpowManager extends EventEmitter {
     return Object.assign({}, this.state, {
       running: this.wantRunning,
       blockRatePerHour: rate,
+      threads: this.launchThreads == null ? null : this.launchThreads,
       procs: this.childAlive() ? [this.state.backend || 'zpow'] : []
     })
   }
@@ -125,7 +127,8 @@ class ZpowManager extends EventEmitter {
   log (line) {
     line = String(line).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trimEnd()
     if (!line) return
-    const shown = new Date().toTimeString().slice(0, 8) + ' [zpow] ' + line
+    const tag = this.o.logTag || 'zpow'
+    const shown = new Date().toTimeString().slice(0, 8) + ' [' + tag + '] ' + line
     this.state.logTail.push(shown)
     if (this.state.logTail.length > 200) this.state.logTail.shift()
     if (this.state.mode === 'gpu' && this.state.backend === 'classic-node') this.state.nodeSeen = true
@@ -858,6 +861,242 @@ class GpuFleet extends EventEmitter {
   }
 }
 
+// ---- 3.1.5: one processor switch runs every Classic shard at once ----
+// One zminer child per shard (pool .88:3341–3344), each with its own shard account.
+// A crash restarts only that shard's miner; the others are untouched.
+class CpuFleet extends EventEmitter {
+  constructor (opts) {
+    super()
+    this.o = opts || {}
+    this.kids = new Map()
+    this.probe = new ZpowManager(Object.assign({}, opts, { logTag: 'zpow' }))
+  }
+
+  get wantRunning () {
+    for (const kid of this.kids.values()) if (kid.wantRunning) return true
+    return false
+  }
+
+  // Aggregate the pcGuard view: one cpu entry in the chain list.
+  get state () {
+    const running = this.runningKids()
+    if (!running.length) return { shard: null, hashrate: null, startedAt: null }
+    const one = running.length === 1
+    let hash = 0
+    let anyHash = false
+    for (const kid of running) {
+      const h = Number(kid.state && kid.state.hashrate)
+      if (kid.state && kid.state.hashrateSource !== 'pool' && Number.isFinite(h) && h > 0) { hash += h; anyHash = true }
+    }
+    return {
+      shard: one ? running[0].state.shard : null,
+      hashrate: anyHash ? hash : null,
+      startedAt: running.map(k => (k.state && k.state.startedAt) || 0).reduce((a, b) => Math.max(a, b), 0) || null
+    }
+  }
+
+  get launchThreads () {
+    let sum = 0
+    for (const kid of this.kids.values()) sum += Number(kid.launchThreads) || 0
+    return sum || null
+  }
+
+  get launchSpec () {
+    const threads = this.launchThreads
+    return threads == null ? null : { args: ['-threads', String(threads)] }
+  }
+
+  runningKids () {
+    const out = []
+    for (const kid of this.kids.values()) if (kid.wantRunning) out.push(kid)
+    return out
+  }
+
+  capabilities (env) { return this.probe.capabilities(env) }
+
+  childPids () {
+    const pids = []
+    for (const kid of this.kids.values()) pids.push(...kid.childPids())
+    return pids
+  }
+
+  childAlive () { return this.childPids().length > 0 }
+
+  childUp (kid) {
+    const proc = kid && kid.proc
+    if (!proc || proc.exitCode != null || proc.signalCode != null) return false
+    return pidAlive(proc.pid)
+  }
+
+  liveObservation () {
+    let threads = 0
+    let anyThreads = false
+    let hashrate = 0
+    let anyHash = false
+    let running = false
+    for (const kid of this.kids.values()) {
+      if (!kid.wantRunning) continue
+      running = true
+      const obs = typeof kid.liveObservation === 'function' ? kid.liveObservation() : null
+      if (obs && obs.threads != null && Number.isFinite(Number(obs.threads))) { threads += Number(obs.threads); anyThreads = true }
+      if (obs && obs.hashrate != null && Number.isFinite(Number(obs.hashrate)) && Number(obs.hashrate) > 0) { hashrate += Number(obs.hashrate); anyHash = true }
+    }
+    return { running: running, threads: anyThreads ? threads : null, hashrate: anyHash ? hashrate : null }
+  }
+
+  status () {
+    const shards = []
+    for (const kid of this.kids.values()) {
+      const st = kid.status()
+      if (st.running || (st.phase && st.phase !== 'idle' && st.phase !== 'stopped')) shards.push(st)
+    }
+    const running = shards.filter(s => s.running)
+    if (!running.length) {
+      const last = shards[shards.length - 1]
+      return last
+        ? Object.assign({}, last, { running: false, mode: 'cpu', shards: shards })
+        : { chain: 'classic', mode: 'cpu', backend: 'zminer', running: false, code: 'IDLE', phase: 'idle', shards: [] }
+    }
+    let hash = 0
+    let anyHash = false
+    let accepted = 0
+    let rejected = 0
+    let threads = 0
+    let earnShares = 0
+    let earnPaid = 0
+    let earnEarned = 0
+    let earnOn = false
+    let anyShare = false
+    let anyPaid = false
+    let anyEarned = false
+    for (const s of running) {
+      accepted += Number(s.sharesAccepted) || 0
+      rejected += Number(s.sharesRejected) || 0
+      if (s.threads != null && Number.isFinite(Number(s.threads))) threads += Number(s.threads)
+      if (s.hashrateSource !== 'pool' && s.hashrate != null && Number.isFinite(Number(s.hashrate)) && Number(s.hashrate) > 0 && (s.rateSeen || s.hashrateSource === 'status')) {
+        anyHash = true
+        hash += Number(s.hashrate)
+      }
+      const earn = s.sessionEarn
+      if (earn && earn.exposed === true) {
+        earnOn = true
+        if (earn.shares != null && Number.isFinite(Number(earn.shares))) { earnShares += Number(earn.shares); anyShare = true }
+        if (earn.paid != null && Number.isFinite(Number(earn.paid))) { earnPaid += Number(earn.paid); anyPaid = true }
+        if (earn.earned != null && Number.isFinite(Number(earn.earned))) { earnEarned += Number(earn.earned); anyEarned = true }
+      }
+    }
+    const one = running.length === 1 ? running[0] : null
+    return {
+      chain: 'classic',
+      mode: 'cpu',
+      backend: 'zminer',
+      running: true,
+      shard: one ? one.shard : null,
+      wallet: one ? one.wallet : null,
+      phase: one ? one.phase : (running.some(s => s.phase === 'mining') ? 'mining' : running[0].phase),
+      code: one ? one.code : running[0].code,
+      hashrate: anyHash ? hash : null,
+      hashrateSource: anyHash ? 'status' : null,
+      rateSeen: anyHash,
+      sharesSeen: running.some(s => s.sharesSeen === true),
+      sessionEarn: earnOn ? {
+        exposed: true,
+        shares: anyShare ? earnShares : null,
+        paid: anyPaid ? String(earnPaid) : null,
+        earned: anyEarned ? String(earnEarned) : null
+      } : null,
+      sharesAccepted: accepted,
+      sharesRejected: rejected,
+      threads: threads || null,
+      procs: running.reduce((acc, s) => acc.concat(s.procs || []), []),
+      shards: running,
+      message: one ? one.message : ''
+    }
+  }
+
+  watch (kid) {
+    kid.on('status', () => this.emit('status', this.status()))
+  }
+
+  log (line) { this.probe.log(line) }
+
+  async start (address, opts) {
+    opts = opts || {}
+    const parsed = parseClassicAddress(address)
+    if (!parsed) {
+      const err = new Error('Classic mining needs a 1S01 / 2S02 / 3S03 / 4S04 address')
+      err.code = 'BAD_ADDRESS'
+      throw err
+    }
+    const n = parsed.shard
+    let kid = this.kids.get(n)
+    // Same shard + same address + alive child: nothing to do. A dead process
+    // must not count as already mining; the next start spawns it again.
+    if (kid && this.childUp(kid) && kid.wantRunning && kid.state.mode === 'cpu' && kid.state.wallet === parsed.address) return this.status()
+    // (Re)start only this shard. The other shards' miners keep running.
+    if (kid && (kid.wantRunning || kid.proc)) await kid.stop()
+    kid = new ZpowManager(Object.assign({}, this.o, { logTag: 'zpow s' + n }))
+    this.kids.set(n, kid)
+    this.watch(kid)
+    try {
+      await kid.start(parsed.address, Object.assign({}, opts, { backend: 'cpu', shard: n }))
+    } catch (e) {
+      this.kids.delete(n)
+      throw e
+    }
+    return this.status()
+  }
+
+  async stop (opts) {
+    const jobs = []
+    for (const kid of this.kids.values()) jobs.push(kid.stop(opts))
+    await Promise.all(jobs)
+    this.emit('status', this.status())
+  }
+
+  // Guard actions act on the fleet as one cpu entry: the thread total is
+  // re-split across the running shards, and every changed child restarts.
+  setArg (flag, value) {
+    if (flag !== '-threads' && flag !== '--threads') return false
+    const kids = this.runningKids()
+    if (!kids.length) return false
+    const total = Math.max(1, Math.floor(Number(value)) || 1)
+    const parts = splitThreads(total, kids.map(k => (k.state && k.state.shard) || 1))
+    let changed = false
+    for (const kid of kids) {
+      const shard = (kid.state && kid.state.shard) || 1
+      const want = parts[shard] || 1
+      if (kid.setArg('-threads', want) || kid.setArg('--threads', want)) changed = true
+    }
+    return changed
+  }
+
+  async restartChild () {
+    const jobs = []
+    for (const kid of this.runningKids()) jobs.push(kid.restartChild())
+    const out = await Promise.all(jobs)
+    return out.some(Boolean)
+  }
+
+  async pauseForGuard () {
+    const jobs = []
+    for (const kid of this.kids.values()) {
+      if (!kid.wantRunning) continue
+      jobs.push(kid.pauseForGuard())
+    }
+    await Promise.all(jobs)
+  }
+
+  async resumeFromGuard () {
+    let any = false
+    for (const kid of this.kids.values()) {
+      try { if (await kid.resumeFromGuard()) any = true } catch (e) {}
+    }
+    if (any) this.emit('status', this.status())
+    return any
+  }
+}
+
 // ---- 3.1.4 bug #5: session earnings baseline persisted per (backend, address, shard) ----
 function earnFile (root, mode, address, shard) {
   return path.join(root || os.tmpdir(), 'session-earn-' + String(mode || 'cpu') + '-' + String(shard) + '-' + String(address || '').toLowerCase().replace(/[^0-9a-z]/g, '') + '.json')
@@ -987,4 +1226,4 @@ async function localNodeHeights (call, timeoutMs) {
   return out
 }
 
-module.exports = { loadEarnBase, saveEarnBase, clearEarnBase, earnFile, ZpowManager, GpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }
+module.exports = { loadEarnBase, saveEarnBase, clearEarnBase, earnFile, ZpowManager, GpuFleet, CpuFleet, httpGetJson, rpcCall, formatExitMessage, localNodeHeights, computerName, resolveGpuMiner, measureShardSync, measureAllShardSync }

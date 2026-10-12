@@ -24,23 +24,49 @@
     else if (mode === 'classic-cpu') { classicCpu = true; classicGpu = false }
     const shard0Mode = mode === 'mine' || mode === 'shard0'
     if (!classicGpu && !classicCpu && !shard0Mode) return null
-    const cpu = classicCpu ? [shardOf(store.minerClassicCpu || store.minerClassic)] : []
+    const cpu = classicCpu ? ALL_CLASSIC.slice() : []
     const gpu = classicGpu ? [shardOf(store.minerClassicGpu || store.minerClassic)] : []
     // Shard0 EVM only when that was the saved mode and this profile was not Classic-only.
     if (shard0Mode && !classicGpu && !classicCpu && gpu.indexOf(0) < 0) gpu.unshift(0)
     return { cpu: cpu, gpu: gpu }
   }
 
-  // New profile: with a graphics card, Shard0 EVM is ticked (3.1.3). Without one, the processor mines Classic.
+  // 3.1.5: the processor mines every Classic shard (1–4) at once, one zminer per
+  // shard, sharing the thread slider. A new profile with a graphics card ticks
+  // Shard0 EVM on the GPU side and all four Classic shards on the CPU side.
+  const ALL_CLASSIC = [1, 2, 3, 4]
+
   function freshSelection (caps, targets) {
-    targets = targets || {}
-    const gpuAvail = !!(caps && caps.gpu && caps.gpu.available)
-    const gpuShard = Number(targets.gpu && targets.gpu.shard) || 1
-    const cpuShard = Number(targets.cpu && targets.cpu.shard) || 1
-    const g = gpuShard >= 1 && gpuShard <= 4 ? gpuShard : 1
-    const c = cpuShard >= 1 && cpuShard <= 4 ? cpuShard : 1
-    if (gpuAvail) return { cpu: [], gpu: [0] }
-    return { cpu: [c], gpu: [] }
+    if (caps && caps.gpu && caps.gpu.available) return { cpu: ALL_CLASSIC.slice(), gpu: [0] }
+    return { cpu: ALL_CLASSIC.slice(), gpu: [] }
+  }
+
+  // 3.1.5: split the thread slider total across the enabled Classic shards.
+  // Even split; the remainder goes to the lowest shard numbers. Every shard
+  // gets at least 1 thread while the total allows it. Pure function.
+  // splitThreads(8, [1,2,3,4]) → {1:2, 2:2, 3:2, 4:2}; 6 → {1:2, 2:2, 3:1, 4:1}.
+  function splitThreads (total, shards) {
+    const seen = []
+    for (const raw of shards || []) {
+      const n = Number(raw)
+      if (n >= 1 && n <= 4 && seen.indexOf(n) < 0) seen.push(n)
+    }
+    seen.sort((a, b) => a - b)
+    const out = {}
+    if (!seen.length) return out
+    let n = Math.floor(Number(total))
+    if (!Number.isFinite(n) || n < 1) n = 1
+    if (n < seen.length) {
+      for (let i = 0; i < n; i++) out[seen[i]] = 1
+      return out
+    }
+    const base = Math.floor(n / seen.length)
+    let rem = n % seen.length
+    for (const s of seen) {
+      out[s] = base + (rem > 0 ? 1 : 0)
+      if (rem > 0) rem--
+    }
+    return out
   }
 
   // autoResume must be strictly true. A "was running" flag never starts a miner by itself.
@@ -66,7 +92,7 @@
     return next
   }
 
-  const api = { shardOf, migrateSelection, freshSelection, launchPlan, clearedFlags }
+  const api = { shardOf, migrateSelection, freshSelection, splitThreads, launchPlan, clearedFlags }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOMineSession = Object.freeze(api)
 })()
