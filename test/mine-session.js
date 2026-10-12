@@ -19,25 +19,32 @@ assert.deepStrictEqual(migrated.gpu, [2])
 assert.ok(migrated.gpu.indexOf(0) < 0)
 assert.deepStrictEqual(migrated.cpu, [])
 
-// CPU-only old intent stays on that Classic shard.
+// 3.1.5: a CPU-only old intent now expands to every Classic shard (one switch mines Shard1–4).
 assert.deepStrictEqual(session.migrateSelection({
   minerMode: 'classic-cpu',
   minerRunShard0: '1',
   minerClassicCpu: '3S03' + 'aa'.repeat(18) + 'bb'
-}).cpu, [3])
+}).cpu, [1, 2, 3, 4])
 
-// 3.1.3: a new profile with a graphics card ticks Shard0 EVM only (not "select all").
+// 3.1.5: a fresh profile defaults CPU mining to all four Classic shards, with or without a GPU.
 const fresh = session.freshSelection({ gpu: { available: true } }, { gpu: { shard: 1 } })
-assert.deepStrictEqual(fresh, { cpu: [], gpu: [0] })
+assert.deepStrictEqual(fresh, { cpu: [1, 2, 3, 4], gpu: [0] })
 assert.notDeepStrictEqual(fresh.gpu, [0, 1, 2, 3, 4])
 const noGpu = session.freshSelection({ gpu: { available: false }, cpu: { available: true } }, {})
-assert.deepStrictEqual(noGpu, { cpu: [1], gpu: [] })
+assert.deepStrictEqual(noGpu, { cpu: [1, 2, 3, 4], gpu: [] })
+
+// 3.1.5: splitThreads hands the thread total out across shards, at least one each, remainder to the low numbers.
+assert.deepStrictEqual(session.splitThreads(8, [1, 2, 3, 4]), { 1: 2, 2: 2, 3: 2, 4: 2 })
+assert.deepStrictEqual(session.splitThreads(6, [1, 2, 3, 4]), { 1: 2, 2: 2, 3: 1, 4: 1 })
+assert.deepStrictEqual(session.splitThreads(3, [1, 2, 3, 4]), { 1: 1, 2: 1, 3: 1 })
+assert.deepStrictEqual(session.splitThreads(2, [2, 4]), { 2: 1, 4: 1 })
+assert.deepStrictEqual(session.splitThreads(0, [1, 2, 3, 4]), { 1: 1 })
 
 // Explicit opt-in still includes Shard0 EVM. The default pick does not.
 const opted = mine.defaultChainPick({ classic: 'gpu', shard0: true }, { gpu: { available: true } }, { gpu: { shard: 2 } }, {})
 assert.deepStrictEqual(opted.gpu, [0, 2])
 const plain = mine.defaultChainPick({}, { gpu: { available: true } }, {}, {})
-assert.deepStrictEqual(plain, { cpu: [], gpu: [0] })
+assert.deepStrictEqual(plain, { cpu: [1, 2, 3, 4], gpu: [0] })
 const jobs = mine.jobsForDevice({
   device: 'gpu',
   chains: [1],

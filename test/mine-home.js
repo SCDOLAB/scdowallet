@@ -665,6 +665,26 @@ assert.strictEqual(mine.chooseMinePath({
   })
   assert.strictEqual(cpu.jobs[0].mineLabel, '經礦池挖')
   assert.strictEqual(cpu.jobs[0].backend, 'cpu')
+  // 3.1.5: every enabled Classic shard gets its own CPU job; the one-at-a-time block is gone.
+  const cpuAll = mine.jobsForDevice({
+    device: 'cpu',
+    chains: [1, 2, 3, 4],
+    addresses: { 1: addr(1), 2: addr(2), 3: addr(3), 4: addr(4) },
+    zh: true
+  })
+  assert.strictEqual(cpuAll.jobs.filter(j => j.backend === 'cpu').length, 4)
+  assert.deepStrictEqual(cpuAll.jobs.map(j => j.shard), [1, 2, 3, 4])
+  assert.ok(cpuAll.notices.indexOf('shellOneClassic') < 0)
+  // A shard without an address is reported, not silently started.
+  const cpuMissing = mine.jobsForDevice({
+    device: 'cpu',
+    chains: [1, 2],
+    addresses: { 1: addr(1) },
+    zh: true
+  })
+  assert.strictEqual(cpuMissing.jobs.length, 1)
+  assert.strictEqual(cpuMissing.blocked[0].shard, 2)
+  assert.ok(cpuMissing.notices.indexOf('pickAddr') >= 0)
   const now = Date.now()
   const earnLog = {
     certain: true,

@@ -47,7 +47,9 @@ function formatMinePill (miners, T) {
     if (m.code === 'CLASSIC_MINING' || m.code === 'CLASSIC_GPU') mining.push(label)
     else starting.push(label)
   }
-  addClassic(miners.classicCpu, 'classicCpu')
+  const cpuFleet = miners.classicCpu
+  const cpuKids = cpuFleet && Array.isArray(cpuFleet.shards) && cpuFleet.shards.length ? cpuFleet.shards : [cpuFleet]
+  for (const k of cpuKids) addClassic(k, 'classicCpu')
   addClassic(miners.classicGpu, 'classicGpu')
 
   const mineL = uniq(mining)

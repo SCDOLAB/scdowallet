@@ -121,7 +121,12 @@ function hottest (temps) {
 function classicList (miners) {
   miners = miners || {}
   const out = []
-  if (miners.classicCpu) out.push(miners.classicCpu)
+  const cpu = miners.classicCpu
+  if (cpu) {
+    if (Array.isArray(cpu.shards) && cpu.shards.length) {
+      for (const s of cpu.shards) out.push(s)
+    } else out.push(cpu)
+  }
   const g = miners.classicGpu
   if (g && Array.isArray(g.shards) && g.shards.length) {
     for (const s of g.shards) out.push(s)
@@ -763,6 +768,8 @@ function defaultChainPick (saved, caps, targets, miners) {
   targets = targets || {}
   miners = miners || {}
   const gpuAvail = !!(caps && caps.gpu && caps.gpu.available)
+  // 3.1.5: the processor mines every Classic shard by default.
+  const ALL_CLASSIC = [1, 2, 3, 4]
   const shardOf = (t, miner) => {
     const n = Number(t && t.shard)
     if (n >= 1 && n <= 4) return n
@@ -770,16 +777,17 @@ function defaultChainPick (saved, caps, targets, miners) {
     if (m >= 1 && m <= 4) return m
     return 0
   }
-  const cpuShard = shardOf(targets.cpu, miners.classicCpu) || 1
   const gpuShard = shardOf(targets.gpu, miners.classicGpu) || 1
   let cpu = []
   let gpu = []
-  if (saved.classic === 'cpu' || (saved.cpu && !saved.classic)) cpu = [cpuShard]
+  if (saved.classic === 'cpu' || (saved.cpu && !saved.classic)) cpu = ALL_CLASSIC.slice()
   else if (saved.classic === 'gpu' || saved.classic === 'external') {
     gpu = [gpuShard]
-    if (saved.cpu) cpu = [cpuShard]
-  } else if (gpuAvail) gpu = [0] // 3.1.3: a graphics card with nothing saved mines Shard0 EVM
-  else cpu = [cpuShard]
+    if (saved.cpu) cpu = ALL_CLASSIC.slice()
+  } else if (gpuAvail) {
+    gpu = [0] // 3.1.3: a graphics card with nothing saved mines Shard0 EVM
+    cpu = ALL_CLASSIC.slice()
+  } else cpu = ALL_CLASSIC.slice()
   if (saved.shard0 && gpu.indexOf(0) < 0) gpu.unshift(0)
   return sanitizeChainPick({ cpu: cpu, gpu: gpu }, caps)
 }
@@ -805,18 +813,18 @@ function jobsForDevice (input) {
   }
   const solo = device === 'gpu' && input.explicitSolo === true
   const noCard = device === 'gpu' && input.nvidia === false && classics.length > 0
-  if (device === 'cpu' && classics.length > 1) notices.push('shellOneClassic')
   if (noCard) notices.push('shellNoNvidiaCpu')
   const addresses = input.addresses || {}
   const blocked = []
+  // The graphics card runs one solo Classic node at a time; pool GPUs and all
+  // processor shards run in parallel.
   let startedClassic = false
   for (const n of classics) {
     const address = addresses[n] || addresses[String(n)] || ''
     if (noCard) { blocked.push({ shard: n, reasonKey: 'shellNoNvidiaCpu' }); continue }
     if (!address) { notices.push('pickAddr'); blocked.push({ shard: n, reasonKey: 'pickAddr' }); continue }
     if (device === 'cpu') {
-      if (startedClassic) { notices.push('shellOneClassic'); blocked.push({ shard: n, reasonKey: 'shellOneClassic' }); continue }
-      startedClassic = true
+      // 3.1.5: every enabled Classic shard gets its own zminer and its own account.
       jobs.push({
         chain: 'classic', backend: 'cpu', gpuMiner: 'classic-node', shard: n, address: String(address),
         action: 'cpu', mineLabel: cpuPoolText(input.zh !== false)
@@ -974,6 +982,10 @@ function chainSession (input, device, n) {
     return null
   }
   const m = miners.classicCpu
+  if (m && Array.isArray(m.shards)) {
+    const hit = m.shards.find(s => s && Number(s.shard) === Number(n))
+    if (hit) return hit
+  }
   if (m && Number(m.shard) === Number(n)) return m
   return null
 }
@@ -1015,7 +1027,10 @@ function zpowSessions (miners, device) {
   const out = []
   if (device === 'cpu') {
     const m = miners.classicCpu
-    if (m && m.mode !== 'node' && processAlive(m)) out.push(m)
+    const list = m && Array.isArray(m.shards) && m.shards.length ? m.shards : (m ? [m] : [])
+    for (const s of list) {
+      if (s && s.mode !== 'node' && processAlive(s)) out.push(s)
+    }
     return out
   }
   const g = miners.classicGpu
@@ -1078,11 +1093,10 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools, open, input)
   }).join('')
   const shared = picked.filter(n => n >= 1 && other.indexOf(n) >= 0)
   const note = shared.length ? `<div class="mine-note">${esc(tr(T, 'shellBothMine'))}</div>` : ''
-  const many = device === 'cpu' && picked.filter(n => n >= 1).length > 1 ? `<div class="mine-note">${esc(tr(T, 'shellOneClassic'))}</div>` : ''
   const pickOpen = open ? ' open' : ''
   return `<details class="shell-fold" id="minePick-${device}"${pickOpen}>${foldSummary(esc(tr(T, 'shellPickChains')))}
       <label class="mine-chain"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="all"${allOn ? ' checked' : ''}${supported.length ? '' : ' disabled'}> ${esc(tr(T, 'shellPickAll'))}</label>
-      ${boxes}${note}${many}
+      ${boxes}${note}
     </details>`
 }
 
@@ -1178,13 +1192,22 @@ function chainDetailHtml (input, device, n, T, esc) {
   const row = (k, v, cls) => `<div class="mine-kv"><span>${esc(k)}</span><b${cls ? ' class="' + cls + '"' : ''}>${esc(v)}</b></div>`
   const title = state === tr(T, 'shellMineOff') ? chainLabel(n) : (chainLabel(n) + ' · ' + state)
   const cpu = input && input.miners && input.miners.classicCpu
-  const cpuHere = cpu && cpu.running && cpu.mode !== 'node' && Number(cpu.shard) === Number(n)
+  const cpuHere = (function () {
+    if (!cpu || !cpu.running || cpu.mode === 'node') return false
+    if (Array.isArray(cpu.shards)) return cpu.shards.some(s => s && Number(s.shard) === Number(n))
+    return Number(cpu.shard) === Number(n)
+  })()
+  const cpuThreads = (function () {
+    const s = chainSession(input, device, n)
+    return s && s.threads != null && Number.isFinite(Number(s.threads)) ? String(Math.round(Number(s.threads))) : DASH
+  })()
   const hint = waitingRow && address && !cpuHere
     ? `<button type="button" class="shell-hint" data-act="mineCpuFirst" data-shard="${n}" data-addr="${esc(address)}">${esc(tr(T, 'shellCpuFirst'))}</button>`
     : ''
   return `<details class="shell-fold" id="mineChain-${device}-${n}">${foldSummary(esc(title))}
       ${row(tr(T, 'shellStat'), state, waitingRow ? 'wait' : '')}
       ${row(tr(T, 'homeMineSpeedLbl'), speed)}
+      ${device === 'cpu' && n >= 1 ? row(tr(T, 'shellThreads'), cpuThreads) : ''}
       ${row(tr(T, 'homeMineTodayLbl'), today)}
       ${row(tr(T, 'shellLast'), last)}
       ${row(tr(T, 'd_sync'), sync)}

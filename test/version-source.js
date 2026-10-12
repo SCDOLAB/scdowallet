@@ -11,12 +11,12 @@ const root = path.join(__dirname, '..')
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
 const pkg = require('../package.json')
 
-assert.strictEqual(VERSION, '3.1.4')
+assert.strictEqual(VERSION, '3.1.5-test')
 assert.strictEqual(VERSION, pkg.version)
 assert.deepStrictEqual(checkRuntime(VERSION), { ok: true, version: VERSION, reported: VERSION })
 const mismatch = checkRuntime('3.0.10')
 assert.strictEqual(mismatch.ok, false)
-assert.ok(mismatch.error.includes('3.0.10') && mismatch.error.includes('3.1.4'))
+assert.ok(mismatch.error.includes('3.0.10') && mismatch.error.includes('3.1.5-test'))
 
 const realLoad = Module._load
 Module._load = function (req, parent, ...rest) {
@@ -76,7 +76,7 @@ assert.ok(nsh.includes('!macro customUnInstall'))
 assert.ok(nsh.includes('Do not delete account files.'))
 assert.ok(!nsh.includes('RMDir') && !nsh.includes('deleteAppData') && !nsh.includes('.ScdoWallet'))
 const init = nsh.slice(nsh.indexOf('!macro customInit'), nsh.indexOf('!macro customInstallMode'))
-const inst = nsh.slice(nsh.indexOf('!macro customInstall\n'), nsh.indexOf('!macro customUnInstall'))
+const inst = nsh.slice(nsh.search(/!macro customInstall\r?\n/), nsh.indexOf('!macro customUnInstall'))
 assert.ok(nsh.includes('QuietUninstallString'), 'detect the HKLM quiet uninstall command')
 assert.ok(init.includes("ExecWait '$oldQuietUninstall --updated'"), 'run that command before the new files exist')
 assert.ok(init.includes('--updated'), 'old uninstall must keep app data')

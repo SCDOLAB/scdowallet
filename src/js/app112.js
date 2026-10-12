@@ -3754,19 +3754,20 @@
     const n = Number(shard)
     if (!(n >= 1 && n <= 4) || !address) return
     const cpu = st.miners && st.miners.classicCpu
-    if (cpu && cpu.running && cpu.mode !== 'node') {
-      if (Number(cpu.shard) === n) return
-      toast(T('shellOneClassic'), 7000)
-      return
-    }
+    const running = cpu && Array.isArray(cpu.shards)
+      ? cpu.shards.filter(s => s && s.running).map(s => Number(s.shard)).filter(x => x >= 1 && x <= 4)
+      : (cpu && cpu.running && Number(cpu.shard) >= 1 && Number(cpu.shard) <= 4 ? [Number(cpu.shard)] : [])
+    if (running.indexOf(n) >= 0) return
     const pick = readChainPick()
     const cpuChains = (pick.cpu || []).slice()
     if (cpuChains.indexOf(n) < 0) cpuChains.push(n)
     writeChainPick('cpu', cpuChains)
+    const split = window.SCDOMineSession && window.SCDOMineSession.splitThreads
+    const threads = typeof split === 'function' ? (split(threadCount(), running.concat([n]))[n] || 1) : threadCount()
     let r
     try {
       r = await api.invoke('miner:start', address, {
-        chain: 'classic', backend: 'cpu', shard: n, threads: threadCount()
+        chain: 'classic', backend: 'cpu', shard: n, threads: threads
       })
     } catch (e) { r = { ok: false, code: 'BAD_ADDRESS' } }
     if (!r || !r.ok) {
@@ -3783,10 +3784,9 @@
     const pick = readChainPick()
     const classics = (pick.gpu || []).map(Number).filter(n => n >= 1 && n <= 4)
     const addresses = mineChainAddresses()
-    const n = classics[0]
-    if (!(n >= 1)) return
-    if (classics.length > 1) toast(T('shellOneClassic'), 7000)
-    await startCpuPool(n, addresses[n] || addresses[String(n)] || '')
+    for (const n of classics) {
+      await startCpuPool(n, addresses[n] || addresses[String(n)] || '')
+    }
     st.gpuFallback = false
     refreshDash()
   }
@@ -4525,7 +4525,13 @@
     if (job.chain === 'classic') {
       const backend = job.backend === 'gpu' ? 'gpu' : 'cpu'
       const gpu = gpuParams()
-      const threads = backend === 'cpu' ? threadCount() : gpu.threads
+      let threads = backend === 'cpu' ? threadCount() : gpu.threads
+      if (backend === 'cpu') {
+        const pickCpu = (readChainPick() || {}).cpu || []
+        const shardList = pickCpu.length ? pickCpu : [Number(job.shard) || 1]
+        const split = window.SCDOMineSession && window.SCDOMineSession.splitThreads
+        if (typeof split === 'function') threads = split(threads, shardList)[Number(job.shard)] || 1
+      }
       let r
       try {
         const gpuMiner = backend === 'gpu' ? (job.gpuMiner === 'classic-node' || job.gpuMiner === 'external' ? job.gpuMiner : 'zminer-gpu') : undefined
@@ -4731,8 +4737,7 @@
       if (rc.mode === 'node' && plan.start.indexOf('shard0') < 0 && plan.start.indexOf('cpu') < 0 && plan.start.indexOf('classicGpu') < 0) { nodeStart(); return }
       const caps = st.caps || {}
       if (plan.start.indexOf('cpu') >= 0 && !(st.miners.classicCpu && st.miners.classicCpu.running) && caps.cpu && caps.cpu.available !== false) {
-        const p = classicTargetForHome('cpu')
-        if (p) api.invoke('miner:start', p.address, { chain: 'classic', backend: 'cpu', shard: p.shard, threads: threadCount() })
+        await startDevice('cpu', { skipShard0: true })
       }
       if (plan.start.indexOf('classicGpu') >= 0 && !(st.miners.classicGpu && st.miners.classicGpu.running)) {
         const gpuOk = caps.gpu && caps.gpu.available

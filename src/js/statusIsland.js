@@ -168,6 +168,17 @@ function speedChip (chain, dev, hash, tr, key) {
   }
 }
 
+// 3.1.5: Classic CPU status may be a fleet summary with a per-shard `shards`
+// array, or the single-shard status older builds published.
+function cpuShardOf (cpu, n) {
+  if (!cpu) return null
+  if (Array.isArray(cpu.shards)) {
+    const hit = cpu.shards.find(s => s && Number(s.shard) === Number(n))
+    if (hit) return hit
+  }
+  return Number(cpu.shard) === Number(n) ? cpu : null
+}
+
 function shardSources (n, opts) {
   opts = opts || {}
   const cpu = opts.classicCpu
@@ -183,7 +194,7 @@ function shardSources (n, opts) {
     }
   }
   const g = gpu && gpu.running && Number(gpu.shard) === n ? gpu : null
-  const c = cpu && cpu.running && Number(cpu.shard) === n ? cpu : null
+  const c = cpu && cpu.running ? cpuShardOf(cpu, n) : null
   return { node: null, gpu: g && !isCpu(g) ? g : null, cpu: c && isCpu(c) ? c : null, syncFrom: g || null }
 }
 
@@ -255,7 +266,23 @@ function buildIsland (opts) {
       row.push({ key: 's' + n + '-node', kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipNodeExplain'), '') })
     }
     if (gpu && miningNow(gpu)) row.push(speedChip(chain, tr('isleDevGpu'), gpu.hashrate, tr, 's' + n + '-gpu'))
-    if (src.cpu && miningNow(src.cpu)) row.push(speedChip(chain, tr('isleDevCpu'), src.cpu.hashrate, tr, 's' + n + '-cpu'))
+    if (src.cpu && miningNow(src.cpu)) {
+      const chip = speedChip(chain, tr('isleDevCpu'), src.cpu.hashrate, tr, 's' + n + '-cpu')
+      // 3.1.5 per-shard processor line: Shard1 · 2 執行緒 · 1.23 kH/s · 已接受 5 / 拒絕 0
+      const threads = num(src.cpu.threads)
+      const acc = num(src.cpu.sharesAccepted)
+      const rej = num(src.cpu.sharesRejected)
+      if (threads != null || acc != null || rej != null) {
+        chip.text = tr('shellCpuShardLine', {
+          n: n,
+          threads: threads == null ? tr('isleUnknown') : String(threads),
+          speed: compactHash(src.cpu.hashrate) || tr('isleSpeedUnknown'),
+          a: acc == null ? tr('isleUnknown') : String(acc),
+          r: rej == null ? tr('isleUnknown') : String(rej)
+        })
+      }
+      row.push(chip)
+    }
     if (sync.kind === 'pool' && !(src.cpu && miningNow(src.cpu))) {
       const text = tr('islePoolMine', { chain: chain })
       row.push({ key: 's' + n + '-pool', kind: 'idle', text: text, tip: tipOf(chain, text, tr('isleTipPoolExplain'), '') })
