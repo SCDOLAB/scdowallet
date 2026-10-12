@@ -276,6 +276,16 @@ class MinerManager extends EventEmitter {
     return Object.assign({}, this.state, { running: this.wantRunning, stopping: !this.wantRunning && procs.length > 0, keepMining: this.keepMining(), procs })
   }
 
+  // Team rigs only: <dataRoot>/team-payout.txt holding one 0x address sends Shard0 EVM rewards there instead of
+  // the selected account. The file is never shipped or written by the wallet, so public installs keep their own address.
+  teamPayout () {
+    try {
+      const v = fs.readFileSync(path.join(this.o.dataRoot, 'team-payout.txt'), 'utf8').trim()
+      if (/^0x[0-9a-fA-F]{40}$/.test(v) && !/^0x0{40}$/.test(v)) return v
+    } catch (e) {}
+    return null
+  }
+
   bootnodes () {
     const list = [BOOTNODE]
     const add = (v) => { v = String(v || '').trim(); if (ENODE_RE.test(v) && list.indexOf(v) < 0) list.push(v) }
@@ -543,6 +553,8 @@ class MinerManager extends EventEmitter {
     opts = opts || {}
     const mode = opts.mode === 'node' || opts.noRigel === 'node' ? 'node' : opts.mode === 'pool' ? 'pool' : 'mine'
     if (this.wantRunning) throw new Error('already running')
+    const team = mode !== 'node' ? this.teamPayout() : null
+    if (team && String(team).toLowerCase() !== String(wallet || '').toLowerCase()) wallet = team
     if (mode !== 'node' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid mining address ' + wallet)
     let poolUrl = null
     if (mode === 'pool') {
@@ -565,6 +577,7 @@ class MinerManager extends EventEmitter {
     }
     this.state = Object.assign(this.freshState(), { wallet: mode !== 'node' ? wallet : null, mode, payout, poolUrl, startedAt: Date.now() })
     this.opts = opts
+    if (team) this.log('wallet', 'team rig: Shard0 EVM rewards go to team-payout.txt address ' + team.slice(0, 6) + '…' + team.slice(-4))
     if (gpuPick) {
       const names = (gpuPick.mineNames || []).join(', ')
       this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
