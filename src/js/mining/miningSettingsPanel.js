@@ -2,7 +2,8 @@
 // "Keep mining" (restart the miner automatically if it exits; off by default).
 ;(function (M) {
   const h = (...a) => window.SafeDom.h(...a)
-  const OFFICIAL_POOL = 'ethproxy+tcp://82.223.19.88:3333' // 2.0.5: official SCDO pool, prefilled when nothing is saved
+  const OFFICIAL_POOL = 'ethproxy+tcp://139.84.196.31:3333' // Melbourne Shard0 pool, prefilled when nothing is saved
+  const OFFICIAL_HOSTS = ['139.84.196.31:3333', '82.223.19.88:3333']
   const POOL_RE = /^(stratum\+tcp|stratum\+ssl|stratum1\+tcp|stratum1\+ssl|ethproxy\+tcp|ethproxy\+ssl|ethstratum\+tcp|ethstratum\+ssl):\/\/([A-Za-z0-9.-]{1,253}|\[[0-9a-fA-F:]+\]):(\d{1,5})$/
   function render (cfg, running, handlers) {
     cfg = cfg || { miningMode: 'solo', poolUrl: '', keepMining: false }
@@ -31,6 +32,6 @@
       h('label', { class: 'm1-check', style: 'margin-top:14px' }, keep, M.L(' Keep mining: restart the miner automatically if it exits, and resume mining when the wallet starts (off by default)')))
   }
   // 2.0.7: the official pool (the only one with a payout API) - same host check as miningService.isOfficialPool
-  function isOfficial (url) { const m = /^[a-z0-9+]+:\/\/([^/]+)$/i.exec(String(url || '').trim()); return !!m && m[1].toLowerCase() === '82.223.19.88:3333' }
+  function isOfficial (url) { const m = /^[a-z0-9+]+:\/\/([^/]+)$/i.exec(String(url || '').trim()); return !!m && OFFICIAL_HOSTS.indexOf(m[1].toLowerCase()) >= 0 }
   M.MiningSettingsPanel = { render, POOL_RE, OFFICIAL_POOL, isOfficial }
 })(window.SCDOMining)

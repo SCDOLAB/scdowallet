@@ -11,12 +11,12 @@ const root = path.join(__dirname, '..')
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
 const pkg = require('../package.json')
 
-assert.strictEqual(VERSION, '3.1.4')
+assert.strictEqual(VERSION, '3.1.5')
 assert.strictEqual(VERSION, pkg.version)
 assert.deepStrictEqual(checkRuntime(VERSION), { ok: true, version: VERSION, reported: VERSION })
 const mismatch = checkRuntime('3.0.10')
 assert.strictEqual(mismatch.ok, false)
-assert.ok(mismatch.error.includes('3.0.10') && mismatch.error.includes('3.1.4'))
+assert.ok(mismatch.error.includes('3.0.10') && mismatch.error.includes('3.1.5'))
 
 const realLoad = Module._load
 Module._load = function (req, parent, ...rest) {

@@ -4,7 +4,16 @@
 
 ![icon](build/icon.ico)
 
-## Latest: SCDO Wallet 3.1.4 for Windows (13 October 2026)
+## Next: SCDO Wallet 3.1.5
+
+Source version in this tree is 3.1.5 (16 October 2026). The Windows installer is published to the download page after this build is packed. Release notes: [doc/release-notes/3.1.5.md](doc/release-notes/3.1.5.md).
+
+- Shard0 graphics-card mining uses the Melbourne pool `139.84.196.31:3333`, and the node starts from the Melbourne bootnode.
+- Shard1–Shard4 keep `82.223.19.88` until a remote config document overrides them.
+- Public RPC defaults to `https://apeccapital.org/rpc/N` and falls back to `https://scdoscan.io/rpc/N`.
+- The AI agent ledger posts to apeccapital.org, falls back to scdoscan.io, and reports payout, health and crashes.
+
+## Latest published installer: SCDO Wallet 3.1.4 for Windows (13 October 2026)
 
 Desktop wallet for SCDO, with a built-in node and mining on Windows. Built by SCDO Laboratory.
 

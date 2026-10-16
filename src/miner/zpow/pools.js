@@ -1,9 +1,11 @@
 // Classic pool endpoints. Shard1–Shard4 use the same host and the next ports.
 // Whether a pool is online is not stored here: the wallet reads /api/stats.
-// Overrides come from the caller (env SCDO_ZPOW_POOLS is a JSON object keyed by shard).
+// The host stays 82.223.19.88 until a remote config document overrides it
+// (there is no Melbourne Shard1–4 pool yet). Env SCDO_ZPOW_POOLS still wins.
 'use strict'
 
 const DEFAULT_HOST = '82.223.19.88'
+const HOST_RE = /^[A-Za-z0-9.-]{1,253}$/
 
 const DEFAULT_POOLS = {
   1: { shard: 1, host: DEFAULT_HOST, port: 3341, statsPort: 8341 },
@@ -28,6 +30,46 @@ function poolsFromEnv (env) {
     throw err
   }
   return parsed
+}
+
+function remotePoolOverrides (remote) {
+  const zp = remote && remote.zpowPools
+  if (!zp || typeof zp !== 'object' || Array.isArray(zp)) return null
+  const out = {}
+  for (const key of Object.keys(zp)) {
+    const n = Number(key)
+    if (n !== 1 && n !== 2 && n !== 3 && n !== 4) continue
+    const src = zp[key]
+    if (!src || typeof src !== 'object' || Array.isArray(src)) continue
+    const o = {}
+    if (src.host != null) {
+      const host = String(src.host).trim()
+      if (HOST_RE.test(host)) o.host = host
+    }
+    if (src.port != null) {
+      const port = Number(src.port)
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) o.port = port
+    }
+    if (src.statsPort != null) {
+      const statsPort = Number(src.statsPort)
+      if (Number.isInteger(statsPort) && statsPort >= 1 && statsPort <= 65535) o.statsPort = statsPort
+    }
+    if (Object.keys(o).length) out[n] = o
+  }
+  return Object.keys(out).length ? out : null
+}
+
+// Remote config first, then env / caller overrides replace a host or port.
+function mergeOverrides (remote, envOverrides) {
+  const base = remotePoolOverrides(remote) || {}
+  const env = envOverrides && typeof envOverrides === 'object' && !Array.isArray(envOverrides) ? envOverrides : {}
+  const out = {}
+  for (const n of [1, 2, 3, 4]) {
+    const a = base[n] || base[String(n)]
+    const b = env[n] || env[String(n)]
+    if (a || b) out[n] = Object.assign({}, a || {}, b || {})
+  }
+  return Object.keys(out).length ? out : null
 }
 
 function poolForShard (shard, overrides) {
@@ -72,6 +114,8 @@ module.exports = {
   DEFAULT_HOST,
   DEFAULT_POOLS,
   poolsFromEnv,
+  remotePoolOverrides,
+  mergeOverrides,
   poolForShard,
   minerStatsUrl,
   defaultCpuThreads

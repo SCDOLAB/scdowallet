@@ -104,7 +104,7 @@
   async function setMineMode (v) {
     const solo = v === 'solo'
     st.miningMode = solo ? 'solo' : 'pool'
-    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://82.223.19.88:3333'
+    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://139.84.196.31:3333'
     try {
       const r = await api.invoke('mining:setConfig', { miningMode: st.miningMode, poolUrl: poolUrl })
       if (r && r.ok) st.miningMode = r.miningMode === 'solo' ? 'solo' : 'pool'

@@ -21,7 +21,7 @@ const { VERSION } = require('./version')
 // ---- update channel (build-time constants; 1.1.6 review: nothing here can be changed at run time) ----
 // BEGIN-UPDATE-CHANNEL
 const UPDATER_URL = 'https://scdoscan.io/downloads/wallet/latest.json'
-const ALLOWED_ORIGINS = ['https://scdoscan.io'] // manifest + installer must be https on exactly this host (default port)
+const ALLOWED_ORIGINS = ['https://scdoscan.io', 'https://apeccapital.org'] // manifest + installer must be https on one of these hosts (default port)
 // END-UPDATE-CHANNEL
 const MAX_INSTALLER_SIZE = 512 * 1024 * 1024
 // PRODUCTION PUBLIC KEY (provided by A-side, 2026-09-30): 32-byte raw Ed25519 public key, base64.
