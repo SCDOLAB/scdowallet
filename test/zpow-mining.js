@@ -1149,7 +1149,7 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   for (const rel of ['src/miner/zpow/launch.js', 'src/miner/zpow/bins.js', 'src/miner/zpow/manager.js', 'scripts/before-pack-win.js', 'doc/mining-modes.md']) {
     assert.ok(fs.readFileSync(path.join(root, rel), 'utf8').includes('zminer-gpu'), rel)
   }
-  assert.strictEqual(ZMINER_GPU_URL, 'https://scdoscan.io/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip')
+  assert.strictEqual(ZMINER_GPU_URL, 'https://apeccapital.org/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip')
   assert.strictEqual(ZMINER_GPU_SHA256, '6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96')
   const packHook = fs.readFileSync(path.join(root, 'scripts', 'before-pack-win.js'), 'utf8')
   assert.ok(packHook.includes('assertMinerBinsPresent'))
@@ -1240,7 +1240,7 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   const half = await measureShardSync(1, async (url, method) => {
     if (String(url).indexOf('127.0.0.1') >= 0 && method === 'scdo_getInfo') return { CurrentBlockHeight: 520000 }
     if (String(url).indexOf('127.0.0.1') >= 0 && method === 'download_getStatus') return null
-    if (String(url).indexOf('scdoscan.io') >= 0) return { CurrentBlockHeight: 1000000 }
+    if (String(url).indexOf('apeccapital.org') >= 0) return { CurrentBlockHeight: 1000000 }
     return null
   }, 50)
   assert.strictEqual(half.synced, false)

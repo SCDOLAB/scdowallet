@@ -51,7 +51,7 @@
 
   let s0 = null
   function shard0 () {
-    if (!s0) { const cfg = client.config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+    if (!s0) { const cfg = client.config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://apeccapital.org/rpc/0' })) }
     return s0
   }
 

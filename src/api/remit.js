@@ -12,13 +12,13 @@
 // to a different address as a rejection.
 //
 // Default base (no trailing slash; paths are joined as /v1/...):
-//   https://scdoscan.io/remit-api
+//   https://apeccapital.org/remit-api
 // Mirror: https://apeccapital.org/remit-api
 // Override either with the SCDO_REMIT_URL environment variable.
 'use strict'
 const { Wallet, verifyMessage, getAddress } = require('ethers')
 
-const DEFAULT_BASE = 'https://scdoscan.io/remit-api'
+const DEFAULT_BASE = 'https://apeccapital.org/remit-api'
 const MIRROR_BASE = 'https://apeccapital.org/remit-api'
 const SIGN_DOMAIN = 'scdoscan.io'
 const SIGN_CHAIN_ID = '5680'

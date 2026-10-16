@@ -31,7 +31,7 @@ const reviews = new Map() // token -> { file, from, to, amount, asset, at }
 
 function c () { if (!client) client = new ScdoClient(); return client }
 function shard0 () {
-  if (!s0) { const cfg = c().config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+  if (!s0) { const cfg = c().config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://apeccapital.org/rpc/0' })) }
   return s0
 }
 function readJson (p, d) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch (e) { return d } }
@@ -57,10 +57,10 @@ function s0txAdd (r) { const l = s0txAll(); l.unshift(r); writeJson(S0TX_PATH, l
 function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x.hash === hash); if (r) { Object.assign(r, patch); writeJson(S0TX_PATH, l) } }
 
 // 2.0.2 D-01: incoming transfers were never listed (only local outgoing records). Merge the explorer's list.
-// 3.0.4: every chain (Shard0 EVM and Shard1–Shard4) reads https://api.scdoscan.io/api/address/{addr}/txs, which lists
+// 3.0.4: every chain (Shard0 EVM and Shard1–Shard4) reads https://apeccapital.org/api/address/{addr}/txs, which lists
 // incoming and outgoing transfers, block rewards and token transfers. Shard0 falls back to the etherscan-style txlist
 // when that endpoint fails. Amounts stay integer units (string) plus decimals; the window formats them.
-const EXPLORER_API = 'https://api.scdoscan.io/api'
+const EXPLORER_API = 'https://apeccapital.org/api'
 const PAGE_ROWS = 50 // the indexer allows up to 100 per page and page * limit <= 10,000
 const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
 const REWARD_FROM = /^0S0{40}$/i

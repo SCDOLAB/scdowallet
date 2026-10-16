@@ -11,7 +11,7 @@ const heal = require('./healRules')
 
 const TICK_MS = 30 * 1000
 const HEARTBEAT_MS = 5 * 60 * 1000
-const DEFAULT_LEDGER = 'https://scdoscan.io/agent-ledger/api'
+const DEFAULT_LEDGER = 'https://apeccapital.org/agent-ledger/api'
 const PUBLIC_FIELDS = ['hashrate', 'gpuTempC', 'peers', 'localBlock', 'networkBlock', 'code', 'running', 'procs', 'gpuName', 'syncing']
 
 function postJson (url, obj, timeoutMs) {

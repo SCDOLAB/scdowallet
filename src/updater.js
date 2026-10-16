@@ -1,5 +1,5 @@
 // SCDO Wallet auto-update (main process module; 1.1.6, 2.0.0: U1-U4 + M2 hardening, rename)
-//  - checks https://scdoscan.io/downloads/wallet/latest.json
+//  - checks https://apeccapital.org/downloads/wallet/latest.json
 //  - Ed25519-verifies the manifest (signature protocol: sign all fields except "signature",
 //    recursive key sort + compact JSON + UTF-8; public key: 32-byte raw Ed25519, base64)
 //  - downloads the installer to <userData>\updates\ with range-based resume
@@ -20,8 +20,8 @@ const { VERSION } = require('./version')
 
 // ---- update channel (build-time constants; 1.1.6 review: nothing here can be changed at run time) ----
 // BEGIN-UPDATE-CHANNEL
-const UPDATER_URL = 'https://scdoscan.io/downloads/wallet/latest.json'
-const ALLOWED_ORIGINS = ['https://scdoscan.io'] // manifest + installer must be https on exactly this host (default port)
+const UPDATER_URL = 'https://apeccapital.org/downloads/wallet/latest.json'
+const ALLOWED_ORIGINS = ['https://apeccapital.org'] // manifest + installer must be https on exactly this host (default port)
 // END-UPDATE-CHANNEL
 const MAX_INSTALLER_SIZE = 512 * 1024 * 1024
 // PRODUCTION PUBLIC KEY (provided by A-side, 2026-09-30): 32-byte raw Ed25519 public key, base64.

@@ -10,7 +10,7 @@ const P = (c, m, ...a) => new Promise((res, rej) => c[m](...a, (r, e) => e ? rej
 
 ;(async () => {
   for (const s of [1, 2, 3, 4]) {
-    const c = new Scdo('https://scdoscan.io/rpc/' + s).client
+    const c = new Scdo('https://apeccapital.org/rpc/' + s).client
     const info = await P(c, 'getInfo')
     const bal = await P(c, 'getBalance', info.Coinbase, '', -1)
     const nonce = c.sendSync('getAccountNonce', info.Coinbase, '', -1)

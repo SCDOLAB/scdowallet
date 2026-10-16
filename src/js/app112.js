@@ -104,7 +104,7 @@
   async function setMineMode (v) {
     const solo = v === 'solo'
     st.miningMode = solo ? 'solo' : 'pool'
-    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://82.223.19.88:3333'
+    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://139.84.196.31:3333'
     try {
       const r = await api.invoke('mining:setConfig', { miningMode: st.miningMode, poolUrl: poolUrl })
       if (r && r.ok) st.miningMode = r.miningMode === 'solo' ? 'solo' : 'pool'
@@ -268,7 +268,7 @@
     api.invoke('old:records').then(r => { st.oldRecords = r || [] }).catch(() => {})
     loadOldActivity()
   }
-  // 3.0.4: Shard1–Shard4 history from https://api.scdoscan.io/api/address/{addr}/txs (incoming too), merged in the
+  // 3.0.4: Shard1–Shard4 history from https://apeccapital.org/api/address/{addr}/txs (incoming too), merged in the
   // main process with this computer's own send records. At most once a minute, or right after a send (force).
   function loadOldActivity (force) {
     if (!force && Date.now() - st.oldActAt < 60000) return
@@ -624,7 +624,7 @@
       } else {
         for (const e of entries) {
           for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
-            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdoscan.io/tx/' + r.hash) : ''
+            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://apeccapital.org/tx/' + r.hash) : ''
             txs.push(Object.assign({}, r, { address: e.address, href: href }))
           }
         }
@@ -4045,7 +4045,7 @@
       case 'openTx': {
         const h = String(v || '')
         if (/^0x[0-9a-fA-F]{64}$/.test(h)) openExternal(shard0().explorerTx(h))
-        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdoscan.io/tx/' + h)
+        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://apeccapital.org/tx/' + h)
         break
       }
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break

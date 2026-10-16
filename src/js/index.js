@@ -628,7 +628,7 @@ function toclip(text) {
 }
 
 function viewOnScdoscan(publickey) {
-    require("electron").shell.openExternal("https://scdoscan.io/#/address?address=" + publickey);
+    require("electron").shell.openExternal("https://apeccapital.org/#/address?address=" + publickey);
 }
 
 function startMining(publickey) {
