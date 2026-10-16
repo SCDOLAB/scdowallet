@@ -1,5 +1,6 @@
 // Classic shard 1–4 mining.
-// CPU: one zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// CPU: one zminer to the pool. Shard 1 defaults to 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// A remote config document can override those hosts. Env SCDO_ZPOW_POOLS still wins.
 // GPU default: one zminer-gpu process per selected shard, all on device 0.
 // GPU solo: the Classic node (node.exe) only when solo was saved and that node is synced.
 // An unsynced node, including a solo choice saved by an older wallet, starts zminer-gpu instead.
@@ -11,7 +12,8 @@ const https = require('https')
 const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
-const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
+const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads, mergeOverrides } = require('./pools')
+const { rpcCandidates } = require('../../config/endpoints')
 const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, workerFigure, sessionDelta, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
@@ -215,7 +217,7 @@ class ZpowManager extends EventEmitter {
     try { external = externalProfile(env) } catch (e) { external = { error: e.message, code: e.code } }
     const pools = {}
     try {
-      const over = poolsFromEnv(env)
+      const over = mergeOverrides(this.o.remoteConfig, poolsFromEnv(env))
       for (const s of [1, 2, 3, 4]) pools[s] = poolForShard(s, over)
     } catch (e) { pools.error = e.message }
     return {
@@ -395,7 +397,7 @@ class ZpowManager extends EventEmitter {
     }
     const threadblocks = asInt(opts.threadblocks, 100)
     const blockthreads = asInt(opts.blockthreads, 100)
-    const pool = poolForShard(parsed.shard, poolsFromEnv(env) || this.o.pools)
+    const pool = poolForShard(parsed.shard, mergeOverrides(this.o.remoteConfig, poolsFromEnv(env) || this.o.pools))
     const workerName = opts.worker || (backend === 'cpu' || gpuMiner !== 'zminer-gpu' ? 'wallet' : computerName(env))
 
     let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null
@@ -963,7 +965,13 @@ async function measureAllShardSync (call, timeoutMs, onlyShard) {
     let pub = null
     try { info = await rpc(localUrl, 'scdo_getInfo', [], ms) } catch (e) {}
     try { dl = await rpc(localUrl, 'download_getStatus', [], ms) } catch (e) {}
-    try { pub = await rpc('https://scdoscan.io/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
+    const pubUrls = rpcCandidates(n)
+    for (const url of pubUrls) {
+      try {
+        const got = await rpc(url, 'scdo_getInfo', [], ms)
+        if (positiveHeight(got) != null) { pub = got; break }
+      } catch (e) {}
+    }
     const local = positiveHeight(info)
     const network = higherHeight(peerTargetOf(dl), positiveHeight(pub))
     out[n] = syncFromHeights(local, network)

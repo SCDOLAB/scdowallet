@@ -9,8 +9,10 @@ agents can later be registered/anchored on Shard0 without a new key.
 This server only verifies signatures and stores envelopes (append-only `envelopes.jsonl`). It holds no keys.
 
 API (behind nginx at `/agent-ledger/api/`, upstream 127.0.0.1:8147):
-- `POST /register`, `POST /heartbeat`, `POST /heal`: body = `{ payload, sig }`. Checks: signature, chainId,
+- `POST /register`, `POST /heartbeat`, `POST /heal`, `POST /report`: body = `{ payload, sig }`. Checks: signature, chainId,
   ±10 min clock, strictly increasing seq per agent (replay), registered first, 8 KB body, rate limits.
+  `register` may include `body.payout` (the rig's payout address). `report` is an error or crash report.
+  Deploy the same route on apeccapital.org and scdoscan.io; the wallet tries apeccapital.org first.
 - `GET /agents`, `GET /agents/<0xaddr>`, `GET /health`.
 
 Pages: `/agent-ledger/` (English), `/agent-ledger/zh/` (華語繁體). One language per page. Regenerate with `node public/gen.js`.

@@ -51,7 +51,12 @@
 
   let s0 = null
   function shard0 () {
-    if (!s0) { const cfg = client.config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+    if (!s0) {
+      const cfg = client.config || {}
+      const { rpcCandidates } = require('../config/endpoints')
+      const urls = rpcCandidates(0, { connect: cfg.connect, connectFallback: cfg.connectFallback, remote: client.remoteConfig })
+      s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpcs: urls.length ? urls : [cfg.connect && cfg.connect[0]].filter(Boolean) }))
+    }
     return s0
   }
 

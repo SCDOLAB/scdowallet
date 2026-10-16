@@ -63,7 +63,7 @@ rigel.exe -a ethash -o ethproxy+tcp://127.0.0.1:<stratum> -u 0x… -w <worker> -
 Pool mode does not use `scdo-stratum.exe`. Rigel connects to the pool URL directly:
 
 ```text
-rigel.exe -a ethash -o ethproxy+tcp://82.223.19.88:3333 -u 0x… -w <worker> --api-bind 127.0.0.1:<api> --no-tui --no-colour --log-file <log>
+rigel.exe -a ethash -o ethproxy+tcp://139.84.196.31:3333 -u 0x… -w <worker> --api-bind 127.0.0.1:<api> --no-tui --no-colour --log-file <log>
 ```
 
 ## Pack check

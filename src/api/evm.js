@@ -4,6 +4,7 @@
 'use strict'
 const { ethers } = require('ethers')
 const { guardAmount } = require('../js/amount')
+const { rpcCandidates } = require('../config/endpoints')
 
 function sendAmount (amount, decimals) {
   const dec = decimals == null ? 18 : Math.max(0, Number(decimals) || 0)
@@ -17,7 +18,7 @@ function sendAmount (amount, decimals) {
 }
 
 const DEFAULT_SHARD0 = {
-  rpc: 'https://scdoscan.io/rpc/0',
+  rpc: 'https://apeccapital.org/rpc/0',
   chainId: 5680,
   explorer: 'https://scdoscan.io',
   faucet: 'https://scdoscan.io/rpc/0/faucet',
@@ -41,8 +42,22 @@ const ERC20 = [
 class Shard0 {
   constructor (cfg) {
     this.cfg = Object.assign({}, DEFAULT_SHARD0, cfg || {})
-    this.provider = new ethers.JsonRpcProvider(this.cfg.rpc,
-      { chainId: this.cfg.chainId, name: 'scdo-shard0' }, { staticNetwork: true, batchMaxCount: 1 })
+    const explicit = cfg && (cfg.rpc || (Array.isArray(cfg.rpcs) && cfg.rpcs.length))
+    const urls = cfg && Array.isArray(cfg.rpcs) && cfg.rpcs.length ? cfg.rpcs.slice()
+      : (explicit ? [this.cfg.rpc] : rpcCandidates(0))
+    this.cfg.rpcs = urls
+    this.cfg.rpc = urls[0] || this.cfg.rpc
+    const net = { chainId: this.cfg.chainId, name: 'scdo-shard0' }
+    const opts = { staticNetwork: true, batchMaxCount: 1 }
+    if (urls.length <= 1) {
+      this.provider = new ethers.JsonRpcProvider(this.cfg.rpc, net, opts)
+    } else {
+      this.provider = new ethers.FallbackProvider(urls.map((url, i) => ({
+        provider: new ethers.JsonRpcProvider(url, net, opts),
+        priority: i + 1,
+        stallTimeout: 2000
+      })), undefined, { quorum: 1 })
+    }
   }
 
   static addressFromPrivateKey (priv) {

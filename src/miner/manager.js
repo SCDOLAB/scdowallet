@@ -15,6 +15,7 @@ const { EventEmitter } = require('events')
 const { evaluateGpu, parseNvidiaSmi, parseVideoControllerOutput, miningGpuReady, rigelDeviceArgs } = require('./gpuSelect')
 const { rotateFile, LOG_LIMIT } = require('./guardPlan')
 const { applyPriority } = require('./priority')
+const { rpcCandidates } = require('../config/endpoints')
 
 function relaxMinerPriority (proc, low) {
   if (!proc || proc.pid == null) return
@@ -26,7 +27,7 @@ const RIGEL = {
   win32: { file: 'rigel-1.23.2-win.zip', sha256: '0a35d37504e2595f2cd9bb25ae69eae39625be6f0ebbdbaf7427d4c381a7fd79', dir: 'rigel-1.23.2-win', exe: 'rigel.exe' },
   linux: { file: 'rigel-1.23.2-linux.tar.gz', sha256: 'eae492ffb64aeb4ab4ba7e66631567984a31d5adb1ef547bda6601aee1793f0d', dir: 'rigel-1.23.2-linux', exe: 'rigel' }
 }
-const BOOTNODE = 'enode://1d2c370db7c419349e2313f20023f6b379f946990042b9b42df45cb56e4c3487df0d36c52cd81308fcdf312450f758a6213fcac21213e94a71af4a3c9392601f@82.223.19.88:30368'
+const BOOTNODE = 'enode://1d2c370db7c419349e2313f20023f6b379f946990042b9b42df45cb56e4c3487df0d36c52cd81308fcdf312450f758a6213fcac21213e94a71af4a3c9392601f@139.84.196.31:30368'
 // One bootnode was a single point of failure: when it dropped the node sat on 0 peers and the
 // GPU page showed 「等待同步」 for ever. Extra enodes come from SCDO_EXTRA_BOOTNODES (comma list) or
 // <dataRoot>/bootnodes.txt (one per line), and a synced SCDO node already on this PC is added as a peer.
@@ -35,7 +36,7 @@ const ENODE_RE = /^enode:\/\/[0-9a-f]{128}@[0-9A-Za-z.\-]+:\d{1,5}$/
 const LOCAL_NODE_PORTS = [18647]
 const NO_PEER_KICK_MS = 60 * 1000 // 0 peers this long -> re-add bootnodes / local peer
 const SYNC_STALL_MS = 10 * 60 * 1000 // syncing with no new block this long -> stalled
-const REF_RPC = 'https://scdoscan.io/rpc/0'
+const REF_RPC = rpcCandidates(0)[0] || 'https://apeccapital.org/rpc/0'
 const BASE_PORTS = { http: 18545, auth: 18551, p2p: 30368, stratum: 3333, rigelApi: 5055 }
 const PORTS = Object.assign({}, BASE_PORTS) // ports actually in use (shifted when the defaults are taken)
 // test hook: shift all local ports (e.g. to run next to another node on the same machine)
@@ -167,6 +168,24 @@ function rpc (url, method, params, timeoutMs) {
     req.on('error', reject)
     req.end(body)
   })
+}
+
+function networkHeight (primary, timeoutMs) {
+  const urls = []
+  const add = (u) => { if (u && urls.indexOf(u) < 0) urls.push(u) }
+  add(primary)
+  try { for (const u of rpcCandidates(0)) add(u) } catch (e) {}
+  return (async () => {
+    let last = null
+    for (const url of urls) {
+      try {
+        const n = parseInt(await rpc(url, 'eth_blockNumber', [], timeoutMs || 4000), 16)
+        if (Number.isFinite(n)) return n
+      } catch (e) { last = e }
+    }
+    if (last) console.warn('shard0 network height unavailable', last.message || last)
+    return null
+  })()
 }
 
 function httpGetJson (url, timeoutMs) {
@@ -670,7 +689,7 @@ class MinerManager extends EventEmitter {
       } catch (e) {}
       if (!this.lastRef || Date.now() - this.lastRef > 15000) {
         this.lastRef = Date.now()
-        rpc(this.o.refRpc, 'eth_blockNumber', [], 8000).then(r => this.set({ networkBlock: parseInt(r, 16) })).catch(() => {})
+        networkHeight(this.o.refRpc, 8000).then(n => { if (n != null) this.set({ networkBlock: n }) })
       }
       if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Mining on pool ' + this.state.poolUrl } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU miner starting / connecting to the pool ...' }
       this.set(patch); return
@@ -693,7 +712,7 @@ class MinerManager extends EventEmitter {
     const patch = { localBlock: parseInt(bn, 16), peers: parseInt(peers, 16), nodeMining: !!mining }
     if (!this.lastRef || Date.now() - this.lastRef > 15000) {
       this.lastRef = Date.now()
-      rpc(this.o.refRpc, 'eth_blockNumber', [], 8000).then(r => this.set({ networkBlock: parseInt(r, 16) })).catch(() => {})
+      networkHeight(this.o.refRpc, 8000).then(n => { if (n != null) this.set({ networkBlock: n }) })
     }
     if (this.external) { this.extFail = 0; patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
     const watch = this.syncWatch(patch.localBlock, patch.peers, this.state.phase === 'syncing')
@@ -1002,7 +1021,7 @@ class MinerManager extends EventEmitter {
         out.localBlock = parseInt(bn, 16); out.peers = parseInt(pc, 16); out.rpcPort = port; break
       } catch (e) {}
     }
-    try { out.networkBlock = parseInt(await rpc(REF_RPC, 'eth_blockNumber', [], 5000), 16) } catch (e) { out.networkBlock = null }
+    out.networkBlock = await networkHeight(REF_RPC, 2000)
     return out
   }
 

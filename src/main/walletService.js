@@ -15,6 +15,7 @@ const mnemonic = require('../api/mnemonic')
 const { normalizeHalfWidth } = require('../js/halfWidth')
 const { guardAmount, toUnits } = require('../js/amount')
 const { normLang } = require('../js/uiLang')
+const { rpcCandidates } = require('../config/endpoints')
 
 const S0_CHAIN_ID = 5680
 const HOME = path.join(os.homedir(), '.ScdoWallet')
@@ -29,9 +30,21 @@ let client = null
 let s0 = null
 const reviews = new Map() // token -> { file, from, to, amount, asset, at }
 
-function c () { if (!client) client = new ScdoClient(); return client }
+function c () {
+  if (!client) {
+    client = new ScdoClient()
+    if (process.env.SCDO_RPC_PROBE !== '0') {
+      client.ensureRpc().then(changed => { if (changed) s0 = null }).catch(e => console.warn('rpc fallback', e && e.message))
+    }
+  }
+  return client
+}
 function shard0 () {
-  if (!s0) { const cfg = c().config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+  if (!s0) {
+    const cfg = c().config || {}
+    const urls = rpcCandidates(0, { connect: cfg.connect, connectFallback: cfg.connectFallback, remote: client && client.remoteConfig })
+    s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpcs: urls }))
+  }
   return s0
 }
 function readJson (p, d) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch (e) { return d } }

@@ -25,7 +25,7 @@
     }, h('div', { class: 'lbl', text: label }), h('div', { class: 'v', id, text: value }))
   }
   // source words come from the renderer so they follow the UI language (TW table in types.js)
-  const SOURCES = { scdoscanMainPublic: 'scdoscan.io Shard0 EVM public node' }
+  const SOURCES = { scdoscanMainPublic: 'scdoscan.io Shard0 EVM public node', apeccapitalMainPublic: 'apeccapital.org Shard0 EVM public node' }
   function sourceText (s) { return M.L(SOURCES[s.sourceKey] || s.source || '') }
   function render (s, fetching) {
     const card = h('div', { class: 'card m1-card', id: 'netStats' }, h('div', { class: 'm1-row' }, h('div', { class: 'm1-h', text: M.L('Shard0 EVM network') }),
