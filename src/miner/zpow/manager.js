@@ -329,7 +329,7 @@ class ZpowManager extends EventEmitter {
     if (!this.wantRunning || this.state.mode !== 'gpu' || !SHARD_PORTS[this.state.shard]) return
     const shard = this.state.shard
     const localUrl = 'http://127.0.0.1:' + SHARD_PORTS[shard].http
-    const pubUrl = 'https://scdoscan.io/rpc/' + shard
+    const pubUrl = 'https://apeccapital.org/rpc/' + shard
     const call = this.o.rpc || rpcCall
     let info = null
     let dl = null
@@ -963,7 +963,7 @@ async function measureAllShardSync (call, timeoutMs, onlyShard) {
     let pub = null
     try { info = await rpc(localUrl, 'scdo_getInfo', [], ms) } catch (e) {}
     try { dl = await rpc(localUrl, 'download_getStatus', [], ms) } catch (e) {}
-    try { pub = await rpc('https://scdoscan.io/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
+    try { pub = await rpc('https://apeccapital.org/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
     const local = positiveHeight(info)
     const network = higherHeight(peerTargetOf(dl), positiveHeight(pub))
     out[n] = syncFromHeights(local, network)

@@ -4,12 +4,12 @@
 // Labels that say GPU or 算力 live here, not in the translation table.
 'use strict'
 ;(function () {
-  const ORIGIN = 'https://scdoscan.io'
+  const ORIGIN = 'https://apeccapital.org'
   // Temporary pages. Each address lives only here.
-  const MEMBERSHIP_URL = 'https://scdoscan.io/membership/'
-  const OTC_URL = 'https://scdoscan.io/membership/'
+  const MEMBERSHIP_URL = 'https://apeccapital.org/membership/'
+  const OTC_URL = 'https://apeccapital.org/membership/'
   // Temporary invite link. The address is the selected Shard0 EVM address.
-  const REFERRAL_URL = 'https://scdoscan.io/'
+  const REFERRAL_URL = 'https://apeccapital.org/'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },

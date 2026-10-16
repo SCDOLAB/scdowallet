@@ -70,7 +70,7 @@ assert.ok(/warn: selfWarn\(payer, route\.to\)/.test(app) && /warn: self \? T\('c
 assert.ok(/SELF: 'warnSelf'/.test(app), 'Shard0 EVM keeps its warning + tick box')
 
 // ---- 4. history: api.scdoscan.io/api/address/{addr}/txs for all five chains ----
-eq(W.ADDR_TXS('1S01abc'), 'https://api.scdoscan.io/api/address/1S01abc/txs?page=1&limit=50')
+eq(W.ADDR_TXS('1S01abc'), 'https://apeccapital.org/api/address/1S01abc/txs?page=1&limit=50')
 const me = '1s0139fba7fdc1487da84099a4a7a1192ffbeae3b1'
 const row = (t) => W.indexerRow(t, me, 8)
 const base = { hash: '0x' + '1'.repeat(64), value: '3965091779', valueFormatted: '39.65091779', token: null, block: 9277498, time: 1791452878, status: 'success' }

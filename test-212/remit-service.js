@@ -31,6 +31,6 @@ svc.register(ipc, decrypt)
   let clientForeign = false
   try { await Remit.login({ privateKey: keyA.privateKey, address: keyB.address, base: info.base, fetchImpl: async () => { throw new Error('no') } }) } catch (e) { clientForeign = e.code === 'FOREIGN_ADDRESS' }
   console.log('CLIENT_FOREIGN', clientForeign)
-  const pass = info.base === 'https://scdoscan.io/remit-api' && bad.wrongPw && ok.ok && okA.ok && ok.address.toLowerCase() === keyA.address.toLowerCase() && own.ok && foreign.foreign && fs.status === 401 && fl.status === 403 && clientForeign
+  const pass = info.base === 'https://apeccapital.org/remit-api' && bad.wrongPw && ok.ok && okA.ok && ok.address.toLowerCase() === keyA.address.toLowerCase() && own.ok && foreign.foreign && fs.status === 401 && fl.status === 403 && clientForeign
   console.log(pass ? 'PORT_LIVE_PASS' : 'PORT_LIVE_FAIL'); process.exit(pass ? 0 : 1)
 })().catch(e => { console.error(e); process.exit(1) })

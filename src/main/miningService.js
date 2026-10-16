@@ -9,7 +9,7 @@ const { execFile } = require('child_process')
 const { isVirtualDisplayName } = require('../miner/gpuSelect')
 
 
-const REF_RPC = 'https://scdoscan.io/rpc/0'
+const REF_RPC = 'https://apeccapital.org/rpc/0'
 const MIN_VRAM_GB = 4
 const STATS_WINDOW = 120 // blocks
 
@@ -147,15 +147,15 @@ async function exportLogs (win, miner, appInfo) {
 
 // ---------- 2.0.7 (P2): SCDO pool account (payout progress card + payout notifications) ----------
 // Uses the same main-process https client as the network stats (the renderer has no network access: CSP connect-src 'self').
-// Only the official SCDO pool publishes a miner API: https://scdoscan.io/pool/api/accounts/<addr> (open-ethereum-pool;
-// amounts are in Shannon = 1e-9 SCDO). Only https://scdoscan.io/ URLs are ever fetched here.
-const POOL_API = 'https://scdoscan.io/pool/api/accounts/'
-const OFFICIAL_POOL_HOSTS = ['82.223.19.88:3333']
+// Only the official SCDO pool publishes a miner API: https://apeccapital.org/pool/api/accounts/<addr> (open-ethereum-pool;
+// amounts are in Shannon = 1e-9 SCDO). Only https://apeccapital.org/ URLs are ever fetched here.
+const POOL_API = 'https://apeccapital.org/pool/api/accounts/'
+const OFFICIAL_POOL_HOSTS = ['139.84.196.31:3333']
 const SHANNON = 1000000000n
 function httpsGetText (url, timeoutMs, maxBytes) {
   return new Promise((resolve, reject) => {
     let u; try { u = new URL(url) } catch (e) { return reject(new Error('bad url')) }
-    if (u.protocol !== 'https:' || u.host !== 'scdoscan.io' || u.username || u.password) return reject(new Error('url not allowed'))
+    if (u.protocol !== 'https:' || u.host !== 'apeccapital.org' || u.username || u.password) return reject(new Error('url not allowed'))
     const req = https.get(u, { headers: { Accept: 'application/json, text/plain' }, timeout: timeoutMs || 10000 }, res => {
       if (res.statusCode !== 200) { res.resume(); const e = new Error('HTTP ' + res.statusCode); e.status = res.statusCode; return reject(e) }
       let n = 0; const chunks = []

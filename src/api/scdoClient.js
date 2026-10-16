@@ -24,7 +24,7 @@ const BigNumber = require('bignumber.js');
 
 // ---- 2026-09 upgrade: live RPC defaults (old defaults kept only for migration) ----
 const OLD_DEFAULT_CONNECT = ["", "http://74.208.207.184:8037", "http://74.208.207.184:8038", "http://74.208.207.184:8039", "http://74.208.207.184:8036"];
-const NEW_DEFAULT_CONNECT = ["https://scdoscan.io/rpc/0", "https://scdoscan.io/rpc/1", "https://scdoscan.io/rpc/2", "https://scdoscan.io/rpc/3", "https://scdoscan.io/rpc/4"];
+const NEW_DEFAULT_CONNECT = ["https://apeccapital.org/rpc/0", "https://scdoscan.io/rpc/1", "https://scdoscan.io/rpc/2", "https://scdoscan.io/rpc/3", "https://scdoscan.io/rpc/4"];
 function migrateConfig(configpath) {
   var cfg;
   try { cfg = JSON.parse(fs.readFileSync(configpath).toString()); } catch (e) { cfg = {}; }
