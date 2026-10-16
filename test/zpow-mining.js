@@ -1240,7 +1240,7 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   const half = await measureShardSync(1, async (url, method) => {
     if (String(url).indexOf('127.0.0.1') >= 0 && method === 'scdo_getInfo') return { CurrentBlockHeight: 520000 }
     if (String(url).indexOf('127.0.0.1') >= 0 && method === 'download_getStatus') return null
-    if (String(url).indexOf('scdoscan.io') >= 0) return { CurrentBlockHeight: 1000000 }
+    if (String(url).indexOf('apeccapital.org') >= 0) return { CurrentBlockHeight: 1000000 }
     return null
   }, 50)
   assert.strictEqual(half.synced, false)
