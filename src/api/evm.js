@@ -32,6 +32,22 @@ const DEFAULT_SHARD0 = {
     { symbol: 'WSCDO', name: 'Wrapped SCDO', address: '0x5c2d19142f021375D9f440Ed441015e59E28Ab29', decimals: 18, logo: 'https://scdoscan.io/logos/0x5c2d19142f021375D9f440Ed441015e59E28Ab29.png' }
   ]
 }
+// JsonRpcProvider has send(). FallbackProvider does not; map the two calls this wallet makes.
+async function rpcCall (provider, method, params) {
+  if (typeof provider.send === 'function') return provider.send(method, params)
+  if (method === 'eth_chainId') {
+    const net = await provider.getNetwork()
+    return ethers.toBeHex(net.chainId)
+  }
+  if (method === 'eth_sendRawTransaction') {
+    const resp = await provider.broadcastTransaction(params[0])
+    return resp.hash
+  }
+  const err = new Error('unsupported rpc ' + method)
+  err.code = 'UNSUPPORTED_OPERATION'
+  throw err
+}
+
 const ERC20 = [
   'function balanceOf(address) view returns (uint256)',
   'function decimals() view returns (uint8)',
@@ -70,7 +86,7 @@ class Shard0 {
 
   async chainInfo () {
     const [chainId, block] = await Promise.all([
-      this.provider.send('eth_chainId', []), this.provider.getBlockNumber()])
+      rpcCall(this.provider, 'eth_chainId', []), this.provider.getBlockNumber()])
     return { chainId: parseInt(chainId, 16), block }
   }
 
@@ -115,7 +131,7 @@ class Shard0 {
   async broadcastRaw (raw, timeoutMs) {
     let t
     try {
-      return await Promise.race([this.provider.send('eth_sendRawTransaction', [raw]),
+      return await Promise.race([rpcCall(this.provider, 'eth_sendRawTransaction', [raw]),
         new Promise((resolve, reject) => { t = setTimeout(() => reject(new Error('BROADCAST_TIMEOUT')), timeoutMs || 20000) })])
     } finally { clearTimeout(t) }
   }
