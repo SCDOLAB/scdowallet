@@ -729,6 +729,12 @@
     if (!st.accounts || !st.accounts.length) return ''
     return `<div class="home-backup-legacy" id="legacyBackup"><span>${esc(T('phraseLegacy'))}</span><button type="button" class="home-backup-x" data-act="legacyBackupDismiss" aria-label="${esc(T('phraseLegacyDismiss'))}">✕</button></div>`
   }
+  // 3.1.6: free demo wheel + Telegram, shown in every region. URLs come only from src/js/demoLinks.js.
+  function homeDemoHtml () {
+    const L = window.SCDODemoLinks
+    if (!L) return ''
+    return `<div class="shell-actions home-demo" id="homeDemo"><button type="button" class="shell-act" data-act="openDemo" data-v="wheel">${esc(T('homeDemoWheel'))}</button><button type="button" class="shell-act" data-act="openDemo" data-v="tg">${esc(T('homeDemoTg'))}</button></div>`
+  }
   function pageHome () {
     const link = referralLink()
     return `<div class="page shell-home" id="homePage">
@@ -744,6 +750,7 @@
       </div>
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
+      ${homeDemoHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
   }
@@ -4055,6 +4062,7 @@
         break
       }
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
+      case 'openDemo': { const L = window.SCDODemoLinks; if (L) openExternal(v === 'tg' ? L.TELEGRAM_URL : L.DEMO_WHEEL_URL); break }
       case 'openLink': if (CONTACT_URLS.includes(String(v || ''))) openExternal(v); break
       case 'backupPick': backupPickModal(); break
       case 'backupOne': { const r = await api.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }

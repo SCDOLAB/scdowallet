@@ -41,3 +41,17 @@ for (const f of ['src/miner/zpow/pools.js', 'src/miner/zpow/manager.js', 'src/ma
   assert.deepStrictEqual(hits, [], f + ' still names the former party host')
 }
 console.log('mac-316 pools ok')
+// 3.1.6 home demo wheel: one constant file, exact allowlist, demo wording only
+{
+  const L = require('../src/js/demoLinks')
+  assert.ok(/^https:\/\/[^/]+\/.*mode=demo/.test(L.DEMO_WHEEL_URL))
+  assert.strictEqual(L.TELEGRAM_URL, 'https://t.me/scdowheelledger')
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+  assert.ok(main.includes("require('./src/js/demoLinks')") && !main.includes('wheel.apeccapital.org'))
+  assert.ok(!app.includes('wheel.apeccapital.org'))
+  const i18n = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
+  assert.ok(i18n.includes("homeDemoWheel: 'Play free demo wheel — win badges'"))
+  const demoLines = i18n.split('\n').filter(l => l.includes('homeDemo')).join(' ')
+  assert.ok(!/stake|deposit|real money|cash|下注|押注|真錢/i.test(demoLines))
+}
+console.log('mac-315 demo ok')

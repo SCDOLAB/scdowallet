@@ -85,13 +85,16 @@ ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); r
 // 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
 const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
 const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
+// 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
+const DEMO_LINKS = require('./src/js/demoLinks')
+const EXACT_ALLOW = [DEMO_LINKS.DEMO_WHEEL_URL, DEMO_LINKS.TELEGRAM_URL]
 function openExternalSafe (url) {
   let u
   try { u = new URL(String(url)) } catch (e) { return false }
   if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
-  if (!EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
+  if (!EXACT_ALLOW.includes(href) && !EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
   shell.openExternal(href)
   return true
 }
