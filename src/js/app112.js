@@ -104,7 +104,7 @@
   async function setMineMode (v) {
     const solo = v === 'solo'
     st.miningMode = solo ? 'solo' : 'pool'
-    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://82.223.19.88:3333'
+    const poolUrl = (st.mineCfg && st.mineCfg.poolUrl) || 'ethproxy+tcp://139.84.196.31:3333'
     try {
       const r = await api.invoke('mining:setConfig', { miningMode: st.miningMode, poolUrl: poolUrl })
       if (r && r.ok) st.miningMode = r.miningMode === 'solo' ? 'solo' : 'pool'
@@ -624,7 +624,7 @@
       } else {
         for (const e of entries) {
           for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
-            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdoscan.io/tx/' + r.hash) : ''
+            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdo.com.au/tx/' + r.hash) : ''
             txs.push(Object.assign({}, r, { address: e.address, href: href }))
           }
         }
@@ -729,6 +729,12 @@
     if (!st.accounts || !st.accounts.length) return ''
     return `<div class="home-backup-legacy" id="legacyBackup"><span>${esc(T('phraseLegacy'))}</span><button type="button" class="home-backup-x" data-act="legacyBackupDismiss" aria-label="${esc(T('phraseLegacyDismiss'))}">✕</button></div>`
   }
+  // 3.1.6: free demo wheel + Telegram, shown in every region. URLs come only from src/js/demoLinks.js.
+  function homeDemoHtml () {
+    const L = window.SCDODemoLinks
+    if (!L) return ''
+    return `<div class="shell-actions home-demo" id="homeDemo"><button type="button" class="shell-act" data-act="openDemo" data-v="wheel">${esc(T('homeDemoWheel'))}</button><button type="button" class="shell-act" data-act="openDemo" data-v="tg">${esc(T('homeDemoTg'))}</button></div>`
+  }
   function pageHome () {
     const link = referralLink()
     return `<div class="page shell-home" id="homePage">
@@ -744,6 +750,7 @@
       </div>
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
+      ${homeDemoHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
   }
@@ -1090,7 +1097,7 @@
     if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
     let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${dis ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
     if (!gpuOn) h += `<div class="lbl">${esc(T('classicGpuOff'))}</div>`
-    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T('classicCpuMissing'))}</div>`
+    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T(caps.cpu.reason === 'NO_ROSETTA' ? 'st_NO_ROSETTA' : 'classicCpuMissing'))}</div>`
     h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
@@ -1202,7 +1209,7 @@
         </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
         ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
     } else {
-      h += `<div class="nogpu" id="noGpuMsg">${esc(T('noGpu'))}</div>`
+      h += `<div class="nogpu" id="noGpuMsg">${esc(T(api.platform === 'darwin' ? 'noGpuMac' : 'noGpu'))}</div>`
       if (g.nvidiaNoDriver) h += `<div class="infobox">${esc(T('noGpuDriver', { n: (g.nvidiaNames || []).join(', ') }))}</div>`
       const ext = m.phase === 'external' && running
       const extOk = ext && m.code !== 'EXTERNAL_DOWN'
@@ -2863,27 +2870,30 @@
     modal(`<div class="mh"><h2>${esc(opts.priv ? T('d_keyTitle') : T('createTitle'))}</h2></div>${opts.priv ? privField : ''}
       <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" maxlength="40" placeholder="${esc(T('accountN', { n: nextNo() }))}"></div>
       <div class="field"><div class="lbl">${esc(T('pw1'))}</div><input class="inp" type="password" id="cPw1"></div>
-      <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
+      <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" id="cPwRule" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
       <details class="shell-fold" style="margin-top:14px"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
-        <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="1" style="width:120px"></div>
+        <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="0" style="width:120px" inputmode="numeric"></div>
         ${opts.priv ? '' : privField}</details>
       <div class="infobox">${esc(T('createSave'))}</div>
       <div class="err" id="cErr"></div>
       <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="cGo">${esc(T('create'))}</button></div>`)
     $('cGo').onclick = async () => {
       const name = $('cName').value.trim(); const pw = $('cPw1').value; const pw2 = $('cPw2').value
-      const shard = ($('cShard').value.trim() || '1'); let priv = nhw($('cPriv').value); if ($('cPriv')) $('cPriv').value = priv
+      const shard = ($('cShard').value.trim() || '0'); let priv = nhw($('cPriv').value); if ($('cPriv')) $('cPriv').value = priv
       const errs = []
       if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) errs.push(T('errName'))
-      if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
+      // 3.1.5: the password rule is shown once, under the fields. It turns red only when the password breaks it.
+      const pwBad = !/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)
+      const ruleEl = $('cPwRule'); if (ruleEl) { ruleEl.style.color = pwBad ? '#c5221f' : '' }
       if (pw !== pw2) errs.push(T('pwMismatch'))
-      if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
+      if (!/^[0-4]$/.test(shard)) errs.push(T('errShard'))
       if (priv) {
         const bits = priv.trim().toLowerCase().split(/\s+/).filter(Boolean)
         if (bits.length === 12 && bits.every(x => /^[a-z]+$/.test(x))) priv = bits.join(' ')
         else { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
       }
-      if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
+      $('cErr').textContent = errs.join(PU.bar())
+      if (errs.length || pwBad) return
       $('cGo').disabled = true; SD.spin($('cErr'), '')
       const no = name ? 0 : nextNo()
       const CERR = { EXISTS: 'errExist', BAD_KEY: 'errKey', BAD_NAME: 'errName', BAD_PASSWORD: 'pwRule', BAD_SHARD: 'errShard' }
@@ -2891,7 +2901,10 @@
       const body = { name, password: pw, shard, priv, no }
       const r = await api.invoke('acct:create', body)
       body.password = ''; body.priv = ''; priv = null
-      if (!r || !r.ok) { if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return }
+      if (!r || !r.ok) {
+        if (r && r.error === 'BAD_PASSWORD') { const el = $('cPwRule'); if (el) el.style.color = '#c5221f'; if ($('cErr')) $('cErr').textContent = ''; $('cGo').disabled = false; return }
+        if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return
+      }
       const file = r.file
       const shown = r.phrase || ''
       const evm = r.evm || ''
@@ -3623,12 +3636,33 @@
       }
       if (cpu == null) cpu = d.cpu
       if (gpu == null) gpu = d.gpu
-      try {
-        if (loadChainList('mineChainsCpu310') == null) localStorage.setItem('mineChainsCpu310', JSON.stringify(cpu || []))
-        if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
-      } catch (e) {}
+      // 3.1.8: only save the default once the device check is known. Saving it before
+      // (Mac caps not loaded yet) dropped Shard0 for good and left the box unticked.
+      if (st.caps) {
+        try {
+          if (loadChainList('mineChainsCpu310') == null) localStorage.setItem('mineChainsCpu310', JSON.stringify(cpu || []))
+          if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
+        } catch (e) {}
+      }
     }
+    // 3.1.8: the ticks follow what is really running (auto-resume / keep mining can start a chain
+    // without a click). Save it so the selection persists.
+    const running = runningChains()
+    for (const n of running.gpu) if ((gpu || []).indexOf(n) < 0) { gpu = (gpu || []).concat([n]); writeChainPick('gpu', gpu) }
+    for (const n of running.cpu) if ((cpu || []).indexOf(n) < 0) { cpu = (cpu || []).concat([n]); writeChainPick('cpu', cpu) }
     return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps, st.poolStatus)
+  }
+  function runningChains () {
+    const out = { cpu: [], gpu: [] }
+    const ms = st.miners || {}
+    const s0 = ms.shard0
+    if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic' && (s0.phase === 'mining' || s0.mode === 'pool')) out.gpu.push(0)
+    const c = ms.classicCpu
+    if (c && c.running && c.mode !== 'node' && Number(c.shard) >= 1 && Number(c.shard) <= 4) out.cpu.push(Number(c.shard))
+    const g = ms.classicGpu
+    const list = g && Array.isArray(g.shards) ? g.shards : (g ? [g] : [])
+    for (const k of list) if (k && k.running && k.mode !== 'node' && k.mode !== 'cpu' && Number(k.shard) >= 1 && Number(k.shard) <= 4) out.gpu.push(Number(k.shard))
+    return out
   }
   function writeChainPick (device, list) {
     const key = device === 'cpu' ? 'mineChainsCpu310' : 'mineChainsGpu310'
@@ -4045,10 +4079,11 @@
       case 'openTx': {
         const h = String(v || '')
         if (/^0x[0-9a-fA-F]{64}$/.test(h)) openExternal(shard0().explorerTx(h))
-        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdoscan.io/tx/' + h)
+        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdo.com.au/tx/' + h)
         break
       }
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break
+      case 'openDemo': { const L = window.SCDODemoLinks; if (L) openExternal(v === 'tg' ? L.TELEGRAM_URL : L.DEMO_WHEEL_URL); break }
       case 'openLink': if (CONTACT_URLS.includes(String(v || ''))) openExternal(v); break
       case 'backupPick': backupPickModal(); break
       case 'backupOne': { const r = await api.invoke('keyfile:backupOnly', f); toast(r.ok ? T('backupOk', { p: r.backup }) : T('backupFail', { e: r.error }), 8000); break }

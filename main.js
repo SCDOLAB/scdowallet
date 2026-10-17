@@ -78,20 +78,27 @@ const versionCheck = checkRuntime((() => { try { return app.getVersion() } catch
 if (!versionCheck.ok) console.error(versionCheck.error + '; reporting ' + VERSION)
 const BUILD_COMMIT = (() => { try { const b = require('./build-info.json'); return /^[0-9a-f]{7,40}$/.test(String(b.commit || '')) ? String(b.commit) : '' } catch (e) { return '' } })() // 3.0.2: written by scripts/build-info.js before packing
 ipcMain.handle('app:info', () => ({ version: VERSION, displayVersion: VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
-ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
+ipcMain.handle('app:mem', () => {
+  let free = os.freemem()
+  if (process.platform === 'darwin') { const a = require('./src/main/macMem').macAvailable(); if (a != null && a > free) free = a }
+  return { free, total: os.totalmem() }
+})
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
 // 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
-const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
+const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
 const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
+// 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
+const DEMO_LINKS = require('./src/js/demoLinks')
+const EXACT_ALLOW = [DEMO_LINKS.DEMO_WHEEL_URL, DEMO_LINKS.TELEGRAM_URL]
 function openExternalSafe (url) {
   let u
   try { u = new URL(String(url)) } catch (e) { return false }
   if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
-  if (!EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
+  if (!EXACT_ALLOW.includes(href) && !EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
   shell.openExternal(href)
   return true
 }
@@ -223,16 +230,18 @@ ipcMain.handle('notify:set', (e, type, on) => getNotifier().setToggle(String(typ
 ipcMain.handle('pool:account', (e, addr) => miningService.poolAccount(addr))
 // payout notifications: while pool-mining on the official SCDO pool, read the pool account every 2 minutes
 const lastPayoutTx = {}
+let lastPayoutRead = null
 async function pollPayout () {
   try {
     const st = miner ? miner.status() : null
     if (!st || !miningNow() || st.mode !== 'pool' || !miningService.isOfficialPool(st.poolUrl) || !st.wallet) return
     const r = await miningService.poolAccount(st.wallet)
+    if (r && r.ok) lastPayoutRead = { at: Date.now(), address: st.wallet, balance: r.balance || null }
     if (!r || !r.ok || !r.known || !r.lastPayout) return
     const k = st.wallet.toLowerCase()
     if (lastPayoutTx[k] === undefined) { lastPayoutTx[k] = r.lastPayout.tx; return } // first read this session: remember only
     if (lastPayoutTx[k] !== r.lastPayout.tx) { lastPayoutTx[k] = r.lastPayout.tx; getNotifier().onPayout({ amount: r.lastPayout.amount, tx: r.lastPayout.tx }) }
-  } catch (e) {}
+  } catch (e) { console.warn('payout poll', e && e.message) }
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
@@ -240,7 +249,8 @@ setInterval(pollPayout, 2 * 60 * 1000)
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
-// Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// 3.1.6: Shard1–4 Classic pools have no built-in host. Remote config (apeccapital.org/wallet/config.json,
+// zpowPools) or SCDO_ZPOW_POOLS names them; ports 3341–3344.
 // Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
 const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')
@@ -255,6 +265,7 @@ function zminerGpuDir () {
 let miner = null
 let zpowCpu = null
 let zpowGpu = null
+let remoteDoc = null
 function guardActive () {
   return (readIntent() || {}).guardSmooth !== false
 }
@@ -286,7 +297,8 @@ function zpowOptions () {
       return Math.max(1, Math.min(n, plan.threads))
     },
     onSpawn: (proc) => pinMiner(proc),
-    guardOwnsRestart: () => guardLoopOn()
+    guardOwnsRestart: () => guardLoopOn(),
+    remoteConfig: remoteDoc
   }
 }
 function classicNote () {
@@ -381,6 +393,7 @@ async function stopClassic (backend, opts) {
   if (!jobs.length) return
   await withinMs(() => Promise.all(jobs), 2000)
 }
+const MAC_SHARD0_POOL = 'ethproxy+tcp://139.84.196.31:3333'
 function getMiner () {
   if (!miner) {
     const res = app.isPackaged ? path.join(process.resourcesPath, 'miner') : path.join(__dirname, 'miner-bin')
@@ -508,9 +521,13 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     }
   }
   const cfg = readIntent() || {}
-  const mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  let mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  // 3.1.7: no Shard0 node ships for macOS, so the Mac graphics card always mines through a pool
+  // (the user's own pool when set, otherwise the SCDO pool in Melbourne).
+  const macPool = process.platform === 'darwin' && mode !== 'node'
+  if (macPool) mode = 'pool'
   const startOpts = { mode, payout: opts.payout }
-  if (mode === 'pool') startOpts.poolUrl = cfg.poolUrl
+  if (mode === 'pool') startOpts.poolUrl = macPool ? ((cfg.miningMode === 'pool' && MinerManager.validPoolUrl(cfg.poolUrl)) || MAC_SHARD0_POOL) : cfg.poolUrl
   await afterCleanup()
   try {
     await getMiner().start(wallet, startOpts)
@@ -600,7 +617,9 @@ ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dat
 ipcMain.handle('miner:caps', async () => {
   try {
     if (guardActive()) await guardHost.ready()
-    return getZpow('cpu').capabilities()
+    const caps = getZpow('cpu').capabilities()
+    if (process.platform === 'darwin') { try { const g = await getMiner().gpu(); caps.macGpu = { available: !!(g && g.nvidia), names: (g && g.mineNames) || [] } } catch (e) { caps.macGpu = { available: false, names: [] } } }
+    return caps
   } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } }
 })
 ipcMain.handle('miner:classicStatus', () => classicSnapshot())
@@ -608,7 +627,7 @@ function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu'
 
 // ---------------- 2.0.1 mining batch 1 ----------------
 ipcMain.handle('mining:gpuPreflight', async () => { let g = null; try { g = await getMiner().gpu() } catch (e) {} return miningService.gpuPreflight(g) })
-ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature() } catch (err) { return { ok: false, gpus: [], error: err.message } } })
+ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature({ apiPort: miner && miner.state && miner.state.ports && miner.state.ports.rigelApi }) } catch (err) { return { ok: false, gpus: [], error: err.message } } })
 ipcMain.handle('mining:networkStats', async () => {
   const st = miner ? miner.status() : null
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0
@@ -933,6 +952,10 @@ if (!app.requestSingleInstanceLock()) {
     createMenu(mainWindow, uiLang())
     createTray()
     startOpsAgent()
+    try {
+      const { refresh } = require('./src/config/remoteConfig')
+      refresh({ cacheFile: path.join(app.getPath('userData'), 'remote-config.json') }).then(applyRemoteConfig).catch(e => console.warn('remote config', e && e.message))
+    } catch (e) { console.warn('remote config', e && e.message) }
     // 1.1.6: first update check 1 minute after launch, then every 6 hours
     scheduleAutoCheck()
   })
@@ -1031,13 +1054,82 @@ async function agentSnapshot () {
   let pr = {}
   if (st.hashrate == null || st.peers == null || st.localBlock == null || st.networkBlock == null) { try { pr = (m.agentProbe && await m.agentProbe()) || {} } catch (e) {} }
   const num = (a, b) => (a != null && Number.isFinite(Number(a))) ? Number(a) : ((b != null && Number.isFinite(Number(b))) ? Number(b) : null)
+  let lastRewardAt = null
+  let rewardsSeen = (Number(st.sharesAccepted) || 0) > 0 || (Number(st.blocksFound) || 0) > 0
+  try {
+    const g = guardRun && guardRun.snapshot && guardRun.snapshot()
+    const times = ((g && g.chains) || []).map(c => c && c.lastShareAt).filter(t => typeof t === 'number' && t > 0)
+    if (times.length) lastRewardAt = Math.max.apply(null, times)
+  } catch (e) {}
+  let poolMode = st.mode === 'pool' && wantMining
+  let poolConnected = null
+  if (poolMode) {
+    if (st.code === 'MINING') poolConnected = true
+    else if (st.code === 'MINING_STARTING' || st.code === 'ERROR') poolConnected = false
+  }
+  let payoutBalanceFresh = false
+  const notePool = (z) => {
+    if (!z || !z.running || z.backend === 'classic-node') return
+    poolMode = true
+    if (z.connected === false) poolConnected = false
+    else if (z.connected === true && poolConnected !== false) poolConnected = true
+    if ((Number(z.sharesAccepted) || 0) > 0 || (Number(z.blocksFound) || 0) > 0) rewardsSeen = true
+    if (z.poolStats && !z.poolError) payoutBalanceFresh = true
+  }
+  try { const snap = classicSnapshot(); notePool(snap.classicCpu); notePool(snap.classicGpu) } catch (e) {}
   return {
     wantMining, running: !!st.running || zRunning, code: st.code || null, hashrate: num(st.hashrate, pr.hashrate),
     peers: num(st.peers, pr.peers), localBlock: num(st.localBlock, pr.localBlock), networkBlock: num(st.networkBlock, pr.networkBlock),
     nodeRunning: !!(st.procs && st.procs.includes('geth')), paused: !!st.paused, procs: st.procs || [],
     otherRigels, gaveUp, quickExits: m.recentExits ? m.recentExits('rigel') : 0, gpuTempC,
-    armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000)
+    armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000),
+    miningStartedAt: st.startedAt || null, lastRewardAt, rewardsSeen, poolMode, poolConnected,
+    payoutWatched: poolMode, payoutBalanceAt: lastPayoutRead && lastPayoutRead.at || null, payoutBalanceFresh,
+    noRewardHours: remoteDoc && remoteDoc.noRewardHours, payoutStaleHours: remoteDoc && remoteDoc.payoutStaleHours
   }
+}
+function payoutAddressNow () {
+  try {
+    const st = getMiner().status() || {}
+    if (st.wallet) return st.wallet
+  } catch (e) {}
+  try {
+    const c = classicSnapshot()
+    if (c.classicCpu && c.classicCpu.wallet) return c.classicCpu.wallet
+    const g = c.classicGpu
+    if (g && g.wallet) return g.wallet
+    if (g && Array.isArray(g.shards)) {
+      const s = g.shards.find(x => x && x.wallet)
+      if (s) return s.wallet
+    }
+  } catch (e) {}
+  return ''
+}
+function applyRemoteConfig (result) {
+  const doc = result && result.config
+  if (!doc) {
+    if (result && result.errors && result.errors.length) console.warn('remote config', result.errors.join('; '))
+    return
+  }
+  remoteDoc = doc
+  try { require('./src/config/endpoints').setCachedRemote(doc) } catch (e) {}
+  try { if (zpowCpu) zpowCpu.o.remoteConfig = doc } catch (e) {}
+  try { if (zpowGpu) zpowGpu.o.remoteConfig = doc } catch (e) {}
+  try { if (miner) miner.o.remoteConfig = doc } catch (e) {}
+  try { if (opsAgent) opsAgent.setRemote(doc) } catch (e) {}
+  try {
+    const dir = path.join(os.homedir(), '.ScdoWallet')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'remote-config.json'), JSON.stringify(doc))
+  } catch (e) { console.warn('remote config cache', e && e.message) }
+}
+function reportProcessError (kind, err) {
+  const message = (err && (err.message || String(err))) || ''
+  const stack = (err && err.stack) || ''
+  console.error('wallet ' + kind, message)
+  try {
+    if (opsAgent) opsAgent.reportError({ kind, message, stack }).catch(e => console.error('agent report failed', e && e.message))
+  } catch (e) { console.error('agent report failed', e && e.message) }
 }
 function startOpsAgent () {
   if (opsAgent) return
@@ -1045,6 +1137,7 @@ function startOpsAgent () {
     const { AgentService } = require('./src/agent/agentService')
     opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
       version: VERSION, platform: process.platform, label: '',
+      payoutAddress: payoutAddressNow,
       enabled: () => (readIntent() || {}).agentReporting !== false,
       snapshot: agentSnapshot,
       handlers: {
@@ -1075,6 +1168,8 @@ function startOpsAgent () {
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
 
+process.on('uncaughtException', err => reportProcessError('crash', err))
+process.on('unhandledRejection', err => reportProcessError('error', err))
 app.on('will-quit', () => { killMinerChildrenSync(); if (tray) tray.destroy() })
 process.on('exit', () => killMinerChildrenSync())
 

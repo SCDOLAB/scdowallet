@@ -1,5 +1,8 @@
 #!/bin/bash
-# Cross-build zminer (Classic CPU pool miner) for Windows and Linux.
+# Cross-build zminer (Classic CPU pool miner) for Windows, Linux and macOS.
+# macOS: go-scdo ships scdorand only for darwin/amd64 and Go 1.12 has no
+# darwin/arm64 target, so the Mac build is x86_64; Apple Silicon runs it
+# through Rosetta 2. The Mac build signs it (hardened runtime) when packing.
 # zpow links the go1.12 binary-only package consensus/scdorand from SCDOLAB/go-scdo,
 # so this script uses Go 1.12.7 even if a newer Go is on PATH.
 #
@@ -64,6 +67,7 @@ git -C "$GO_SCDO" rev-parse HEAD | grep -q "^${GO_SCDO_REF}$"
 grep -q 'go:binary-only-package' "$GO_SCDO/consensus/scdorand/scdorand.go"
 test -f "$GO_SCDO/consensus/scdorand/scdorand_windows_amd64.a"
 test -f "$GO_SCDO/consensus/scdorand/scdorand_linux_amd64.a"
+test -f "$GO_SCDO/consensus/scdorand/scdorand_darwin_amd64.a"
 
 export GOROOT="$GO_ROOT"
 export PATH="$GOROOT/bin:$PATH"
@@ -80,7 +84,7 @@ G="$GOPATH/src/github.com/scdoproject/go-scdo"
 rm -rf "$G/zpool" "$G/.git"
 mkdir -p "$G/zpool"
 cp -a "$ROOT/miner-zpow/zpool/." "$G/zpool/"
-for os in linux windows; do
+for os in linux windows darwin; do
   d="$GOPATH/pkg/${os}_amd64/github.com/scdoproject/go-scdo/consensus"
   mkdir -p "$d"
   cp "$G/consensus/scdorand/scdorand_${os}_amd64.a" "$d/scdorand.a"
@@ -92,13 +96,14 @@ rm -rf "$FIXED_OUT"
 mkdir -p "$FIXED_OUT"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-s -w -buildid=zminer' -o "$FIXED_OUT/zminer-linux-amd64" ./zpool/cmd/zminer
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags '-s -w -buildid=zminer' -o "$FIXED_OUT/zminer.exe" ./zpool/cmd/zminer
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags '-s -w -buildid=zminer' -o "$FIXED_OUT/zminer-darwin-amd64" ./zpool/cmd/zminer
 
 OUT="$ROOT/miner-zpow/dist"
 mkdir -p "$OUT"
-cp "$FIXED_OUT/zminer-linux-amd64" "$FIXED_OUT/zminer.exe" "$OUT/"
+cp "$FIXED_OUT/zminer-linux-amd64" "$FIXED_OUT/zminer.exe" "$FIXED_OUT/zminer-darwin-amd64" "$OUT/"
 (
   cd "$FIXED_OUT"
-  sha256sum zminer-linux-amd64 zminer.exe > SHA256SUMS
+  sha256sum zminer-linux-amd64 zminer.exe zminer-darwin-amd64 > SHA256SUMS
   cp SHA256SUMS "$OUT/SHA256SUMS"
   cat SHA256SUMS
 )

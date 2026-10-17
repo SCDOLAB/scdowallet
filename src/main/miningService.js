@@ -9,7 +9,8 @@ const { execFile } = require('child_process')
 const { isVirtualDisplayName } = require('../miner/gpuSelect')
 
 
-const REF_RPC = 'https://scdoscan.io/rpc/0'
+const { rpcCandidates } = require('../config/endpoints')
+const REF_RPC = 'https://scdo.com.au/rpc/0'
 const MIN_VRAM_GB = 4
 const STATS_WINDOW = 120 // blocks
 
@@ -31,10 +32,21 @@ function vendorOf (name) {
   if (/intel|iris|uhd|arc/.test(n)) return 'Intel'
   return 'Unknown'
 }
+// 3.1.7: macOS uses the bundled OpenCL miner; the probe result from MinerManager.gpu() decides.
+function macPreflight (res, minerGpu) {
+  const list = (minerGpu && minerGpu.macGpu && Array.isArray(minerGpu.adapters)) ? minerGpu.adapters : []
+  for (const a of list) {
+    const ok = !!a.ready
+    res.gpus.push({ vendor: 'Apple', deviceName: a.name, vramGB: Math.round((a.globalMB || 0) / 1024 * 10) / 10, driverVersion: 'OpenCL', cuda: false, status: ok ? 'ready' : 'notReady',
+      reasons: [ok ? 'All pre-flight checks passed.' : 'Not enough graphics memory for Shard0 mining on this Mac graphics card.'] })
+  }
+  res.supported = res.gpus.some(g => g.status === 'ready')
+  return res
+}
 // -> { platform, supported, gpus: [{ vendor, deviceName, vramGB, driverVersion, cuda, status: ready|warn|notReady, reasons:[...] }], checkedAt }
 async function gpuPreflight (minerGpu) {
   const res = { platform: process.platform, supported: true, gpus: [], checkedAt: new Date().toISOString() }
-  if (process.platform === 'darwin') { res.supported = false; return res }
+  if (process.platform === 'darwin') return macPreflight(res, minerGpu)
   const cudaDll = process.platform === 'win32' && fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvcuda.dll'))
   const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,memory.total,driver_version', '--format=csv,noheader,nounits'], 15000)
   const seen = new Set()
@@ -86,17 +98,40 @@ function rpc (url, method, params, timeoutMs) {
 }
 let statsCache = null
 // -> { height, difficulty (string), blockTimeSec, networkHashrate (H/s, estimate), localHashrate, sharePercent, window, source, asOf }
+const RPC_SOURCES = {
+  'scdo.com.au': { sourceKey: 'scdoMainPublic', source: 'scdo.com.au Shard0 EVM public node' },
+  'scdoscan.io': { sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io Shard0 EVM public node' },
+  'apeccapital.org': { sourceKey: 'apeccapitalMainPublic', source: 'apeccapital.org Shard0 EVM public node' }
+}
 async function networkStats (localHashrate) {
   if (!statsCache || Date.now() - statsCache.at > 20000) {
-    const tip = await rpc(REF_RPC, 'eth_getBlockByNumber', ['latest', false])
+    const urls = rpcCandidates(0)
+    if (urls.indexOf(REF_RPC) < 0) urls.push(REF_RPC)
+    let tip = null
+    let old = null
+    let used = urls[0]
+    let lastErr = null
+    for (const url of urls) {
+      try {
+        tip = await rpc(url, 'eth_getBlockByNumber', ['latest', false])
+        const hh = parseInt(tip.number, 16)
+        const nn = Math.min(STATS_WINDOW, hh)
+        old = await rpc(url, 'eth_getBlockByNumber', ['0x' + (hh - nn).toString(16), false])
+        used = url
+        break
+      } catch (e) { lastErr = e; tip = null }
+    }
+    if (!tip) throw lastErr || new Error('network stats unavailable')
     const h = parseInt(tip.number, 16)
     const n = Math.min(STATS_WINDOW, h)
-    const old = await rpc(REF_RPC, 'eth_getBlockByNumber', ['0x' + (h - n).toString(16), false])
     const dt = parseInt(tip.timestamp, 16) - parseInt(old.timestamp, 16)
     const blockTime = n > 0 && dt > 0 ? dt / n : null
     const diff = BigInt(tip.difficulty)
     const hashrate = blockTime ? Number(diff) / blockTime : null
-    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io Shard0 EVM public node', asOf: new Date().toISOString() }
+    let host = ''
+    try { host = new URL(used).host } catch (e) {}
+    const labelled = RPC_SOURCES[host] || { sourceKey: 'apeccapitalMainPublic', source: host + ' Shard0 EVM public node' }
+    statsCache = { at: Date.now(), height: h, difficulty: diff.toString(), blockTimeSec: blockTime, networkHashrate: hashrate, window: n, sourceKey: labelled.sourceKey, source: labelled.source, asOf: new Date().toISOString() }
   }
   const lh = Number(localHashrate) > 0 ? Number(localHashrate) : 0
   const share = statsCache.networkHashrate && lh ? (lh / statsCache.networkHashrate) * 100 : 0
@@ -147,15 +182,15 @@ async function exportLogs (win, miner, appInfo) {
 
 // ---------- 2.0.7 (P2): SCDO pool account (payout progress card + payout notifications) ----------
 // Uses the same main-process https client as the network stats (the renderer has no network access: CSP connect-src 'self').
-// Only the official SCDO pool publishes a miner API: https://scdoscan.io/pool/api/accounts/<addr> (open-ethereum-pool;
-// amounts are in Shannon = 1e-9 SCDO). Only https://scdoscan.io/ URLs are ever fetched here.
-const POOL_API = 'https://scdoscan.io/pool/api/accounts/'
-const OFFICIAL_POOL_HOSTS = ['82.223.19.88:3333']
+// Only the official SCDO pool publishes a miner API: https://scdo.com.au/pool/api/accounts/<addr> (open-ethereum-pool;
+// amounts are in Shannon = 1e-9 SCDO). Only https://scdo.com.au/ URLs are ever fetched here.
+const POOL_API = 'https://scdo.com.au/pool/api/accounts/'
+const OFFICIAL_POOL_HOSTS = ['139.84.196.31:3333'] // 3.1.6: Melbourne Shard0 pool only
 const SHANNON = 1000000000n
 function httpsGetText (url, timeoutMs, maxBytes) {
   return new Promise((resolve, reject) => {
     let u; try { u = new URL(url) } catch (e) { return reject(new Error('bad url')) }
-    if (u.protocol !== 'https:' || u.host !== 'scdoscan.io' || u.username || u.password) return reject(new Error('url not allowed'))
+    if (u.protocol !== 'https:' || (u.host !== 'scdo.com.au' && u.host !== 'apeccapital.org') || u.username || u.password) return reject(new Error('url not allowed'))
     const req = https.get(u, { headers: { Accept: 'application/json, text/plain' }, timeout: timeoutMs || 10000 }, res => {
       if (res.statusCode !== 200) { res.resume(); const e = new Error('HTTP ' + res.statusCode); e.status = res.statusCode; return reject(e) }
       let n = 0; const chunks = []
@@ -216,10 +251,22 @@ function parseGpuTemp (text) {
   }
   return gpus
 }
-async function gpuTemperature () {
+// macOS exposes no graphics-chip temperature to normal apps; scdo-clminer reports the system thermal state
+// (nominal/fair/serious/critical) and pauses itself at serious/critical.
+function macThermal (apiPort) {
+  return new Promise(resolve => {
+    if (!apiPort) return resolve({ ok: false, gpus: [], thermal: null })
+    const req = require('http').get({ host: '127.0.0.1', port: apiPort, path: '/', timeout: 2000, agent: false }, r => {
+      let d = ''; r.on('data', c => { d += c }); r.on('end', () => { try { const j = JSON.parse(d); resolve({ ok: true, gpus: [], thermal: j.thermal || null, paused: !!j.paused }) } catch (e) { resolve({ ok: false, gpus: [], thermal: null }) } })
+    })
+    req.on('timeout', () => req.destroy()); req.on('error', () => resolve({ ok: false, gpus: [], thermal: null }))
+  })
+}
+async function gpuTemperature (opts) {
+  if (process.platform === 'darwin') return macThermal(opts && opts.apiPort)
   const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,temperature.gpu', '--format=csv,noheader,nounits'], 8000)
   const gpus = parseGpuTemp(smi)
   return { ok: !!smi, gpus }
 }
 
-module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature }
+module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature, macPreflight }

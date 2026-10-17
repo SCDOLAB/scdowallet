@@ -46,6 +46,8 @@ function createApp (opts) {
       agent: a.agent, online: !!a.lastSeen && t - a.lastSeen < ONLINE_MS, firstSeen: a.firstSeen, lastSeen: a.lastSeen,
       version: hb.version || (a.registration && a.registration.body.version) || null,
       platform: a.registration ? a.registration.body.platform || null : null,
+      payout: a.registration && a.registration.body && a.registration.body.payout || null,
+      reports: a.counts.report || 0,
       hashrate: hb.hashrate ?? null, gpuTempC: hb.gpuTempC ?? null, peers: hb.peers ?? null,
       localBlock: hb.localBlock ?? null, networkBlock: hb.networkBlock ?? null, code: hb.code || null,
       problems: hb.problems || [], heals: a.counts.heal, heartbeats: a.counts.heartbeat,
@@ -58,7 +60,7 @@ function createApp (opts) {
     const url = String(req.url || '').replace(/^\/agent-ledger\/api/, '').replace(/^\/api/, '').split('?')[0]
     const ip = String(req.headers['x-real-ip'] || req.socket.remoteAddress || '')
     if (req.method === 'POST') {
-      const m = url.match(/^\/(register|heartbeat|heal)$/)
+      const m = url.match(/^\/(register|heartbeat|heal|report)$/)
       if (!m) return send(404, { ok: false, error: 'not found' })
       let body = ''; let over = false
       req.on('data', c => { body += c; if (body.length > MAX_BODY) { over = true; req.destroy() } })

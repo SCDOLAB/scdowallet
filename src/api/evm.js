@@ -4,6 +4,7 @@
 'use strict'
 const { ethers } = require('ethers')
 const { guardAmount } = require('../js/amount')
+const { rpcCandidates } = require('../config/endpoints')
 
 function sendAmount (amount, decimals) {
   const dec = decimals == null ? 18 : Math.max(0, Number(decimals) || 0)
@@ -17,20 +18,36 @@ function sendAmount (amount, decimals) {
 }
 
 const DEFAULT_SHARD0 = {
-  rpc: 'https://scdoscan.io/rpc/0',
+  rpc: 'https://apeccapital.org/rpc/0',
   chainId: 5680,
-  explorer: 'https://scdoscan.io',
-  faucet: 'https://scdoscan.io/rpc/0/faucet',
-  // Built-in Shard0 list (chainId 5680). Logos are https://scdoscan.io/logos/<address>.png.
+  explorer: 'https://scdo.com.au',
+  faucet: 'https://scdo.com.au/rpc/0/faucet',
+  // Built-in Shard0 list (chainId 5680). Logos are https://scdo.com.au/logos/<address>.png.
   // api.scdoscan.io also answers module=account&action=tokentx and tokenbalance
   // in Etherscan format. This list is not loaded from that API.
   tokens: [
     { symbol: 'tUSDT', address: '0xb042c1833687d05cba414f04ec4013744ddeadcc', decimals: 6 },
     { symbol: 'tAUD', address: '0x13c22e6944eeeca58768dcaaa03dd485fb8c9ad0', decimals: 2 },
-    { symbol: 'SCDOR', name: 'SCDO Reward', address: '0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3', decimals: 18, logo: 'https://scdoscan.io/logos/0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3.png' },
-    { symbol: 'WSCDO', name: 'Wrapped SCDO', address: '0x5c2d19142f021375D9f440Ed441015e59E28Ab29', decimals: 18, logo: 'https://scdoscan.io/logos/0x5c2d19142f021375D9f440Ed441015e59E28Ab29.png' }
+    { symbol: 'SCDOR', name: 'SCDO Reward', address: '0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3', decimals: 18, logo: 'https://scdo.com.au/logos/0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3.png' },
+    { symbol: 'WSCDO', name: 'Wrapped SCDO', address: '0x5c2d19142f021375D9f440Ed441015e59E28Ab29', decimals: 18, logo: 'https://scdo.com.au/logos/0x5c2d19142f021375D9f440Ed441015e59E28Ab29.png' }
   ]
 }
+// JsonRpcProvider has send(). FallbackProvider does not; map the two calls this wallet makes.
+async function rpcCall (provider, method, params) {
+  if (typeof provider.send === 'function') return provider.send(method, params)
+  if (method === 'eth_chainId') {
+    const net = await provider.getNetwork()
+    return ethers.toBeHex(net.chainId)
+  }
+  if (method === 'eth_sendRawTransaction') {
+    const resp = await provider.broadcastTransaction(params[0])
+    return resp.hash
+  }
+  const err = new Error('unsupported rpc ' + method)
+  err.code = 'UNSUPPORTED_OPERATION'
+  throw err
+}
+
 const ERC20 = [
   'function balanceOf(address) view returns (uint256)',
   'function decimals() view returns (uint8)',
@@ -41,8 +58,22 @@ const ERC20 = [
 class Shard0 {
   constructor (cfg) {
     this.cfg = Object.assign({}, DEFAULT_SHARD0, cfg || {})
-    this.provider = new ethers.JsonRpcProvider(this.cfg.rpc,
-      { chainId: this.cfg.chainId, name: 'scdo-shard0' }, { staticNetwork: true, batchMaxCount: 1 })
+    const explicit = cfg && (cfg.rpc || (Array.isArray(cfg.rpcs) && cfg.rpcs.length))
+    const urls = cfg && Array.isArray(cfg.rpcs) && cfg.rpcs.length ? cfg.rpcs.slice()
+      : (explicit ? [this.cfg.rpc] : rpcCandidates(0))
+    this.cfg.rpcs = urls
+    this.cfg.rpc = urls[0] || this.cfg.rpc
+    const net = { chainId: this.cfg.chainId, name: 'scdo-shard0' }
+    const opts = { staticNetwork: true, batchMaxCount: 1 }
+    if (urls.length <= 1) {
+      this.provider = new ethers.JsonRpcProvider(this.cfg.rpc, net, opts)
+    } else {
+      this.provider = new ethers.FallbackProvider(urls.map((url, i) => ({
+        provider: new ethers.JsonRpcProvider(url, net, opts),
+        priority: i + 1,
+        stallTimeout: 2000
+      })), undefined, { quorum: 1 })
+    }
   }
 
   static addressFromPrivateKey (priv) {
@@ -55,7 +86,7 @@ class Shard0 {
 
   async chainInfo () {
     const [chainId, block] = await Promise.all([
-      this.provider.send('eth_chainId', []), this.provider.getBlockNumber()])
+      rpcCall(this.provider, 'eth_chainId', []), this.provider.getBlockNumber()])
     return { chainId: parseInt(chainId, 16), block }
   }
 
@@ -100,7 +131,7 @@ class Shard0 {
   async broadcastRaw (raw, timeoutMs) {
     let t
     try {
-      return await Promise.race([this.provider.send('eth_sendRawTransaction', [raw]),
+      return await Promise.race([rpcCall(this.provider, 'eth_sendRawTransaction', [raw]),
         new Promise((resolve, reject) => { t = setTimeout(() => reject(new Error('BROADCAST_TIMEOUT')), timeoutMs || 20000) })])
     } finally { clearTimeout(t) }
   }

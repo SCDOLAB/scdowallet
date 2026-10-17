@@ -2,6 +2,8 @@
 // Run: electron test/mine-click-e2e.js
 //   or: node test/mine-click-e2e.js   (re-launches under electron)
 'use strict'
+// 3.1.6: the wallet has no built-in Classic pool host; this run names a test pool.
+process.env.SCDO_ZPOW_POOLS = process.env.SCDO_ZPOW_POOLS || JSON.stringify({ 1: { host: 'pool.test' }, 2: { host: 'pool.test' }, 3: { host: 'pool.test' }, 4: { host: 'pool.test' } })
 if (!process.versions.electron) {
   const { spawnSync } = require('child_process')
   const electron = require('electron')

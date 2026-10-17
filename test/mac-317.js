@@ -1,0 +1,32 @@
+// 3.1.7: Mac Shard0 on Apple graphics chips via the bundled scdo-clminer.
+'use strict'
+const assert = require('assert')
+const { parseMacProbe, miningGpuReady } = require('../src/miner/manager')
+const { macPreflight } = require('../src/main/miningService')
+const H = require('../src/js/mineHome')
+const fs = require('fs')
+const ok = parseMacProbe('{"version":"1.0.0","devices":[{"name":"Apple M5","globalMB":12124,"maxAllocMB":2273,"computeUnits":8}]}')
+assert.strictEqual(ok.nvidia, true); assert.deepStrictEqual(ok.mineNames, ['Apple M5']); assert.strictEqual(miningGpuReady(ok), true)
+const small = parseMacProbe('{"devices":[{"name":"Old chip","globalMB":1536,"maxAllocMB":512}]}')
+assert.strictEqual(small.nvidia, false); assert.strictEqual(miningGpuReady(small), false)
+assert.strictEqual(parseMacProbe('garbage').nvidia, false)
+const pf = macPreflight({ gpus: [], supported: true }, ok)
+assert.strictEqual(pf.supported, true); assert.strictEqual(H.shard0PreflightOk(pf), true)
+assert.strictEqual(macPreflight({ gpus: [], supported: true }, small).supported, false)
+assert.strictEqual(H.shard0PreflightOk(macPreflight({ gpus: [], supported: true }, null)), false)
+const macOn = { platform: 'darwin', cpu: { available: true }, gpu: { available: false }, macGpu: { available: true } }
+const macOff = { platform: 'darwin', cpu: { available: true }, gpu: { available: false }, macGpu: { available: false } }
+assert.strictEqual(H.chainSupport('gpu', 0, macOn).ok, true)
+assert.strictEqual(H.chainSupport('gpu', 1, macOn).reasonKey, 'shellMacGpu')
+assert.strictEqual(H.chainSupport('gpu', 0, macOff).reasonKey, 'shellMacGpu')
+assert.strictEqual(H.chainSupport('gpu', 0, { platform: 'win32', gpu: { available: false } }).reasonKey, 'shellNoGpu')
+assert.strictEqual(H.chainSupport('gpu', 0, { platform: 'win32', gpu: { available: true } }).ok, true)
+const main = fs.readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+assert.ok(main.includes("'ethproxy+tcp://139.84.196.31:3333'")); assert.ok(!main.includes('82.223.19.88'))
+assert.ok(!/PLACEHOLDER/.test(fs.readFileSync(require('path').join(__dirname, '..', 'src/js/demoLinks.js'), 'utf8')))
+const { parseVmStat } = require('../src/main/macMem')
+const vm = 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    24613.\nPages active:                                 319255.\nPages inactive:                               312236.\nPages speculative:                              6857.\nPages purgeable:                               1000.\n'
+assert.strictEqual(parseVmStat(vm), (24613 + 312236 + 6857 + 1000) * 16384)
+assert.ok(parseVmStat(vm) > 512 * 1024 * 1024)
+assert.strictEqual(parseVmStat('nonsense'), null)
+console.log('mac-317 ok')

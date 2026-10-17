@@ -1,5 +1,6 @@
 // Classic shard 1–4 mining.
-// CPU: one zminer to the pool. Shard 1 is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// CPU: one zminer to the pool. 3.1.6: no built-in pool host; the remote config or env must name one (ports 3341–3344).
+// A remote config document can override those hosts. Env SCDO_ZPOW_POOLS still wins.
 // GPU default: one zminer-gpu process per selected shard, all on device 0.
 // GPU solo: the Classic node (node.exe) only when solo was saved and that node is synced.
 // An unsynced node, including a solo choice saved by an older wallet, starts zminer-gpu instead.
@@ -11,7 +12,8 @@ const https = require('https')
 const os = require('os')
 const { EventEmitter } = require('events')
 const { parseClassicAddress, normalizeMiningInput } = require('./address')
-const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads } = require('./pools')
+const { poolForShard, poolsFromEnv, minerStatsUrl, defaultCpuThreads, mergeOverrides } = require('./pools')
+const { rpcCandidates } = require('../../config/endpoints')
 const { parseStatusLine, cudaInitFailed, blockRatePerHour, parsePoolMiner, workerFigure, sessionDelta, peerTargetOf, mergeSyncView, classicGpuPhase, BEHIND_BLOCKS } = require('./status')
 const { writeNodeConfig, SHARD_PORTS } = require('./nodeConfig')
 
@@ -30,6 +32,7 @@ function formatExitMessage (code, logTail) {
   return msg
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
+const bins = require('./bins')
 const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, pidAlive } = require('./launch')
 const { rotateFile } = require('../guardPlan')
 
@@ -206,7 +209,8 @@ class ZpowManager extends EventEmitter {
   capabilities (env) {
     env = env || process.env
     const platform = this.o.platform
-    const zminer = firstExisting(zminerCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
+    const zminer = firstExisting(zminerCandidates({ binDir: this.o.binDir, root: this.o.root, platform, arch: this.o.arch || process.arch, env }))
+    const noRosetta = !!zminer && bins.rosettaMissing(platform, this.o.arch || process.arch)
     const gpuExe = firstExisting(zminerGpuCandidates({ gpuDir: this.o.gpuDir, root: this.o.root, env }))
     const gpuReady = gpuPackReady(gpuExe)
     const node = firstExisting(classicNodeCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
@@ -215,11 +219,12 @@ class ZpowManager extends EventEmitter {
     try { external = externalProfile(env) } catch (e) { external = { error: e.message, code: e.code } }
     const pools = {}
     try {
-      const over = poolsFromEnv(env)
+      const over = mergeOverrides(this.o.remoteConfig, poolsFromEnv(env))
       for (const s of [1, 2, 3, 4]) pools[s] = poolForShard(s, over)
     } catch (e) { pools.error = e.message }
     return {
-      cpu: { available: !!zminer, path: zminer },
+      platform,
+      cpu: { available: !!zminer && !noRosetta, path: zminer, reason: !zminer ? 'NO_ZMINER' : (noRosetta ? 'NO_ROSETTA' : null) },
       gpu: { available: gpuReady, path: gpuExe, solo: !!(node && cudart), node, cudart, reason: gpuReady ? null : 'NO_BINARY' },
       external: external && external.binary ? { available: fs.existsSync(external.binary), path: external.binary, solo: !!external.solo, id: external.id } : null,
       pools,
@@ -329,7 +334,7 @@ class ZpowManager extends EventEmitter {
     if (!this.wantRunning || this.state.mode !== 'gpu' || !SHARD_PORTS[this.state.shard]) return
     const shard = this.state.shard
     const localUrl = 'http://127.0.0.1:' + SHARD_PORTS[shard].http
-    const pubUrl = 'https://scdoscan.io/rpc/' + shard
+    const pubUrl = 'https://scdo.com.au/rpc/' + shard
     const call = this.o.rpc || rpcCall
     let info = null
     let dl = null
@@ -395,11 +400,21 @@ class ZpowManager extends EventEmitter {
     }
     const threadblocks = asInt(opts.threadblocks, 100)
     const blockthreads = asInt(opts.blockthreads, 100)
-    const pool = poolForShard(parsed.shard, poolsFromEnv(env) || this.o.pools)
+    const pool = poolForShard(parsed.shard, mergeOverrides(this.o.remoteConfig, poolsFromEnv(env) || this.o.pools))
+    if (!pool.stratum && (backend === 'cpu' || gpuMiner === 'zminer-gpu')) {
+      const err = new Error('no Shard' + parsed.shard + ' Classic pool is configured (remote config zpowPools or SCDO_ZPOW_POOLS)')
+      err.code = 'NO_POOL'
+      throw err
+    }
     const workerName = opts.worker || (backend === 'cpu' || gpuMiner !== 'zminer-gpu' ? 'wallet' : computerName(env))
 
     let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null
     if (backend === 'cpu') {
+      if (!caps.cpu.available && caps.cpu.reason === 'NO_ROSETTA') {
+        const err = new Error('zminer for macOS is an x86_64 build and needs Rosetta 2 on Apple Silicon. Run: softwareupdate --install-rosetta --agree-to-license')
+        err.code = 'NO_ROSETTA'
+        throw err
+      }
       if (!caps.cpu.available) {
         const err = new Error('zminer binary not found. Run scripts/build-zminer.sh and place zminer.exe in miner-bin/win32/, or set SCDO_ZMINER_EXE.')
         err.code = 'NO_ZMINER'
@@ -963,7 +978,13 @@ async function measureAllShardSync (call, timeoutMs, onlyShard) {
     let pub = null
     try { info = await rpc(localUrl, 'scdo_getInfo', [], ms) } catch (e) {}
     try { dl = await rpc(localUrl, 'download_getStatus', [], ms) } catch (e) {}
-    try { pub = await rpc('https://scdoscan.io/rpc/' + n, 'scdo_getInfo', [], ms) } catch (e) {}
+    const pubUrls = rpcCandidates(n)
+    for (const url of pubUrls) {
+      try {
+        const got = await rpc(url, 'scdo_getInfo', [], ms)
+        if (positiveHeight(got) != null) { pub = got; break }
+      } catch (e) {}
+    }
     const local = positiveHeight(info)
     const network = higherHeight(peerTargetOf(dl), positiveHeight(pub))
     out[n] = syncFromHeights(local, network)

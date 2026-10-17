@@ -37,13 +37,23 @@ function missingMinerBins (binDir, platform, gpuDir) {
   return missing
 }
 
-function assertMinerBinsPresent (binDir, platform, gpuDir) {
+// CI_SKIP_MINER_BUNDLE=1 is set only by .github/workflows/windows-nsis.yml.
+// GITHUB_ACTIONS alone does not skip: a local or release build stays strict.
+function ciSkipsMinerBundle (env) {
+  return (env || process.env).CI_SKIP_MINER_BUNDLE === '1'
+}
+
+function assertMinerBinsPresent (binDir, platform, gpuDir, env) {
   const missing = missingMinerBins(binDir, platform, gpuDir)
   if (!missing.length) return missing
+  if (ciSkipsMinerBundle(env)) {
+    console.warn('CI no-miner test build: miner bundle is missing ' + missing.join(', ') + ' under ' + binDir + '. Local release builds still require these files.')
+    return missing
+  }
   const err = new Error('miner bundle is missing ' + missing.join(', ') + ' under ' + binDir)
   err.code = 'MINER_BIN_MISSING'
   err.missing = missing
   throw err
 }
 
-module.exports = { referencedMinerFiles, missingMinerBins, assertMinerBinsPresent }
+module.exports = { referencedMinerFiles, missingMinerBins, assertMinerBinsPresent, ciSkipsMinerBundle }

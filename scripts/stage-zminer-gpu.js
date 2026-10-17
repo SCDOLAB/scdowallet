@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const DEST = path.join(ROOT, 'resources', 'miners', 'zminer-gpu')
-const ZMINER_GPU_URL = 'https://scdoscan.io/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip'
+const ZMINER_GPU_URL = 'https://scdo.com.au/downloads/gpu-miner/zminer-gpu-0.1.3-win64.zip'
 const ZMINER_GPU_SHA256 = '6efc25597620e145a6de53aa3c8105d861a7ea44a5f419c7d6bb7a1b5a463a96'
 const FILES = ['zminer-gpu.exe', 'zpowdet.dll', 'cudart64_12.dll']
 

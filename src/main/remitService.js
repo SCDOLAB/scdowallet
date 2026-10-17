@@ -1,7 +1,7 @@
 // SCDO Wallet 2.0.12 匯款 (remittance) sign-in, main process.
 // The renderer is sandboxed, so keyfile decryption, the EIP-191 personal_sign of the gateway challenge and the
 // bearer token all stay here. The renderer only sees the signed-in address and that address's own ledger.
-// Gateway: https://scdoscan.io/remit-api (override SCDO_REMIT_URL; mirror https://apeccapital.org/remit-api).
+// Gateway: https://scdo.com.au/remit-api (override SCDO_REMIT_URL; mirror https://apeccapital.org/remit-api).
 'use strict'
 const Remit = require('../api/remit')
 

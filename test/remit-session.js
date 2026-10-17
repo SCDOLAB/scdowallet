@@ -190,10 +190,10 @@ async function main () {
   }
 
   await test('default base joins /v1 under scdoscan.io/remit-api', async () => {
-    assert.strictEqual(remit.DEFAULT_BASE, 'https://scdoscan.io/remit-api')
+    assert.strictEqual(remit.DEFAULT_BASE, 'https://scdo.com.au/remit-api')
     assert.strictEqual(remit.MIRROR_BASE, 'https://apeccapital.org/remit-api')
-    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE, '/v1/session/challenge'), 'https://scdoscan.io/remit-api/v1/session/challenge')
-    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE + '/', '/v1/session'), 'https://scdoscan.io/remit-api/v1/session')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE, '/v1/session/challenge'), 'https://scdo.com.au/remit-api/v1/session/challenge')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE + '/', '/v1/session'), 'https://scdo.com.au/remit-api/v1/session')
     assert.strictEqual(remit.joinUrl(remit.MIRROR_BASE + '/', '/v1/ledger'), 'https://apeccapital.org/remit-api/v1/ledger')
     assert.throws(
       () => remit.assertChallengeFor('Domain: evil.example\nAddress: ' + addrA + '\nChain ID: 1\n', addrA),
@@ -229,7 +229,7 @@ async function main () {
     assert.ok(menu.includes('openRemittance()'))
     assert.ok(preload.includes("'remit:login'") && preload.includes("'remit:ledger'") && preload.includes("'remit:logout'"))
     assert.ok(main.includes("require('./src/main/remitService').register"))
-    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.4')
+    assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.8')
     assert.strictEqual(cn.Remittance, '匯款')
     assert.strictEqual(global.window.I18N112.CN.tabRemit, '匯款')
     assert.ok(global.window.I18N112.CN.remitZero.includes('不需要填寫'))
