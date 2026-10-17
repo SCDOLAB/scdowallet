@@ -12,7 +12,7 @@ const { decideStart } = require('../src/miner/zpow/conflict')
 const { writeNodeConfig, planClassicDataDir, nodeProcessEnv, SHARD_PORTS, PEER_HOSTS } = require('../src/miner/zpow/nodeConfig')
 const { renderArgs, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, stopMiner, spawnMiner } = require('../src/miner/zpow/launch')
 const { lookupSha, assertSha256, sha256File, findCudart } = require('../src/miner/zpow/bins')
-const { missingMinerBins, assertMinerBinsPresent, referencedMinerFiles } = require('../scripts/require-miner-bins')
+const { missingMinerBins, assertMinerBinsPresent, referencedMinerFiles, ciSkipsMinerBundle } = require('../scripts/require-miner-bins')
 const { expectedHash, rejectMismatch, stageZminer, findArtifactExe, missingMessage, canBuildHere, DEFAULT_ZMINER_URL } = require('../scripts/stage-zminer')
 const { ZpowManager, GpuFleet, formatExitMessage, resolveGpuMiner, measureShardSync } = require('../src/miner/zpow/manager')
 const { stageZminerGpu, ZMINER_GPU_URL, ZMINER_GPU_SHA256, packZip, readZipEntries } = require('../scripts/stage-zminer-gpu')
@@ -1170,6 +1170,23 @@ assert.strictEqual(caps.pools[2].statsBase, '')
   try { assertMinerBinsPresent(binRoot, 'win32') } catch (e) { missingBins = e }
   assert.ok(missingBins)
   assert.strictEqual(missingBins.code, 'MINER_BIN_MISSING')
+  assert.strictEqual(ciSkipsMinerBundle({}), false)
+  assert.strictEqual(ciSkipsMinerBundle({ GITHUB_ACTIONS: 'true' }), false)
+  assert.strictEqual(ciSkipsMinerBundle({ CI_SKIP_MINER_BUNDLE: '1' }), true)
+  const warned = []
+  const origWarn = console.warn
+  console.warn = function (m) { warned.push(String(m)) }
+  let skipped = null
+  try {
+    skipped = assertMinerBinsPresent(binRoot, 'win32', null, { CI_SKIP_MINER_BUNDLE: '1' })
+  } finally {
+    console.warn = origWarn
+  }
+  assert.ok(skipped.includes('geth.exe') && skipped.includes('classic/node.exe') && skipped.includes('classic/libcudart.dll'))
+  assert.ok(warned.some(m => m.includes('CI no-miner test build') && m.includes('Local release builds still require these files.')))
+  let stillStrict = null
+  try { assertMinerBinsPresent(binRoot, 'win32', null, { GITHUB_ACTIONS: 'true' }) } catch (e) { stillStrict = e }
+  assert.ok(stillStrict && stillStrict.code === 'MINER_BIN_MISSING')
   fs.mkdirSync(path.join(binRoot, 'classic'), { recursive: true })
   for (const name of ['zminer.exe', 'geth.exe', 'scdo-stratum.exe']) fs.writeFileSync(path.join(binRoot, name), name)
   fs.writeFileSync(path.join(binRoot, 'classic', 'node.exe'), 'node')
