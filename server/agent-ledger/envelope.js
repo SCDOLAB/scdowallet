@@ -8,7 +8,7 @@ const { Wallet, verifyMessage, getAddress } = require('ethers')
 const VERSION = 1
 const CHAIN_ID = 5680
 const PREFIX = 'SCDO Agent Ledger v1\n'
-const TYPES = ['register', 'heartbeat', 'heal']
+const TYPES = ['register', 'heartbeat', 'heal', 'report']
 
 function canonical (v) {
   if (v === null || typeof v !== 'object') {

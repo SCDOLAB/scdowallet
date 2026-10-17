@@ -504,21 +504,21 @@ function gpuWaitText (shard, pct, zh) {
 }
 
 function cpuPoolText (zh) {
-  return zh ? '經礦池挖' : 'Mining through the pool'
+  return zh ? '經記帳池記帳' : 'Bookkeeping through the pool'
 }
 
 function gpuMineText (zh) {
-  return zh ? '顯卡挖礦中' : 'Graphics card mining'
+  return zh ? '顯卡記帳中' : 'Graphics card bookkeeping'
 }
 
 function gpuPoolText (zh) {
-  return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
+  return zh ? '顯卡經記帳池記帳' : 'Graphics card bookkeeping through the pool'
 }
 
 function gpuPoolSyncText (zh, pct) {
   const n = Math.round(Number(pct))
-  if (zh) return '顯卡經礦池挖（本機節點同步 ' + n + '%）'
-  return 'Graphics card mining through the pool (local node sync ' + n + '%)'
+  if (zh) return '顯卡經記帳池記帳（本機節點同步 ' + n + '%）'
+  return 'Graphics card bookkeeping through the pool (local node sync ' + n + '%)'
 }
 
 function shownPoolLabel (zh, held, session) {
@@ -529,7 +529,7 @@ function shownPoolLabel (zh, held, session) {
   }
   for (let i = 0; i < candidates.length; i++) {
     const label = candidates[i]
-    if (label.indexOf('顯卡經礦池挖') === 0 || label.indexOf('Graphics card mining through the pool') === 0) return label
+    if (label.indexOf('顯卡經記帳池記帳') === 0 || label.indexOf('Graphics card bookkeeping through the pool') === 0) return label
   }
   return gpuPoolText(zh)
 }
@@ -719,11 +719,23 @@ function chainLabel (n) {
   return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
 }
 
+// 3.1.6: a Mac without a suitable graphics chip (3.1.7: Shard0 on Apple graphics chips works); say that instead of "no graphics card detected".
+function noGpuKey (caps) {
+  return caps && caps.platform === 'darwin' ? 'shellMacGpu' : 'shellNoGpu'
+}
+
 function poolKnownDown (pools, n) {
   if (!pools || typeof pools !== 'object') return false
   const p = pools[n] || pools[String(n)]
   if (!p || p.online == null) return false
   return p.online === false
+}
+
+// 3.1.8: no Classic pool configured is not an outage; say so calmly.
+function poolNotOffered (pools, n) {
+  if (!pools || typeof pools !== 'object') return false
+  const p = pools[n] || pools[String(n)]
+  return !!(p && p.notConfigured === true && p.online !== true)
 }
 
 function chainSupport (device, n, caps, pools) {
@@ -733,12 +745,19 @@ function chainSupport (device, n, caps, pools) {
     if (n === 0) return { ok: false, reasonKey: 'shellOnlyGpu' }
     if (n >= 1 && n <= 4) {
       if (known && caps.cpu && caps.cpu.available === false) return { ok: false, reasonKey: 'shellNoCpu' }
+      if (poolNotOffered(pools, n)) return { ok: false, reasonKey: 'shellPoolNone' }
       if (poolKnownDown(pools, n)) return { ok: false, reasonKey: '', poolDown: true }
       return { ok: true, reasonKey: '' }
     }
     return { ok: false, reasonKey: '' }
   }
-  if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: 'shellNoGpu' }
+  // 3.1.7: on a Mac only Shard0 can use the graphics card (bundled OpenCL miner), and only when a suitable chip was found.
+  if (caps && caps.platform === 'darwin') {
+    if (n === 0 && caps.macGpu && caps.macGpu.available) return { ok: true, reasonKey: '' }
+    if (n === 0 || (n >= 1 && n <= 4)) return { ok: false, reasonKey: noGpuKey(caps) }
+    return { ok: false, reasonKey: '' }
+  }
+  if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: noGpuKey(caps) }
   if (n === 0 || (n >= 1 && n <= 4)) return { ok: true, reasonKey: '' }
   return { ok: false, reasonKey: '' }
 }
@@ -897,8 +916,8 @@ function zhUi (T) {
 
 function deviceTitle (device, T) {
   const cn = zhUi(T)
-  if (device === 'cpu') return cn ? 'CPU 挖礦' : 'CPU mining'
-  return cn ? 'GPU 挖礦' : 'GPU mining'
+  if (device === 'cpu') return cn ? 'CPU 記帳' : 'CPU bookkeeping'
+  return cn ? 'GPU 記帳' : 'GPU bookkeeping'
 }
 
 function viewChains (input) {
@@ -948,7 +967,7 @@ function deviceModel (input, device, T) {
   if (input && input.needChain && input.needChain[device] && view.phase === 'stopped') status = tr(T, 'shellNeedChain')
   else if (device === 'gpu' && view.phase === 'stopped' && input && input.gpuBusy) status = tr(T, 'homeMineGpuBusy')
   else if (device === 'gpu' && view.phase === 'stopped' && known && input.caps.gpu && input.caps.gpu.available === false) {
-    status = tr(T, 'shellNoGpu')
+    status = tr(T, noGpuKey(input.caps))
     view.buttonDisabled = true
   }
   return { view: view, status: status, phase: view.phase }
@@ -993,7 +1012,7 @@ function mineDevButton (device, m, esc, huge) {
   const kind = m.buttonKind === 'stop' ? 'stop' : 'start'
   const dis = m.buttonDisabled ? ' disabled' : ''
   const id = device === 'cpu' ? 'homeMineCpu' : 'homeMineGpu'
-  const cls = huge ? 'shell-mine shell-huge' : 'shell-mine'
+  const cls = huge ? 'shell-bookkeeping shell-huge' : 'shell-mine'
   return `<button type="button" class="${cls} ${kind}" data-act="homeMineDev" data-dev="${device}" id="${id}"${dis}>${esc(m.buttonText)}</button>`
 }
 
@@ -1003,6 +1022,8 @@ function foldSummary (title) {
 
 function reportedRate (m) {
   if (!m || m.hashrateSource === 'pool' || m.mode === 'node') return null
+  // 3.1.8: Shard0 graphics card miner (rigel / scdo-clminer API) reports its own rate.
+  if (m.hashrateSource === 'rigel') return num(m.hashrate)
   const zpow = m.backend === 'zminer-gpu' || m.backend === 'zminer' || m.mode === 'cpu'
   if (!zpow) return null
   if (m.rateSeen === false) return null
@@ -1071,7 +1092,7 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools, open, input)
   const boxes = [0, 1, 2, 3, 4].map(n => {
     const sup = chainSupport(device, n, caps, pools)
     const on = sup.ok && picked.indexOf(n) >= 0
-    const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 礦池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
+    const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 記帳池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
     const why = sup.ok ? '' : ` <span class="mine-why">${esc(down || tr(T, sup.reasonKey))}</span>`
     const label = `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
     return `<div class="mine-chain-row">${label}${chainExpandHtml(input, device, n, T, esc, pools)}</div>`
@@ -1098,9 +1119,12 @@ function chainExpandHtml (input, device, n, T, esc, pools) {
   const speed = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
   const sharesN = reportedShares(session)
   const shares = sharesN == null ? DASH : String(sharesN)
-  const local = session && knownHeight(session.localBlock) != null ? String(Math.round(knownHeight(session.localBlock))) : DASH
+  // 3.1.8: pool mode has no local node; show the network height from the reference RPC instead of a dash.
+  const localH = session ? (knownHeight(session.localBlock) != null ? knownHeight(session.localBlock) : (alive && session.mode === 'pool' ? knownHeight(session.networkBlock) : null)) : null
+  const local = localH != null ? String(Math.round(localH)) : DASH
   const pool = pools && (pools[n] || pools[String(n)])
-  const diff = pool && pool.network_difficulty != null && pool.network_difficulty !== '' ? String(pool.network_difficulty) : DASH
+  const diffRaw = pool && pool.network_difficulty != null && pool.network_difficulty !== '' ? pool.network_difficulty : (session && alive && Number(session.networkDifficulty) > 0 ? Math.round(Number(session.networkDifficulty)).toLocaleString('en-US') : null)
+  const diff = diffRaw != null ? String(diffRaw) : DASH
   const row = (k, v) => `<div class="mine-kv"><span>${esc(k)}</span><b class="${v === DASH ? 'dash' : ''}">${esc(v)}</b></div>`
   return `<details class="mine-x" id="mineX-${device}-${n}">${foldSummary('')}
       <div class="mine-x-body">

@@ -279,6 +279,19 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
     left: auto;
   }
 }
+.payinv h2 { margin: 0 0 8px; font-size: 28px; }
+.payinv h3 { margin: 16px 0 8px; font-size: 20px; }
+.payinv-note { font-size: 16px; color: #3c3c43; margin: 8px 0; }
+.payinv-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; font-size: 18px; }
+.payinv-addr { word-break: break-all; font-weight: 800; }
+.payinv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.payinv-actions .shell-go, .payinv-actions .shell-act, .payinv-actions .shell-copy { width: auto; }
+.payinv-differs { background: #fff4cc; border: 2px solid #e0b000; border-radius: 12px; padding: 12px 14px; font-weight: 800; font-size: 18px; margin: 12px 0; }
+.payinv-expired { background: #fde8e8; border: 2px solid #d93025; color: #9b1c1c; border-radius: 12px; padding: 12px 14px; font-weight: 800; margin: 12px 0; }
+.payinv-drop { border: 2px dashed #c9cde0; border-radius: 12px; padding: 16px; margin: 12px 0; text-align: center; background: #fff; }
+.payinv .qrwrap { width: 240px; height: 240px; margin: 12px auto; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+#payInvoiceBtn { margin: 0 0 16px; }
+
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }

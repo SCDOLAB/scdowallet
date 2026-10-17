@@ -11,7 +11,8 @@ const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBF
 
 // Production peers (cmd/node/config/nodeN.json). Port 8058 is shard 2's P2P port;
 // each host is also listed on 8057 / 8059 / 8056 so a node can reach every shard.
-const PEER_HOSTS = ['217.160.65.210', '82.223.19.88', '74.208.136.152', '74.208.207.184']
+// The former party host is not a static peer. Shard0 uses the Melbourne bootnode instead.
+const PEER_HOSTS = ['217.160.65.210', '74.208.136.152', '74.208.207.184']
 const PEER_PORTS = [8057, 8058, 8059, 8056]
 
 const SHARD_PORTS = {

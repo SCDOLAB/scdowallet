@@ -1,6 +1,7 @@
 const electron = require('electron');
 var ScdoClient = require('../api/scdoClient.js');
 scdoClient = new ScdoClient();
+if (process.env.SCDO_RPC_PROBE !== '0') scdoClient.ensureRpc().catch(function (e) { console.warn('rpc fallback', e && e.message) })
 
 const fs = require('fs');
 const json = JSON.parse(fs.readFileSync(scdoClient.langPath.toString()).toString());

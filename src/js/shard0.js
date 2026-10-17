@@ -15,13 +15,13 @@
       net: 'shard0 block', netdown: 'shard0 RPC not reachable',
       sendTitle: 'Send on shard0', asset: 'Asset', to: 'To (0x...)', amount: 'Amount', cancel: 'Cancel',
       sending: 'Signing and broadcasting ...', sent: 'Transaction sent', confirmed: 'Confirmed in block', failed: 'Failed',
-      mTitle: 'GPU mining (shard0, NVIDIA)',
-      mNote: 'Runs a local SCDO node + stratum proxy + Rigel miner on this PC. Block rewards (2 SCDO per block) go to the address below. First start downloads Rigel (~56 MB, SHA256-checked) and syncs the chain (1–5 min).',
-      reward: 'Reward address', manual: '— enter a 0x address —', start: 'Start mining', stop: 'Stop mining',
-      phase: 'Status', blocks: 'Local / network block', peers: 'Peers', hashrate: 'Hashrate', shares: 'Shares accepted / rejected',
-      found: 'Blocks found', balance: 'Reward address balance', restarts: 'Miner restarts', defender: 'Allow miner in Windows Defender',
-      logs: 'Open log folder', showlog: 'Show log', macNo: 'The built-in GPU miner is available in the Windows (NVIDIA) and Linux builds only; Rigel has no macOS version.', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).',
-      yes: 'Yes', no: 'No', defAsk: 'Windows Defender deletes every GPU miner (rigel.exe) as a "potentially unwanted app". Add an exclusion for the wallet\'s miner folder now? Windows will ask for administrator permission once.', defRetry: 'rigel.exe was removed by Windows Defender. Add an exclusion for the miner folder (administrator prompt) and start again?'
+      mTitle: 'GPU bookkeeping (shard0, NVIDIA)',
+      mNote: 'Runs a local SCDO node + stratum proxy + Rigel bookkeeping node on this PC. Block rewards (2 SCDO per block) go to the address below. First start downloads Rigel (~56 MB, SHA256-checked) and syncs the chain (1–5 min).',
+      reward: 'Reward address', manual: '— enter a 0x address —', start: 'Start bookkeeping', stop: 'Stop bookkeeping',
+      phase: 'Status', blocks: 'Local / network block', peers: 'Peers', hashrate: 'Bookkeeping speed (H/s)', shares: 'Shares accepted / rejected',
+      found: 'Blocks found', balance: 'Reward address balance', restarts: 'Bookkeeping node restarts', defender: 'Allow bookkeeping node in Windows Defender',
+      logs: 'Open log folder', showlog: 'Show log', macNo: 'The built-in GPU bookkeeping node is available in the Windows (NVIDIA) and Linux builds only; Rigel has no macOS version.', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).',
+      yes: 'Yes', no: 'No', defAsk: 'Windows Defender deletes every GPU bookkeeping node (rigel.exe) as a "potentially unwanted app". Add an exclusion for the wallet\'s bookkeeping node folder now? Windows will ask for administrator permission once.', defRetry: 'rigel.exe was removed by Windows Defender. Add an exclusion for the bookkeeping node folder (administrator prompt) and start again?'
     },
     CN: {
       quick: '快捷操作', create: '+ 建立帳戶', import: '匯入帳戶檔案',
@@ -32,13 +32,13 @@
       net: 'shard0 區塊', netdown: '無法連線 shard0 節點',
       sendTitle: 'shard0 轉帳', asset: '幣種', to: '收款地址 (0x...)', amount: '數量', cancel: '取消',
       sending: '正在簽名並廣播 ...', sent: '交易已傳送', confirmed: '已確認，區塊', failed: '失敗',
-      mTitle: 'GPU 挖礦（shard0，NVIDIA 顯示卡）',
-      mNote: '在本機執行 SCDO 節點 + stratum 代理 + Rigel 挖礦程式。出塊獎勵（每塊 2 SCDO）進入下面的地址。首次啟動會下載 Rigel（約 56 MB，校驗 SHA256）並同步區塊（1–5 分鐘）。',
-      reward: '出塊獎勵地址', manual: '— 手動輸入 0x 地址 —', start: '開始挖礦', stop: '停止挖礦',
-      phase: '狀態', blocks: '本地 / 全網區塊', peers: '連線節點', hashrate: '算力', shares: '份額 接受 / 拒絕',
-      found: '挖到的區塊', balance: '出塊獎勵地址餘額', restarts: '挖礦程式重啟次數', defender: '在 Windows Defender 中允許挖礦程式',
-      logs: '開啟日誌資料夾', showlog: '顯示日誌', macNo: '內建 GPU 挖礦僅在 Windows（NVIDIA）和 Linux 版提供；Rigel 沒有 macOS 版本。', needAddr: '請先選擇或輸入 0x 出塊獎勵地址（帳戶檔案解鎖一次即可得到 0x 地址）。',
-      yes: '是', no: '否', defAsk: 'Windows Defender 會把所有 GPU 挖礦程式（rigel.exe）當作“可能不需要的應用”刪除。現在為錢包的挖礦資料夾新增排除項嗎？Windows 會請求一次管理員權限。', defRetry: 'rigel.exe 被 Windows Defender 刪除了。為挖礦資料夾新增排除項（需要管理員權限）並重新開始嗎？'
+      mTitle: 'GPU 記帳（shard0，NVIDIA 顯示卡）',
+      mNote: '在本機執行 SCDO 節點 + stratum 代理 + Rigel 記帳節點。出塊獎勵（每塊 2 SCDO）進入下面的地址。首次啟動會下載 Rigel（約 56 MB，校驗 SHA256）並同步區塊（1–5 分鐘）。',
+      reward: '出塊獎勵地址', manual: '— 手動輸入 0x 地址 —', start: '開始記帳', stop: '停止記帳',
+      phase: '狀態', blocks: '本地 / 全網區塊', peers: '連線節點', hashrate: '記帳速度 (H/s)', shares: '份額 接受 / 拒絕',
+      found: '記到的區塊', balance: '出塊獎勵地址餘額', restarts: '記帳節點重啟次數', defender: '在 Windows Defender 中允許記帳節點',
+      logs: '開啟日誌資料夾', showlog: '顯示日誌', macNo: '內建 GPU 記帳僅在 Windows（NVIDIA）和 Linux 版提供；Rigel 沒有 macOS 版本。', needAddr: '請先選擇或輸入 0x 出塊獎勵地址（帳戶檔案解鎖一次即可得到 0x 地址）。',
+      yes: '是', no: '否', defAsk: 'Windows Defender 會把所有 GPU 記帳節點（rigel.exe）當作“可能不需要的應用”刪除。現在為錢包的記帳資料夾新增排除項嗎？Windows 會請求一次管理員權限。', defRetry: 'rigel.exe 被 Windows Defender 刪除了。為記帳資料夾新增排除項（需要管理員權限）並重新開始嗎？'
     }
   }
   function lang () {
@@ -51,7 +51,12 @@
 
   let s0 = null
   function shard0 () {
-    if (!s0) { const cfg = client.config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+    if (!s0) {
+      const cfg = client.config || {}
+      const { rpcCandidates } = require('../config/endpoints')
+      const urls = rpcCandidates(0, { connect: cfg.connect, connectFallback: cfg.connectFallback, remote: client.remoteConfig })
+      s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpcs: urls.length ? urls : [cfg.connect && cfg.connect[0]].filter(Boolean) }))
+    }
     return s0
   }
 

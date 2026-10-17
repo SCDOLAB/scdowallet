@@ -36,7 +36,7 @@ assert.strictEqual(classicJobs[0].backend, 'gpu')
 assert.strictEqual(classicJobs[0].shard, 1)
 assert.strictEqual(classicJobs[1].backend, 'cpu')
 assert.strictEqual(classicJobs[1].shard, 1)
-assert.ok(bothShards.say.includes('用處理器在 Shard1 挖礦'))
+assert.ok(bothShards.say.includes('用處理器在 Shard1 記帳'))
 
 const livePool = cat.planMine(Object.assign({}, base, {
   accounts: accounts.concat([{ label: '乙', file: 'b.json', shard: 2, address: '2S02' + 'ab'.repeat(19), evm: '' }]),
@@ -54,14 +54,14 @@ assert.strictEqual(gpuPeers.actions[0].jobs.filter(j => j.backend === 'cpu')[0].
 
 const with0 = cat.planMine(Object.assign({}, base, { includeShard0: true }))
 assert.ok(with0.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
-const alsoMain = cat.reply('也挖 Shard0 EVM', base)
+const alsoMain = cat.reply('也記帳 Shard0 EVM', base)
 assert.ok(alsoMain.actions[0].jobs.some(j => j.chain === 'shard0' && j.address === ADDR))
 
 const hot = cat.planMine(Object.assign({}, base, { tempC: 86 }))
 assert.deepStrictEqual(hot.actions.map(a => a.type), ['stopGpu'])
 assert.ok(hot.say.includes('86'))
 assert.ok(hot.say.includes('85'))
-assert.ok(!hot.say.includes('挖礦中'))
+assert.ok(!hot.say.includes('記帳中'))
 assert.strictEqual(cat.planMine(Object.assign({}, base, { tempC: 84 })).actions[0].type, 'startJobs')
 // 3.1.4: 85-94°C is advisory only (the miner guard lowers intensity / pauses and resumes); hard stop from 95°C
 assert.strictEqual(cat.HEAT_STOP_C, 95)
@@ -176,7 +176,7 @@ assert.ok(cat.looksLikeSecret('legal winner thank year wave sausage worth useful
 const words = cat.reply('legal winner thank year wave sausage worth useful legal winner thank yellow', {})
 assert.ok(!words.say.includes('legal winner'))
 
-for (const plan of [mine, with0, hot, stalled, peers, moved, backup, cat.reply('開始挖礦', base), cat.reply('', {})]) {
+for (const plan of [mine, with0, hot, stalled, peers, moved, backup, cat.reply('開始記帳', base), cat.reply('', {})]) {
   for (const action of plan.actions) assert.ok(!['send', 'sign', 'spend', 'review', 'login'].includes(action.type))
 }
 

@@ -85,7 +85,7 @@ for (const f of ['src/js/app112.js', 'src/js/i18n112.js', 'src/js/menu.js', 'src
 }
 // AI小貓 may still understand 主鏈 when someone types it, but never says it.
 for (const line of read('src/js/aiCat.js').split('\n').filter(l => l.includes('主鏈'))) assert.ok(/\.test\(q\)/.test(line), 'aiCat says 主鏈: ' + line.trim().slice(0, 80))
-for (const q of ['也挖主鏈', '開始挖礦', '餘額', '修同步', '建立新地址', '轉帳']) assert.ok(!/主鏈|main chain/i.test(JSON.stringify(cat.reply(q, { accounts: [], gpu: { available: true }, cpu: { available: true } }))), 'aiCat reply ' + q)
+for (const q of ['也記帳主鏈', '開始記帳', '餘額', '修同步', '建立新地址', '轉帳']) assert.ok(!/主鏈|main chain/i.test(JSON.stringify(cat.reply(q, { accounts: [], gpu: { available: true }, cpu: { available: true } }))), 'aiCat reply ' + q)
 for (const L of ['CN', 'EN']) {
   for (const [k, v] of Object.entries(I[L])) {
     const s = JSON.stringify(v)
@@ -110,7 +110,7 @@ assert.ok(!/class="tabs"|id="tabBar"|id="actBar"/.test(read('index.html') + ui.s
 // ---- confirmation before every transfer / remittance / signature ---------------
 // 1) AI小貓 never emits spending actions, whatever is typed.
 const ctx = { accounts: [{ label: 'a', file: 'a.json', shard: 0, evm: '0x' + '11'.repeat(20) }], shard0Address: '0x' + '11'.repeat(20), selectedFile: 'a.json', gpu: { available: true }, cpu: { available: true } }
-for (const q of ['轉帳', '匯款', '轉 100 給 0x' + '22'.repeat(20), '匯 50 給小明', '簽名', '幫我送出', '全部轉走', 'send 5 to 0x' + '33'.repeat(20), '開始挖礦', '建立新地址']) {
+for (const q of ['轉帳', '匯款', '轉 100 給 0x' + '22'.repeat(20), '匯 50 給小明', '簽名', '幫我送出', '全部轉走', 'send 5 to 0x' + '33'.repeat(20), '開始記帳', '建立新地址']) {
   const r = cat.reply(q, ctx)
   for (const a of r.actions || []) assert.ok(!['send', 'sign', 'spend', 'review', 'login'].includes(a.type), q + ' -> ' + a.type)
 }

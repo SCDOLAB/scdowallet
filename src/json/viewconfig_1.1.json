@@ -1,12 +1,19 @@
 {
   "lang": "CN",
-  "connect":[
-    "",
-    "http://74.208.207.184:8037",
-    "http://74.208.207.184:8038",
-    "http://74.208.207.184:8039",
-    "http://74.208.207.184:8036"
+  "connect": [
+    "https://apeccapital.org/rpc/0",
+    "https://apeccapital.org/rpc/1",
+    "https://apeccapital.org/rpc/2",
+    "https://apeccapital.org/rpc/3",
+    "https://apeccapital.org/rpc/4"
   ],
-  "monitor":[
-  ]
+  "connectFallback": [
+    "https://scdo.com.au/rpc/0",
+    "https://scdo.com.au/rpc/1",
+    "https://scdo.com.au/rpc/2",
+    "https://scdo.com.au/rpc/3",
+    "https://scdo.com.au/rpc/4"
+  ],
+  "monitor": [],
+  "configVersion": 3
 }

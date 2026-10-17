@@ -2,6 +2,8 @@
 // Run: electron test/mine-click-e2e.js
 //   or: node test/mine-click-e2e.js   (re-launches under electron)
 'use strict'
+// 3.1.6: the wallet has no built-in Classic pool host; this run names a test pool.
+process.env.SCDO_ZPOW_POOLS = process.env.SCDO_ZPOW_POOLS || JSON.stringify({ 1: { host: 'pool.test' }, 2: { host: 'pool.test' }, 3: { host: 'pool.test' }, 4: { host: 'pool.test' } })
 if (!process.versions.electron) {
   const { spawnSync } = require('child_process')
   const electron = require('electron')
@@ -185,22 +187,22 @@ app.whenReady().then(async () => {
   })()`)
   await clickSel('[data-act="nav"][data-v="mine"]')
   const mine = await waitFor(`!!document.getElementById('homeMineCpu') && !!document.getElementById('homeMineGpu')`, 10000)
-  if (!mine) return fail('mining page did not open')
+  if (!mine) return fail('bookkeeping page did not open')
 
   const cpuBefore = await clickSel('#homeMineCpu')
   await sleep(400)
   const cpu = await panel('cpu')
   if (cpu.errs.length || pageErrors.length) return fail('CPU click threw: ' + (cpu.errs.concat(pageErrors)).join(' | '))
-  if (!cpu.status.includes('請先選擇要挖的鏈')) return fail('CPU hint missing: ' + JSON.stringify(cpu) + ' before=' + cpuBefore.text)
-  if (!cpu.btn.includes('開始挖礦')) return fail('CPU button changed: ' + cpu.btn)
+  if (!cpu.status.includes('請先選擇要記帳的鏈')) return fail('CPU hint missing: ' + JSON.stringify(cpu) + ' before=' + cpuBefore.text)
+  if (!cpu.btn.includes('開始記帳')) return fail('CPU button changed: ' + cpu.btn)
   if (cpu.btn.includes('正在停止') || cpu.status.includes('正在停止')) return fail('CPU stuck stopping: ' + JSON.stringify(cpu))
-  if (starts.length) return fail('CPU start with no chain invoked miner:start')
+  if (starts.length) return fail('CPU start with no chain invoked bookkeeping node:start')
 
   win.webContents.send('miner:classic', {
     chain: 'classic', mode: 'gpu', running: true, phase: 'syncing', code: 'CLASSIC_SYNCING',
     backend: 'classic-node', procs: ['zminer-gpu'], shards: []
   })
-  const stopBtn = await waitFor(`(document.getElementById('homeMineGpu') || {}).textContent && document.getElementById('homeMineGpu').textContent.indexOf('停止挖礦') >= 0`, 4000)
+  const stopBtn = await waitFor(`(document.getElementById('homeMineGpu') || {}).textContent && document.getElementById('homeMineGpu').textContent.indexOf('停止記帳') >= 0`, 4000)
   if (!stopBtn) return fail('GPU did not offer stop while status still listed a process: ' + JSON.stringify(await panel('gpu')))
   await clickSel('#homeMineGpu')
   const yes = await waitFor(`!!document.getElementById('cbYes')`, 3000)
@@ -210,7 +212,7 @@ app.whenReady().then(async () => {
   const stopped = await waitFor(`(() => {
     const b = document.getElementById('homeMineGpu')
     const s = document.querySelector('[data-dev-status="gpu"]')
-    return b && b.textContent.indexOf('開始挖礦') >= 0 && s && s.textContent.indexOf('已停止') >= 0 && b.textContent.indexOf('正在停止') < 0
+    return b && b.textContent.indexOf('開始記帳') >= 0 && s && s.textContent.indexOf('已停止') >= 0 && b.textContent.indexOf('正在停止') < 0
   })()`, 2500)
   const idleMs = Date.now() - stopClick
   if (!stopped) return fail('idle GPU stop did not reach 已停止 in ' + idleMs + 'ms: ' + JSON.stringify(await panel('gpu')) + ' stops=' + JSON.stringify(stops))
@@ -231,11 +233,11 @@ app.whenReady().then(async () => {
       pay: localStorage.getItem('minerPayout310-1'),
       html: (document.getElementById('homeMineGpu') || {}).outerHTML || ''
     })`)
-    return fail('GPU start did not call miner:start. panel=' + JSON.stringify(await panel('gpu')) + ' ' + info)
+    return fail('GPU start did not call bookkeeping node:start. panel=' + JSON.stringify(await panel('gpu')) + ' ' + info)
   }
   const bad = starts.filter(s => !s.opts || s.opts.gpuMiner !== 'zminer-gpu' || s.opts.backend !== 'gpu')
   if (bad.length) return fail('GPU start was not pool zminer-gpu: ' + JSON.stringify(starts))
-  if (pids.length < 4) return fail('expected 4 pool miners while the node is unsynced, got ' + pids.length + ' starts=' + JSON.stringify(starts.map(s => s.opts && s.opts.shard)))
+  if (pids.length < 4) return fail('expected 4 pool bookkeeping nodes while the node is unsynced, got ' + pids.length + ' starts=' + JSON.stringify(starts.map(s => s.opts && s.opts.shard)))
   const livePanel = await panel('gpu')
   if (livePanel.btn.includes('正在停止')) return fail('GPU showed stopping during start: ' + JSON.stringify(livePanel))
 
@@ -246,12 +248,12 @@ app.whenReady().then(async () => {
   await clickSel('#cbYes')
   const done = await waitFor(`(() => {
     const b = document.getElementById('homeMineGpu')
-    return b && b.textContent.indexOf('開始挖礦') >= 0 && b.textContent.indexOf('正在停止') < 0
+    return b && b.textContent.indexOf('開始記帳') >= 0 && b.textContent.indexOf('正在停止') < 0
   })()`, 2500)
   const killMs = Date.now() - killAt
   if (!done) return fail('live GPU stop stuck: ' + JSON.stringify(await panel('gpu')) + ' ms=' + killMs)
   if (killMs > 2000) return fail('live GPU stop took ' + killMs + 'ms')
-  if (fleet.childPids().length) return fail('pool miners still alive after stop')
+  if (fleet.childPids().length) return fail('pool bookkeeping nodes still alive after stop')
   const finalErrs = await evalJs(`(window.__errs || []).slice()`)
   if (finalErrs.length || pageErrors.length) return fail(finalErrs.concat(pageErrors).join(' | '))
   console.log('mine-click-e2e: ok')

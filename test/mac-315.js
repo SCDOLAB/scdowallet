@@ -1,0 +1,70 @@
+// 3.1.5 Mac: zminer name, Rosetta check, Mac update feed, .dmg manifests, Shard0 default in create-account.
+'use strict'
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const bins = require('../src/miner/zpow/bins')
+const ch = require('../src/main/updateChannel')
+const upd = require('../src/updater')
+assert.strictEqual(bins.zminerName('darwin', 'arm64'), 'zminer-darwin-amd64')
+assert.strictEqual(bins.zminerName('darwin', 'x64'), 'zminer-darwin-amd64')
+assert.strictEqual(bins.zminerName('win32'), 'zminer.exe')
+assert.strictEqual(bins.zminerName('linux'), 'zminer-linux-amd64')
+const c = bins.zminerCandidates({ binDir: '/R/miner/bin', platform: 'darwin', arch: 'arm64', env: {} })
+assert.strictEqual(c[0], path.join('/R/miner/bin', 'zminer-darwin-amd64'))
+assert.strictEqual(bins.rosettaMissing('darwin', 'arm64', () => false), true)
+assert.strictEqual(bins.rosettaMissing('darwin', 'arm64', () => true), false)
+assert.strictEqual(bins.rosettaMissing('darwin', 'x64', () => false), false)
+assert.deepStrictEqual(ch.manifestUrls('stable', 'darwin'), ['https://scdo.com.au/downloads/wallet/mac/latest.json'])
+assert.deepStrictEqual(ch.manifestUrls('stable', 'win32'), ['https://scdo.com.au/downloads/wallet/latest.json'])
+const m = { version: '3.1.5', url: 'https://scdo.com.au/downloads/wallet/SCDOWallet-3.1.5-mac-arm64.dmg', size: 10, sha256: 'a'.repeat(64) }
+assert.strictEqual(upd.validateManifest(m, null, 'darwin'), null)
+assert.ok(upd.validateManifest(m, null, 'win32'))
+assert.strictEqual(upd.validateManifest(Object.assign({}, m, { url: 'https://scdo.com.au/downloads/wallet/SCDOWallet-3.1.4-win-x64-setup.exe' }), null, 'win32'), null)
+assert.ok(upd.validateManifest(Object.assign({}, m, { url: 'https://scdo.com.au/downloads/wallet/SCDOWallet-3.1.4-win-x64-setup.exe' }), null, 'darwin'))
+const app = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
+assert.ok(app.includes('id="cShard" value="0"'))
+assert.ok(app.includes("/^[0-4]$/.test(shard)"))
+assert.ok(!app.includes("errs.push(T('pwRule'))"), 'password rule must not be repeated in the red error line')
+const ws = fs.readFileSync(path.join(__dirname, '../src/main/walletService.js'), 'utf8')
+assert.ok(ws.includes("/^[0-4]$/.test(shard)"))
+console.log('mac-315 ok')
+// 3.1.6: no built-in Classic pool host; the former party host is refused; CPU start says NO_POOL.
+const pools = require('../src/miner/zpow/pools')
+assert.strictEqual(pools.DEFAULT_HOST, null)
+for (const n of [1, 2, 3, 4]) assert.strictEqual(pools.poolForShard(n).stratum, '')
+assert.strictEqual(pools.poolForShard(1, { 1: { host: '82.223.19.88' } }).stratum, '')
+assert.strictEqual(pools.poolForShard(1, { 1: { host: 'pool.scdo.com.au' } }).stratum, 'pool.scdo.com.au:3341')
+for (const f of ['src/miner/zpow/pools.js', 'src/miner/zpow/manager.js', 'src/main/miningService.js', 'src/js/mining/miningSettingsPanel.js', 'src/js/i18n112.js', 'main.js']) {
+  const txt = fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
+  const hits = txt.split('\n').filter(l => l.includes('82.223.19.88') && !l.includes('BLOCKED_HOSTS'))
+  assert.deepStrictEqual(hits, [], f + ' still names the former party host')
+}
+console.log('mac-316 pools ok')
+// 3.1.6 home demo wheel: one constant file, exact allowlist, demo wording only
+{
+  const L = require('../src/js/demoLinks')
+  assert.ok(/^https:\/\/[^/]+\/.*mode=demo/.test(L.DEMO_WHEEL_URL))
+  assert.strictEqual(L.TELEGRAM_URL, 'https://t.me/scdowheelledger')
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+  assert.ok(main.includes("require('./src/js/demoLinks')") && !main.includes('wheel.apeccapital.org'))
+  assert.ok(!app.includes('wheel.apeccapital.org'))
+  const i18n = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
+  assert.ok(i18n.includes("homeDemoWheel: 'Play free demo wheel — win badges'"))
+  const demoLines = i18n.split('\n').filter(l => l.includes('homeDemo')).join(' ')
+  assert.ok(!/stake|deposit|real money|cash|下注|押注|真錢/i.test(demoLines))
+}
+console.log('mac-315 demo ok')
+// 3.1.6: on macOS the GPU card says the Mac GPU is not supported yet; Windows/Linux keep "no graphics card detected"
+{
+  const mh = require('../src/js/mineHome')
+  const off = { cpu: { available: true }, gpu: { available: false } }
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'darwin' }, off)).reasonKey, 'shellMacGpu')
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'win32' }, off)).reasonKey, 'shellNoGpu')
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'linux' }, off)).reasonKey, 'shellNoGpu')
+  const i18n = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
+  assert.ok(i18n.includes("shellMacGpu: 'Mac graphics card not supported yet'") && i18n.includes("shellMacGpu: 'Mac 顯卡暫不支援'"))
+  assert.ok(app.includes("api.platform === 'darwin' ? 'noGpuMac' : 'noGpu'"))
+  assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('      platform,\n'))
+}
+console.log('mac-316 gpu text ok')

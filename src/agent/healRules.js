@@ -16,10 +16,19 @@ const TEMP_THROTTLE = 85
 const TEMP_PAUSE = 90
 const TEMP_CLEAR = 80
 const TEMP_CLEAR_MS = 5 * MIN
-const COOLDOWN_MS = { 'free-port': 2 * MIN, 'restart-miner': 5 * MIN, 'reconnect-peers': 3 * MIN, 'resume-mining': 5 * MIN, throttle: 2 * MIN, 'pause-gpu': 2 * MIN, unthrottle: 2 * MIN }
+const COOLDOWN_MS = { 'free-port': 2 * MIN, 'restart-miner': 5 * MIN, 'reconnect-peers': 3 * MIN, 'resume-mining': 5 * MIN, throttle: 2 * MIN, 'pause-gpu': 2 * MIN, unthrottle: 2 * MIN, report: 15 * MIN }
 const HOURLY_CAP = 6
+const NO_REWARD_HOURS = 24
+const POOL_DOWN_MS = 10 * MIN
+const PAYOUT_STALE_HOURS = 6
 
-function newMemo () { return { noPeersSince: null, lastHead: null, headAt: null, zeroHashSince: null, coolSince: null, throttled: false, last: {}, history: {} } }
+function newMemo () { return { noPeersSince: null, lastHead: null, headAt: null, zeroHashSince: null, coolSince: null, throttled: false, poolDownSince: null, last: {}, history: {} } }
+
+function hoursMs (value, fallbackHours) {
+  const n = num(value)
+  const h = n != null && n > 0 ? n : fallbackHours
+  return h * 60 * MIN
+}
 
 function num (v) { const n = Number(v); return Number.isFinite(n) ? n : null }
 
@@ -43,13 +52,13 @@ function evaluate (s, memo, now) {
     want.push({ type: 'free-port', port: RIGEL_API_PORT, pids: others.map(p => p.pid), reason: 'duplicate Rigel on ' + RIGEL_API_PORT })
     want.push({ type: 'restart-miner', reason: s.gaveUp ? 'clear give-up after freeing the port' : 'restart after freeing the port' })
   } else if (wantMining && s.gaveUp) {
-    problems.push({ code: 'GAVE_UP', detail: 'miner guard gave up' })
+    problems.push({ code: 'GAVE_UP', detail: 'bookkeeping node guard gave up' })
   }
 
   // 2. Keep mining was armed but mining did not come back after a reboot / crash.
   if (s.armedResume && !s.running && num(s.uptimeMs) != null && s.uptimeMs >= RESUME_GRACE_MS) {
-    problems.push({ code: 'RESUME_LOST', detail: 'Keep mining is on but mining is not running after restart' })
-    want.push({ type: 'resume-mining', chains: Array.isArray(s.resumeChains) ? s.resumeChains : [], reason: 'restore mining state after restart' })
+    problems.push({ code: 'RESUME_LOST', detail: 'Keep bookkeeping is on but bookkeeping is not running after restart' })
+    want.push({ type: 'resume-mining', chains: Array.isArray(s.resumeChains) ? s.resumeChains : [], reason: 'restore bookkeeping state after restart' })
   }
 
   // 3. Node on 0 peers, or sync not moving.
@@ -75,7 +84,42 @@ function evaluate (s, memo, now) {
     want.push({ type: 'restart-miner', reason: 'stuck at 0 H/s' })
   }
 
-  // 5. GPU temperature.
+  // 5. No reward for N hours (default 24, overridable on the snapshot).
+  const noRewardMs = hoursMs(s.noRewardHours, NO_REWARD_HOURS)
+  if (wantMining && s.running && !s.paused) {
+    const since = num(s.lastRewardAt)
+    const started = num(s.miningStartedAt)
+    if (since != null && now - since >= noRewardMs) {
+      problems.push({ code: 'NO_REWARD', detail: 'no reward for ' + Math.round((now - since) / (60 * MIN)) + ' min' })
+      want.push({ type: 'report', about: 'no-reward', reason: 'no reward in ' + (noRewardMs / (60 * MIN)) + ' minutes' })
+    } else if (since == null && !s.rewardsSeen && started != null && now - started >= noRewardMs) {
+      problems.push({ code: 'NO_REWARD', detail: 'no reward since bookkeeping started' })
+      want.push({ type: 'report', about: 'no-reward', reason: 'no reward in ' + (noRewardMs / (60 * MIN)) + ' minutes' })
+    }
+  }
+
+  // 6. Pool disconnected.
+  if (s.poolMode && s.poolConnected === false) {
+    if (!memo.poolDownSince) memo.poolDownSince = now
+  } else memo.poolDownSince = null
+  if (memo.poolDownSince && now - memo.poolDownSince >= POOL_DOWN_MS) {
+    problems.push({ code: 'POOL_DISCONNECTED', detail: 'pool disconnected' })
+    want.push({ type: 'report', about: 'pool-disconnected', reason: 'pool disconnected' })
+  }
+
+  // 7. Payout balance has not been read for N hours (default 6).
+  const staleMs = hoursMs(s.payoutStaleHours, PAYOUT_STALE_HOURS)
+  if (s.payoutWatched && !s.payoutBalanceFresh) {
+    const at = num(s.payoutBalanceAt)
+    const started = num(s.miningStartedAt)
+    const mark = at != null ? at : started
+    if (mark != null && now - mark >= staleMs) {
+      problems.push({ code: 'PAYOUT_STALE', detail: at == null ? 'payout balance has not been read' : 'payout balance is stale' })
+      want.push({ type: 'report', about: 'payout-stale', reason: 'payout balance stale' })
+    }
+  }
+
+  // 8. GPU temperature.
   if (temp != null) {
     if (temp >= TEMP_PAUSE) {
       problems.push({ code: 'GPU_HOT', detail: temp + ' °C' })
@@ -95,13 +139,14 @@ function evaluate (s, memo, now) {
   const actions = []
   const seen = {}
   for (const a of want) {
-    if (seen[a.type]) continue
-    seen[a.type] = true
-    const hist = (memo.history[a.type] || []).filter(t => now - t < 60 * MIN)
-    memo.history[a.type] = hist
-    if (memo.last[a.type] && now - memo.last[a.type] < (COOLDOWN_MS[a.type] || 5 * MIN)) continue
-    if (hist.length >= HOURLY_CAP) { actions.push({ type: 'report', about: a.type, reason: 'hourly self-heal limit reached; needs a human' }); continue }
-    memo.last[a.type] = now
+    const key = a.about ? a.type + ':' + a.about : a.type
+    if (seen[key]) continue
+    seen[key] = true
+    const hist = (memo.history[key] || []).filter(t => now - t < 60 * MIN)
+    memo.history[key] = hist
+    if (memo.last[key] && now - memo.last[key] < (COOLDOWN_MS[a.type] || 5 * MIN)) continue
+    if (a.type !== 'report' && hist.length >= HOURLY_CAP) { actions.push({ type: 'report', about: a.type, reason: 'hourly self-heal limit reached; needs a human' }); continue }
+    memo.last[key] = now
     hist.push(now)
     if (a.type === 'throttle' || a.type === 'pause-gpu') memo.throttled = true
     if (a.type === 'unthrottle') { memo.throttled = false; memo.coolSince = null }
@@ -110,4 +155,4 @@ function evaluate (s, memo, now) {
   return { actions, problems }
 }
 
-module.exports = { evaluate, newMemo, RIGEL_API_PORT, NO_PEERS_MS, SYNC_STALL_MS, ZERO_HASH_MS, RESUME_GRACE_MS, TEMP_THROTTLE, TEMP_PAUSE, TEMP_CLEAR, TEMP_CLEAR_MS, COOLDOWN_MS, HOURLY_CAP }
+module.exports = { evaluate, newMemo, RIGEL_API_PORT, NO_PEERS_MS, SYNC_STALL_MS, ZERO_HASH_MS, RESUME_GRACE_MS, TEMP_THROTTLE, TEMP_PAUSE, TEMP_CLEAR, TEMP_CLEAR_MS, COOLDOWN_MS, HOURLY_CAP, NO_REWARD_HOURS, POOL_DOWN_MS, PAYOUT_STALE_HOURS }

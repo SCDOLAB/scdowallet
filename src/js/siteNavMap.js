@@ -4,12 +4,12 @@
 // Labels that say GPU or 算力 live here, not in the translation table.
 'use strict'
 ;(function () {
-  const ORIGIN = 'https://scdoscan.io'
+  const ORIGIN = 'https://scdo.com.au'
   // Temporary pages. Each address lives only here.
-  const MEMBERSHIP_URL = 'https://scdoscan.io/membership/'
-  const OTC_URL = 'https://scdoscan.io/membership/'
+  const MEMBERSHIP_URL = 'https://scdo.com.au/membership/'
+  const OTC_URL = 'https://scdo.com.au/membership/'
   // Temporary invite link. The address is the selected Shard0 EVM address.
-  const REFERRAL_URL = 'https://scdoscan.io/'
+  const REFERRAL_URL = 'https://scdo.com.au/'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
@@ -18,6 +18,7 @@
       id: 'wallets', cn: '錢包', en: 'Wallet', children: [
         { id: 'receive', cn: '收款', en: 'Receive', action: 'recv' },
         { id: 'remit', cn: '匯款', en: 'Send', action: 'remit' },
+        { id: 'payInvoice', cn: '支付發票', en: 'Pay invoice', action: 'payInvoice' },
         { id: 'settings', cn: '設定', en: 'Settings', action: 'settings' },
         { id: 'create', cn: '建立新地址', en: 'Create address', action: 'create' },
         { id: 'import', cn: '匯入錢包', en: 'Import wallet', action: 'import' }
@@ -33,10 +34,10 @@
       ]
     },
     {
-      id: 'mining', cn: '運算服務', en: 'Mining', children: [
-        { id: 'mine', cn: '運算服務', en: 'Mining', action: 'mineHome' },
-        { id: 'pool', cn: '算力中心', en: 'Hashrate centre', href: '/pool/' },
-        { id: 'nodes', cn: '算力服務分支', en: 'Node service', action: 'mineSettings' }
+      id: 'mining', cn: '記帳', en: 'Bookkeeping', children: [
+        { id: 'mine', cn: '記帳', en: 'Bookkeeping', action: 'mineHome' },
+        { id: 'pool', cn: '記帳池', en: 'Bookkeeping pool', href: '/pool/' },
+        { id: 'nodes', cn: '節點', en: 'Nodes', action: 'mineSettings' }
       ]
     },
     {

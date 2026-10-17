@@ -6,8 +6,12 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 
-function zminerName (platform) {
-  return platform === 'win32' ? 'zminer.exe' : 'zminer-linux-amd64'
+// 3.1.5: macOS uses the darwin/amd64 build for both arches (go-scdo's scdorand exists only for
+// darwin/amd64 and Go 1.12 has no darwin/arm64), so Apple Silicon runs it through Rosetta 2.
+function zminerName (platform, arch) {
+  if (platform === 'win32') return 'zminer.exe'
+  if (platform === 'darwin') return 'zminer-darwin-amd64'
+  return 'zminer-linux-amd64'
 }
 
 function nodeName (platform) {
@@ -34,6 +38,7 @@ function zminerCandidates (opts) {
   const platform = opts.platform || process.platform
   const list = []
   if (env.SCDO_ZMINER_EXE) list.push(env.SCDO_ZMINER_EXE)
+  if (opts.binDir && platform === 'darwin') list.push(path.join(opts.binDir, zminerName(platform, opts.arch)))
   if (opts.binDir) list.push(path.join(opts.binDir, platform === 'win32' ? 'zminer.exe' : 'zminer'))
   if (opts.root) list.push(path.join(opts.root, 'miner-zpow', 'dist', zminerName(platform)))
   return list
@@ -126,7 +131,14 @@ function sumsBeside (file) {
   return path.join(path.dirname(file), 'SHA256SUMS')
 }
 
-module.exports = {
+// 3.1.5: Apple Silicon needs Rosetta 2 for the x86_64 zminer. Without it the spawn fails with "Bad CPU type".
+function rosettaMissing (platform, arch, exists) {
+  if (platform !== 'darwin' || arch !== 'arm64') return false
+  exists = exists || fs.existsSync
+  return !exists('/Library/Apple/usr/libexec/oah/libRosettaRuntime')
+}
+
+module.exports = { rosettaMissing,
   zminerName,
   nodeName,
   zminerCandidates,

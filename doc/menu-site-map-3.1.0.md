@@ -31,4 +31,4 @@ The wallet does not write 「主鏈」. Shard0 is Shard0 EVM. Shard1–Shard4 ar
 
 AI小貓 suggestions are this same list, collapsed under a disclosure. Choosing one opens the screen or the browser. The cat still answers from local rules only. It does not call a paid model.
 
-Pool addresses stay in `src/miner/zpow/pools.js` (82.223.19.88, stratum 3341–3344, stats 8341–8344). A user override still belongs under 進階, and `SCDO_ZPOW_POOLS` still replaces a host or port. Online or offline comes from `/api/stats` (`dry_run === false` and `chain_height` present), never from a fixed flag.
+Pool addresses stay in `src/miner/zpow/pools.js` (82.223.19.88, stratum 3341–3344, stats 8341–8344). A remote config document can override a host or port. A user override still belongs under 進階, and `SCDO_ZPOW_POOLS` still replaces a host or port. Online or offline comes from `/api/stats` (`dry_run === false` and `chain_height` present), never from a fixed flag.

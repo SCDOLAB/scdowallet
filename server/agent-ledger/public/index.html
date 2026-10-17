@@ -1,11 +1,11 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCDO AI Agent Ledger</title>
 <style>body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3}main{max-width:1100px;margin:auto;padding:24px}a{color:#58a6ff}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid #30363d;text-align:left}code{font-size:12px}.on{color:#3fb950}.off{color:#8b949e}.kpi{display:flex;gap:24px;margin:16px 0}.kpi b{font-size:28px;display:block}footer{text-align:center;color:#8b949e;padding:24px}</style></head>
-<body><main><p style="text-align:right"><a href="zh/">華語繁體</a></p><h1>SCDO AI Agent Ledger</h1><p>Every wallet and miner registers as an agent with its own key. Each machine signs its own heartbeats and self-heal events; this server only checks signatures and holds no private keys.</p>
+<body><main><p style="text-align:right"><a href="zh/">華語繁體</a></p><h1>SCDO AI Agent Ledger</h1><p>Every wallet and bookkeeping node registers as an agent with its own key. Each machine signs its own heartbeats and self-heal events; this server only checks signatures and holds no private keys.</p>
 <div class="kpi"><div><b id="total">–</b>Agents</div><div><b id="online">–</b>Online</div></div>
 <table><thead><tr><th>Agent</th><th>Status</th><th>Hashrate</th><th>GPU temp</th><th>Peers</th><th>Block</th><th>Self-heals</th><th>Last heal</th><th>Last seen</th></tr></thead><tbody id="rows"></tbody></table>
 <p id="msg"></p></main><footer>SCDO Laboratory</footer>
 <script>
-const T={"yes":"online","no":"offline","none":"No rigs yet. Rigs will appear here after they register with SCDO Wallet 3.1.4.","err":"Could not load the ledger.","ago":" min ago"};
+const T={"yes":"online","no":"offline","none":"No bookkeeping nodes yet. Bookkeeping nodes will appear here after they register with SCDO Wallet 3.1.4.","err":"Could not load the ledger.","ago":" min ago"};
 const esc=s=>String(s==null?'–':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hr=h=>h==null?'–':h>=1e6?(h/1e6).toFixed(2)+' MH/s':h>=1e3?(h/1e3).toFixed(1)+' kH/s':h+' H/s';
 fetch('/agent-ledger/api/agents',{cache:'no-store'}).then(r=>r.json()).then(d=>{
