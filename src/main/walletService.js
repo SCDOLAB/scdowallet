@@ -454,10 +454,13 @@ async function oldSend (p) {
 // ---------- accounts ----------
 async function create (p) {
   p = p || {}
-  const name = String(p.name || '').trim(); const pw = String(p.password || ''); const shard = String(p.shard || '1')
+  const name = String(p.name || '').trim(); const pw = String(p.password || ''); let shard = String(p.shard == null || p.shard === '' ? '0' : p.shard)
   if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) throw new Error('BAD_NAME')
   if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) throw new Error('BAD_PASSWORD')
-  if (!/^[1-4]$/.test(shard)) throw new Error('BAD_SHARD')
+  if (!/^[0-4]$/.test(shard)) throw new Error('BAD_SHARD')
+  // 3.1.5: 0 = Shard0 EVM (default). Every account already gets its Shard0 (EVM) address from the
+  // same key; the Classic keyfile format still needs a Classic shard, so Shard0 accounts keep Classic shard 1.
+  if (shard === '0') shard = '1'
   const cl = c()
   let phrase = null
   let priv = String(p.priv || '').trim()

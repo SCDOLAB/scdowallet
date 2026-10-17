@@ -1090,7 +1090,7 @@
     if (extOn) buttons.push(['external', T('classicGpuCustom'), false])
     let h = `<div class="shardchips">${buttons.map(([id, label, dis]) => `<button type="button" class="${backend === id ? 'on' : ''}" data-act="mineBackend" data-v="${id}" ${dis ? 'disabled' : ''}>${esc(label)}</button>`).join('')}</div>`
     if (!gpuOn) h += `<div class="lbl">${esc(T('classicGpuOff'))}</div>`
-    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T('classicCpuMissing'))}</div>`
+    if (backend === 'cpu' && caps.cpu && caps.cpu.available === false) h += `<div class="lbl">${esc(T(caps.cpu.reason === 'NO_ROSETTA' ? 'st_NO_ROSETTA' : 'classicCpuMissing'))}</div>`
     h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(T('classicAddr'))}</div>${sel}</div>`
     const showPool = backend === 'cpu' || (backend === 'external' && !(caps.external && caps.external.solo))
     if (showPool && pool.stratum) {
@@ -2863,27 +2863,30 @@
     modal(`<div class="mh"><h2>${esc(opts.priv ? T('d_keyTitle') : T('createTitle'))}</h2></div>${opts.priv ? privField : ''}
       <div class="field"><div class="lbl">${esc(T('accName'))}</div><input class="inp" id="cName" maxlength="40" placeholder="${esc(T('accountN', { n: nextNo() }))}"></div>
       <div class="field"><div class="lbl">${esc(T('pw1'))}</div><input class="inp" type="password" id="cPw1"></div>
-      <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
+      <div class="field"><div class="lbl">${esc(T('pw2'))}</div><input class="inp" type="password" id="cPw2"><div class="lbl" id="cPwRule" style="margin-top:6px">${esc(T('pwRule'))}</div></div>
       <details class="shell-fold" style="margin-top:14px"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(T('advanced'))}</summary>
-        <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="1" style="width:120px"></div>
+        <div class="field"><div class="lbl">${esc(T('createShard'))}</div><input class="inp" id="cShard" value="0" style="width:120px" inputmode="numeric"></div>
         ${opts.priv ? '' : privField}</details>
       <div class="infobox">${esc(T('createSave'))}</div>
       <div class="err" id="cErr"></div>
       <div class="foot"><button class="btn ghost" data-act="closeModal">${esc(T('cancel'))}</button><button class="btn pri" id="cGo">${esc(T('create'))}</button></div>`)
     $('cGo').onclick = async () => {
       const name = $('cName').value.trim(); const pw = $('cPw1').value; const pw2 = $('cPw2').value
-      const shard = ($('cShard').value.trim() || '1'); let priv = nhw($('cPriv').value); if ($('cPriv')) $('cPriv').value = priv
+      const shard = ($('cShard').value.trim() || '0'); let priv = nhw($('cPriv').value); if ($('cPriv')) $('cPriv').value = priv
       const errs = []
       if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) errs.push(T('errName'))
-      if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) errs.push(T('pwRule'))
+      // 3.1.5: the password rule is shown once, under the fields. It turns red only when the password breaks it.
+      const pwBad = !/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)
+      const ruleEl = $('cPwRule'); if (ruleEl) { ruleEl.style.color = pwBad ? '#c5221f' : '' }
       if (pw !== pw2) errs.push(T('pwMismatch'))
-      if (!/^[1-4]$/.test(shard)) errs.push(T('errShard'))
+      if (!/^[0-4]$/.test(shard)) errs.push(T('errShard'))
       if (priv) {
         const bits = priv.trim().toLowerCase().split(/\s+/).filter(Boolean)
         if (bits.length === 12 && bits.every(x => /^[a-z]+$/.test(x))) priv = bits.join(' ')
         else { if (/^[0-9a-fA-F]{64}$/.test(priv)) priv = '0x' + priv; priv = priv.toLowerCase(); if (!/^0x[0-9a-f]{64}$/.test(priv)) errs.push(T('errKey')) }
       }
-      if (errs.length) { $('cErr').textContent = errs.join(PU.bar()); return }
+      $('cErr').textContent = errs.join(PU.bar())
+      if (errs.length || pwBad) return
       $('cGo').disabled = true; SD.spin($('cErr'), '')
       const no = name ? 0 : nextNo()
       const CERR = { EXISTS: 'errExist', BAD_KEY: 'errKey', BAD_NAME: 'errName', BAD_PASSWORD: 'pwRule', BAD_SHARD: 'errShard' }
@@ -2891,7 +2894,10 @@
       const body = { name, password: pw, shard, priv, no }
       const r = await api.invoke('acct:create', body)
       body.password = ''; body.priv = ''; priv = null
-      if (!r || !r.ok) { if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return }
+      if (!r || !r.ok) {
+        if (r && r.error === 'BAD_PASSWORD') { const el = $('cPwRule'); if (el) el.style.color = '#c5221f'; if ($('cErr')) $('cErr').textContent = ''; $('cGo').disabled = false; return }
+        if ($('cErr')) { $('cErr').textContent = T(CERR[r && r.error] || 'errKey'); $('cGo').disabled = false } return
+      }
       const file = r.file
       const shown = r.phrase || ''
       const evm = r.evm || ''

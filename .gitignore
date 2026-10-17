@@ -8,3 +8,4 @@ resources/miners/
 miner-zpow/dist/
 miner-zpow/artifact/
 build-info.json
+miner-bin/darwin/

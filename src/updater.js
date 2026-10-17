@@ -21,7 +21,7 @@ const { VERSION } = require('./version')
 // ---- update channel (build-time constants; 1.1.6 review: nothing here can be changed at run time) ----
 // BEGIN-UPDATE-CHANNEL
 const UPDATER_URL = 'https://scdoscan.io/downloads/wallet/latest.json'
-const ALLOWED_ORIGINS = ['https://scdoscan.io', 'https://apeccapital.org'] // manifest + installer must be https on one of these hosts (default port)
+const ALLOWED_ORIGINS = ['https://scdoscan.io', 'https://apeccapital.org', 'https://scdo.com.au'] // manifest + installer must be https on one of these hosts (default port)
 // END-UPDATE-CHANNEL
 const MAX_INSTALLER_SIZE = 512 * 1024 * 1024
 // PRODUCTION PUBLIC KEY (provided by A-side, 2026-09-30): 32-byte raw Ed25519 public key, base64.
@@ -92,21 +92,23 @@ function urlAllowed (u, origins) {
 }
 const SAFE_VER_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/ // 2.0.0 (U6)
 const VER_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/
-function validateManifest (m, origins) {
+// 3.1.5: the Mac feed (downloads/wallet/mac/latest.json) points at a notarized .dmg; Windows stays .exe.
+function packageExtRe (platform) { return (platform || process.platform) === 'darwin' ? /\.dmg$/i : /\.exe$/i }
+function validateManifest (m, origins, platform) {
   if (!VER_RE.test(m.version)) return 'bad version'
   if (m.minVersion != null && !VER_RE.test(m.minVersion)) return 'bad minVersion'
   if (typeof m.url !== 'string' || !urlAllowed(m.url, origins)) return 'installer url not allowed: ' + String(m.url).slice(0, 120)
-  if (!/\.exe$/i.test(new URL(m.url).pathname)) return 'installer url is not an .exe'
+  if (!packageExtRe(platform).test(new URL(m.url).pathname)) return (platform || process.platform) === 'darwin' ? 'installer url is not a .dmg' : 'installer url is not an .exe'
   if (!Number.isInteger(m.size) || m.size <= 0 || m.size > MAX_INSTALLER_SIZE) return 'bad size'
   if (typeof m.sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(m.sha256)) return 'bad sha256'
   if (m.changelog != null && (typeof m.changelog !== 'object' || Object.values(m.changelog).some(v => typeof v !== 'string'))) return 'bad changelog'
   return null
 }
 // signature first, then fields; returns { ok, error }
-function checkManifest (m, pubkeyB64, origins) {
+function checkManifest (m, pubkeyB64, origins, platform) {
   const v = verifyManifest(m, pubkeyB64)
   if (!v.ok) return v
-  const bad = validateManifest(m, origins)
+  const bad = validateManifest(m, origins, platform)
   return bad ? { ok: false, error: bad } : { ok: true }
 }
 const clean = s => String(s == null ? '' : s).replace(/[^\x20-\x7e]/g, '?').slice(0, 80)
@@ -165,7 +167,10 @@ class Updater {
   updatesDir () { return path.join(this.userData(), 'updates') }
   // 2.0.0: local installer name follows the 2.0 installer file name (SCDOWallet-<ver>-win-x64-setup.exe)
   // 2.0.0 (U6): path.basename() - the version can never move the file out of <userData>\updates
-  installerPath (version) { return path.join(this.updatesDir(), 'SCDOWallet-' + path.basename(String(version)) + '-win-x64-setup.exe') }
+  installerPath (version) {
+    const v = path.basename(String(version))
+    return path.join(this.updatesDir(), process.platform === 'darwin' ? 'SCDOWallet-' + v + '-mac-arm64.dmg' : 'SCDOWallet-' + v + '-win-x64-setup.exe')
+  }
   statePath () { return path.join(this.userData(), 'update-state.json') }
   pendingPath () { return path.join(this.userData(), 'update-pending.json') }
   logPath () { return path.join(this.userData(), 'logs', 'updater.log') }
@@ -356,6 +361,14 @@ class Updater {
     }
     const pending = { version: manifest.version, wasMining, mode: wasMining && miner.state && miner.state.mode === 'node' ? 'node' : 'mine', ts: new Date().toISOString() }
     try { fs.writeFileSync(this.pendingPath(), JSON.stringify(pending, null, 2)) } catch (e) { this.log('install: cannot write pending marker ' + e.message) }
+    if (process.platform === 'darwin') {
+      // 3.1.5 Mac: open the verified, notarized dmg so the user drags SCDO Wallet into Applications, then quit.
+      try { await electron.shell.openPath(file) } catch (e) { this.log('install: cannot open dmg ' + e.message); return { ok: false, error: e.message } }
+      this.log('install: opened ' + path.basename(file) + ' for drag-to-Applications, quitting wallet')
+      this.send('update:installing', pending)
+      setTimeout(() => this.quit(), 1500)
+      return { ok: true }
+    }
     const installer = file
     // /S silent overwrite; --force-run: the installer starts the wallet again when it is done (then mining resumes)
     const child = require('child_process').spawn(installer, ['/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true })

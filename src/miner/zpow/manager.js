@@ -32,6 +32,7 @@ function formatExitMessage (code, logTail) {
   return msg
 }
 const { firstExisting, zminerCandidates, zminerGpuCandidates, gpuPackReady, classicNodeCandidates, findCudart, assertSha256, sumsBeside } = require('./bins')
+const bins = require('./bins')
 const { renderArgs, externalProfile, ZMINER_ARGS, ZMINER_GPU_ARGS, CLASSIC_NODE_ARGS, spawnMiner, stopMiner, pidAlive } = require('./launch')
 const { rotateFile } = require('../guardPlan')
 
@@ -208,7 +209,8 @@ class ZpowManager extends EventEmitter {
   capabilities (env) {
     env = env || process.env
     const platform = this.o.platform
-    const zminer = firstExisting(zminerCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
+    const zminer = firstExisting(zminerCandidates({ binDir: this.o.binDir, root: this.o.root, platform, arch: this.o.arch || process.arch, env }))
+    const noRosetta = !!zminer && bins.rosettaMissing(platform, this.o.arch || process.arch)
     const gpuExe = firstExisting(zminerGpuCandidates({ gpuDir: this.o.gpuDir, root: this.o.root, env }))
     const gpuReady = gpuPackReady(gpuExe)
     const node = firstExisting(classicNodeCandidates({ binDir: this.o.binDir, root: this.o.root, platform, env }))
@@ -221,7 +223,7 @@ class ZpowManager extends EventEmitter {
       for (const s of [1, 2, 3, 4]) pools[s] = poolForShard(s, over)
     } catch (e) { pools.error = e.message }
     return {
-      cpu: { available: !!zminer, path: zminer },
+      cpu: { available: !!zminer && !noRosetta, path: zminer, reason: !zminer ? 'NO_ZMINER' : (noRosetta ? 'NO_ROSETTA' : null) },
       gpu: { available: gpuReady, path: gpuExe, solo: !!(node && cudart), node, cudart, reason: gpuReady ? null : 'NO_BINARY' },
       external: external && external.binary ? { available: fs.existsSync(external.binary), path: external.binary, solo: !!external.solo, id: external.id } : null,
       pools,
@@ -402,6 +404,11 @@ class ZpowManager extends EventEmitter {
 
     let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null
     if (backend === 'cpu') {
+      if (!caps.cpu.available && caps.cpu.reason === 'NO_ROSETTA') {
+        const err = new Error('zminer for macOS is an x86_64 build and needs Rosetta 2 on Apple Silicon. Run: softwareupdate --install-rosetta --agree-to-license')
+        err.code = 'NO_ROSETTA'
+        throw err
+      }
       if (!caps.cpu.available) {
         const err = new Error('zminer binary not found. Run scripts/build-zminer.sh and place zminer.exe in miner-bin/win32/, or set SCDO_ZMINER_EXE.')
         err.code = 'NO_ZMINER'

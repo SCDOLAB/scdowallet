@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- zminer is a static Go CPU miner: it needs no JIT, no unsigned memory and no network-server entitlement
+       outside the sandbox. Hardened runtime with an empty entitlement set. -->
+</dict>
+</plist>
