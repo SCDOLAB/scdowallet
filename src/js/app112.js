@@ -3989,7 +3989,7 @@
         if (miningBusy() || st.actStarting) break
         st.actStarting = true
         renderActBar()
-        askCat('開始挖礦').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
+        askCat('開始記帳').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
         break
       }
       case 'catOpen': if (!st.catOpen && $('aiCatAnim') && !CAT_ANIM.reduce) catAnimNext(); st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
@@ -3998,7 +3998,7 @@
       case 'catClose': case 'catLater': st.catOpen = false; renderCat(); break
       case 'catHide': localStorage.setItem('aiCat112', '0'); st.catOpen = false; renderCat(); toast(T('catHidden'), 7000); break
       case 'catType': { const row = $('aiCatInRow'); const b = $('catType'); if (row) row.hidden = false; if (b) b.hidden = true; const inp = $('aiCatIn'); if (inp) inp.focus(); break }
-      case 'catRow': { if (v === 'mine' && (miningBusy() || st.actStarting)) { st.catLog.push('你：' + catPhrase(v)); await applyCatPlan(window.SCDOCat.reply('停止挖礦', catCtx())); break } if (v === 'mine') st.actStarting = true; try { await askCat(catPhrase(v)) } finally { if (v === 'mine') st.actStarting = false } break }
+      case 'catRow': { if (v === 'mine' && (miningBusy() || st.actStarting)) { st.catLog.push('你：' + catPhrase(v)); await applyCatPlan(window.SCDOCat.reply('停止記帳', catCtx())); break } if (v === 'mine') st.actStarting = true; try { await askCat(catPhrase(v)) } finally { if (v === 'mine') st.actStarting = false } break }
       case 'catAsk': { const inp = $('aiCatIn'); askCat(inp ? inp.value : ''); if (inp) inp.value = ''; break }
       case 'catChip': askCat(v); break
       case 'catEnabled': localStorage.setItem('aiCat112', catOn() ? '0' : '1'); renderCat(); settingsModal(); break
@@ -4250,7 +4250,7 @@
   async function menuStartMining () {
     if (miningBusy() || st.actStarting) { toast(currentMinePill().t, 5000); return }
     st.actStarting = true
-    try { await askCat('開始挖礦', { quiet: true, toast: true }) } finally { st.actStarting = false }
+    try { await askCat('開始記帳', { quiet: true, toast: true }) } finally { st.actStarting = false }
   }
   function menuAction (a) {
     switch (a) {
@@ -4670,7 +4670,7 @@
   }
   async function askCat (text, opt) {
     const raw = String(text || '')
-    if (/開始挖礦|一鍵挖礦|也挖|自我修復|修復/.test(raw)) {
+    if (/開始挖礦|一鍵挖礦|也挖|開始記帳|一鍵記帳|也記帳|自我修復|修復/.test(raw)) {
       try { await ensureCaps() } catch (e) {}
       try { await ensureGpu() } catch (e) {}
       try { st.gpuTemp = await api.invoke('mining:gpuTemp') } catch (e) {}

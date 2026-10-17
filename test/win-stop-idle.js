@@ -163,7 +163,7 @@ async function main () {
   const esc = (s) => String(s == null ? '' : s)
   const page = mine.minePageHtml({ miners: ghostMiners, chains: { cpu: [], gpu: [1, 2, 3, 4] } }, T, esc)
   assert.ok(page.includes('已停止'))
-  assert.ok(page.includes('開始挖礦'))
+  assert.ok(page.includes('開始記帳'))
   assert.ok(!page.includes('正在停止'))
 
   const ui = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')

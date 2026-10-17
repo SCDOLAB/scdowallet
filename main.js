@@ -122,16 +122,16 @@ require('./src/main/remitService').register(ipcMain, walletService.decryptForRem
 function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
-    stopTitle: '停止挖礦 — SCDO Wallet', stopMsg: '確定要停止挖礦嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止挖礦'],
-    quitTitle: '結束 SCDO Wallet', quitMsg: '挖礦正在進行。確定要結束 SCDO Wallet 嗎？結束後挖礦會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
-    updated: '已更新', stopping: '正在停止挖礦 — SCDO Wallet',
-    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '挖礦和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
+    stopTitle: '停止記帳 — SCDO Wallet', stopMsg: '確定要停止記帳嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止記帳'],
+    quitTitle: '結束 SCDO Wallet', quitMsg: '記帳正在進行。確定要結束 SCDO Wallet 嗎？結束後記帳會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
+    updated: '已更新', stopping: '正在停止記帳 — SCDO Wallet',
+    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
   },
   EN: {
-    stopTitle: 'Stop mining — SCDO Wallet', stopMsg: 'Stop mining? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop mining'],
-    quitTitle: 'Quit SCDO Wallet', quitMsg: 'Mining is running. Quit SCDO Wallet? Mining will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
-    updated: 'updated', stopping: 'Stopping miner — SCDO Wallet',
-    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Mining and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
+    stopTitle: 'Stop bookkeeping — SCDO Wallet', stopMsg: 'Stop bookkeeping? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop bookkeeping'],
+    quitTitle: 'Quit SCDO Wallet', quitMsg: 'Bookkeeping is running. Quit SCDO Wallet? Bookkeeping will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
+    updated: 'updated', stopping: 'Stopping bookkeeping node — SCDO Wallet',
+    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
   }
 }
 function mt (k) { return (MT[uiLang()] || MT.CN)[k] }
@@ -439,7 +439,7 @@ function writeIntent (patch) {
     const fd = fs.openSync(tmp, 'w')
     try { fs.writeSync(fd, JSON.stringify(next, null, 2)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
     fs.renameSync(tmp, f)
-  } catch (e) { console.error('miner intent write failed', e) }
+  } catch (e) { console.error('bookkeeping node intent write failed', e) }
   return next
 }
 
@@ -587,8 +587,8 @@ ipcMain.handle('miner:resumeCheck', async () => {
     writeIntent({ guardWeakNoted: true })
     const cn = uiLang() !== 'EN'
     const line = plan && plan.virtual
-      ? (cn ? '虛擬機中挖礦效率極低，建議關閉' : 'Mining inside a virtual machine is very slow. Leaving it off is recommended.')
-      : (cn ? '此裝置不適合挖礦' : 'This computer is a poor fit for mining.')
+      ? (cn ? '虛擬機中記帳效率極低，建議關閉' : 'Bookkeeping inside a virtual machine is very slow. Leaving it off is recommended.')
+      : (cn ? '此裝置不適合記帳' : 'This computer is a poor fit for bookkeeping.')
     try { if (tray) tray.balloon('SCDO Wallet', line) } catch (e) {}
   }
   const autoResume = !!((it.autoResume && it.keepMining) || once) && !weak
@@ -609,7 +609,7 @@ ipcMain.handle('miner:stop', async (e, src) => {
   writeIntent(mineResume.afterStop(readIntent() || {}, 'shard0')) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
   // 3.1.4: say who stopped it. The cat's GPU heat guard is not the user.
-  const stopWho = src === 'heat' ? 'stop requested by the GPU heat guard (AI cat, card still too hot after the miner guard)' : 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')'
+  const stopWho = src === 'heat' ? 'stop requested by the GPU heat guard (AI cat, card still too hot after the bookkeeping node guard)' : 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop bookkeeping button') + ')'
   try { getMiner().log('wallet', stopWho) } catch (err) {}
   if (miner) await stopMinerVisibly(mainWindow)
   return { ok: true }
@@ -749,7 +749,7 @@ function createTray () {
       onKeepMining: (on) => setKeepMining(on),
       lang: uiLang(),
       onStop: async () => {
-        if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
+        if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop bookkeeping: cancelled by the user') } catch (err) {} return }
         writeIntent(mineResume.afterStop(readIntent() || {}, 'all')); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
         if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
         try { await stopClassic(undefined, { endSession: true }) } catch (err) { console.error('classic stop failed', err) }
@@ -916,7 +916,7 @@ function createWindow () {
     e.preventDefault()
     if (!tray) { requestQuit({ confirm: true, reason: 'window close without tray' }); return }
     mainWindow.hide()
-    try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, mining/node unchanged') } catch (err) {}
+    try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, bookkeeping/node unchanged') } catch (err) {}
     if (!hintShown && process.platform === 'win32' && tray.balloon) { hintShown = true; tray.balloon(mt('trayHidden'), mt('trayHiddenMsg')) }
   })
   mainWindow.on('session-end', () => { quitting = true; try { getNotifier().markUserStop() } catch (e) {} }) // Windows log-off / shutdown (no 'mining stopped' notification)
@@ -951,7 +951,7 @@ if (!app.requestSingleInstanceLock()) {
     // 1.1.5: stop the wallet's own miner processes left over from an earlier session (never other Rigel/geth)
     startupCleanup = getMiner().cleanupStale().then(() => {
       try { settleStaleRunFlags() } catch (e) { console.error('stale run flags', e) }
-    }).catch(err => { console.error('miner cleanup failed', err); return [] })
+    }).catch(err => { console.error('bookkeeping node cleanup failed', err); return [] })
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }

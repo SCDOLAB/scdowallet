@@ -8,8 +8,8 @@
   }
   function fmtHash (x) {
     const n = grouped(x)
-    if (!n || !(Number(x) > 0)) return M.L('Mining speed is still being worked out')
-    return M.L('Mining speed ') + n + M.L(' tries per second')
+    if (!n || !(Number(x) > 0)) return M.L('Bookkeeping speed (H/s) is still being worked out')
+    return M.L('Bookkeeping speed (H/s) ') + n + M.L(' tries per second')
   }
   function fmtInt (s) { try { return BigInt(s).toLocaleString('en-US') } catch (e) { return String(s) } }
   function fmtShare (p) {
@@ -38,18 +38,18 @@
       : M.L('The time between blocks is still being worked out')
     const heightLine = M.L('Block ') + fmtInt(s.height) + M.L(' on the ledger')
     const diffLine = M.L('Difficulty ') + fmtInt(s.difficulty)
-    const yours = s.localHashrate > 0 ? fmtHash(s.localHashrate) : M.L('You are not mining yet, so there is no speed')
+    const yours = s.localHashrate > 0 ? fmtHash(s.localHashrate) : M.L('You are not bookkeeping yet, so there is no speed')
     const share = fmtShare(s.sharePercent)
     const netSpeed = fmtHash(s.networkHashrate)
     card.appendChild(h('div', { class: 'stats' + (stale ? ' m1-stale' : '') },
-      explain(M.L('Network mining speed'), netSpeed, 'nsHash', { name: M.L('Network mining speed'), explain: M.L('Speed means how many tries happen each second. More tries make a block more likely.'), detail: M.L('This is an estimate for the whole network, not a promise.') }),
-      explain(M.L('Mining difficulty'), diffLine, 'nsDiff', { name: M.L('Mining difficulty'), explain: M.L('Difficulty is how hard it is to find the next block. A bigger number needs more tries.') }),
+      explain(M.L('Network bookkeeping speed (H/s)'), netSpeed, 'nsHash', { name: M.L('Network bookkeeping speed (H/s)'), explain: M.L('Speed means how many tries happen each second. More tries make a block more likely.'), detail: M.L('This is an estimate for the whole network, not a promise.') }),
+      explain(M.L('Bookkeeping difficulty'), diffLine, 'nsDiff', { name: M.L('Bookkeeping difficulty'), explain: M.L('Difficulty is how hard it is to find the next block. A bigger number needs more tries.') }),
       explain(M.L('Time between blocks'), blockLine, 'nsBlockTime', { name: M.L('Time between blocks'), explain: M.L('This is the average wait between blocks. It changes when the network changes.') }),
       explain(M.L('How far the ledger has been written'), heightLine, 'nsHeight', { name: M.L('How far the ledger has been written'), explain: M.L('This is how far this chain\'s ledger has been written.') }),
-      explain(M.L('Your mining speed'), yours, 'nsLocal', { name: M.L('Your mining speed'), explain: M.L('This is your computer\'s mining speed. It is zero until mining starts.') }),
-      explain(M.L('Your share of mining'), share, 'nsShare', { name: M.L('Your share of mining'), explain: M.L('This is your computer\'s share of all the tries on the network.') })))
-    card.appendChild(h('div', { class: 'lbl', text: M.L('As of ') + new Date(s.asOf).toLocaleString(M.locale()) + M.L(' · source: ') + sourceText(s) + M.L(' · mining speed is tries per second, estimated from difficulty and the average time between blocks') }))
-    card.appendChild(h('div', { class: 'm1-disc', text: M.L('Figures are estimates derived from current network data and change constantly; they are not a forecast. Mining uses your hardware and electricity and can add heat, noise and wear.') }))
+      explain(M.L('Your bookkeeping speed (H/s)'), yours, 'nsLocal', { name: M.L('Your bookkeeping speed (H/s)'), explain: M.L('This is your computer\'s bookkeeping speed (H/s). It is zero until bookkeeping starts.') }),
+      explain(M.L('Your share of bookkeeping'), share, 'nsShare', { name: M.L('Your share of bookkeeping'), explain: M.L('This is your computer\'s share of all the tries on the network.') })))
+    card.appendChild(h('div', { class: 'lbl', text: M.L('As of ') + new Date(s.asOf).toLocaleString(M.locale()) + M.L(' · source: ') + sourceText(s) + M.L(' · bookkeeping speed (H/s) is tries per second, estimated from difficulty and the average time between blocks') }))
+    card.appendChild(h('div', { class: 'm1-disc', text: M.L('Figures are estimates derived from current network data and change constantly; they are not a forecast. Bookkeeping uses your hardware and electricity and can add heat, noise and wear.') }))
     return card
   }
   M.MiningNetworkStats = { render, fmtHash }

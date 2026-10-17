@@ -198,16 +198,16 @@ assert.strictEqual(plan.observeReadback({ running: false, threads: 2 }, { runnin
 for (const reason of ['電池', '全螢幕', '記憶體']) {
   assert.deepStrictEqual(plan.trayView({ phase: 'paused', reason }), { colour: 'blue', reason })
 }
-assert.strictEqual(plan.TRAY_COPY.green.CN, '正在挖礦 · 已自動避開你的使用高峰')
+assert.strictEqual(plan.TRAY_COPY.green.CN, '正在記帳 · 已自動避開你的使用高峰')
 assert.strictEqual(plan.TRAY_COPY.yellow.CN, '你在忙，我先緩緩，空閒了自動繼續')
 assert.strictEqual(plan.TRAY_COPY.blue.CN, '已暫停(全螢幕/電池/記憶體原因)，條件恢復後自動繼續')
-assert.strictEqual(plan.TRAY_COPY.red.CN, '挖礦遇到麻煩，已停止重試 — 點我查看詳情')
-assert.strictEqual(plan.TRAY_COPY.green.EN, 'Mining · automatically stays out of your way')
+assert.strictEqual(plan.TRAY_COPY.red.CN, '記帳遇到麻煩，已停止重試 — 點我查看詳情')
+assert.strictEqual(plan.TRAY_COPY.green.EN, 'Bookkeeping · automatically stays out of your way')
 assert.strictEqual(plan.TRAY_COPY.yellow.EN, "You're busy — I've slowed down and will resume when you're idle")
 assert.strictEqual(plan.TRAY_COPY.blue.EN, 'Paused (fullscreen / on battery / low memory) — resumes automatically')
-assert.strictEqual(plan.TRAY_COPY.red.EN, 'Mining hit a snag and stopped retrying — click for details')
-assert.strictEqual(plan.FIRST_RUN.CN, '開啟挖礦後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。')
-assert.strictEqual(plan.FIRST_RUN.EN, 'Once enabled, mining automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.')
+assert.strictEqual(plan.TRAY_COPY.red.EN, 'Bookkeeping hit a snag and stopped retrying — click for details')
+assert.strictEqual(plan.FIRST_RUN.CN, '開啟記帳後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。')
+assert.strictEqual(plan.FIRST_RUN.EN, 'Once enabled, bookkeeping automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.')
 assert.ok(!/CPU/.test(plan.TRAY_COPY.green.EN + plan.TRAY_COPY.yellow.EN + plan.TRAY_COPY.blue.EN + plan.TRAY_COPY.red.EN))
 
 function alive (over) {
@@ -282,7 +282,7 @@ r = plan.stepGuard(r.state, alive({ ramFreePct: 10 }), t0 + 120000)
 assert.strictEqual(r.state.memStage, 2)
 assert.ok(r.actions.some(a => a.type === 'restart-child'))
 assert.ok(!r.actions.some(a => a.type === 'pause'))
-assert.strictEqual(r.state.lastAction, '重新啟動挖礦程式')
+assert.strictEqual(r.state.lastAction, '重新啟動記帳節點')
 r = plan.stepGuard(r.state, alive({ commitPct: 91, ramFreePct: 50 }), t0 + 180000)
 assert.strictEqual(r.state.memStage, 3)
 assert.strictEqual(r.state.paused, true)
@@ -400,7 +400,7 @@ assert.ok(r.actions.some(a => a.type === 'tray-note' && a.reason === '虛擬機'
 r = plan.stepGuard(r.state, alive({ virtualMachine: true }), 2000)
 assert.ok(!r.actions.some(a => a.reason === '虛擬機'))
 r = plan.stepGuard(quiet(), alive({ unsuitable: true }), 1000)
-assert.ok(r.actions.some(a => a.type === 'tray-note' && a.text === '此裝置不適合挖礦'))
+assert.ok(r.actions.some(a => a.type === 'tray-note' && a.text === '此裝置不適合記帳'))
 r = plan.stepGuard(quiet(), alive({ diskLow: true }), 1000)
 assert.strictEqual(r.state.reason, '磁碟')
 r = plan.stepGuard(quiet(), alive({ suspended: true }), 1000)
@@ -521,7 +521,7 @@ guardWin.readSample().then(async sample => {
   const CN = box.window.I18N112.CN
   const EN = box.window.I18N112.EN
   assert.strictEqual(CN.guardSmooth, '保護電腦流暢（建議開啟）')
-  assert.strictEqual(CN.guardSmoothHint, '溫馨提醒：挖礦時我們會讓出部分 CPU，讓電腦保持順暢。')
+  assert.strictEqual(CN.guardSmoothHint, '溫馨提醒：記帳時我們會讓出部分 CPU，讓電腦保持順暢。')
   assert.strictEqual(CN.guardLow, '較低的程式優先順序（建議開啟）')
   assert.strictEqual(EN.guardSmooth, 'Keep the computer responsive (recommended)')
   assert.strictEqual(EN.guardLow, 'Lower program priority (recommended)')
@@ -654,10 +654,10 @@ guardWin.readSample().then(async sample => {
   const calm = { platform: 'linux', skipped: false, inputAgeMs: 120000, cpuPct: 10, fullscreen: false, onBattery: false, batteryPct: 100, ramFreePct: 50, commitPct: 20, procs: {} }
   const mem = machine(calm, 5)
   await mem.tick()
-  assert.deepStrictEqual(mem.log, [], 'before the miner starts the guard must not pretend it changed threads')
+  assert.deepStrictEqual(mem.log, [], 'before the bookkeeping node starts the guard must not pretend it changed threads')
   mem.launch(5)
   await mem.tick()
-  assert.ok(!mem.log.some(e => e.startsWith('restart')), 'a miner already at 5 is left alone')
+  assert.ok(!mem.log.some(e => e.startsWith('restart')), 'a bookkeeping node already at 5 is left alone')
   calm.ramFreePct = 10
   mem.add(60000)
   await mem.tick()
@@ -673,7 +673,7 @@ guardWin.readSample().then(async sample => {
   mem.add(60000)
   await mem.tick()
   assert.ok(mem.log.includes('pause'), mem.log.join(','))
-  assert.ok(mem.pri.includes(true), 'a reduced miner is actually put at low priority')
+  assert.ok(mem.pri.includes(true), 'a reduced bookkeeping node is actually put at low priority')
   assert.ok(!mem.log.some(e => String(e).includes('guard readback mismatch')))
   mem.stop()
 

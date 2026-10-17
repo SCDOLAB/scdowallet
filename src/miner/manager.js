@@ -445,13 +445,13 @@ class MinerManager extends EventEmitter {
   async ensureRigel () {
     const exe = this.rigelPath()
     if (fs.existsSync(exe)) return exe
-    if (this.o.platform === 'darwin') { const e = new Error('The Mac graphics card miner (scdo-clminer) is missing from the app – reinstall SCDO Wallet.'); e.code = 'ERROR'; throw e }
+    if (this.o.platform === 'darwin') { const e = new Error('The Mac graphics card bookkeeping node (scdo-clminer) is missing from the app – reinstall SCDO Wallet.'); e.code = 'ERROR'; throw e }
     const r = RIGEL[this.o.platform === 'win32' ? 'win32' : 'linux']
     fs.mkdirSync(this.minerDir, { recursive: true })
     const archive = path.join(this.minerDir, r.file)
     if (!(fs.existsSync(archive) && await sha256File(archive) === r.sha256)) {
       const url = 'https://github.com/rigelminer/rigel/releases/download/' + RIGEL.version + '/' + r.file
-      this.set({ phase: 'downloading', code: 'DOWNLOADING', message: 'Downloading Rigel ' + RIGEL.version + ' (NVIDIA miner, ~56 MB) from github.com/rigelminer ...' })
+      this.set({ phase: 'downloading', code: 'DOWNLOADING', message: 'Downloading Rigel ' + RIGEL.version + ' (NVIDIA bookkeeping node, ~56 MB) from github.com/rigelminer ...' })
       let last = 0
       await download(url, archive, (got, total) => {
         const now = Date.now(); if (now - last > 500) { last = now; this.set({ download: { got, total } }) }
@@ -464,7 +464,7 @@ class MinerManager extends EventEmitter {
     else await run('tar', ['-xzf', archive, '-C', this.minerDir])
     await new Promise(resolve => setTimeout(resolve, 2000)) // give Defender a moment to act
     if (!fs.existsSync(exe)) {
-      const err = new Error('DEFENDER: rigel.exe disappeared after extraction – Windows Defender most likely quarantined it (all GPU miners are flagged as "potentially unwanted"). Click "Allow miner in Windows Defender" and start again.')
+      const err = new Error('DEFENDER: rigel.exe disappeared after extraction – Windows Defender most likely quarantined it (all GPU bookkeeping nodes are flagged as "potentially unwanted"). Click "Allow bookkeeping node in Windows Defender" and start again.')
       err.code = 'DEFENDER'; throw err
     }
     return exe
@@ -513,8 +513,8 @@ class MinerManager extends EventEmitter {
 
   scheduleRestart (name, code) {
     if (!this.keepMining()) {
-      this.log('wallet', name + ' exited (code ' + code + ') – "Keep mining" is off, so nothing is restarted; stopping the miner')
-      const msg = name + ' exited unexpectedly. Keep mining is off, so the miner was stopped and not restarted.'
+      this.log('wallet', name + ' exited (code ' + code + ') – "Keep bookkeeping" is off, so nothing is restarted; stopping the bookkeeping node')
+      const msg = name + ' exited unexpectedly. Keep bookkeeping is off, so the bookkeeping node was stopped and not restarted.'
       this.set({ phase: 'stopped', code: 'EXITED', lastError: null, message: msg })
       this.stop({ keepError: false, finalCode: 'EXITED', finalMessage: msg }).catch(() => {})
       return
@@ -616,7 +616,7 @@ class MinerManager extends EventEmitter {
     if (this.wantRunning) throw new Error('already running')
     const team = mode !== 'node' ? this.teamPayout() : null
     if (team && String(team).toLowerCase() !== String(wallet || '').toLowerCase()) wallet = team
-    if (mode !== 'node' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid mining address ' + wallet)
+    if (mode !== 'node' && (!/^0x[0-9a-fA-F]{40}$/.test(wallet || '') || /^0x0{40}$/.test(wallet))) throw new Error('invalid bookkeeping address ' + wallet)
     let poolUrl = null
     if (mode === 'pool') {
       poolUrl = MinerManager.validPoolUrl(opts.poolUrl)
@@ -627,7 +627,7 @@ class MinerManager extends EventEmitter {
     if (mode !== 'node' && !opts.noRigel && !this.o.rigelExe) {
       gpuPick = await this.gpu()
       if (!miningGpuReady(gpuPick) && this.o.platform === 'darwin') { const e = new Error('Mac graphics card not supported yet – no suitable Apple graphics chip was found.'); e.code = 'NO_NVIDIA'; throw e }
-      if (!miningGpuReady(gpuPick)) { const e = new Error('No NVIDIA GPU found on this PC – GPU mining is not possible. Use "Run node only".'); e.code = 'NO_NVIDIA'; throw e }
+      if (!miningGpuReady(gpuPick)) { const e = new Error('No NVIDIA GPU found on this PC – GPU bookkeeping is not possible. Use "Run node only".'); e.code = 'NO_NVIDIA'; throw e }
       this.cudaDevices = (gpuPick.mineDevices || []).filter(n => Number.isInteger(n) && n >= 0)
     }
     fs.mkdirSync(this.logDir, { recursive: true })
@@ -671,7 +671,7 @@ class MinerManager extends EventEmitter {
         this.state.ports = { rigelApi: PORTS.rigelApi }
         this.log('wallet', 'pool mode: connecting Rigel to ' + poolUrl)
         if (!opts.noRigel) this.startRigel()
-        this.set({ phase: 'mining', code: 'MINING_STARTING', message: 'Connecting to the pool and starting the GPU miner ...' })
+        this.set({ phase: 'mining', code: 'MINING_STARTING', message: 'Connecting to the pool and starting the GPU bookkeeping node ...' })
         this.poller = setInterval(() => { if (this._polling) return; this._polling = true; this.poll().catch(() => {}).then(() => { this._polling = false }) }, 3000)
       } catch (e) {
         this.set({ phase: 'error', code: e.code || 'ERROR', lastError: e.code || e.message, message: e.message })
@@ -685,7 +685,7 @@ class MinerManager extends EventEmitter {
       if (!this.wantRunning) return
       const ports = await this.choosePorts()
       this.state.ports = Object.assign({}, ports)
-      if (ports.http !== BASE_PORTS.http) this.log('wallet', 'default ports busy (another SCDO node/miner?) – using ' + JSON.stringify(ports))
+      if (ports.http !== BASE_PORTS.http) this.log('wallet', 'default ports busy (another SCDO node/bookkeeping node?) – using ' + JSON.stringify(ports))
       await this.ensureChain()
       if (!this.wantRunning) return
       this.set({ phase: 'starting', code: 'STARTING', message: mode === 'node' ? 'Starting the local SCDO node ...' : 'Starting the local SCDO node and stratum proxy ...' })
@@ -731,7 +731,7 @@ class MinerManager extends EventEmitter {
         networkHeight(this.o.refRpc, 8000).then(n => { if (n != null) this.set({ networkBlock: n }) })
         networkDifficulty(this.o.refRpc, 8000).then(d => { if (d != null) this.set({ networkDifficulty: d }) })
       }
-      if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Mining on pool ' + this.state.poolUrl } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU miner starting / connecting to the pool ...' }
+      if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Bookkeeping on pool ' + this.state.poolUrl } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU bookkeeping node starting / connecting to the pool ...' }
       this.set(patch); return
     }
     const L = this.external ? this.external.url : 'http://127.0.0.1:' + PORTS.http
@@ -765,7 +765,7 @@ class MinerManager extends EventEmitter {
       const synced = !syncing && patch.peers > 0 && (nb == null || patch.localBlock >= nb - 3)
       patch.phase = synced ? 'node' : 'syncing'
       patch.code = synced ? 'NODE_RUNNING' : (patch.peers > 0 ? 'SYNCING' : 'NO_PEERS')
-      patch.message = synced ? 'Node running (no mining) – synced, block ' + patch.localBlock : 'Syncing: local block ' + patch.localBlock + ' / network ' + (nb == null ? '?' : nb) + ', peers ' + patch.peers
+      patch.message = synced ? 'Node running (no bookkeeping) – synced, block ' + patch.localBlock : 'Syncing: local block ' + patch.localBlock + ' / network ' + (nb == null ? '?' : nb) + ', peers ' + patch.peers
       this.set(patch); return
     }
     try { patch.balanceWei = BigInt(await rpc(L, 'eth_getBalance', [this.state.wallet, 'latest'])).toString() } catch (e) {}
@@ -773,12 +773,12 @@ class MinerManager extends EventEmitter {
       patch.code = patch.peers > 0 ? 'SYNCING' : 'NO_PEERS'
       patch.message = 'Syncing: local block ' + patch.localBlock + ' / network ' + (this.state.networkBlock == null ? '?' : this.state.networkBlock) + ', peers ' + patch.peers
       if (mining) {
-        if (this.opts && this.opts.noRigel) { patch.phase = 'ready'; patch.code = 'WORK_READY'; patch.message = 'Node synced, work ready (node only, no GPU miner started)' } else {
-          this.startRigel(); patch.phase = 'mining'; patch.code = 'MINING_STARTING'; patch.message = 'Node synced, starting the GPU miner (Rigel) ...'
+        if (this.opts && this.opts.noRigel) { patch.phase = 'ready'; patch.code = 'WORK_READY'; patch.message = 'Node synced, work ready (node only, no GPU bookkeeping node started)' } else {
+          this.startRigel(); patch.phase = 'mining'; patch.code = 'MINING_STARTING'; patch.message = 'Node synced, starting the GPU bookkeeping node (Rigel) ...'
         }
       }
     } else if (this.state.phase === 'ready') {
-      patch.code = 'WORK_READY'; patch.message = 'Node synced, work ready (node only, no GPU miner started)'
+      patch.code = 'WORK_READY'; patch.message = 'Node synced, work ready (node only, no GPU bookkeeping node started)'
     } else if (this.state.phase === 'mining') {
       let hr = null
       try {
@@ -789,7 +789,7 @@ class MinerManager extends EventEmitter {
         if (sh) { patch.rigelShares = sh; patch.sharesAccepted = sh.accepted; patch.sharesRejected = sh.rejected; patch.sharesSeen = true }
       } catch (e) {}
       // B3: only say "mining" when the GPU really produces hashes
-      if (this.state.paused) { patch.code = 'PAUSED'; patch.message = 'Paused by the proxy (node lost peers or out of sync) – resumes automatically' } else if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Mining to ' + this.state.wallet } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU miner starting (building the DAG) ...' }
+      if (this.state.paused) { patch.code = 'PAUSED'; patch.message = 'Paused by the proxy (node lost peers or out of sync) – resumes automatically' } else if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Bookkeeping to ' + this.state.wallet } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU bookkeeping node starting (building the DAG) ...' }
     }
     this.set(patch)
   }
@@ -1105,8 +1105,8 @@ class MinerManager extends EventEmitter {
     procs = (await this.listMinerProcs()).filter(p => !mine.includes(p.pid) && this.isOwnProc(p))
     if (!procs.length) return []
     this.cleaning = true
-    this.set({ code: 'CLEANUP', message: 'Stopping miner processes left over from an earlier session (saving the chain data) ...' })
-    this.log('wallet', 'found leftover miner processes from an earlier session: ' + procs.map(p => p.name + '#' + p.pid).join(', '))
+    this.set({ code: 'CLEANUP', message: 'Stopping bookkeeping node processes left over from an earlier session (saving the chain data) ...' })
+    this.log('wallet', 'found leftover bookkeeping node processes from an earlier session: ' + procs.map(p => p.name + '#' + p.pid).join(', '))
     const done = []
     try {
       for (const n of ['rigel', 'scdo-stratum', 'geth']) {

@@ -11,8 +11,8 @@ function fmtHash (h, lang) {
   const raw = Number(h)
   const n = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
   const num = n.toLocaleString('en-US')
-  if (lang === 'CN') return '挖礦速度 每秒 ' + num + ' 次'
-  return 'Mining speed ' + num + ' tries per second'
+  if (lang === 'CN') return '記帳速度 (H/s) 每秒 ' + num + ' 次'
+  return 'Bookkeeping speed (H/s) ' + num + ' tries per second'
 }
 
 // state of the badge for a miner status object
@@ -26,8 +26,8 @@ function badgeState (st) {
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 華語繁體)
 const TL = {
-  EN: { show: 'Show SCDO Wallet', notMining: 'Not mining', minerError: 'Miner error', nodeOnly: 'Node only (not mining)', nodeOnlyShort: 'Node only', mining: 'Mining: ', starting: 'Miner starting…', stop: 'Stop mining', keep: 'Keep mining (restart the miner if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume mining' },
-  CN: { show: '顯示 SCDO Wallet', notMining: '未在挖礦', minerError: '挖礦程式出錯', nodeOnly: '只執行節點（未挖礦）', nodeOnlyShort: '只執行節點', mining: '挖礦中：', starting: '挖礦程式啟動中…', stop: '停止挖礦', keep: '持續挖礦（挖礦程式退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復挖礦' }
+  EN: { show: 'Show SCDO Wallet', notMining: 'Not bookkeeping', minerError: 'Bookkeeping node error', nodeOnly: 'Node only (not bookkeeping)', nodeOnlyShort: 'Node only', mining: 'Bookkeeping: ', starting: 'Bookkeeping node starting…', stop: 'Stop bookkeeping', keep: 'Keep bookkeeping (restart the bookkeeping node if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume bookkeeping' },
+  CN: { show: '顯示 SCDO Wallet', notMining: '未在記帳', minerError: '記帳節點出錯', nodeOnly: '只執行節點（未記帳）', nodeOnlyShort: '只執行節點', mining: '記帳中：', starting: '記帳節點啟動中…', stop: '停止記帳', keep: '持續記帳（記帳節點退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復記帳' }
 }
 // The tray paints guard.colour from the snapshot. It does not write the state machine.
 function guardLine (st, lang) {
@@ -72,15 +72,15 @@ const ACTION_EN = {
   '重新啟動太多次，已暫停': 'Paused after too many restarts',
   '執行緒減半': 'Thread count cut in half',
   '恢復執行緒': 'Thread count restored',
-  '重新啟動挖礦程式': 'Miner program restarted',
+  '重新啟動記帳節點': 'Bookkeeping node restarted',
   '溫度過高，已降低強度': 'Graphics card is hot, so intensity is lower',
   '因睡眠暫停': 'Paused while the computer sleeps',
-  '磁碟空間不足，已暫停挖礦': 'Paused because the disk is nearly full',
+  '磁碟空間不足，已暫停記帳': 'Paused because the disk is nearly full',
   '已暫停一段時間': 'Paused for a while',
   '異常': 'abnormal',
-  '挖礦遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。': 'Mining stopped retrying. Allow the wallet in your security software.',
-  '此裝置不適合挖礦': 'This computer is a poor fit for mining',
-  '虛擬機中挖礦效率極低，建議關閉': 'Mining inside a virtual machine is very slow. Leaving it off is recommended.'
+  '記帳遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。': 'Bookkeeping stopped retrying. Allow the wallet in your security software.',
+  '此裝置不適合記帳': 'This computer is a poor fit for bookkeeping',
+  '虛擬機中記帳效率極低，建議關閉': 'Bookkeeping inside a virtual machine is very slow. Leaving it off is recommended.'
 }
 
 function panelHtml (guard, lang) {
@@ -90,10 +90,10 @@ function panelHtml (guard, lang) {
   const rows = chains.length ? chains.map(c => {
     const when = c.lastShareAt ? new Date(c.lastShareAt).toLocaleString() : (cn ? '—' : '-')
     const speed = c.hashrate > 0 ? fmtHash(c.hashrate, cn ? 'CN' : 'EN') : (cn ? '—' : '-')
-    const name = (c.shard === 0 || c.shard) ? ('Shard' + c.shard) : (cn ? '挖礦' : 'Mining')
+    const name = (c.shard === 0 || c.shard) ? ('Shard' + c.shard) : (cn ? '記帳' : 'Bookkeeping')
     return '<tr><td>' + escHtml(name) + '</td><td>' + escHtml(c.status || '') + '</td><td>' + escHtml(speed) + '</td><td>' + escHtml(when) + '</td></tr>'
-  }).join('') : '<tr><td colspan="4">' + (cn ? '未在挖礦' : 'Not mining') + '</td></tr>'
-  const title = cn ? '挖礦狀態' : 'Mining status'
+  }).join('') : '<tr><td colspan="4">' + (cn ? '未在記帳' : 'Not bookkeeping') + '</td></tr>'
+  const title = cn ? '記帳狀態' : 'Bookkeeping status'
   const heads = cn ? ['鏈', '狀態', '速度', '上次份額'] : ['Chain', 'Status', 'Speed', 'Last share']
   const actionRaw = g.lastAction ? (cn ? g.lastAction : (ACTION_EN[g.lastAction] || g.lastAction)) : ''
   const action = actionRaw ? escHtml(actionRaw) : (cn ? '—' : '-')
@@ -224,7 +224,7 @@ class TrayStatus {
     if (process.platform === 'win32' && w && !w.isDestroyed() && overlay !== this.lastBadge) {
       this.lastBadge = overlay
       const badge = overlay === 'blue' ? this.colourIcon('blue') : this.badges[overlay]
-      const caption = overlay === 'green' ? 'Mining' : overlay === 'red' ? 'Miner error' : overlay === 'blue' ? 'Paused' : 'Not mining'
+      const caption = overlay === 'green' ? 'Bookkeeping' : overlay === 'red' ? 'Bookkeeping node error' : overlay === 'blue' ? 'Paused' : 'Not bookkeeping'
       if (badge) w.setOverlayIcon(badge, caption)
     }
     const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5)].join('|')

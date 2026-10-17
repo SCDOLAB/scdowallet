@@ -38,7 +38,7 @@ function macPreflight (res, minerGpu) {
   for (const a of list) {
     const ok = !!a.ready
     res.gpus.push({ vendor: 'Apple', deviceName: a.name, vramGB: Math.round((a.globalMB || 0) / 1024 * 10) / 10, driverVersion: 'OpenCL', cuda: false, status: ok ? 'ready' : 'notReady',
-      reasons: [ok ? 'All pre-flight checks passed.' : 'Not enough graphics memory for Shard0 mining on this Mac graphics card.'] })
+      reasons: [ok ? 'All pre-flight checks passed.' : 'Not enough graphics memory for Shard0 bookkeeping on this Mac graphics card.'] })
   }
   res.supported = res.gpus.some(g => g.status === 'ready')
   return res
@@ -73,9 +73,9 @@ async function gpuPreflight (minerGpu) {
   }
   for (const g of res.gpus) {
     const reasons = []; let status = 'ready'
-    if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in miner (Rigel) supports NVIDIA graphics cards only.') } else {
+    if (g.vendor !== 'NVIDIA') { status = 'notReady'; reasons.push('The built-in bookkeeping node (Rigel) supports NVIDIA graphics cards only.') } else {
       if (!g.driverVersion) { status = 'notReady'; reasons.push('NVIDIA driver not detected. Install the NVIDIA graphics driver.') }
-      if (!g.cuda) { status = 'notReady'; reasons.push('The driver needed for graphics-card mining was not found. Install or repair the latest NVIDIA graphics driver.') }
+      if (!g.cuda) { status = 'notReady'; reasons.push('The driver needed for graphics-card bookkeeping was not found. Install or repair the latest NVIDIA graphics driver.') }
       if (g.vramApprox && g.vramGB > 0 && g.vramGB <= 4) { if (status === 'ready') status = 'warn'; reasons.push('Graphics memory could not be measured exactly (nvidia-smi unavailable).') } else if (g.vramGB > 0 && g.vramGB < MIN_VRAM_GB) { status = 'notReady'; reasons.push('Not enough graphics memory: at least ' + MIN_VRAM_GB + ' GB is required, found ' + g.vramGB + ' GB.') }
     }
     if (!reasons.length) reasons.push('All pre-flight checks passed.')
@@ -163,9 +163,9 @@ function tailFile (f, maxBytes) {
 async function exportLogs (win, miner, appInfo) {
   const logDir = miner ? miner.logDir : null
   const parts = []
-  parts.push('SCDO Wallet ' + appInfo.version + ' mining log export (sanitized: keys and hashes removed, addresses shortened, user name removed)')
+  parts.push('SCDO Wallet ' + appInfo.version + ' bookkeeping log export (sanitized: keys and hashes removed, addresses shortened, user name removed)')
   parts.push('Exported: ' + new Date().toISOString() + '  Platform: ' + process.platform + ' ' + process.arch)
-  if (miner) { const s = miner.status(); parts.push('Miner: mode=' + (s.mode || '-') + ' code=' + s.code + ' running=' + s.running + ' hashrate=' + (s.hashrate || 0) + ' H/s') }
+  if (miner) { const s = miner.status(); parts.push('Bookkeeping node: mode=' + (s.mode || '-') + ' code=' + s.code + ' running=' + s.running + ' hashrate=' + (s.hashrate || 0) + ' H/s') }
   for (const n of ['wallet-miner.log', 'rigel.log', 'proxy.log', 'geth.log']) {
     const t = logDir ? tailFile(path.join(logDir, n), 512 * 1024) : ''
     if (t) parts.push('\n===== ' + n + ' (last 512 KB) =====\n' + t)
@@ -174,7 +174,7 @@ async function exportLogs (win, miner, appInfo) {
   const text = sanitizeLog(parts.join('\n'), [os.userInfo().username, os.hostname()])
   const def = path.join(require('electron').app.getPath('documents'), 'scdo-wallet-mining-log-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.txt')
   const { dialog } = require('electron')
-  const r = await dialog.showSaveDialog(win, { title: 'Export mining logs (sanitized)', defaultPath: def, filters: [{ name: 'Text', extensions: ['txt'] }] })
+  const r = await dialog.showSaveDialog(win, { title: 'Export bookkeeping logs (sanitized)', defaultPath: def, filters: [{ name: 'Text', extensions: ['txt'] }] })
   if (!r || r.canceled || !r.filePath) return { ok: false, canceled: true }
   fs.writeFileSync(r.filePath, text)
   return { ok: true, file: r.filePath, bytes: Buffer.byteLength(text) }

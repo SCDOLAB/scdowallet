@@ -42,15 +42,15 @@ const ARCH_RULES = {
 }
 
 const TRAY_COPY = {
-  green: { CN: '正在挖礦 · 已自動避開你的使用高峰', EN: 'Mining · automatically stays out of your way' },
+  green: { CN: '正在記帳 · 已自動避開你的使用高峰', EN: 'Bookkeeping · automatically stays out of your way' },
   yellow: { CN: '你在忙，我先緩緩，空閒了自動繼續', EN: "You're busy — I've slowed down and will resume when you're idle" },
   blue: { CN: '已暫停(全螢幕/電池/記憶體原因)，條件恢復後自動繼續', EN: 'Paused (fullscreen / on battery / low memory) — resumes automatically' },
-  red: { CN: '挖礦遇到麻煩，已停止重試 — 點我查看詳情', EN: 'Mining hit a snag and stopped retrying — click for details' }
+  red: { CN: '記帳遇到麻煩，已停止重試 — 點我查看詳情', EN: 'Bookkeeping hit a snag and stopped retrying — click for details' }
 }
 
 const FIRST_RUN = {
-  CN: '開啟挖礦後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。',
-  EN: 'Once enabled, mining automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.'
+  CN: '開啟記帳後，它會自動在你使用電腦時讓行、全螢幕和用電池時暫停 —— 不打擾，是你的。',
+  EN: 'Once enabled, bookkeeping automatically yields while you work, and pauses during fullscreen apps and on battery — it stays out of your way.'
 }
 
 const COLOUR_RANK = { red: 4, yellow: 3, blue: 2, green: 1 }
@@ -62,10 +62,10 @@ const PAUSE_TEXT = {
   '記憶體': '因記憶體暫停',
   '重新啟動': '重新啟動太多次，已暫停',
   '睡眠': '因睡眠暫停',
-  '磁碟': '磁碟空間不足，已暫停挖礦',
+  '磁碟': '磁碟空間不足，已暫停記帳',
   '手動': '已暫停一段時間',
-  '異常': '挖礦遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。',
-  '不適合': '此裝置不適合挖礦'
+  '異常': '記帳遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。',
+  '不適合': '此裝置不適合記帳'
 }
 
 function classifyCores (groups) {
@@ -390,7 +390,7 @@ function stepGuard (state, sample, now) {
     s.restartDue = 0
     s.childBornAt = null
     s.lastProgressAt = now
-    s.lastAction = '自動重試挖礦'
+    s.lastAction = '自動重試記帳'
   }
 
   if (s.sleepHeld && !sample.suspended && !sample.wakeHold) {
@@ -412,12 +412,12 @@ function stepGuard (state, sample, now) {
 
   if (sample.virtualMachine && !s.vmNoted) {
     s.vmNoted = true
-    s.lastAction = '虛擬機中挖礦效率極低，建議關閉'
+    s.lastAction = '虛擬機中記帳效率極低，建議關閉'
     actions.push({ type: 'tray-note', reason: '虛擬機', text: s.lastAction })
   }
   if (sample.unsuitable && !s.unsuitableNoted) {
     s.unsuitableNoted = true
-    s.lastAction = '此裝置不適合挖礦'
+    s.lastAction = '此裝置不適合記帳'
     actions.push({ type: 'tray-note', reason: '不適合', text: s.lastAction })
   }
 
@@ -470,7 +470,7 @@ function stepGuard (state, sample, now) {
         s.lastAction = '執行緒減半'
       } else if (s.memStage === 1) {
         s.memStage = 2
-        s.lastAction = '重新啟動挖礦程式'
+        s.lastAction = '重新啟動記帳節點'
         s.expectExit = true
         actions.push({ type: 'restart-child', cause: 'memory' })
       } else if (s.memStage === 2) {
@@ -517,7 +517,7 @@ function stepGuard (state, sample, now) {
           s.childGeneration += 1
           s.baseline = null
           s.lastProgressAt = now
-          s.lastAction = '重新啟動挖礦程式'
+          s.lastAction = '重新啟動記帳節點'
           s.expectExit = true
           actions.push({ type: 'restart-child', cause: 'leak' })
           s.shares = shares
@@ -531,7 +531,7 @@ function stepGuard (state, sample, now) {
   if (sample.planSig && s.appliedPlan && sample.planSig !== s.appliedPlan && sample.childAlive) {
     s.appliedPlan = sample.planSig
     s.expectExit = true
-    s.lastAction = '重新啟動挖礦程式'
+    s.lastAction = '重新啟動記帳節點'
     actions.push({ type: 'restart-child', cause: 'topology' })
     return { state: s, actions }
   }
@@ -566,7 +566,7 @@ function stepGuard (state, sample, now) {
       s.lastProgressAt = now
       s.childGeneration += 1
       s.baseline = null
-      s.lastAction = '重新啟動挖礦程式'
+      s.lastAction = '重新啟動記帳節點'
       actions.push({ type: 'restart-child', cause: 'backoff' })
     }
   } else s.restartDue = 0

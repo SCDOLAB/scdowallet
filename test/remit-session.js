@@ -237,7 +237,7 @@ async function main () {
     assert.ok(global.window.I18N112.CN.remitNeedAccount.includes('匯入'))
   })
 
-  await test('Windows NSIS build still ships the miner', async () => {
+  await test('Windows NSIS build still ships the bookkeeping node', async () => {
     const pkg = require('../package.json')
     const targets = pkg.build.win.target.map(t => t.target)
     assert.ok(targets.includes('nsis'), 'nsis target missing')

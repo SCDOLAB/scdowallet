@@ -367,13 +367,13 @@ class ZpowManager extends EventEmitter {
   async start (address, opts) {
     opts = opts || {}
     if (this.wantRunning) {
-      const err = new Error('this miner is already running')
+      const err = new Error('this bookkeeping node is already running')
       err.code = 'ALREADY_RUNNING'
       throw err
     }
     const parsed = parseClassicAddress(address)
     if (!parsed) {
-      const err = new Error('Classic mining needs a 1S01 / 2S02 / 3S03 / 4S04 address')
+      const err = new Error('Classic bookkeeping needs a 1S01 / 2S02 / 3S03 / 4S04 address')
       err.code = 'BAD_ADDRESS'
       throw err
     }
@@ -447,7 +447,7 @@ class ZpowManager extends EventEmitter {
     } else if (gpuMiner === 'external') {
       const profile = externalProfile(env)
       if (!profile || !caps.external || !caps.external.available) {
-        const err = new Error('custom GPU miner is not configured (SCDO_ZPOW_GPU_BIN)')
+        const err = new Error('custom GPU bookkeeping node is not configured (SCDO_ZPOW_GPU_BIN)')
         err.code = 'NO_CLASSIC_NODE'
         throw err
       }
@@ -839,7 +839,7 @@ class GpuFleet extends EventEmitter {
     opts = opts || {}
     const parsed = parseClassicAddress(address)
     if (!parsed) {
-      const err = new Error('Classic mining needs a 1S01 / 2S02 / 3S03 / 4S04 address')
+      const err = new Error('Classic bookkeeping needs a 1S01 / 2S02 / 3S03 / 4S04 address')
       err.code = 'BAD_ADDRESS'
       throw err
     }
@@ -927,10 +927,10 @@ function poolFallbackLabel (opts, gpuMiner) {
   const pct = finitePct(opts.syncPct)
   const zh = opts.zh !== false
   if (pct != null && pct < 100) {
-    return zh ? ('顯卡經礦池挖（本機節點同步 ' + pct + '%）') : ('Graphics card mining through the pool (local node sync ' + pct + '%)')
+    return zh ? ('顯卡經礦池記帳（本機節點同步 ' + pct + '%）') : ('Graphics card bookkeeping through the pool (local node sync ' + pct + '%)')
   }
-  if (!current || current === '顯卡挖礦中' || current === 'Graphics card mining') {
-    return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
+  if (!current || current === '顯卡記帳中' || current === 'Graphics card bookkeeping') {
+    return zh ? '顯卡經礦池記帳' : 'Graphics card bookkeeping through the pool'
   }
   return current
 }

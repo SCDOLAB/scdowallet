@@ -27,7 +27,7 @@
     'This is SCDO the pool has not sent yet. It is paid after the number reaches the line.': '這是礦池還沒打進你帳戶的幣。累積到那條線才會付。',
     'These coins are still waiting for the network to confirm them.': '這些幣還在等網路上的確認，確認完才算數。',
     'This is the last time the pool sent coins to this address.': '這是礦池上次把幣打進這個地址的紀錄。',
-    'The pool has no record of this address yet. It shows up a few minutes after mining starts.': '礦池還沒有這個地址的紀錄。開始挖礦幾分鐘後就會出現。',
+    'The pool has no record of this address yet. It shows up a few minutes after bookkeeping starts.': '礦池還沒有這個地址的紀錄。開始記帳幾分鐘後就會出現。',
     'Choose a reward address to see pool payouts.': '請先選擇收款地址，才能查看礦池出款。',
     'Payout details are only available for the official SCDO pool.': '只有 SCDO 官方礦池提供出款資料。',
     ' Loading pool data…': ' 正在載入礦池資料…',
@@ -73,7 +73,7 @@
     card.appendChild(h('div', { class: 'lbl', text: L('Address: ') + shortAddr(addr) }))
     if (!r) { card.appendChild(h('div', { class: 'statusbar', id: 'payoutState' }, h('span', { class: 'spin' }), L(' Loading pool data…'))); return card }
     if (!r.ok) { card.appendChild(h('div', { class: 'statusbar bad', id: 'payoutState', text: L('Pool unreachable right now. Retrying every 60 seconds.') })); card.append(...notes()); return card }
-    if (!r.known) { card.appendChild(h('div', { class: 'statusbar', id: 'payoutState', text: L('The pool has no record of this address yet. It shows up a few minutes after mining starts.') })); card.append(...notes()); return card }
+    if (!r.known) { card.appendChild(h('div', { class: 'statusbar', id: 'payoutState', text: L('The pool has no record of this address yet. It shows up a few minutes after bookkeeping starts.') })); card.append(...notes()); return card }
     const pct = Math.max(0, Math.min(100, Number(r.progressPercent) || 0))
     const unpaid = L('Not paid yet: {b} SCDO. Paid after {t} SCDO.', { b: r.balance, t: r.threshold })
     const waiting = L('Waiting to be confirmed: {n} SCDO', { n: r.immature })

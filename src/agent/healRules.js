@@ -52,13 +52,13 @@ function evaluate (s, memo, now) {
     want.push({ type: 'free-port', port: RIGEL_API_PORT, pids: others.map(p => p.pid), reason: 'duplicate Rigel on ' + RIGEL_API_PORT })
     want.push({ type: 'restart-miner', reason: s.gaveUp ? 'clear give-up after freeing the port' : 'restart after freeing the port' })
   } else if (wantMining && s.gaveUp) {
-    problems.push({ code: 'GAVE_UP', detail: 'miner guard gave up' })
+    problems.push({ code: 'GAVE_UP', detail: 'bookkeeping node guard gave up' })
   }
 
   // 2. Keep mining was armed but mining did not come back after a reboot / crash.
   if (s.armedResume && !s.running && num(s.uptimeMs) != null && s.uptimeMs >= RESUME_GRACE_MS) {
-    problems.push({ code: 'RESUME_LOST', detail: 'Keep mining is on but mining is not running after restart' })
-    want.push({ type: 'resume-mining', chains: Array.isArray(s.resumeChains) ? s.resumeChains : [], reason: 'restore mining state after restart' })
+    problems.push({ code: 'RESUME_LOST', detail: 'Keep bookkeeping is on but bookkeeping is not running after restart' })
+    want.push({ type: 'resume-mining', chains: Array.isArray(s.resumeChains) ? s.resumeChains : [], reason: 'restore bookkeeping state after restart' })
   }
 
   // 3. Node on 0 peers, or sync not moving.
@@ -93,7 +93,7 @@ function evaluate (s, memo, now) {
       problems.push({ code: 'NO_REWARD', detail: 'no reward for ' + Math.round((now - since) / (60 * MIN)) + ' min' })
       want.push({ type: 'report', about: 'no-reward', reason: 'no reward in ' + (noRewardMs / (60 * MIN)) + ' minutes' })
     } else if (since == null && !s.rewardsSeen && started != null && now - started >= noRewardMs) {
-      problems.push({ code: 'NO_REWARD', detail: 'no reward since mining started' })
+      problems.push({ code: 'NO_REWARD', detail: 'no reward since bookkeeping started' })
       want.push({ type: 'report', about: 'no-reward', reason: 'no reward in ' + (noRewardMs / (60 * MIN)) + ' minutes' })
     }
   }

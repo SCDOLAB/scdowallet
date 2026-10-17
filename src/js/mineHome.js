@@ -504,21 +504,21 @@ function gpuWaitText (shard, pct, zh) {
 }
 
 function cpuPoolText (zh) {
-  return zh ? '經礦池挖' : 'Mining through the pool'
+  return zh ? '經礦池記帳' : 'Bookkeeping through the pool'
 }
 
 function gpuMineText (zh) {
-  return zh ? '顯卡挖礦中' : 'Graphics card mining'
+  return zh ? '顯卡記帳中' : 'Graphics card bookkeeping'
 }
 
 function gpuPoolText (zh) {
-  return zh ? '顯卡經礦池挖' : 'Graphics card mining through the pool'
+  return zh ? '顯卡經礦池記帳' : 'Graphics card bookkeeping through the pool'
 }
 
 function gpuPoolSyncText (zh, pct) {
   const n = Math.round(Number(pct))
-  if (zh) return '顯卡經礦池挖（本機節點同步 ' + n + '%）'
-  return 'Graphics card mining through the pool (local node sync ' + n + '%)'
+  if (zh) return '顯卡經礦池記帳（本機節點同步 ' + n + '%）'
+  return 'Graphics card bookkeeping through the pool (local node sync ' + n + '%)'
 }
 
 function shownPoolLabel (zh, held, session) {
@@ -529,7 +529,7 @@ function shownPoolLabel (zh, held, session) {
   }
   for (let i = 0; i < candidates.length; i++) {
     const label = candidates[i]
-    if (label.indexOf('顯卡經礦池挖') === 0 || label.indexOf('Graphics card mining through the pool') === 0) return label
+    if (label.indexOf('顯卡經礦池記帳') === 0 || label.indexOf('Graphics card bookkeeping through the pool') === 0) return label
   }
   return gpuPoolText(zh)
 }
@@ -916,8 +916,8 @@ function zhUi (T) {
 
 function deviceTitle (device, T) {
   const cn = zhUi(T)
-  if (device === 'cpu') return cn ? 'CPU 挖礦' : 'CPU mining'
-  return cn ? 'GPU 挖礦' : 'GPU mining'
+  if (device === 'cpu') return cn ? 'CPU 記帳' : 'CPU bookkeeping'
+  return cn ? 'GPU 記帳' : 'GPU bookkeeping'
 }
 
 function viewChains (input) {
@@ -1012,7 +1012,7 @@ function mineDevButton (device, m, esc, huge) {
   const kind = m.buttonKind === 'stop' ? 'stop' : 'start'
   const dis = m.buttonDisabled ? ' disabled' : ''
   const id = device === 'cpu' ? 'homeMineCpu' : 'homeMineGpu'
-  const cls = huge ? 'shell-mine shell-huge' : 'shell-mine'
+  const cls = huge ? 'shell-bookkeeping shell-huge' : 'shell-mine'
   return `<button type="button" class="${cls} ${kind}" data-act="homeMineDev" data-dev="${device}" id="${id}"${dis}>${esc(m.buttonText)}</button>`
 }
 

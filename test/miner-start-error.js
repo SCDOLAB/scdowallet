@@ -22,9 +22,9 @@ const codes = managerErrorCodes(src)
 assert.deepStrictEqual(codes, ['BAD_PAYOUT', 'BAD_POOL', 'CRASHING', 'DEFENDER', 'ERROR', 'EXTERNAL_DOWN', 'NO_NVIDIA', 'PORTS'])
 
 const raw = {
-  DEFENDER: 'DEFENDER: rigel.exe disappeared after extraction – Windows Defender most likely quarantined it (all GPU miners are flagged as "potentially unwanted"). Click "Allow miner in Windows Defender" and start again.',
+  DEFENDER: 'DEFENDER: rigel.exe disappeared after extraction – Windows Defender most likely quarantined it (all GPU bookkeeping nodes are flagged as "potentially unwanted"). Click "Allow bookkeeping node in Windows Defender" and start again.',
   PORTS: 'no free local ports for the SCDO node (18545+ are all in use)',
-  NO_NVIDIA: 'No NVIDIA GPU found on this PC – GPU mining is not possible. Use "Run node only".',
+  NO_NVIDIA: 'No NVIDIA GPU found on this PC – GPU bookkeeping is not possible. Use "Run node only".',
   BAD_POOL: 'invalid pool address – use stratum+tcp://host:port (also stratum+ssl, ethproxy+tcp, ethstratum+tcp)',
   BAD_PAYOUT: 'invalid node service fee address 0xabc',
   CRASHING: 'rigel keeps crashing – stopped. See the log below.',
@@ -37,18 +37,18 @@ for (const code of codes) {
   assert.ok(!cn.includes(code), code + ' code leaked: ' + cn)
   assert.ok(!cn.includes(raw[code] || '___none___'), code + ' raw English leaked')
   const tip = err.tooltipError('CN', code, raw[code] || '')
-  assert.ok(tip.startsWith('挖礦程式出錯：'), tip)
+  assert.ok(tip.startsWith('記帳節點出錯：'), tip)
   assert.ok(/[\u4e00-\u9fff]/.test(tip.slice(6)), tip)
 }
 
-assert.strictEqual(err.full('CN', 'DEFENDER', raw.DEFENDER), '防毒軟體（Windows Defender）把顯示卡挖礦程式刪掉了。請在防毒軟體裡把 SCDO Wallet 的資料夾加入允許清單，再按「開始挖礦」。')
-assert.strictEqual(err.full('CN', '', 'download timeout'), '挖礦程式下載失敗，請檢查網路後再試一次。')
-assert.strictEqual(err.full('CN', 'ERROR', 'HTTP 404 for https://github.com/rigelminer/rigel/releases/download/x'), '挖礦程式下載失敗，請檢查網路後再試一次。')
-assert.strictEqual(err.full('CN', '', 'Rigel SHA256 mismatch (got abc), file deleted – try again'), '下載的挖礦程式不完整，已幫你刪掉，請再試一次。')
-assert.strictEqual(err.full('CN', 'PORTS', raw.PORTS), '這台電腦挖礦要用的連線埠被別的程式佔用了，請關掉其他挖礦程式或重新開機後再試。')
-assert.strictEqual(err.full('CN', 'ERROR', 'something unexpected'), '挖礦程式沒有啟動成功，請再試一次；如果一直失敗，可以在「挖礦」頁的「日誌」按「匯出挖礦日誌」，把檔案傳給客服。')
-assert.strictEqual(err.tooltipError('CN', 'DEFENDER', raw.DEFENDER), '挖礦程式出錯：被防毒軟體刪掉')
-assert.strictEqual(err.tooltipError('CN', 'ERROR', 'nope'), '挖礦程式出錯：沒有啟動成功')
+assert.strictEqual(err.full('CN', 'DEFENDER', raw.DEFENDER), '防毒軟體（Windows Defender）把顯示卡記帳節點刪掉了。請在防毒軟體裡把 SCDO Wallet 的資料夾加入允許清單，再按「開始記帳」。')
+assert.strictEqual(err.full('CN', '', 'download timeout'), '記帳節點下載失敗，請檢查網路後再試一次。')
+assert.strictEqual(err.full('CN', 'ERROR', 'HTTP 404 for https://github.com/rigelminer/rigel/releases/download/x'), '記帳節點下載失敗，請檢查網路後再試一次。')
+assert.strictEqual(err.full('CN', '', 'Rigel SHA256 mismatch (got abc), file deleted – try again'), '下載的記帳節點不完整，已幫你刪掉，請再試一次。')
+assert.strictEqual(err.full('CN', 'PORTS', raw.PORTS), '這台電腦記帳要用的連線埠被別的程式佔用了，請關掉其他記帳節點或重新開機後再試。')
+assert.strictEqual(err.full('CN', 'ERROR', 'something unexpected'), '記帳節點沒有啟動成功，請再試一次；如果一直失敗，可以在「記帳」頁的「日誌」按「匯出記帳日誌」，把檔案傳給客服。')
+assert.strictEqual(err.tooltipError('CN', 'DEFENDER', raw.DEFENDER), '記帳節點出錯：被防毒軟體刪掉')
+assert.strictEqual(err.tooltipError('CN', 'ERROR', 'nope'), '記帳節點出錯：沒有啟動成功')
 assert.ok(err.full('EN', 'DEFENDER', raw.DEFENDER).startsWith('Antivirus software'))
 assert.ok(!err.full('EN', '', 'download timeout').includes('下載'))
 
@@ -85,13 +85,13 @@ for (const code of ['BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NO_ZMINE
   assert.strictEqual(err.full('EN', code, 'x'), err.FULL[code].EN)
 }
 assert.strictEqual(err.full('CN', 'BAD_POOLS', 'SCDO_ZPOW_POOLS is not JSON'), err.FULL.BAD_POOLS.CN)
-assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '溫馨提醒：下載的挖礦程式跟官方版本對不上，所以這次沒有啟動。重新安裝或再試一次就可以。')
-assert.strictEqual(err.full('CN', 'NO_ZMINER', 'zminer binary not found ... set SCDO_ZMINER_EXE.'), '找不到處理器挖礦程式。請重新安裝 SCDO Wallet。')
-assert.ok(err.FULL.CRASHING.EN.includes('"Export mining logs (sanitized)"'))
-assert.ok(err.FULL.CRASHING.CN.includes('「匯出挖礦日誌」'))
+assert.strictEqual(err.full('CN', 'SHA256_MISMATCH', 'sha256 mismatch for zminer'), '溫馨提醒：下載的記帳節點跟官方版本對不上，所以這次沒有啟動。重新安裝或再試一次就可以。')
+assert.strictEqual(err.full('CN', 'NO_ZMINER', 'zminer binary not found ... set SCDO_ZMINER_EXE.'), '找不到處理器記帳節點。請重新安裝 SCDO Wallet。')
+assert.ok(err.FULL.CRASHING.EN.includes('"Export bookkeeping logs (sanitized)"'))
+assert.ok(err.FULL.CRASHING.CN.includes('「匯出記帳日誌」'))
 // the English button label quoted in the sentences is the real one
 const types = fs.readFileSync(path.join(__dirname, '../src/js/mining/types.js'), 'utf8')
-assert.ok(types.includes('"Export mining logs (sanitized)": "匯出挖礦日誌（已去除敏感資訊）"'))
+assert.ok(types.includes('"Export bookkeeping logs (sanitized)": "匯出記帳日誌（已去除敏感資訊）"'))
 assert.ok(types.includes('"Logs": "日誌"'))
 
 // Classic start pop-up: mapped code, then timeout/HTTP, then the i18n line, never the raw English
@@ -104,7 +104,7 @@ assert.strictEqual(err.classicStartText('EN', 'WEIRD', 'something odd', ''), err
 assert.strictEqual(err.classicStartText('CN', 'LOGIN', 'timeout while logging in', ''), err.FULL.UNKNOWN.CN)
 
 // pop-ups never show r.error directly; they follow the UI language
-assert.ok(!app.includes('toast(r.error || r.code'), 'raw miner error still reaches a pop-up')
+assert.ok(!app.includes('toast(r.error || r.code'), 'raw bookkeeping node error still reaches a pop-up')
 assert.ok(!app.includes('(r.error || r.code), 8000'))
 assert.ok(app.includes('window.SCDOStartError.classicStartText(lang(), r.code, r.error, stText)'))
 assert.ok(!/SCDOStartError\.full\('CN', r\.code/.test(app))
@@ -125,7 +125,7 @@ for (const lang of ['CN', 'EN']) {
 }
 
 const tray = fs.readFileSync(path.join(__dirname, '../src/main/trayStatus.js'), 'utf8')
-assert.ok(!tray.includes('enabled: mining'), 'tray no longer has a second Stop mining item')
+assert.ok(!tray.includes('enabled: bookkeeping'), 'tray no longer has a second Stop bookkeeping item')
 assert.ok(!tray.includes('this.o.onStop()'))
 assert.ok(tray.includes('tooltipError(lang, st.code, st.message)'))
 assert.ok(!tray.includes("L.minerError + ': '"))
@@ -137,11 +137,11 @@ const realLoad = Module._load
 Module._load = function (req, ...rest) { return req === 'electron' ? {} : realLoad.call(this, req, ...rest) }
 const { tooltipText } = require('../src/main/trayStatus.js')
 Module._load = realLoad
-assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle', classicNote: 'Classic 處理器礦池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.2\n挖礦中：Classic 處理器礦池 Shard1')
-assert.strictEqual(tooltipText('3.0.2', { running: false, classicNote: 'Classic processor pool Shard2' }, 'EN'), 'SCDO Wallet 3.0.2\nMining: Classic processor pool Shard2')
-assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.2\n未在挖礦')
+assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle', classicNote: 'Classic 處理器礦池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.2\n記帳中：Classic 處理器礦池 Shard1')
+assert.strictEqual(tooltipText('3.0.2', { running: false, classicNote: 'Classic processor pool Shard2' }, 'EN'), 'SCDO Wallet 3.0.2\nBookkeeping: Classic processor pool Shard2')
+assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.2\n未在記帳')
 assert.ok(tooltipText('3.0.2', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
-assert.ok(tooltipText('3.0.2', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('挖礦程式出錯：'))
+assert.ok(tooltipText('3.0.2', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('記帳節點出錯：'))
 assert.ok(mainJs.includes("(cn ? 'Classic 處理器礦池' : 'Classic processor pool')"))
 assert.ok(mainJs.includes("(cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')"))
 
