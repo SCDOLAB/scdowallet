@@ -719,6 +719,11 @@ function chainLabel (n) {
   return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
 }
 
+// 3.1.6: a Mac has no supported GPU miner yet; say that instead of "no graphics card detected".
+function noGpuKey (caps) {
+  return caps && caps.platform === 'darwin' ? 'shellMacGpu' : 'shellNoGpu'
+}
+
 function poolKnownDown (pools, n) {
   if (!pools || typeof pools !== 'object') return false
   const p = pools[n] || pools[String(n)]
@@ -738,7 +743,7 @@ function chainSupport (device, n, caps, pools) {
     }
     return { ok: false, reasonKey: '' }
   }
-  if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: 'shellNoGpu' }
+  if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: noGpuKey(caps) }
   if (n === 0 || (n >= 1 && n <= 4)) return { ok: true, reasonKey: '' }
   return { ok: false, reasonKey: '' }
 }
@@ -948,7 +953,7 @@ function deviceModel (input, device, T) {
   if (input && input.needChain && input.needChain[device] && view.phase === 'stopped') status = tr(T, 'shellNeedChain')
   else if (device === 'gpu' && view.phase === 'stopped' && input && input.gpuBusy) status = tr(T, 'homeMineGpuBusy')
   else if (device === 'gpu' && view.phase === 'stopped' && known && input.caps.gpu && input.caps.gpu.available === false) {
-    status = tr(T, 'shellNoGpu')
+    status = tr(T, noGpuKey(input.caps))
     view.buttonDisabled = true
   }
   return { view: view, status: status, phase: view.phase }

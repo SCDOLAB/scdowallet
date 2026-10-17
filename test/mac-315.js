@@ -55,3 +55,16 @@ console.log('mac-316 pools ok')
   assert.ok(!/stake|deposit|real money|cash|下注|押注|真錢/i.test(demoLines))
 }
 console.log('mac-315 demo ok')
+// 3.1.6: on macOS the GPU card says the Mac GPU is not supported yet; Windows/Linux keep "no graphics card detected"
+{
+  const mh = require('../src/js/mineHome')
+  const off = { cpu: { available: true }, gpu: { available: false } }
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'darwin' }, off)).reasonKey, 'shellMacGpu')
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'win32' }, off)).reasonKey, 'shellNoGpu')
+  assert.strictEqual(mh.chainSupport('gpu', 0, Object.assign({ platform: 'linux' }, off)).reasonKey, 'shellNoGpu')
+  const i18n = fs.readFileSync(path.join(__dirname, '../src/js/i18n112.js'), 'utf8')
+  assert.ok(i18n.includes("shellMacGpu: 'Mac graphics card not supported yet'") && i18n.includes("shellMacGpu: 'Mac 顯卡暫不支援'"))
+  assert.ok(app.includes("api.platform === 'darwin' ? 'noGpuMac' : 'noGpu'"))
+  assert.ok(fs.readFileSync(path.join(__dirname, '../src/miner/zpow/manager.js'), 'utf8').includes('      platform,\n'))
+}
+console.log('mac-316 gpu text ok')

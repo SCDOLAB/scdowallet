@@ -223,6 +223,7 @@ class ZpowManager extends EventEmitter {
       for (const s of [1, 2, 3, 4]) pools[s] = poolForShard(s, over)
     } catch (e) { pools.error = e.message }
     return {
+      platform,
       cpu: { available: !!zminer && !noRosetta, path: zminer, reason: !zminer ? 'NO_ZMINER' : (noRosetta ? 'NO_ROSETTA' : null) },
       gpu: { available: gpuReady, path: gpuExe, solo: !!(node && cudart), node, cudart, reason: gpuReady ? null : 'NO_BINARY' },
       external: external && external.binary ? { available: fs.existsSync(external.binary), path: external.binary, solo: !!external.solo, id: external.id } : null,

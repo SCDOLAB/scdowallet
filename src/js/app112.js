@@ -1209,7 +1209,7 @@
         </div><div class="lbl" style="margin-top:10px">${esc(T('mineFirst'))}</div>
         ${mineMode ? '' : payoutField(m, running)}<div class="lbl" style="margin-top:6px">${esc(T('nodeHint'))}</div>`
     } else {
-      h += `<div class="nogpu" id="noGpuMsg">${esc(T('noGpu'))}</div>`
+      h += `<div class="nogpu" id="noGpuMsg">${esc(T(api.platform === 'darwin' ? 'noGpuMac' : 'noGpu'))}</div>`
       if (g.nvidiaNoDriver) h += `<div class="infobox">${esc(T('noGpuDriver', { n: (g.nvidiaNames || []).join(', ') }))}</div>`
       const ext = m.phase === 'external' && running
       const extOk = ext && m.code !== 'EXTERNAL_DOWN'
