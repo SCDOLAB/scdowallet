@@ -1,0 +1,228 @@
+// Start my agent: join URL, attribution lock, payout, register fields, referral code.
+'use strict'
+const assert = require('assert')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { Wallet, verifyMessage } = require('ethers')
+const Join = require('../src/js/agentJoin')
+const { AgentService } = require('../src/agent/agentService')
+const { signRefcode } = require('../src/agent/refcode')
+const { messageOf } = require('../src/agent/envelope')
+const { createStore } = require('../src/main/agentJoin')
+
+const root = path.join(__dirname, '..')
+const ADDR = '0x' + 'ab'.repeat(20)
+const OTHER = '0x' + '11'.repeat(20)
+const THIRD = '0x' + '22'.repeat(20)
+
+function tmp () { return fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-join-')) }
+
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join?ref=CODE_1&src=x-promo').ref, 'CODE_1')
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join?ref=CODE_1&src=x-promo').src, 'x-promo')
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join?ref=' + ADDR).ref, ADDR)
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join/?ref=Ab_1.2').ref, 'Ab_1.2')
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join').ref, '')
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join?ref=' + '!'.repeat(3)).refRejected, true)
+assert.strictEqual(Join.parseJoinUrl('scdowallet://join?ref=' + 'a'.repeat(65)).ref, '')
+assert.strictEqual(Join.parseJoinUrl('ton://transfer/abc').ok, false)
+assert.strictEqual(Join.parseJoinUrl('ethereum:0xabc@8453').ok, false)
+assert.strictEqual(Join.parseJoinUrl('scdowallet://pay?ref=CODE').ok, false)
+assert.deepStrictEqual(Join.urlsFromArgv(['--scdo', 'scdowallet://join?ref=A']), ['scdowallet://join?ref=A'])
+assert.ok(Join.validRef(ADDR))
+assert.ok(Join.validRef('a'))
+assert.ok(Join.validRef('Ab_1.2-x'))
+assert.ok(!Join.validRef(''))
+assert.ok(!Join.validRef('has space'))
+assert.ok(!Join.validRef('a'.repeat(65)))
+assert.ok(Join.validSrc('wallet'))
+assert.ok(!Join.validSrc('src/slash'))
+
+const deep = Join.lockAttribution({ pendingRef: 'deep1', pendingSrc: 'x-promo' }, 'typed')
+assert.strictEqual(deep.ref, 'deep1')
+assert.strictEqual(deep.src, 'x-promo')
+assert.strictEqual(deep.locked, true)
+assert.strictEqual(Join.lockAttribution(deep, 'other').ref, 'deep1')
+assert.strictEqual(Join.lockAttribution({ pendingRef: '', pendingSrc: '' }, 'typed_2').ref, 'typed_2')
+const remembered = Join.rememberJoin({ locked: false }, Join.parseJoinUrl('scdowallet://join?ref=NEW&src=qr'))
+assert.strictEqual(remembered.pendingRef, 'NEW')
+assert.strictEqual(Join.rememberJoin({ locked: true, ref: 'keep', pendingRef: '' }, Join.parseJoinUrl('scdowallet://join?ref=NEW')).ref, 'keep')
+
+const accounts = [{ filename: 'a', evm: OTHER }, { filename: 'b', evm: THIRD }]
+assert.strictEqual(Join.choosePayout(accounts, 'b', '').payout, THIRD)
+assert.strictEqual(Join.choosePayout(accounts, 'b', '').file, 'b')
+assert.strictEqual(Join.choosePayout(accounts, 'missing', ADDR).changed, false)
+assert.strictEqual(Join.choosePayout([], 'a', '').payout, '')
+const filled = Join.bookkeepingPatch({ reward: OTHER }, THIRD)
+assert.strictEqual(filled.reward, undefined)
+assert.strictEqual(filled.payout, THIRD)
+assert.deepStrictEqual(Join.bookkeepingPatch({ reward: OTHER, payout: OTHER }, THIRD), {})
+assert.strictEqual(Join.bookkeepingPatch({}, THIRD).reward, THIRD)
+
+const install = 'install-secret-not-sent'
+const hash = Join.deviceHash(install)
+assert.strictEqual(hash.length, 64)
+assert.ok(!hash.includes(install))
+assert.deepStrictEqual(Join.joinBodyFields({ ref: 'ok', src: 'x-promo', device: hash, usdcWallet: ADDR }), {
+  ref: 'ok', src: 'x-promo', device: hash, usdcWallet: ADDR, x402Support: true
+})
+assert.deepStrictEqual(Join.joinBodyFields({ ref: 'bad ref', device: 'short' }), {})
+assert.ok(!JSON.stringify(Join.joinBodyFields({ device: hash, ref: 'ok' })).includes(install))
+
+const pw = Join.generatePassword(Buffer.alloc(12, 7))
+assert.ok(/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw))
+
+assert.strictEqual(Join.x402Reserve({ services: [{ endpoint: 'eip155:8453:' + ADDR }] }), ADDR)
+assert.strictEqual(Join.x402Reserve({}), '')
+assert.strictEqual(Join.cardStatus({ registered: true, online: true }), 'registered')
+assert.strictEqual(Join.cardStatus({ registered: true, online: false }), 'offline')
+assert.strictEqual(Join.cardStatus({ registered: false, reachable: false }), 'offline')
+assert.strictEqual(Join.cardStatus({ registered: false }), 'pending')
+assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: false, entries: [] }), false)
+assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: true, dismissed: false }), true)
+assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: true, dismissed: true }), false)
+assert.strictEqual(Join.showBackupCard({ phrasePending: 1, entries: [{ text: 'a' }] }), true)
+assert.strictEqual(Join.claimBlocked(true), true)
+assert.strictEqual(Join.claimBlocked(false), false)
+assert.strictEqual(Join.fallbackShareUrl(ADDR), 'https://scdo.com.au/join?ref=' + ADDR + '&src=wallet')
+assert.strictEqual(Join.useFake({ SCDO_AGENT_FAKE: '1' }), true)
+assert.strictEqual(Join.useFake({}), false)
+assert.strictEqual(Join.fakeRefcode().code, 'abc1234567')
+assert.ok(!fs.readFileSync(path.join(root, 'src/js/agentJoin.js'), 'utf8').includes('/agent-ledger/api/join'))
+
+const labels = {
+  startAgent: 'Start my agent', importShort: 'Import', inviteCodeAsk: 'Have an invite code?',
+  agentRewards: 'Rewards unlock after your agent has been active',
+  agentNoReward: 'Your agent has no reward address - tap to use this wallet',
+  agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Pending', agentOffline: 'Offline',
+  agentScdoAddr: 'SCDO address', agentX402: 'x402 Base USDC reserve address', agentBook: 'Bookkeeping',
+  agentStartBook: 'Start bookkeeping', agentEntries: 'Latest ledger entries', agentEntriesEmpty: 'No ledger entries yet',
+  dismiss: 'Dismiss', homeLineIdle: 'Bookkeeping has not started'
+}
+const t = (k) => labels[k] || k
+const first = Join.firstRunHtml(t, (s) => s, {})
+assert.ok(first.includes('Start my agent'))
+assert.ok(first.includes('Have an invite code?'))
+assert.ok(first.includes('Rewards unlock after your agent has been active'))
+assert.ok(first.includes('Your agent has no reward address - tap to use this wallet'))
+assert.ok(first.includes('id="startAgentBtn"'))
+assert.ok(first.includes('data-act="import"'))
+assert.ok(first.includes('data-act="agentRewardDismiss"'))
+assert.ok(!/\$\d|\d+\s*SCDO/.test(first))
+const card = Join.agentCardHtml(t, (s) => s, {
+  status: 'registered', scdoAddress: '1S01abc', x402Reserve: '', bookkeeping: 'Bookkeeping has not started',
+  entries: [{ text: 'task:join · done' }]
+})
+assert.ok(card.includes('Registered'))
+assert.ok(card.includes('1S01abc'))
+assert.ok(card.includes('>pending<'))
+assert.ok(card.includes('Start bookkeeping'))
+assert.ok(card.includes('data-act="isleStart"'))
+assert.ok(card.includes('task:join · done'))
+
+;(async () => {
+  const ran = await Join.runStart({
+    accounts: [],
+    password: pw,
+    typedRef: 'code1',
+    device: hash,
+    state: { pendingRef: '', pendingSrc: 'qr' },
+    create: async (p) => {
+      assert.strictEqual(p.shard, '0')
+      assert.ok(!String(p.password).includes('mnemonic'))
+      return { ok: true, file: 'Agent.1', evm: ADDR, phrase: 'one two three four five six seven eight nine ten eleven twelve' }
+    },
+    register: async () => { throw new Error('down') }
+  })
+  assert.strictEqual(ran.ok, true)
+  assert.strictEqual(ran.registered, false)
+  assert.strictEqual(ran.wallet.evm, ADDR)
+  assert.strictEqual(ran.locked.ref, 'code1')
+  assert.strictEqual(ran.locked.src, 'qr')
+  assert.strictEqual(ran.choice.payout, ADDR)
+  assert.strictEqual(ran.book.reward, ADDR)
+  assert.ok(ran.phrase.split(' ').length === 12)
+
+  const seen = []
+  const svc = new AgentService(tmp(), {
+    version: '3.1.9', platform: 'linux',
+    payoutAddress: async () => ADDR,
+    joinExtra: () => ({ ref: 'deep1', src: 'x-promo', device: hash, usdcWallet: OTHER })
+  }, {
+    ledgerUrl: 'http://127.0.0.1:9/agent-ledger/api',
+    attempts: 1,
+    retryDelayMs: 1,
+    post: async (url, env) => {
+      seen.push({ url, env })
+      if (String(url).endsWith('/refcode') && seen.filter(x => x.url.endsWith('/refcode')).length === 1) {
+        return { ok: false, status: 409, body: { ok: false, error: 'not registered' } }
+      }
+      if (String(url).endsWith('/refcode')) {
+        return { ok: true, status: 200, body: { ok: true, code: 'abc1234567', shareUrl: 'https://scdo.com.au/join?ref=abc1234567' } }
+      }
+      return { ok: true, status: 200, body: { ok: true } }
+    }
+  })
+  const reg = await svc.register()
+  assert.strictEqual(reg.ok, true)
+  const body = seen[0].env.payload.body
+  assert.strictEqual(body.role, 'wallet-miner')
+  assert.strictEqual(body.payout, ADDR)
+  assert.strictEqual(body.ref, 'deep1')
+  assert.strictEqual(body.src, 'x-promo')
+  assert.strictEqual(body.device, hash)
+  assert.strictEqual(body.usdcWallet, OTHER)
+  assert.strictEqual(body.x402Support, true)
+  assert.ok(!JSON.stringify(body).includes(install))
+  assert.ok(seen[0].url.indexOf('/agent-ledger/api/register') > 0)
+  const looked = await svc.refcode()
+  assert.strictEqual(looked.body.code, 'abc1234567')
+  assert.ok(seen.some(x => x.url.endsWith('/register')))
+  assert.strictEqual(seen.filter(x => x.url.endsWith('/refcode')).length, 2)
+  const refEnv = seen.find(x => x.url.endsWith('/refcode')).env
+  assert.strictEqual(refEnv.payload.type, 'refcode')
+  assert.ok(refEnv.payload.seq == null)
+  assert.strictEqual(verifyMessage(messageOf(refEnv.payload), refEnv.sig), svc.id.agentId)
+
+  const w = Wallet.createRandom()
+  const signed = signRefcode(w, 1700000000000)
+  assert.strictEqual(signed.payload.seq, undefined)
+  assert.strictEqual(verifyMessage(messageOf(signed.payload), signed.sig), w.address)
+
+  const file = path.join(tmp(), 'agent-join.json')
+  const store = createStore(file)
+  store.remember(Join.parseJoinUrl('scdowallet://join?ref=deep9&src=x-promo'))
+  assert.strictEqual(store.lock('typed').ref, 'deep9')
+  assert.strictEqual(store.lock('nope').ref, 'deep9')
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.ok(raw.installId)
+  assert.ok(!store.publicView().installId)
+  assert.ok(!JSON.stringify(store.joinExtra()).includes(raw.installId))
+  const pay = store.currentPayout('', [{ filename: 'w', evm: ADDR }], {})
+  assert.strictEqual(pay.payout, ADDR)
+  assert.strictEqual(pay.intentPatch.reward, ADDR)
+  assert.strictEqual(pay.intentPatch.payout, ADDR)
+  const kept = store.currentPayout(THIRD, [{ filename: 'w', evm: ADDR }], { reward: ADDR, payout: ADDR })
+  assert.strictEqual(kept.payout, ADDR)
+  assert.deepStrictEqual(kept.intentPatch, {})
+  const moved = store.useSelection([{ filename: 'z', evm: OTHER }], 'z', { reward: ADDR, payout: ADDR })
+  assert.strictEqual(moved.view.payout, OTHER)
+  assert.strictEqual(moved.changed, true)
+  store.setPayout(THIRD, 'z', 'settings')
+  const stuck = store.useSelection([{ filename: 'z', evm: OTHER }], 'z', { reward: THIRD, payout: THIRD })
+  assert.strictEqual(stuck.view.payout, THIRD)
+  assert.strictEqual(stuck.changed, false)
+
+  const app = fs.readFileSync(path.join(root, 'src/js/app112.js'), 'utf8')
+  const startFn = app.slice(app.indexOf('async function startMyAgent'), app.indexOf('async function boot'))
+  assert.ok(startFn.includes('agentJoin:start'))
+  assert.ok(!startFn.includes('showBackupPage'))
+  const i18nBox = { window: {} }
+  require('vm').runInNewContext(fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8'), i18nBox)
+  assert.strictEqual(i18nBox.window.I18N112.EN.agentRewards, 'Rewards unlock after your agent has been active')
+  assert.strictEqual(i18nBox.window.I18N112.EN.agentNoReward, 'Your agent has no reward address - tap to use this wallet')
+  assert.strictEqual(i18nBox.window.I18N112.EN.startAgent, 'Start my agent')
+  assert.strictEqual(i18nBox.window.I18N112.CN.startAgent, '啟動我的 Agent')
+  assert.ok(fs.readFileSync(path.join(root, 'main.js'), 'utf8').includes("setAsDefaultProtocolClient('scdowallet')"))
+  console.log('agent-join: ok')
+})().catch(e => { console.error(e); process.exit(1) })

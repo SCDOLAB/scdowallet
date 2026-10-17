@@ -235,8 +235,11 @@ assert.ok(html.indexOf('src/js/payInvoice/evm681.js') < html.indexOf('src/js/pay
 assert.ok(html.indexOf('src/js/payInvoice/parse.js') < html.indexOf('src/js/payInvoice/screen.js'))
 assert.ok(html.indexOf('src/js/payInvoice/screen.js') < html.indexOf('src/js/app112.js'))
 assert.ok(main.includes('payInvoice.isHandoffUri') && main.includes('payInvoice.isWalletDeepLink'))
-assert.ok(!main.includes('setAsDefaultProtocolClient'))
-assert.ok(!main.includes("'open-url'") && !main.includes('"open-url"'))
+assert.ok(main.includes("setAsDefaultProtocolClient('scdowallet')"))
+assert.ok(main.includes("'open-url'") || main.includes('"open-url"'))
+assert.ok(!/setAsDefaultProtocolClient\(\s*['"]ton['"]/.test(main))
+assert.ok(!/setAsDefaultProtocolClient\(\s*['"]ethereum['"]/.test(main))
+assert.ok(JSON.stringify(require(path.join(root, 'package.json')).build.protocols).includes('scdowallet'))
 assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.9')
 
 console.log('pay-invoice: ok')

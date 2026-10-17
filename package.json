@@ -16,6 +16,14 @@
     "build": {
         "appId": "io.scdoscan.scdowallet",
         "productName": "SCDO Wallet",
+        "protocols": [
+            {
+                "name": "SCDO Wallet",
+                "schemes": [
+                    "scdowallet"
+                ]
+            }
+        ],
         "copyright": "SCDO Laboratory",
         "npmRebuild": false,
         "buildDependenciesFromSource": false,

@@ -6,6 +6,7 @@ const https = require('https')
 const http = require('http')
 const { URL } = require('url')
 const identity = require('./identity')
+const { joinBodyFields } = require('../js/agentJoin')
 const { EventLog } = require('./eventLog')
 const heal = require('./healRules')
 const { parseClassicAddress, parseShard0Address } = require('../miner/zpow/address')
@@ -144,13 +145,39 @@ class AgentService {
     return last
   }
 
+  async joinExtra () {
+    let v = {}
+    try {
+      const src = this.host.joinExtra
+      v = typeof src === 'function' ? await src() : (src || {})
+    } catch (e) { v = {} }
+    return v || {}
+  }
+
+  // Live register. Optional ref, src, device and usdcWallet are the join delta.
+  // A later register cannot change attribution: the server freezes the first ref/src.
   async register () {
     const payout = await this.payoutAddress()
     const body = { version: String(this.host.version || ''), platform: String(this.host.platform || ''), label: String(this.host.label || '').slice(0, 40), role: 'wallet-miner' }
     if (payout) body.payout = payout
+    const extra = joinBodyFields(await this.joinExtra())
+    Object.assign(body, extra)
     const r = await this.deliver('register', body)
     if (r && r.ok) { this.registered = true; this.registeredPayout = payout }
     return r
+  }
+
+  // POST /agent-ledger/api/refcode. No seq. 409 means register first, then retry once.
+  async refcode () {
+    if (!this.id.signRefcode) return { ok: false, error: 'no refcode signer' }
+    const env = this.id.signRefcode(this.now())
+    let last = await this.postLedger('refcode', env)
+    if (last && last.status === 409) {
+      await this.register()
+      const again = this.id.signRefcode(this.now())
+      last = await this.postLedger('refcode', again)
+    }
+    return last
   }
 
   async reportError (info) {

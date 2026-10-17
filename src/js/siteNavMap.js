@@ -8,8 +8,8 @@
   // Temporary pages. Each address lives only here.
   const MEMBERSHIP_URL = 'https://scdo.com.au/membership/'
   const OTC_URL = 'https://scdo.com.au/membership/'
-  // Temporary invite link. The address is the selected Shard0 EVM address.
-  const REFERRAL_URL = 'https://scdo.com.au/'
+  // Invite link. The live card prefers the referral-code shareUrl; this is the fallback.
+  const REFERRAL_URL = 'https://scdo.com.au/join'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
@@ -118,6 +118,7 @@
     const u = new URL(REFERRAL_URL)
     const addr = String(address || '').trim()
     if (addr) u.searchParams.set('ref', addr)
+    u.searchParams.set('src', 'wallet')
     return u.toString()
   }
 

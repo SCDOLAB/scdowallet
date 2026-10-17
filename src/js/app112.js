@@ -196,7 +196,8 @@
     txFilter: {},
     poolStatus: null,
     oldErr: {},
-    phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : []
+    phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
+    agent: {}, rewardLineHide: false, backupAskHide: false
   }
   let phraseHold = null
   const shard0 = () => ({
@@ -672,6 +673,23 @@
     if (!nav || !nav.referral) return ''
     return nav.referral(selectedShard0())
   }
+  function inviteLink () {
+    if (st.agent && st.agent.shareUrl) return st.agent.shareUrl
+    return referralLink()
+  }
+  function agentModel () {
+    const a = st.accounts && st.accounts.length ? selected() : null
+    const ag = st.agent || {}
+    return {
+      noWallet: !st.accounts.length,
+      rewardLineHidden: !!st.rewardLineHide,
+      status: ag.status || 'pending',
+      scdoAddress: a ? (a.pubkey || a.evm || ag.payout || '') : '',
+      x402Reserve: ag.x402Reserve || '',
+      bookkeeping: homeMineLine(),
+      entries: ag.entries || []
+    }
+  }
   function homeMineLine () {
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
     return window.SCDOMineHome.homeLine(mineHomeInput(), T)
@@ -720,8 +738,16 @@
     return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
   }
   function phraseBannerHtml () {
-    if (!st.phrasePending || !st.phrasePending.length) return ''
-    return `<button type="button" class="home-backup-banner" id="phraseBanner" data-act="phraseOpen">${esc(T('phraseBanner'))}</button>`
+    const J = window.SCDOAgentJoin
+    const a = st.agent || {}
+    const show = J ? J.showBackupCard({
+      phrasePending: st.phrasePending && st.phrasePending.length,
+      registered: !!a.registered,
+      entries: a.entries || [],
+      dismissed: !!st.backupAskHide
+    }) : false
+    if (!show) return ''
+    return `<div class="home-backup-legacy" id="phraseBanner"><button type="button" class="home-backup-banner" data-act="phraseOpen">${esc(T('phraseBanner'))}</button><button type="button" class="home-backup-x" data-act="phraseBannerDismiss" aria-label="${esc(T('dismiss'))}">✕</button></div>`
   }
   function legacyHintHtml () {
     if (ui.backupHintSeen) return ''
@@ -736,10 +762,15 @@
     return `<div class="shell-actions home-demo" id="homeDemo"><button type="button" class="shell-act" data-act="openDemo" data-v="wheel">${esc(T('homeDemoWheel'))}</button><button type="button" class="shell-act" data-act="openDemo" data-v="tg">${esc(T('homeDemoTg'))}</button></div>`
   }
   function pageHome () {
-    const link = referralLink()
+    const J = window.SCDOAgentJoin
+    if (!st.accounts.length && J) return J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide })
+    const link = inviteLink()
+    const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
+    const qr = link ? `<div class="qrwrap"><div id="homeInviteQr" data-addr="${esc(link)}"></div></div>` : ''
     return `<div class="page shell-home" id="homePage">
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
+      ${card}
       <p class="home-lead">${esc(T('homeLead'))}</p>
       <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
       <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
@@ -751,7 +782,7 @@
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       ${homeDemoHtml()}
-      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
+      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
     </div>`
   }
   function renderFooter () {
@@ -780,7 +811,7 @@
       }
       const ref = $('homeRefLink')
       if (ref) {
-        const link = referralLink()
+        const link = inviteLink()
         if (ref.textContent !== link) {
           ref.textContent = link
           document.querySelectorAll('[data-act="shareRef"], #homeInvite [data-act="copy"]').forEach(b => b.setAttribute('data-v', link))
@@ -922,6 +953,13 @@
     } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
     const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
     return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+  }
+  function paintInviteQr () {
+    const box = $('homeInviteQr')
+    if (!box || box.getAttribute('data-painted') === '1') return
+    const text = box.getAttribute('data-addr') || ''
+    if (!text || !window.QRCode) return
+    try { new window.QRCode(box, { text: text, width: 180, height: 180, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) {}
   }
   function paintRecvQr () {
     const box = $('qrBox')
@@ -1377,6 +1415,7 @@
     if (want === 'top' || (to && to.id === 'secOld')) main.scrollTop = 0
     else if (to) main.scrollTop = Math.max(0, to.offsetTop - main.offsetTop - 8)
     else main.scrollTop = y
+    if (st.tab === 'home') paintInviteQr()
     document.title = (lang() === 'CN' ? 'SCDO 錢包 ' : 'SCDO Wallet ') + APPVER
   }
   function mountMining () {
@@ -3075,6 +3114,7 @@
     if (!ui.rewardExtra.some(x => x.toLowerCase() === addr.toLowerCase())) ui.rewardExtra.push(addr)
     saveUi()
     localStorage.setItem(id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
+    if (id === 'mReward') syncRewardPayout(addr)
     if (st.otherOpen) st.otherOpen[id] = false
     toast('✔ ' + addr); render()
   }
@@ -4050,7 +4090,7 @@
       case 'manage': manageModal(); break
       case 'accMenu':
       case 'accChip': if ($('dd')) closeDd(); else accChipMenu(el); break
-      case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); render(); break }
+      case 'pickAcc': { const ch = el.getAttribute('data-chain'); if (ch === 'old' || ch === 'new') { ui.net = ch; saveUi() } st.sel = f; localStorage.setItem('selAcc112', f); api.invoke('agentJoin:useSelection', { file: f }).then(() => refreshAgent()).catch(() => {}); render(); break }
       case 'pickShard': ui.shard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; saveUi(); render(); break
       case 'settings': goPage('settings'); break
       case 'aboutOpen': openAboutPanel(); break
@@ -4061,6 +4101,10 @@
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'payInvoice': openPayInvoice(); break
       case 'create': createModal(); break
+      case 'startAgent':
+      case 'agentUseWallet': startMyAgent(); break
+      case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
+      case 'phraseBannerDismiss': st.backupAskHide = true; render(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
       case 'phraseLater': laterLeave(); break
       case 'legacyBackupDismiss': ui.backupHintSeen = true; saveUi(); render(); break
@@ -4163,7 +4207,10 @@
     st.otherOpen[t.id] = false; if (row) row.style.display = 'none'
     const addr = miningInput(t.value)
     if (addr !== t.value) t.value = addr
-    if (/^0x[0-9a-fA-F]{40}$/.test(addr)) localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
+    if (/^0x[0-9a-fA-F]{40}$/.test(addr)) {
+      localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
+      if (t.id === 'mReward') syncRewardPayout(addr)
+    }
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
@@ -4725,6 +4772,60 @@
   let APPCOMMIT = ''
   api.on('miner:status', (m) => onMinerStatus(m))
   api.on('miner:classic', (m) => onMinerStatus(m))
+  api.on('agentJoin:updated', (msg) => {
+    st.agent = st.agent || {}
+    if (msg && msg.pendingRef && !(st.agent && st.agent.locked)) st.agent.pendingRef = msg.pendingRef
+    const input = $('joinRef')
+    if (input && msg && msg.pendingRef && !input.value) input.value = msg.pendingRef
+  })
+  function syncRewardPayout (addr) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(String(addr || ''))) return
+    api.invoke('agentJoin:setPayout', { address: addr, file: (selected() && selected().filename) || '' }).then(() => refreshAgent()).catch(() => {})
+  }
+  async function refreshAgent () {
+    try { st.agent = await api.invoke('agentJoin:get') || {} } catch (e) { st.agent = st.agent || {} }
+    const p = st.agent && st.agent.payout
+    if (p && /^0x[0-9a-fA-F]{40}$/.test(p)) {
+      try {
+        if (!localStorage.getItem('minerReward')) localStorage.setItem('minerReward', p)
+        if (!localStorage.getItem('nodePayout')) localStorage.setItem('nodePayout', p)
+      } catch (e) {}
+    }
+    if (st.accounts.length && !(st.agent && st.agent.shareUrl)) {
+      try {
+        const code = await api.invoke('agentJoin:refcode')
+        if (code && code.ok && code.shareUrl) { st.agent.shareUrl = code.shareUrl; st.agent.code = code.code || '' }
+      } catch (e) {}
+    }
+  }
+  async function prepareAgent () {
+    if (st.accounts.length) {
+      const file = st.sel || ((selected() || {}).filename) || ''
+      try { await api.invoke('agentJoin:useSelection', { file: file }) } catch (e) {}
+    }
+    await refreshAgent()
+  }
+  async function startMyAgent () {
+    const typed = ($('joinRef') && $('joinRef').value) || ''
+    const btn = $('startAgentBtn')
+    if (btn) btn.disabled = true
+    let r = null
+    try { r = await api.invoke('agentJoin:start', { typedRef: typed }) } catch (e) { r = { ok: false } }
+    if (!r || !r.ok) { if (btn) btn.disabled = false; toast(T('errKey')); return }
+    if (r.file) {
+      if (r.phrase) {
+        if (!st.phrasePending.includes(r.file)) st.phrasePending.push(r.file)
+        phraseHold = { file: r.file, words: String(r.phrase).trim().split(/\s+/), evm: r.evm || '', date: r.date || '' }
+      }
+      r.phrase = ''
+      st.sel = r.file
+      try { localStorage.setItem('selAcc112', r.file) } catch (e) {}
+    }
+    await reloadAccounts()
+    await refreshAgent()
+    setTab('home')
+    render()
+  }
   async function boot () {
     let info = null
     try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
@@ -4754,6 +4855,7 @@
     } catch (e) {}
     // 1.1.5: auto-resume reads the on/off state from the main process (one-time migration of the old localStorage values)
     try { await api.invoke('miner:intentMigrate', { autoResume: localStorage.getItem('minerAutoResume'), mode: localStorage.getItem('minerMode'), reward: localStorage.getItem('minerReward'), payout: localStorage.getItem('nodePayout') }) } catch (e) {}
+    try { await prepareAgent(); if (st.tab === 'home') render() } catch (e) {}
     ensureCaps().catch(() => {})
     // 3.1.4 AI Agent Ledger: the ops agent in main can ask for the same resume after a restart lost the mining state
     const tryResume = async () => {

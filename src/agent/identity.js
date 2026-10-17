@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const { Wallet } = require('ethers')
 const { signEnvelope, newSigner } = require('./envelope')
+const { signRefcode } = require('./refcode')
 
 function loadOrCreate (dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -28,6 +29,8 @@ function loadOrCreate (dir) {
     agentId: w.address,
     // Only signed envelopes leave this object; the key itself is never returned.
     sign (type, body, ts) { seq += 1; save(); return signEnvelope(w, type, seq, body, ts) },
+    // Read-only lookup. Does not advance the register seq counter.
+    signRefcode (ts) { return signRefcode(w, ts) },
     toJSON () { return { agentId: w.address } }
   }
 }

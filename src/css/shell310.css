@@ -33,6 +33,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .home-backup-legacy { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 8px 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
 .home-backup-legacy span { flex: 1; min-width: 0; }
 .home-backup-x { flex: none; border: 0; background: transparent; color: #7a5b00; font-size: 16px; font-weight: 700; padding: 0 4px; line-height: 1; }
+.home-backup-legacy .home-backup-banner { flex: 1; width: auto; margin: 0; }
 .phrase-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .phrase-word { background: #fff; border: 1px solid #e5e5ea; border-radius: 10px; padding: 8px 10px; font-size: 18px; }
 .phrase-word b { color: #8e8e93; margin-right: 6px; font-weight: 700; }
@@ -63,6 +64,18 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .shell-act:hover, .shell-go:hover, .shell-copy:hover { background: #17652b; }
 .shell-act:active, .shell-go:active, .shell-copy:active { transform: scale(.97); box-shadow: 0 2px 6px rgba(29,122,52,.16); }
 .shell-act:disabled, .shell-go:disabled, .shell-copy:disabled { opacity: .55; cursor: default; box-shadow: none; }
+.shell-act.sec { background: #fff; color: #1d7a34; border: 2px solid #1d7a34; box-shadow: none; }
+.first-run-actions { grid-template-columns: 1fr; max-width: 420px; }
+.first-run .field { margin: 14px 0 4px; max-width: 420px; }
+.first-run .field .lbl { margin-bottom: 6px; font-weight: 700; color: #3d4160; }
+.agent-card { background: #fff; border-radius: 24px; padding: 22px 24px; margin: 16px 0; border: 1px solid #e5e5ea; }
+.agent-card h2 { margin: 0 0 8px; font-size: 22px; }
+.agent-card h3 { margin: 14px 0 6px; font-size: 16px; }
+.agent-row { margin: 6px 0; font-size: 16px; }
+.agent-reward-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; }
+.agent-reward-tap { flex: 1; text-align: left; border: 0; background: transparent; color: #7a5b00; font-size: 15px; font-weight: 800; padding: 0; }
+.agent-entries { margin: 0; padding-left: 18px; }
+#homeInviteQr { width: 180px; height: 180px; }
 .shell-go { width: 100%; padding: 16px 20px; }
 .shell-back { border: 0; background: transparent; color: #43A047; font-size: 18px; font-weight: 800; padding: 12px 8px; }
 

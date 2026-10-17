@@ -114,6 +114,10 @@ ipcMain.handle('shell:openExternal', (e, url) => openExternalSafe(url))
 const ScdoClient = require('./src/api/scdoClient')
 const createMenu = require('./src/js/menu.js').createMenu
 const walletService = require('./src/main/walletService')
+const Join = require('./src/js/agentJoin')
+const { createStore, createController } = require('./src/main/agentJoin')
+const joinStore = createStore(path.join(app.getPath('userData'), 'agent-join.json'))
+const joinCtl = createController({ store: joinStore, agent: () => opsAgent, env: process.env })
 const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
 walletService.register(ipcMain, () => mainWindow)
@@ -923,6 +927,25 @@ function createWindow () {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
+function acceptProtocolUrl (raw) {
+  const parsed = Join.parseJoinUrl(raw)
+  if (!parsed.ok) return
+  try { joinStore.remember(parsed) } catch (e) { console.warn('join url', e && e.message) }
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:updated', { pendingRef: parsed.ref || '', src: parsed.src || '' })
+  } catch (e) {}
+}
+function takeJoinArgv (argv) {
+  for (const u of Join.urlsFromArgv(argv)) acceptProtocolUrl(u)
+}
+app.on('open-url', (e, url) => { e.preventDefault(); acceptProtocolUrl(url) })
+function registerScdoProtocol () {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient('scdowallet', process.execPath, [path.resolve(process.argv[1])])
+    else app.setAsDefaultProtocolClient('scdowallet')
+  } catch (e) { console.warn('scdowallet protocol', e && e.message) }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else if (process.argv.includes('--scdo-quit')) {
@@ -932,6 +955,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', (e, argv) => {
     // 2.0.6: the installer / uninstaller helper asks a running wallet to quit gracefully (the X button only hides it now)
     if (Array.isArray(argv) && argv.includes('--scdo-quit')) { console.log('quit requested by the installer helper'); requestQuit({ confirm: false, reason: 'installer' }); return }
+    takeJoinArgv(argv)
     if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() }
   })
   app.whenReady().then(() => {
@@ -941,6 +965,8 @@ if (!app.requestSingleInstanceLock()) {
       powerMonitor.on('resume', () => { try { powerHold.onResume(Date.now()) } catch (e) {} })
     } catch (e) {}
     if (process.platform === 'win32') { try { app.setAppUserModelId('io.scdoscan.scdowallet') } catch (e) {} } // 2.0.7: Windows toast notifications (same id as the installer shortcut)
+    registerScdoProtocol()
+    takeJoinArgv(process.argv)
     fixCors()
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
     session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'clipboard-sanitized-write')
@@ -1095,7 +1121,7 @@ async function agentSnapshot () {
     noRewardHours: remoteDoc && remoteDoc.noRewardHours, payoutStaleHours: remoteDoc && remoteDoc.payoutStaleHours
   }
 }
-function payoutAddressNow () {
+function minerPayoutWallet () {
   try {
     const st = getMiner().status() || {}
     if (st.wallet) return st.wallet
@@ -1111,6 +1137,50 @@ function payoutAddressNow () {
     }
   } catch (e) {}
   return ''
+}
+function payoutAddressNow () {
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  const found = joinStore.currentPayout(minerPayoutWallet(), accounts, readIntent())
+  if (found.intentPatch && Object.keys(found.intentPatch).length) writeIntent(found.intentPatch)
+  return found.payout || ''
+}
+async function startMyAgent (typedRef) {
+  let created = null
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  if (!accounts.length) {
+    const password = Join.generatePassword()
+    try { created = await walletService.createAccount({ name: 'Agent', password: password, shard: '0' }) } catch (e) { created = { ok: false, error: 'create' } }
+    if (!created || !created.ok) return { ok: false, error: (created && created.error) || 'create' }
+    try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  }
+  joinStore.lock(typedRef)
+  const file = (created && created.file) || joinStore.publicView().payoutFile || ''
+  if (created && created.evm) joinStore.setPayout(created.evm, created.file, 'auto')
+  const applied = created && created.evm
+    ? { view: joinStore.publicView(), intentPatch: Join.bookkeepingPatch(readIntent(), created.evm) }
+    : joinStore.useSelection(accounts, file, readIntent())
+  if (applied.intentPatch && Object.keys(applied.intentPatch).length) writeIntent(applied.intentPatch)
+  let registered = false
+  try {
+    if (opsAgent) {
+      const r = await opsAgent.register()
+      registered = !!(r && r.ok)
+      if (registered) { try { await joinCtl.refcode() } catch (e) {} }
+    }
+  } catch (e) { registered = false }
+  const phrase = created && created.phrase ? created.phrase : ''
+  if (created) created.phrase = ''
+  return {
+    ok: true,
+    file: (created && created.file) || file,
+    evm: (created && created.evm) || (applied.view && applied.view.payout) || '',
+    date: (created && created.date) || '',
+    phrase: phrase,
+    registered: registered,
+    payout: applied.view.payout || ''
+  }
 }
 function applyRemoteConfig (result) {
   const doc = result && result.config
@@ -1145,6 +1215,7 @@ function startOpsAgent () {
     opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
       version: VERSION, platform: process.platform, label: '',
       payoutAddress: payoutAddressNow,
+      joinExtra: () => joinStore.joinExtra(),
       enabled: () => (readIntent() || {}).agentReporting !== false,
       snapshot: agentSnapshot,
       handlers: {
@@ -1174,6 +1245,27 @@ function startOpsAgent () {
 }
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
+ipcMain.handle('agentJoin:get', () => joinCtl.snapshot(opsAgent ? opsAgent.status() : null))
+ipcMain.handle('agentJoin:start', (e, p) => startMyAgent(p && p.typedRef).catch(() => ({ ok: false, error: 'create' })))
+ipcMain.handle('agentJoin:setPayout', (e, p) => {
+  const addr = Join.validPayout(p && p.address)
+  if (!addr) return joinStore.publicView()
+  const view = joinStore.setPayout(addr, p && p.file, 'settings')
+  const patch = Join.bookkeepingPatch(readIntent(), view.payout)
+  patch.reward = view.payout
+  writeIntent(patch)
+  if (opsAgent) opsAgent.register().catch(() => {})
+  return view
+})
+ipcMain.handle('agentJoin:useSelection', (e, p) => {
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (err) { accounts = [] }
+  const applied = joinStore.useSelection(accounts, p && p.file, readIntent())
+  if (applied.changed && opsAgent) opsAgent.register().catch(() => {})
+  if (applied.intentPatch && readIntent() && Object.keys(applied.intentPatch).length) writeIntent(applied.intentPatch)
+  return applied.view
+})
+ipcMain.handle('agentJoin:refcode', () => joinCtl.refcode().catch(() => ({ ok: false, error: 'refcode' })))
 
 process.on('uncaughtException', err => reportProcessError('crash', err))
 process.on('unhandledRejection', err => reportProcessError('error', err))

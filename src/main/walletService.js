@@ -622,4 +622,4 @@ function register (ipcMain, getWin) {
 
 // 2.0.6: language for main-process dialogs / tray / window titles
 function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
