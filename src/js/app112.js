@@ -729,22 +729,86 @@
     if (!st.accounts || !st.accounts.length) return ''
     return `<div class="home-backup-legacy" id="legacyBackup"><span>${esc(T('phraseLegacy'))}</span><button type="button" class="home-backup-x" data-act="legacyBackupDismiss" aria-label="${esc(T('phraseLegacyDismiss'))}">✕</button></div>`
   }
+  function homeHasAccount () {
+    return !!(st.accounts && st.accounts.length)
+  }
+  // Shard0–Shard4 added at 18 decimals. A shard that still has no reading stays unknown.
+  function homeTotalText () {
+    if (!homeHasAccount()) return { text: '\u2014', known: false }
+    const evm = visible('new').filter(a => a.evm)
+    if (visible('new').some(a => !a.evm)) return { text: '\u2026', known: false }
+    const s0 = s0Total(evm)
+    if (evm.length && s0.known < evm.length) return { text: '\u2026', known: false }
+    let sum = s0.known ? s0.wei : 0n
+    for (const n of [1, 2, 3, 4]) {
+      const list = classicOn(n)
+      if (!list.length) continue
+      const t = oldTotal(list)
+      if (t.known < list.length) return { text: '\u2026', known: false }
+      sum += t.v * 10n ** 10n
+    }
+    return { text: AMT.fmtUnits(sum, 18), known: true }
+  }
+  function homeTodayLine () {
+    const e = earnTexts()
+    const s = e.today == null || e.today === '' ? '\u2014' : e.today
+    return T('homeTodayLine', { s: s })
+  }
+  function homeMinePhase () {
+    if (st.homeMine === 'starting' || st.homeMine === 'stopping') return st.homeMine
+    if (miningBusy() || st.homeMine === 'mining') return 'mining'
+    return 'stopped'
+  }
+  function homePlainStatus () {
+    if (!window.SCDOMineHome || !window.SCDOMineHome.homeStatusLine) return T('homeStatIdle')
+    const input = mineHomeInput()
+    return window.SCDOMineHome.homeStatusLine({
+      phase: input.phase,
+      temps: input.temps,
+      hasGpu: gpuNames().length > 0 || !!(input.temps && input.temps.length)
+    }, T)
+  }
+  function homeMainButton () {
+    if (!homeHasAccount()) return `<button type="button" class="shell-mine shell-huge" id="homeCreateWallet" data-act="create">${esc(T('homeCreateWallet'))}</button>`
+    const phase = homeMinePhase()
+    const stop = phase === 'mining' || phase === 'stopping'
+    const dis = phase === 'starting' || phase === 'stopping' ? ' disabled' : ''
+    const label = phase === 'starting' ? T('homeMineBtnStarting') : phase === 'stopping' ? T('homeMineBtnStopping') : phase === 'mining' ? T('homeMineStop') : T('homeMineStart')
+    return `<button type="button" class="shell-mine shell-huge${stop ? ' stop' : ''}" id="homeMineBtn" data-act="homeMine"${dis}>${esc(label)}</button>`
+  }
+  // 一共賺了, the temperature legend, and Shard0–Shard4 cards (sync and node lines live on each card).
+  // Shard0 is first. It is opened from script after paint, so the markup itself stays collapsed.
+  function homeDetailBody () {
+    const models = dashModels()
+    const earn = earnTexts()
+    const total = earn.total == null || earn.total === '' ? '\u2014' : earn.total
+    const cards = models.map(m => `<details class="shell-fold home-shard" data-shard="${m.n}"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(m.name)}</summary>${window.SCDODash.cardHtml(m, T, esc)}</details>`).join('')
+    return `<div class="home-earn-total" id="homeEarnTotal"><span>${esc(T('d_earnTotal'))}</span><b>${esc(total)}</b> <span>SCDO</span></div>${window.SCDODash.tempKeyHtml(T, esc)}<div class="home-shards" id="chainCards">${cards}</div>`
+  }
+  function shardOpenMap (root) {
+    const open = {}
+    root.querySelectorAll('details[data-shard]').forEach(d => { if (d.open) open[d.getAttribute('data-shard')] = true })
+    return open
+  }
+  function applyShardOpen (root, openMap) {
+    if (!root) return
+    const open = openMap == null ? { 0: true } : openMap
+    root.querySelectorAll('details[data-shard]').forEach(d => { d.open = !!open[d.getAttribute('data-shard')] })
+    root.setAttribute('data-shard-ready', '1')
+  }
   function pageHome () {
-    const link = referralLink()
-    return `<div class="page shell-home" id="homePage">
+    const total = homeTotalText()
+    return `<div class="page shell-home simple-home" id="homePage">
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
-      <p class="home-lead">${esc(T('homeLead'))}</p>
-      <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
-      <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
-      <div class="shell-actions">
-        <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
-        <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
-        <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
-      </div>
-      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
-      ${homeBuyHtml()}
-      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p><div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
+      <section class="bal-hero" id="homeHero">
+        <div class="bal-k">${esc(T('d_total'))}</div>
+        <div class="bal-n" id="homeTotal"><b class="${total.known ? '' : 'dash'}">${esc(total.text)}</b> <span>SCDO</span></div>
+        <p class="home-today" id="homeToday">${esc(homeTodayLine())}</p>
+      </section>
+      <div class="home-main-act" id="homeMainAct">${homeMainButton()}</div>
+      <p class="home-state" id="homeMineState">${esc(homePlainStatus())}</p>
+      <details class="shell-fold home-detail" id="homeDetail">${shellFoldSummary(T('homeDetail'))}<div id="homeDetailBody">${homeDetailBody()}</div></details>
     </div>`
   }
   function renderFooter () {
@@ -763,26 +827,37 @@
     if (st.tab === 'home') {
       const line = $('homeMineState')
       if (line) {
-        const text = homeMineLine()
+        const text = homePlainStatus()
         if (line.textContent !== text) line.textContent = text
       }
-      const heights = $('homeHeightLine')
-      if (heights) {
-        const text = homeHeightLine()
-        if (heights.textContent !== text) heights.textContent = text
+      const today = $('homeToday')
+      if (today) {
+        const text = homeTodayLine()
+        if (today.textContent !== text) today.textContent = text
       }
-      const ref = $('homeRefLink')
-      if (ref) {
-        const link = referralLink()
-        if (ref.textContent !== link) {
-          ref.textContent = link
-          document.querySelectorAll('[data-act="shareRef"], #homeInvite [data-act="copy"]').forEach(b => b.setAttribute('data-v', link))
-        }
+      const totalEl = $('homeTotal')
+      if (totalEl) {
+        const total = homeTotalText()
+        const b = totalEl.querySelector('b')
+        if (b && b.textContent !== total.text) b.textContent = total.text
+        if (b) b.classList.toggle('dash', !total.known)
       }
-      const rows = $('chainRows')
-      if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
-      const snap = $('homeSnap')
-      if (snap) { const html = homeSnapHtml(); if (refreshDash.snap !== html) { refreshDash.snap = html; SD.html(snap, html) } }
+      const act = $('homeMainAct')
+      if (act) {
+        const html = homeMainButton()
+        if (refreshDash.act !== html) { refreshDash.act = html; SD.html(act, html) }
+      }
+      const detail = $('homeDetailBody')
+      if (detail) {
+        const ready = detail.getAttribute('data-shard-ready') === '1'
+        const prev = ready ? shardOpenMap(detail) : null
+        const html = homeDetailBody()
+        if (refreshDash.detail !== html) {
+          refreshDash.detail = html
+          SD.html(detail, html)
+          applyShardOpen($('homeDetailBody'), prev)
+        } else if (!ready) applyShardOpen(detail, null)
+      }
     } else if (st.tab === 'acc') {
       const host = $('accList'); if (host) { const html = accListHtml(); if (refreshDash.acc !== html) { refreshDash.acc = html; SD.html(host, html) } }
     } else if (st.tab === 'mine') {
@@ -1358,10 +1433,11 @@
     const wiz = $('payWiz')
     const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
     if (main && !keepPay) SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    if (st.tab === 'home') applyShardOpen($('homeDetailBody'), null)
     if (st.tab === 'remit' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
     if (st.tab === 'recv') paintRecvQr()
     if (st.tab === 'settings') settingsModal()
-    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
+    refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = refreshDash.detail = refreshDash.act = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
     if (st.tab === 'mineSet') mountMining(); else if (window.SCDOMining && window.SCDOMining.MiningPage) window.SCDOMining.MiningPage.unmount()
     renderFooter()

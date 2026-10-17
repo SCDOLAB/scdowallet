@@ -153,7 +153,7 @@ assert.strictEqual(I.CN.setResumeHint, '開啟後，下次啟動錢包會自動�
 assert.strictEqual(I.CN.recvAddrLbl, '地址')
 assert.strictEqual(I.CN.homeTxOk, '已確認')
 assert.strictEqual(I.CN.homeTxWait, '確認中')
-assert.ok(ui.includes('id="homeHeights"') && ui.includes('id="homeHeightLine"') && ui.includes('home-chain-fold'))
+assert.ok(ui.includes('id="homeDetail"') && ui.includes('id="homeEarnTotal"') && ui.includes('tempKeyHtml'))
 assert.ok(ui.includes('class="home-tx-tag') && ui.includes("T('homeTxOk')") && ui.includes("T('homeTxWait')"))
 assert.ok(pay.includes("TC('wizNextAmt')") && pay.includes('accountMenuHtml'))
 assert.ok(ui.includes("T('acctId')") && ui.includes("T('backupNow')"))
@@ -162,9 +162,9 @@ assert.strictEqual(I.EN.shellAmtRoom, 'Not enough balance (leave room for the fe
 assert.ok(pay.includes('function paintAmtRoom') && pay.includes("T('shellAmtRoom')") && pay.includes('btn.disabled = over'))
 assert.ok(pay.includes('exceedsBalance') && pay.includes('async function ensureRoomFee') && pay.includes("T('available'"))
 assert.ok(read('src/css/shell310.css').includes('@media (max-height: 820px)') && read('src/css/shell310.css').includes('.shell-recv .qrwrap { width: 176px; height: 176px; margin: 4px auto; }') && read('src/css/shell310.css').includes('.shell-recv .qrwrap canvas, .shell-recv .qrwrap img { width: 160px; height: 160px; }'))
-assert.ok(ui.includes('id="homeSnap"') && ui.includes('id="homeLastTx"') && ui.includes('homeSnapHtml()'))
+assert.ok(ui.includes('id="homeLastTx"') && ui.includes('function homeSnapHtml'))
 const home = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
-assert.ok(home.includes('id="homeChains"') && home.includes('id="chainRows"') && home.includes('chainRowsHtml()'))
+assert.ok(home.includes('id="homeTotal"') && home.includes('id="homeToday"') && home.includes('id="homeDetail"') && home.includes('homePlainStatus()'))
 assert.ok(!home.includes('type="checkbox"'))
 
 const simp = /[复请账发广状额转创钥据链设认钱节东国这为开关门长对从会来过还进选网页显软电脑输车币买经约调户号]/

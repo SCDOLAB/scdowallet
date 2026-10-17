@@ -282,6 +282,21 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }
+.simple-home .bal-hero { margin: 0; }
+.simple-home .home-today { margin: 12px 0 0; font-size: 16px; font-weight: 700; color: #3c3c43; }
+.simple-home .home-main-act { margin: 18px 0 4px; }
+.simple-home .home-main-act .shell-huge { display: block; width: 100%; }
+.simple-home .home-state { margin: 10px 2px 18px; font-size: 16px; font-weight: 700; color: #3a3a3c; }
+.simple-home .bal-n b.dash { color: #8e8e93; }
+.home-detail { margin-top: 8px; }
+.home-earn-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 4px 0 12px; color: #3c3c43; font-size: 16px; font-weight: 700; }
+.home-earn-total b { font-size: 22px; color: #1c1c1e; font-variant-numeric: tabular-nums; }
+.home-detail .tkey { margin: 0 0 12px; }
+.home-shards { display: flex; flex-direction: column; gap: 8px; }
+.home-detail .home-shard { margin-top: 0; box-shadow: none; }
+.home-detail .home-shard > summary { font-size: 16px; }
+.home-detail .home-shard .card { margin-top: 0; }
+
 @media (max-width: 720px) {
   .side-nav { width: 76px; padding: 10px 6px; }
   .nav-item { flex-direction: column; justify-content: center; font-size: 12px; padding: 10px 2px; text-align: center; }
