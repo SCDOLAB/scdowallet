@@ -29,7 +29,7 @@ assert.ok(!menu.includes("act('mineStart')") && !menu.includes("act('mineStop')"
 assert.ok(!menu.includes('開始挖礦') && !menu.includes('停止挖礦'))
 
 const home = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
-assert.ok(home.includes('chainRowsHtml()') && home.includes('id="homeMineState"') && home.includes('id="homeChains"') && !home.includes('mineHomeStripHtml()'))
+assert.ok(home.includes('id="homeTotal"') && home.includes('id="homeToday"') && home.includes('id="homeMineState"') && home.includes('id="homeDetail"') && home.includes('id="homeMainAct"') && !home.includes('mineHomeStripHtml()'))
 assert.ok(!home.includes('id="shellTotal"') && !home.includes('data-act="toggleChains"') && !home.includes("shellFold('homeTx'"))
 assert.ok(!home.includes('type="checkbox"') && !home.includes('role="switch"') && !home.includes('btn pri'))
 assert.ok(ui.includes('function pageRecv') && ui.includes('id="qrBox"') && ui.includes("T('copy')"))
@@ -222,7 +222,7 @@ const screens = [
 ]
 for (const [name, src] of screens) noOpen(name, src)
 assert.ok(!home.includes("shellFold('homeTx'") && !home.includes('id="recentTxHost"') && !home.includes('id="shellTotal"'))
-assert.ok(home.includes('id="chainRows"') && !home.includes('homeTx310'))
+assert.ok(home.includes('id="homeDetail"') && home.includes('homeDetailBody()') && home.includes('homeMainButton()') && !home.includes('homeTx310'))
 const recvReturn = recvFn.slice(recvFn.lastIndexOf('return `'))
 assert.ok(recvFn.includes('id="qrBox"') && recvFn.includes("selectHtml('recvPick'"))
 assert.ok(recvReturn.indexOf('recv-tabs') < recvReturn.indexOf('${pick}') && recvReturn.indexOf('${pick}') < recvReturn.indexOf('${body}'))

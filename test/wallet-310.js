@@ -250,9 +250,9 @@ assert.ok(!salesBan.test(I.EN.homeBuyTitle + I.EN.homeBuyMember + I.EN.homeBuyOt
 
 const ui = read('src/js/app112.js')
 const home = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
-assert.ok(home.includes('chainRowsHtml()') && home.includes('id="homeMineState"') && !home.includes('mineHomeStripHtml()'))
-assert.ok(home.includes('homeBuyHtml()') && home.includes('id="homeInvite"') && home.includes('data-act="shareRef"'))
-assert.ok(home.indexOf('home-lead') < home.indexOf('shell-actions') && home.indexOf('shell-actions') < home.indexOf('id="homeChains"') && home.indexOf('id="homeChains"') < home.indexOf('homeBuyHtml()') && home.indexOf('homeBuyHtml()') < home.indexOf('id="homeInvite"'))
+assert.ok(home.includes('id="homeTotal"') && home.includes('id="homeToday"') && home.includes('id="homeMineState"') && home.includes('id="homeDetail"') && !home.includes('mineHomeStripHtml()'))
+assert.ok(!home.includes('homeBuyHtml()') && !home.includes('id="homeInvite"') && !home.includes('shell-actions'))
+assert.ok(home.indexOf('id="homeTotal"') < home.indexOf('id="homeToday"') && home.indexOf('id="homeToday"') < home.indexOf('id="homeMainAct"') && home.indexOf('id="homeMainAct"') < home.indexOf('id="homeMineState"') && home.indexOf('id="homeMineState"') < home.indexOf('id="homeDetail"'))
 assert.ok(ui.includes('data-act="buySite" data-v="membership"') && ui.includes('data-act="buySite" data-v="otc"'))
 assert.ok(ui.includes("case 'buySite': openAccountSite(v)"))
 assert.ok(ui.includes("localStorage.getItem('recvAddr310-0')"))

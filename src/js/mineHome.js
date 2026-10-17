@@ -1221,6 +1221,26 @@ function homeLine (input, T) {
   return base
 }
 
+// One plain home line: mining state, then graphics-card state. Example: 正在挖礦 · 顯卡正常.
+function homeStatusLine (input, T) {
+  input = input || {}
+  let mine
+  if (input.phase === 'starting') mine = tr(T, 'homeStatStarting')
+  else if (input.phase === 'stopping') mine = tr(T, 'homeStatStopping')
+  else if (input.phase === 'mining') mine = tr(T, 'homeStatMining')
+  else mine = tr(T, 'homeStatIdle')
+  const c = hottest(input.temps)
+  const hasGpu = !!(input.hasGpu || c != null)
+  let gpu
+  if (!hasGpu) gpu = tr(T, 'homeStatNoGpu')
+  else if (c == null) gpu = tr(T, 'homeStatGpuUnknown')
+  else {
+    const band = tempBand(c)
+    gpu = band === 'hot' ? tr(T, 'homeStatGpuHot') : band === 'warm' ? tr(T, 'homeStatGpuWarm') : tr(T, 'homeStatGpuOk')
+  }
+  return mine + ' \u00b7 ' + gpu
+}
+
 function heightTicker (pools) {
   const parts = []
   for (const n of [1, 2, 3, 4]) {
@@ -1298,7 +1318,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
+const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, homeStatusLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()
