@@ -20,16 +20,16 @@ function sendAmount (amount, decimals) {
 const DEFAULT_SHARD0 = {
   rpc: 'https://apeccapital.org/rpc/0',
   chainId: 5680,
-  explorer: 'https://scdoscan.io',
-  faucet: 'https://scdoscan.io/rpc/0/faucet',
-  // Built-in Shard0 list (chainId 5680). Logos are https://scdoscan.io/logos/<address>.png.
+  explorer: 'https://scdo.com.au',
+  faucet: 'https://scdo.com.au/rpc/0/faucet',
+  // Built-in Shard0 list (chainId 5680). Logos are https://scdo.com.au/logos/<address>.png.
   // api.scdoscan.io also answers module=account&action=tokentx and tokenbalance
   // in Etherscan format. This list is not loaded from that API.
   tokens: [
     { symbol: 'tUSDT', address: '0xb042c1833687d05cba414f04ec4013744ddeadcc', decimals: 6 },
     { symbol: 'tAUD', address: '0x13c22e6944eeeca58768dcaaa03dd485fb8c9ad0', decimals: 2 },
-    { symbol: 'SCDOR', name: 'SCDO Reward', address: '0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3', decimals: 18, logo: 'https://scdoscan.io/logos/0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3.png' },
-    { symbol: 'WSCDO', name: 'Wrapped SCDO', address: '0x5c2d19142f021375D9f440Ed441015e59E28Ab29', decimals: 18, logo: 'https://scdoscan.io/logos/0x5c2d19142f021375D9f440Ed441015e59E28Ab29.png' }
+    { symbol: 'SCDOR', name: 'SCDO Reward', address: '0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3', decimals: 18, logo: 'https://scdo.com.au/logos/0xd76C042a0DbA95E0B9d302d33849304CbD4E5fc3.png' },
+    { symbol: 'WSCDO', name: 'Wrapped SCDO', address: '0x5c2d19142f021375D9f440Ed441015e59E28Ab29', decimals: 18, logo: 'https://scdo.com.au/logos/0x5c2d19142f021375D9f440Ed441015e59E28Ab29.png' }
   ]
 }
 // JsonRpcProvider has send(). FallbackProvider does not; map the two calls this wallet makes.

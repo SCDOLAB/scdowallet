@@ -1,5 +1,5 @@
 // Public endpoints for the desktop wallet. Third-party RPC hosts are retired.
-// Defaults are https://apeccapital.org/rpc/N, then https://scdoscan.io/rpc/N.
+// Defaults are https://apeccapital.org/rpc/N, then https://scdo.com.au/rpc/N.
 // A remote config document can override pools, RPC lists and the agent ledger.
 'use strict'
 const https = require('https')
@@ -7,7 +7,7 @@ const http = require('http')
 
 const RETIRED_RPC_HOSTS = ['74.208.207.184', '117.50.97.136', '107.150.102.94']
 const APEC_ORIGIN = 'https://apeccapital.org'
-const SCAN_ORIGIN = 'https://scdoscan.io'
+const SCAN_ORIGIN = 'https://scdo.com.au'
 const REMOTE_CONFIG_URLS = [APEC_ORIGIN + '/wallet/config.json', SCAN_ORIGIN + '/wallet/config.json']
 const DEFAULT_LEDGER = APEC_ORIGIN + '/agent-ledger/api'
 const FALLBACK_LEDGER = SCAN_ORIGIN + '/agent-ledger/api'

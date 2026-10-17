@@ -3,11 +3,11 @@
 //  - the channel is kept in the wallet's existing main-process settings file (miner-intent.json via main.js settingsStore),
 //    key "updateChannel"; default "stable"
 //  - the manifests are the wallet's real update manifests on scdoscan.io (same host, same Ed25519 key as 2.0.5/2.0.6):
-//      stable  https://scdoscan.io/downloads/wallet/latest.json        (unchanged; what every 2.0.x has always read)
-//      beta    https://scdoscan.io/downloads/wallet/beta/latest.json   (sibling folder; beta users also read stable and
+//      stable  https://scdo.com.au/downloads/wallet/latest.json        (unchanged; what every 2.0.x has always read)
+//      beta    https://scdo.com.au/downloads/wallet/beta/latest.json   (sibling folder; beta users also read stable and
 //                                                                       get whichever verified manifest is newer)
 //  - every installer on the download page has a sha256sum-format file next to it: <installer>.sha256
-//      https://scdoscan.io/downloads/wallet/SCDOWallet-<v>-win-x64-setup.exe.sha256   (beta builds: .../wallet/beta/...)
+//      https://scdo.com.au/downloads/wallet/SCDOWallet-<v>-win-x64-setup.exe.sha256   (beta builds: .../wallet/beta/...)
 //  - the channel only picks between these two built-in URLs; nothing else about the updater can be changed at run time,
 //    and every manifest still has to pass the same signature + field checks (src/updater.js)
 'use strict'
@@ -18,7 +18,7 @@ const crypto = require('crypto')
 const STORE_KEY = 'updateChannel'
 const DEFAULT_CHANNEL = 'stable'
 const CHANNELS = Object.freeze(['stable', 'beta'])
-const DOWNLOAD_BASE = 'https://scdoscan.io/downloads/wallet/'
+const DOWNLOAD_BASE = 'https://scdo.com.au/downloads/wallet/'
 const MANIFEST_URLS = Object.freeze({
   stable: DOWNLOAD_BASE + 'latest.json',
   beta: DOWNLOAD_BASE + 'beta/latest.json'

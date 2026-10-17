@@ -73,9 +73,12 @@ function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x
 // 3.0.4: every chain (Shard0 EVM and Shard1–Shard4) reads https://api.scdoscan.io/api/address/{addr}/txs, which lists
 // incoming and outgoing transfers, block rewards and token transfers. Shard0 falls back to the etherscan-style txlist
 // when that endpoint fails. Amounts stay integer units (string) plus decimals; the window formats them.
-const EXPLORER_API = 'https://api.scdoscan.io/api'
+// 3.1.7: Shard0 (0x) history is served by our own indexer at scdo.com.au/api. The Shard1–4 (Classic) indexer is
+// still only on api.scdoscan.io until it moves to our servers.
+const EXPLORER_API = 'https://scdo.com.au/api'
+const CLASSIC_EXPLORER_API = 'https://api.scdoscan.io/api'
 const PAGE_ROWS = 50 // the indexer allows up to 100 per page and page * limit <= 10,000
-const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
+const ADDR_TXS = (a) => (/^0x[0-9a-fA-F]{40}$/.test(String(a)) ? EXPLORER_API : CLASSIC_EXPLORER_API) + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
 const REWARD_FROM = /^0S0{40}$/i
 async function fetchJson (url, ms) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), ms || 10000)

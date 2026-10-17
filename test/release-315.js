@@ -67,24 +67,24 @@ const migrated = endpoints.migrateWalletConfig({
 assert.strictEqual(migrated.config.connect[0], 'https://apeccapital.org/rpc/0')
 assert.strictEqual(migrated.config.connect[1], 'https://apeccapital.org/rpc/1')
 assert.strictEqual(migrated.config.connect[3], 'https://apeccapital.org/rpc/3')
-assert.strictEqual(migrated.config.connectFallback[4], 'https://scdoscan.io/rpc/4')
+assert.strictEqual(migrated.config.connectFallback[4], 'https://scdo.com.au/rpc/4')
 assert.strictEqual(migrated.config.configVersion, 3)
 const kept = endpoints.migrateWalletConfig({
-  connect: ['https://scdoscan.io/rpc/0', 'https://scdoscan.io/rpc/1', 'https://scdoscan.io/rpc/2', 'https://scdoscan.io/rpc/3', 'https://scdoscan.io/rpc/4'],
+  connect: ['https://scdo.com.au/rpc/0', 'https://scdo.com.au/rpc/1', 'https://scdo.com.au/rpc/2', 'https://scdo.com.au/rpc/3', 'https://scdo.com.au/rpc/4'],
   connectFallback: endpoints.fallbackConnect(),
   configVersion: 3
 })
-assert.strictEqual(kept.config.connect[2], 'https://scdoscan.io/rpc/2')
+assert.strictEqual(kept.config.connect[2], 'https://scdo.com.au/rpc/2')
 assert.deepStrictEqual(endpoints.rpcCandidates(0, { connect: migrated.config.connect, connectFallback: migrated.config.connectFallback }).slice(0, 2), [
-  'https://apeccapital.org/rpc/0', 'https://scdoscan.io/rpc/0'
+  'https://apeccapital.org/rpc/0', 'https://scdo.com.au/rpc/0'
 ])
-assert.deepStrictEqual(endpoints.rpcCandidates(1, { remote: { rpc: { 1: ['http://127.0.0.1:18037', 'https://scdoscan.io/rpc/1'] } } }), [
-  'http://127.0.0.1:18037', 'https://scdoscan.io/rpc/1'
+assert.deepStrictEqual(endpoints.rpcCandidates(1, { remote: { rpc: { 1: ['http://127.0.0.1:18037', 'https://scdo.com.au/rpc/1'] } } }), [
+  'http://127.0.0.1:18037', 'https://scdo.com.au/rpc/1'
 ])
 assert.deepStrictEqual(endpoints.rpcCandidates(2, { remote: { rpc: { 2: ['http://74.208.207.184:8038'] } } }).indexOf('http://74.208.207.184:8038'), -1)
 
 assert.strictEqual(endpoints.DEFAULT_LEDGER, 'https://apeccapital.org/agent-ledger/api')
-assert.strictEqual(endpoints.FALLBACK_LEDGER, 'https://scdoscan.io/agent-ledger/api')
+assert.strictEqual(endpoints.FALLBACK_LEDGER, 'https://scdo.com.au/agent-ledger/api')
 assert.deepStrictEqual(endpoints.ledgerUrls({ env: {} }), [endpoints.DEFAULT_LEDGER, endpoints.FALLBACK_LEDGER])
 assert.deepStrictEqual(endpoints.ledgerUrls({ ledgerUrl: 'http://127.0.0.1:9/agent-ledger/api', env: { SCDO_AGENT_LEDGER: 'https://ignored.example/api' } }), ['http://127.0.0.1:9/agent-ledger/api'])
 const withRemoteLedger = endpoints.ledgerUrls({ env: {}, remote: { agentLedger: ['https://apeccapital.org/custom/api'] } })
@@ -165,8 +165,8 @@ assert.ok(read('server/agent-ledger/server.js').includes('report'))
   })
   assert.strictEqual((await fb.register()).ok, true)
   assert.ok(seen[0].indexOf('https://apeccapital.org/agent-ledger/api/register') === 0)
-  assert.ok(seen[1].indexOf('https://scdoscan.io/agent-ledger/api/register') === 0)
-  assert.strictEqual(fb.ledger, 'https://scdoscan.io/agent-ledger/api')
+  assert.ok(seen[1].indexOf('https://scdo.com.au/agent-ledger/api/register') === 0)
+  assert.strictEqual(fb.ledger, 'https://scdo.com.au/agent-ledger/api')
 
   const srv = http.createServer(createApp({ dataDir: tmp() }).handler)
   await new Promise(resolve => srv.listen(0, '127.0.0.1', resolve))

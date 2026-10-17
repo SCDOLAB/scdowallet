@@ -624,7 +624,7 @@
       } else {
         for (const e of entries) {
           for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
-            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdoscan.io/tx/' + r.hash) : ''
+            const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdo.com.au/tx/' + r.hash) : ''
             txs.push(Object.assign({}, r, { address: e.address, href: href }))
           }
         }
@@ -4058,7 +4058,7 @@
       case 'openTx': {
         const h = String(v || '')
         if (/^0x[0-9a-fA-F]{64}$/.test(h)) openExternal(shard0().explorerTx(h))
-        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdoscan.io/tx/' + h)
+        else if (/^[0-9a-fA-F]{64}$/.test(h)) openExternal('https://scdo.com.au/tx/' + h)
         break
       }
       case 'explorerAddr': openExternal(shard0().explorerAddress(v)); break

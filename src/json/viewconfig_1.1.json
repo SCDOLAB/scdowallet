@@ -8,11 +8,11 @@
     "https://apeccapital.org/rpc/4"
   ],
   "connectFallback": [
-    "https://scdoscan.io/rpc/0",
-    "https://scdoscan.io/rpc/1",
-    "https://scdoscan.io/rpc/2",
-    "https://scdoscan.io/rpc/3",
-    "https://scdoscan.io/rpc/4"
+    "https://scdo.com.au/rpc/0",
+    "https://scdo.com.au/rpc/1",
+    "https://scdo.com.au/rpc/2",
+    "https://scdo.com.au/rpc/3",
+    "https://scdo.com.au/rpc/4"
   ],
   "monitor": [],
   "configVersion": 3

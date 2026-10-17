@@ -334,7 +334,7 @@ class ZpowManager extends EventEmitter {
     if (!this.wantRunning || this.state.mode !== 'gpu' || !SHARD_PORTS[this.state.shard]) return
     const shard = this.state.shard
     const localUrl = 'http://127.0.0.1:' + SHARD_PORTS[shard].http
-    const pubUrl = 'https://scdoscan.io/rpc/' + shard
+    const pubUrl = 'https://scdo.com.au/rpc/' + shard
     const call = this.o.rpc || rpcCall
     let info = null
     let dl = null

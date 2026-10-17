@@ -10,7 +10,7 @@ const { isVirtualDisplayName } = require('../miner/gpuSelect')
 
 
 const { rpcCandidates } = require('../config/endpoints')
-const REF_RPC = 'https://scdoscan.io/rpc/0'
+const REF_RPC = 'https://scdo.com.au/rpc/0'
 const MIN_VRAM_GB = 4
 const STATS_WINDOW = 120 // blocks
 
@@ -99,6 +99,7 @@ function rpc (url, method, params, timeoutMs) {
 let statsCache = null
 // -> { height, difficulty (string), blockTimeSec, networkHashrate (H/s, estimate), localHashrate, sharePercent, window, source, asOf }
 const RPC_SOURCES = {
+  'scdo.com.au': { sourceKey: 'scdoMainPublic', source: 'scdo.com.au Shard0 EVM public node' },
   'scdoscan.io': { sourceKey: 'scdoscanMainPublic', source: 'scdoscan.io Shard0 EVM public node' },
   'apeccapital.org': { sourceKey: 'apeccapitalMainPublic', source: 'apeccapital.org Shard0 EVM public node' }
 }
@@ -181,15 +182,15 @@ async function exportLogs (win, miner, appInfo) {
 
 // ---------- 2.0.7 (P2): SCDO pool account (payout progress card + payout notifications) ----------
 // Uses the same main-process https client as the network stats (the renderer has no network access: CSP connect-src 'self').
-// Only the official SCDO pool publishes a miner API: https://scdoscan.io/pool/api/accounts/<addr> (open-ethereum-pool;
-// amounts are in Shannon = 1e-9 SCDO). Only https://scdoscan.io/ URLs are ever fetched here.
-const POOL_API = 'https://scdoscan.io/pool/api/accounts/'
+// Only the official SCDO pool publishes a miner API: https://scdo.com.au/pool/api/accounts/<addr> (open-ethereum-pool;
+// amounts are in Shannon = 1e-9 SCDO). Only https://scdo.com.au/ URLs are ever fetched here.
+const POOL_API = 'https://scdo.com.au/pool/api/accounts/'
 const OFFICIAL_POOL_HOSTS = ['139.84.196.31:3333'] // 3.1.6: Melbourne Shard0 pool only
 const SHANNON = 1000000000n
 function httpsGetText (url, timeoutMs, maxBytes) {
   return new Promise((resolve, reject) => {
     let u; try { u = new URL(url) } catch (e) { return reject(new Error('bad url')) }
-    if (u.protocol !== 'https:' || u.host !== 'scdoscan.io' || u.username || u.password) return reject(new Error('url not allowed'))
+    if (u.protocol !== 'https:' || (u.host !== 'scdo.com.au' && u.host !== 'apeccapital.org') || u.username || u.password) return reject(new Error('url not allowed'))
     const req = https.get(u, { headers: { Accept: 'application/json, text/plain' }, timeout: timeoutMs || 10000 }, res => {
       if (res.statusCode !== 200) { res.resume(); const e = new Error('HTTP ' + res.statusCode); e.status = res.statusCode; return reject(e) }
       let n = 0; const chunks = []

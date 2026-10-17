@@ -23,7 +23,7 @@ const keystore = require("./keystore");
 const BigNumber = require('bignumber.js');
 const endpoints = require('../config/endpoints');
 
-// Live RPC defaults: https://apeccapital.org/rpc/N, then https://scdoscan.io/rpc/N.
+// Live RPC defaults: https://apeccapital.org/rpc/N, then https://scdo.com.au/rpc/N.
 // Retired third-party hosts are rewritten onto the apeccapital.org primary.
 function migrateConfig(configpath) {
   var cfg;

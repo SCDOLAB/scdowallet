@@ -135,7 +135,7 @@ function saveNodeInfo(){
       settings.connect[i+1] = `http://${ipport}`;
       fs.writeFileSync(client.configpath, JSON.stringify(settings))
     } else if (/^https?:\/\/[A-Za-z0-9.\-]+(:\d{1,5})?(\/[A-Za-z0-9._\-\/]*)?$/.test(ipport.trim())) {
-      // 2026-09: full URLs (e.g. https://scdoscan.io/rpc/1) are accepted as well
+      // 2026-09: full URLs (e.g. https://scdo.com.au/rpc/1) are accepted as well
       document.getElementById(`shard${parseInt(i)+1}address`).innerHTML = ipport.trim();
       settings.connect[i+1] = ipport.trim();
       fs.writeFileSync(client.configpath, JSON.stringify(settings))

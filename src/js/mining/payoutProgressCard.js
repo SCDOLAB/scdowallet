@@ -1,7 +1,7 @@
 // SCDO Wallet 2.0.7 (P2, mining department): pool payout progress card on the Mining tab (pool mode only).
 // Based on 豆包's payoutProgressCard.js; adapted to this codebase:
 //  - no ./httpClient.js: the page has no network access (CSP connect-src 'self'); the main process reads the pool API
-//    over the allowlisted IPC channel 'pool:account' (src/main/miningService.js poolAccount, https://scdoscan.io/pool/api/accounts/<addr>)
+//    over the allowlisted IPC channel 'pool:account' (src/main/miningService.js poolAccount, https://scdo.com.au/pool/api/accounts/<addr>)
 //  - DOM-built with SafeDom.h (no innerHTML, Trusted Types), existing card / stat / statusbar / button styles
 //  - "pool unreachable", "no record yet" and "not the official pool" are plain states; nothing here can throw into the page
 // Facts only: unpaid balance vs the payout minimum, last payout time + transaction. No projections, no prices.

@@ -190,10 +190,10 @@ async function main () {
   }
 
   await test('default base joins /v1 under scdoscan.io/remit-api', async () => {
-    assert.strictEqual(remit.DEFAULT_BASE, 'https://scdoscan.io/remit-api')
+    assert.strictEqual(remit.DEFAULT_BASE, 'https://scdo.com.au/remit-api')
     assert.strictEqual(remit.MIRROR_BASE, 'https://apeccapital.org/remit-api')
-    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE, '/v1/session/challenge'), 'https://scdoscan.io/remit-api/v1/session/challenge')
-    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE + '/', '/v1/session'), 'https://scdoscan.io/remit-api/v1/session')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE, '/v1/session/challenge'), 'https://scdo.com.au/remit-api/v1/session/challenge')
+    assert.strictEqual(remit.joinUrl(remit.DEFAULT_BASE + '/', '/v1/session'), 'https://scdo.com.au/remit-api/v1/session')
     assert.strictEqual(remit.joinUrl(remit.MIRROR_BASE + '/', '/v1/ledger'), 'https://apeccapital.org/remit-api/v1/ledger')
     assert.throws(
       () => remit.assertChallengeFor('Domain: evil.example\nAddress: ' + addrA + '\nChain ID: 1\n', addrA),
