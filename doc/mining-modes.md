@@ -13,7 +13,7 @@ and refuses the build unless the zip sha256 is `6efc25597620e145a6de53aa3c8105d8
 Start runs one process per selected Shard1–Shard4 Classic chain. Every process uses device 0, so the speed is split across them. The local node does not have to be synced. The row says 「顯卡經礦池挖」. `N` is the shard, 1–4, and `-user` is that shard's Classic address.
 
 ```text
-zminer-gpu.exe -pool 82.223.19.88:3341 -user 1S01… -worker %COMPUTERNAME% -device 0 -batch 8192
+zminer-gpu.exe -pool <pool-host>:3341 -user 1S01… -worker %COMPUTERNAME% -device 0 -batch 8192
 ```
 
 Shard2–Shard4 use ports `3342`, `3343` and `3344` and a `2S02…`, `3S03…` or `4S04…` address.
@@ -45,7 +45,7 @@ This node does not print a hashrate, so a solo row keeps a dash for speed. A syn
 The processor miner is `zminer.exe`. It speaks stratum. The row says 「經礦池挖」. Speed and earnings appear only after it is connected and reporting a speed. The processor still starts one Classic chain at a time.
 
 ```text
-zminer.exe -pool 82.223.19.88:3341 -user 1S01… -worker wallet -threads 4
+zminer.exe -pool <pool-host>:3341 -user 1S01… -worker wallet -threads 4
 ```
 
 Replace the port and the address for Shard2–Shard4 (`3342` / `2S02…`, `3343` / `3S03…`, `3344` / `4S04…`).

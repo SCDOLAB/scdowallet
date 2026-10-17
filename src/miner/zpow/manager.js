@@ -1,5 +1,5 @@
 // Classic shard 1–4 mining.
-// CPU: one zminer to the pool. Shard 1 defaults to 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// CPU: one zminer to the pool. 3.1.6: no built-in pool host; the remote config or env must name one (ports 3341–3344).
 // A remote config document can override those hosts. Env SCDO_ZPOW_POOLS still wins.
 // GPU default: one zminer-gpu process per selected shard, all on device 0.
 // GPU solo: the Classic node (node.exe) only when solo was saved and that node is synced.
@@ -400,6 +400,11 @@ class ZpowManager extends EventEmitter {
     const threadblocks = asInt(opts.threadblocks, 100)
     const blockthreads = asInt(opts.blockthreads, 100)
     const pool = poolForShard(parsed.shard, mergeOverrides(this.o.remoteConfig, poolsFromEnv(env) || this.o.pools))
+    if (!pool.stratum && (backend === 'cpu' || gpuMiner === 'zminer-gpu')) {
+      const err = new Error('no Shard' + parsed.shard + ' Classic pool is configured (remote config zpowPools or SCDO_ZPOW_POOLS)')
+      err.code = 'NO_POOL'
+      throw err
+    }
     const workerName = opts.worker || (backend === 'cpu' || gpuMiner !== 'zminer-gpu' ? 'wallet' : computerName(env))
 
     let binary, args, cwd, shaOpts, ctrlC = false, nodeEnv = null

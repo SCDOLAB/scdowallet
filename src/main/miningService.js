@@ -173,7 +173,7 @@ async function exportLogs (win, miner, appInfo) {
 // Only the official SCDO pool publishes a miner API: https://scdoscan.io/pool/api/accounts/<addr> (open-ethereum-pool;
 // amounts are in Shannon = 1e-9 SCDO). Only https://scdoscan.io/ URLs are ever fetched here.
 const POOL_API = 'https://scdoscan.io/pool/api/accounts/'
-const OFFICIAL_POOL_HOSTS = ['139.84.196.31:3333', '82.223.19.88:3333']
+const OFFICIAL_POOL_HOSTS = ['139.84.196.31:3333'] // 3.1.6: Melbourne Shard0 pool only
 const SHANNON = 1000000000n
 function httpsGetText (url, timeoutMs, maxBytes) {
   return new Promise((resolve, reject) => {

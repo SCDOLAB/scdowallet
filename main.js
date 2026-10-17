@@ -242,8 +242,8 @@ setInterval(pollPayout, 2 * 60 * 1000)
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
-// Shard 1 pool defaults to 82.223.19.88:3341. Shards 2–4 use 3342–3344.
-// Remote config (apeccapital.org/wallet/config.json) can override those hosts.
+// 3.1.6: Shard1–4 Classic pools have no built-in host. Remote config (apeccapital.org/wallet/config.json,
+// zpowPools) or SCDO_ZPOW_POOLS names them; ports 3341–3344.
 // Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
 const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')

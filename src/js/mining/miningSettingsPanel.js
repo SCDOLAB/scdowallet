@@ -3,7 +3,7 @@
 ;(function (M) {
   const h = (...a) => window.SafeDom.h(...a)
   const OFFICIAL_POOL = 'ethproxy+tcp://139.84.196.31:3333' // Melbourne Shard0 pool, prefilled when nothing is saved
-  const OFFICIAL_HOSTS = ['139.84.196.31:3333', '82.223.19.88:3333']
+  const OFFICIAL_HOSTS = ['139.84.196.31:3333']
   const POOL_RE = /^(stratum\+tcp|stratum\+ssl|stratum1\+tcp|stratum1\+ssl|ethproxy\+tcp|ethproxy\+ssl|ethstratum\+tcp|ethstratum\+ssl):\/\/([A-Za-z0-9.-]{1,253}|\[[0-9a-fA-F:]+\]):(\d{1,5})$/
   function render (cfg, running, handlers) {
     cfg = cfg || { miningMode: 'solo', poolUrl: '', keepMining: false }

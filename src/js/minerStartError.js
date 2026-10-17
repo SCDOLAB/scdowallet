@@ -44,6 +44,10 @@
       CN: '找不到處理器挖礦程式。請重新安裝 SCDO Wallet。',
       EN: 'The processor mining program was not found. Please reinstall SCDO Wallet.'
     },
+    NO_POOL: {
+      CN: 'Shard1 到 Shard4 的處理器礦池目前還沒有開放，所以沒有開始挖礦。Shard0 EVM 請用顯示卡挖。',
+      EN: 'The Shard1 to Shard4 processor pools are not open yet, so mining did not start. Shard0 EVM mines with a graphics card.'
+    },
     NO_ROSETTA: {
       CN: '這台 Mac 需要先安裝 Apple 的 Rosetta 2 才能用處理器挖礦。請打開「終端機」執行：softwareupdate --install-rosetta --agree-to-license，然後再按開始挖礦。',
       EN: 'This Mac needs Apple Rosetta 2 for processor mining. Open Terminal and run: softwareupdate --install-rosetta --agree-to-license, then press Start mining again.'
@@ -93,7 +97,7 @@
       EN: 'The miner did not start. Try again. If it keeps failing, open the Mining page, press "Export mining logs (sanitized)" under Logs, and send the file to support.'
     }
   }
-  const CLASSIC_CODES = ['NO_ZMINER', 'NO_ROSETTA', 'NO_ZMINER_GPU', 'NO_CLASSIC_NODE', 'NO_CUDART', 'SHA256_MISSING', 'SHA256_MISMATCH', 'BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NETWORK']
+  const CLASSIC_CODES = ['NO_ZMINER', 'NO_POOL', 'NO_ROSETTA', 'NO_ZMINER_GPU', 'NO_CLASSIC_NODE', 'NO_CUDART', 'SHA256_MISSING', 'SHA256_MISMATCH', 'BAD_ARGS', 'BAD_POOLS', 'BAD_DATADIR', 'BAD_KEY', 'NETWORK']
   const SHORT = {
     NO_NVIDIA: { CN: '沒有找到顯示卡', EN: 'no graphics card found' },
     DEFENDER: { CN: '被防毒軟體刪掉', EN: 'removed by antivirus' },
@@ -105,6 +109,7 @@
     CRASHING: { CN: '程式反覆關掉', EN: 'the program kept closing' },
     EXTERNAL_DOWN: { CN: '另一個節點沒有回應', EN: 'the other node is not answering' },
     NO_ZMINER: { CN: '找不到處理器挖礦程式', EN: 'processor mining program not found' },
+    NO_POOL: { CN: '礦池還沒開放', EN: 'pool not open yet' },
     NO_ROSETTA: { CN: '需要安裝 Rosetta 2', EN: 'Rosetta 2 is needed' },
     NO_CLASSIC_NODE: { CN: '找不到顯示卡挖礦程式', EN: 'graphics-card mining program not found' },
     NO_ZMINER_GPU: { CN: '找不到顯卡礦池程式', EN: 'graphics-card pool program not found' },

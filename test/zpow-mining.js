@@ -71,12 +71,13 @@ assert.strictEqual(fw.address, '1S01' + 'a'.repeat(37) + '2')
 
 // --- pools ---
 for (const shard of [1, 2, 3, 4]) {
-  const p = poolForShard(shard)
-  assert.strictEqual(p.host, '82.223.19.88')
+  const p = poolForShard(shard, { [shard]: { host: 'pool.example' } })
+  assert.strictEqual(p.host, 'pool.example')
   assert.strictEqual(p.port, DEFAULT_POOLS[shard].port)
   assert.strictEqual(p.statsPort, DEFAULT_POOLS[shard].statsPort)
-  assert.strictEqual(p.stratum, '82.223.19.88:' + p.port)
-  assert.strictEqual(minerStatsUrl(p, REAL), 'http://82.223.19.88:' + p.statsPort + '/api/miner/' + encodeURIComponent(REAL))
+  assert.strictEqual(p.stratum, 'pool.example:' + p.port)
+  assert.strictEqual(minerStatsUrl(p, REAL), 'http://pool.example:' + p.statsPort + '/api/miner/' + encodeURIComponent(REAL))
+  assert.strictEqual(poolForShard(shard).stratum, '')
 }
 assert.strictEqual(poolForShard(1).port, 3341)
 assert.strictEqual(poolForShard(1).statsPort, 8341)
@@ -84,8 +85,10 @@ assert.strictEqual(poolForShard(4).port, 3344)
 assert.strictEqual(poolForShard(4).statsPort, 8344)
 assert.strictEqual(poolForShard(1).live, undefined)
 assert.strictEqual(poolForShard(3).live, undefined)
-assert.strictEqual(poolForShard(1).statsBase, 'http://82.223.19.88:8341')
-assert.strictEqual(poolForShard(4).statsBase, 'http://82.223.19.88:8344')
+assert.strictEqual(poolForShard(1).statsBase, '')
+assert.strictEqual(poolForShard(4).statsBase, '')
+// 3.1.6: there is no built-in pool host. The launch tests below name one through SCDO_ZPOW_POOLS.
+process.env.SCDO_ZPOW_POOLS = JSON.stringify({ 1: { host: 'pool.test' }, 2: { host: 'pool.test' }, 3: { host: 'pool.test' }, 4: { host: 'pool.test' } })
 const over = poolForShard(2, { 2: { host: '10.0.0.8', port: 14002, statsPort: 18002 } })
 assert.strictEqual(over.stratum, '10.0.0.8:14002')
 assert.throws(() => poolForShard(0), /shard/)
@@ -115,8 +118,8 @@ assert.strictEqual(parseStatusLine('hashrate 100 H/s | batch 8192 | card | accep
 assert.ok(cudaInitFailed('CUDA driver version is insufficient for CUDA runtime version'))
 assert.ok(cudaInitFailed('no CUDA device (count 0)'))
 assert.ok(!cudaInitFailed('hashrate 1 H/s | accepted 1 rejected 0'))
-assert.deepStrictEqual(renderArgs(ZMINER_GPU_ARGS, { pool: '82.223.19.88:3342', user: REAL, worker: 'DESK' }),
-  ['-pool', '82.223.19.88:3342', '-user', REAL, '-worker', 'DESK', '-device', '0', '-batch', '8192'])
+assert.deepStrictEqual(renderArgs(ZMINER_GPU_ARGS, { pool: 'pool.test:3342', user: REAL, worker: 'DESK' }),
+  ['-pool', 'pool.test:3342', '-user', REAL, '-worker', 'DESK', '-device', '0', '-batch', '8192'])
 assert.strictEqual(parseStatusLine('not json {'), null)
 const gpu = parseStatusLine('GPU miner called number of blocks=100, number of block threads = 256')
 assert.deepStrictEqual(gpu, { kind: 'gpu-active', grid: 100, blockThreads: 256 })
@@ -304,7 +307,7 @@ assert.ok(!mainSrc.includes('decideStart'))
 assert.ok(mainSrc.includes('zpowCpu') && mainSrc.includes('zpowGpu'))
 assert.ok(mainSrc.includes("opts.backend === 'gpu' ? 'gpu' : 'cpu'"))
 assert.ok(!mainSrc.includes('started as the GPU node'))
-assert.ok(i18n.includes('82.223.19.88:3341'))
+assert.ok(!i18n.includes('pool.test'))
 assert.ok(i18n.includes('3342–3344'))
 assert.ok(i18n.includes('using the graphics card and the processor in any combination'))
 assert.ok(i18n.includes('可以用顯示卡和處理器一起挖，任意組合都可以'))
@@ -1070,7 +1073,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.1.5')
+  assert.strictEqual(pkg.version, '3.1.6')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')
@@ -1139,13 +1142,13 @@ async function publishedZminer () {
   if (fs.existsSync(distLinux)) assert.strictEqual(await sha256File(distLinux), ZMINER_LINUX_SHA256)
   const mgr = new ZpowManager({ platform: 'linux', root, dataRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-zpow-caps-')) })
   const caps = mgr.capabilities({})
-  assert.strictEqual(caps.pools[1].stratum, '82.223.19.88:3341')
+  assert.strictEqual(caps.pools[1].stratum, '')
   assert.strictEqual(caps.pools[1].statsPort, 8341)
   assert.strictEqual(caps.pools[2].port, 3342)
   assert.strictEqual(caps.pools[3].port, 3343)
   assert.strictEqual(caps.pools[4].port, 3344)
   assert.strictEqual(caps.pools[2].live, undefined)
-assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
+assert.strictEqual(caps.pools[2].statsBase, '')
   for (const rel of ['src/miner/zpow/launch.js', 'src/miner/zpow/bins.js', 'src/miner/zpow/manager.js', 'scripts/before-pack-win.js', 'doc/mining-modes.md']) {
     assert.ok(fs.readFileSync(path.join(root, rel), 'utf8').includes('zminer-gpu'), rel)
   }
@@ -1155,8 +1158,8 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
   assert.ok(packHook.includes('assertMinerBinsPresent'))
   const modes = fs.readFileSync(path.join(root, 'doc', 'mining-modes.md'), 'utf8')
   assert.ok(modes.includes('node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100'))
-  assert.ok(modes.includes('zminer.exe -pool 82.223.19.88:3341 -user 1S01… -worker wallet -threads 4'))
-  assert.ok(modes.includes('zminer-gpu.exe -pool 82.223.19.88:3341 -user 1S01… -worker %COMPUTERNAME% -device 0 -batch 8192'))
+  assert.ok(modes.includes('zminer.exe -pool <pool-host>:3341 -user 1S01… -worker wallet -threads 4'))
+  assert.ok(modes.includes('zminer-gpu.exe -pool <pool-host>:3341 -user 1S01… -worker %COMPUTERNAME% -device 0 -batch 8192'))
   assert.ok(modes.includes('顯卡經礦池挖'))
   assert.deepStrictEqual(referencedMinerFiles('win32'), ['zminer.exe', 'geth.exe', 'scdo-stratum.exe', 'classic/node.exe', 'zminer-gpu/zminer-gpu.exe', 'zminer-gpu/zpowdet.dll', 'zminer-gpu/cudart64_12.dll'])
   const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-bins-'))
@@ -1207,19 +1210,19 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
     platform: 'linux',
     root,
     dataRoot: poolRoot,
-    env: { SCDO_ZMINER_GPU_EXE: poolBin, COMPUTERNAME: 'SCDO-4060' }
+    env: { SCDO_ZPOW_POOLS: process.env.SCDO_ZPOW_POOLS, SCDO_ZMINER_GPU_EXE: poolBin, COMPUTERNAME: 'SCDO-4060' }
   })
   const pooled = await fleet.start(REAL, { backend: 'gpu', gpuMiner: 'pool', shard: 1 })
   assert.strictEqual(pooled.backend, 'zminer-gpu')
   assert.strictEqual(pooled.running, true)
   assert.strictEqual(pooled.shards.length, 1)
   const kid1 = fleet.kids.get(1)
-  assert.deepStrictEqual(kid1.launchSpec.args, ['-pool', '82.223.19.88:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
+  assert.deepStrictEqual(kid1.launchSpec.args, ['-pool', 'pool.test:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
   const both = await fleet.start(shard2, { backend: 'gpu', shard: 2 })
   assert.strictEqual(both.shards.length, 2)
   assert.ok(both.shards.every(s => s.backend === 'zminer-gpu'))
   const kid2 = fleet.kids.get(2)
-  assert.ok(kid2.launchSpec.args.includes('82.223.19.88:3342'))
+  assert.ok(kid2.launchSpec.args.includes('pool.test:3342'))
   assert.ok(kid2.launchSpec.args.includes(shard2))
   assert.ok(kid2.launchSpec.args.includes('-device') && kid2.launchSpec.args.includes('0'))
   assert.strictEqual(fleet.childPids().length, 2)
@@ -1256,14 +1259,14 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
     platform: 'linux',
     root,
     dataRoot: soloRoot,
-    env: { SCDO_ZMINER_GPU_EXE: poolBin, COMPUTERNAME: 'SCDO-4060' }
+    env: { SCDO_ZPOW_POOLS: process.env.SCDO_ZPOW_POOLS, SCDO_ZMINER_GPU_EXE: poolBin, COMPUTERNAME: 'SCDO-4060' }
   })
   const savedSolo = await soloFleet.start(REAL, {
     backend: 'gpu', gpuMiner: 'classic-node', miningMode: 'solo', nodeSynced: false, syncPct: 52, shard: 1, zh: true
   })
   assert.strictEqual(savedSolo.backend, 'zminer-gpu')
   assert.strictEqual(soloFleet.childUp(soloFleet.kids.get(1)), true)
-  assert.deepStrictEqual(soloFleet.kids.get(1).launchSpec.args, ['-pool', '82.223.19.88:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
+  assert.deepStrictEqual(soloFleet.kids.get(1).launchSpec.args, ['-pool', 'pool.test:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
   assert.strictEqual(soloFleet.kids.get(1).state.mineLabel, '顯卡經礦池挖（本機節點同步 52%）')
   await soloFleet.stop()
   fs.rmSync(soloRoot, { recursive: true, force: true })
@@ -1312,7 +1315,7 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
       platform: process.platform,
       root,
       dataRoot,
-      env: { SCDO_ZMINER_GPU_EXE: standIn, COMPUTERNAME: 'SCDO-4060' }
+      env: { SCDO_ZPOW_POOLS: process.env.SCDO_ZPOW_POOLS, SCDO_ZMINER_GPU_EXE: standIn, COMPUTERNAME: 'SCDO-4060' }
     })
     try {
       const starts = [1, 2, 3, 4].map(n => four.start(classic(n, 'ab'.repeat(18) + 'c1'), Object.assign({
@@ -1326,7 +1329,7 @@ assert.strictEqual(caps.pools[2].statsBase, 'http://82.223.19.88:8342')
         assert.ok(four.childUp(kid), label + ' shard ' + n)
         assert.strictEqual(kid.state.backend, 'zminer-gpu', label + ' backend ' + n)
         assert.ok(kid.proc.stdin && kid.proc.stdin.writable, label + ' stdin ' + n)
-        assert.ok(kid.launchSpec.args.includes('82.223.19.88:334' + n), label + ' pool ' + n)
+        assert.ok(kid.launchSpec.args.includes('pool.test:334' + n), label + ' pool ' + n)
         assert.ok(kid.launchSpec.args.includes(classic(n, 'ab'.repeat(18) + 'c1')), label + ' user ' + n)
         if (startOpts && startOpts.syncPct === 52) assert.strictEqual(kid.state.mineLabel, '顯卡經礦池挖（本機節點同步 52%）')
       }

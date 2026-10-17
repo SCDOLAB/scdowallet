@@ -29,3 +29,15 @@ assert.ok(!app.includes("errs.push(T('pwRule'))"), 'password rule must not be re
 const ws = fs.readFileSync(path.join(__dirname, '../src/main/walletService.js'), 'utf8')
 assert.ok(ws.includes("/^[0-4]$/.test(shard)"))
 console.log('mac-315 ok')
+// 3.1.6: no built-in Classic pool host; the former party host is refused; CPU start says NO_POOL.
+const pools = require('../src/miner/zpow/pools')
+assert.strictEqual(pools.DEFAULT_HOST, null)
+for (const n of [1, 2, 3, 4]) assert.strictEqual(pools.poolForShard(n).stratum, '')
+assert.strictEqual(pools.poolForShard(1, { 1: { host: '82.223.19.88' } }).stratum, '')
+assert.strictEqual(pools.poolForShard(1, { 1: { host: 'pool.scdo.com.au' } }).stratum, 'pool.scdo.com.au:3341')
+for (const f of ['src/miner/zpow/pools.js', 'src/miner/zpow/manager.js', 'src/main/miningService.js', 'src/js/mining/miningSettingsPanel.js', 'src/js/i18n112.js', 'main.js']) {
+  const txt = fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
+  const hits = txt.split('\n').filter(l => l.includes('82.223.19.88') && !l.includes('BLOCKED_HOSTS'))
+  assert.deepStrictEqual(hits, [], f + ' still names the former party host')
+}
+console.log('mac-316 pools ok')

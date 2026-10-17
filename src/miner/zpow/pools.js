@@ -1,10 +1,14 @@
 // Classic pool endpoints. Shard1–Shard4 use the same host and the next ports.
 // Whether a pool is online is not stored here: the wallet reads /api/stats.
-// The host stays 82.223.19.88 until a remote config document overrides it
-// (there is no Melbourne Shard1–4 pool yet). Env SCDO_ZPOW_POOLS still wins.
+// 3.1.6: there is NO built-in host. The old default belonged to the former project party and is being
+// shut down; the wallet must never connect to it. A Shard1–4 pool is used only when the remote config
+// (zpowPools) or env SCDO_ZPOW_POOLS names one. Without a host, CPU mining reports NO_POOL and the
+// stats poller makes no request. Blocked hosts are dropped even when a config names them.
 'use strict'
 
-const DEFAULT_HOST = '82.223.19.88'
+const DEFAULT_HOST = null
+const BLOCKED_HOSTS = ['82.223.19.88']
+function hostAllowed (h) { return !!h && !BLOCKED_HOSTS.includes(String(h).trim()) }
 const HOST_RE = /^[A-Za-z0-9.-]{1,253}$/
 
 const DEFAULT_POOLS = {
@@ -44,7 +48,7 @@ function remotePoolOverrides (remote) {
     const o = {}
     if (src.host != null) {
       const host = String(src.host).trim()
-      if (HOST_RE.test(host)) o.host = host
+      if (HOST_RE.test(host) && hostAllowed(host)) o.host = host
     }
     if (src.port != null) {
       const port = Number(src.port)
@@ -82,10 +86,16 @@ function poolForShard (shard, overrides) {
   const extra = overrides && (overrides[n] || overrides[String(n)])
   const pool = Object.assign({}, DEFAULT_POOLS[n], extra || {})
   pool.shard = n
-  pool.host = String(pool.host || DEFAULT_HOST)
+  pool.host = hostAllowed(pool.host) ? String(pool.host).trim() : ''
   pool.port = Number(pool.port)
   pool.statsPort = Number(pool.statsPort)
-  if (!pool.host || !pool.port || !pool.statsPort) {
+  if (!pool.host) {
+    // No pool configured for this shard: nothing to connect to, nothing to poll.
+    pool.stratum = ''
+    pool.statsBase = ''
+    return pool
+  }
+  if (!pool.port || !pool.statsPort) {
     const err = new Error('pool for shard ' + n + ' is missing host, port or statsPort')
     err.code = 'BAD_POOLS'
     throw err
@@ -112,6 +122,8 @@ function defaultCpuThreads (cpuCount) {
 
 module.exports = {
   DEFAULT_HOST,
+  BLOCKED_HOSTS,
+  hostAllowed,
   DEFAULT_POOLS,
   poolsFromEnv,
   remotePoolOverrides,
