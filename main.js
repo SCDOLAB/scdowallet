@@ -78,7 +78,11 @@ const versionCheck = checkRuntime((() => { try { return app.getVersion() } catch
 if (!versionCheck.ok) console.error(versionCheck.error + '; reporting ' + VERSION)
 const BUILD_COMMIT = (() => { try { const b = require('./build-info.json'); return /^[0-9a-f]{7,40}$/.test(String(b.commit || '')) ? String(b.commit) : '' } catch (e) { return '' } })() // 3.0.2: written by scripts/build-info.js before packing
 ipcMain.handle('app:info', () => ({ version: VERSION, displayVersion: VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
-ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
+ipcMain.handle('app:mem', () => {
+  let free = os.freemem()
+  if (process.platform === 'darwin') { const a = require('./src/main/macMem').macAvailable(); if (a != null && a > free) free = a }
+  return { free, total: os.totalmem() }
+})
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)

@@ -24,4 +24,9 @@ assert.strictEqual(H.chainSupport('gpu', 0, { platform: 'win32', gpu: { availabl
 const main = fs.readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
 assert.ok(main.includes("'ethproxy+tcp://139.84.196.31:3333'")); assert.ok(!main.includes('82.223.19.88'))
 assert.ok(!/PLACEHOLDER/.test(fs.readFileSync(require('path').join(__dirname, '..', 'src/js/demoLinks.js'), 'utf8')))
+const { parseVmStat } = require('../src/main/macMem')
+const vm = 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                    24613.\nPages active:                                 319255.\nPages inactive:                               312236.\nPages speculative:                              6857.\nPages purgeable:                               1000.\n'
+assert.strictEqual(parseVmStat(vm), (24613 + 312236 + 6857 + 1000) * 16384)
+assert.ok(parseVmStat(vm) > 512 * 1024 * 1024)
+assert.strictEqual(parseVmStat('nonsense'), null)
 console.log('mac-317 ok')

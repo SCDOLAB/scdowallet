@@ -624,7 +624,7 @@ class MinerManager extends EventEmitter {
     if (team) this.log('wallet', 'team rig: Shard0 EVM rewards go to team-payout.txt address ' + team.slice(0, 6) + '…' + team.slice(-4))
     if (gpuPick) {
       const names = (gpuPick.mineNames || []).join(', ')
-      this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : ' (all CUDA devices)'))
+      this.log('wallet', 'GPU preflight: using ' + (names || 'NVIDIA') + (this.cudaDevices.length ? ' (CUDA ' + this.cudaDevices.join(',') + ')' : (this.o.platform === 'darwin' ? ' (OpenCL, scdo-clminer)' : ' (all CUDA devices)')))
     }
     // node only + an SCDO node already running on this PC (default port): nothing to start, just show its status
     let extPort = null
