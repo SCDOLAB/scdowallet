@@ -25,13 +25,13 @@ const TEXT = {
   CN: {
     firstShare: { title: '記帳已開始產生結果', body: '本次記帳已收到第一個有效份額。' },
     block: { title: '記到區塊', body: '這台電腦記到了區塊 #{h}。' },
-    payout: { title: '礦池出款已到帳', body: '收到 {a} SCDO。點這則通知可在 scdo.com.au 查看交易。' },
+    payout: { title: '記帳池出款已到帳', body: '收到 {a} SCDO。點這則通知可在 scdo.com.au 查看交易。' },
     hashZero: { title: '記帳速度 (H/s)一直是 0', body: '記帳已開啟，但記帳速度 (H/s)已經 2 分鐘都是 0。請查看「記帳」頁的狀態和日誌。' },
     stopUpdate: { title: '記帳已暫停', body: '為了安裝更新，錢包暫停了記帳。更新完成後會自動恢復。' },
     stopError: { title: '記帳已停止', body: '記帳節點意外停止，不是由你停止的。請查看「記帳」頁的狀態和日誌。' },
     stopOther: { title: '記帳已停止', body: '記帳不是由你停止的。請查看「記帳」頁。' },
     nodeBehind: { title: '本機節點落後', body: '本機節點落後網路 {n} 個區塊（本機 #{l}，網路 #{t}），正在追趕。' },
-    labels: { firstShare: '第一個有效份額或記到區塊', payout: '礦池出款到帳', hashZero: '記帳速度 (H/s) 2 分鐘都是 0', stopNonUser: '記帳被非本人操作停止（例如更新）', nodeBehind: '本機節點落後超過 8 個區塊' }
+    labels: { firstShare: '第一個有效份額或記到區塊', payout: '記帳池出款到帳', hashZero: '記帳速度 (H/s) 2 分鐘都是 0', stopNonUser: '記帳被非本人操作停止（例如更新）', nodeBehind: '本機節點落後超過 8 個區塊' }
   },
   EN: {
     firstShare: { title: 'Bookkeeping is producing results', body: 'The first accepted share of this bookkeeping session came in.' },

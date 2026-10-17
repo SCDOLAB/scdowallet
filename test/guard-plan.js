@@ -541,11 +541,11 @@ guardWin.readSample().then(async sample => {
   const woke = hold.flags(2000 + 30000, false)
   assert.strictEqual(woke.wakeHold, false)
   assert.strictEqual(woke.childDiedInSleep, true)
-  assert.strictEqual(CN.relNotes[0].v, '3.1.8')
-  assert.strictEqual(EN.relNotes[0].v, '3.1.8')
+  assert.strictEqual(CN.relNotes[0].v, '3.1.9')
+  assert.strictEqual(EN.relNotes[0].v, '3.1.9')
   assert.ok(!/[\u4e00-\u9fff]/.test(EN.relNotes[0].items.join(' ')))
   assert.ok(!/收益|價格|年化|報酬|yield|return|price|幣安|binance|okx/i.test(EN.relNotes[0].items[0]))
-  assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.8')
+  assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.9')
   const pc = require('../src/miner/pcGuard')
   const events = []
   const mgr = {

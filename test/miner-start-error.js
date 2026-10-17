@@ -58,7 +58,7 @@ assert.strictEqual(err.minersRunning({ running: true, mode: 'node' }), false)
 assert.strictEqual(err.minersRunning({ running: false, phase: 'error', code: 'DEFENDER' }), false)
 assert.strictEqual(err.minersRunning({ running: true, mode: 'mine' }), true)
 assert.strictEqual(err.minersRunning({ running: true, mode: 'pool' }), true)
-assert.strictEqual(err.minersRunning({ running: false, classicNote: 'Classic 處理器礦池' }), true)
+assert.strictEqual(err.minersRunning({ running: false, classicNote: 'Classic 處理器記帳池' }), true)
 
 const app = fs.readFileSync(path.join(__dirname, '../src/js/app112.js'), 'utf8')
 assert.ok(app.includes("window.SCDOStartError.full(lang(), r.code, r.error)"))
@@ -99,7 +99,7 @@ assert.strictEqual(err.classicStartText('CN', 'BAD_KEY', 'p2p key must be a fres
 assert.strictEqual(err.classicStartText('EN', 'BAD_DATADIR', 'node config dir must be absolute', ''), err.FULL.BAD_DATADIR.EN)
 assert.strictEqual(err.classicStartText('CN', undefined, 'timeout', ''), err.FULL.NETWORK.CN)
 assert.strictEqual(err.classicStartText('EN', '', 'HTTP 502', ''), err.FULL.NETWORK.EN)
-assert.strictEqual(err.classicStartText('CN', 'LOGIN', 'pool said no', '礦池拒絕登入（地址分片可能不對）。'), '礦池拒絕登入（地址分片可能不對）。')
+assert.strictEqual(err.classicStartText('CN', 'LOGIN', 'pool said no', '記帳池拒絕登入（地址分片可能不對）。'), '記帳池拒絕登入（地址分片可能不對）。')
 assert.strictEqual(err.classicStartText('EN', 'WEIRD', 'something odd', ''), err.FULL.UNKNOWN.EN)
 assert.strictEqual(err.classicStartText('CN', 'LOGIN', 'timeout while logging in', ''), err.FULL.UNKNOWN.CN)
 
@@ -137,12 +137,12 @@ const realLoad = Module._load
 Module._load = function (req, ...rest) { return req === 'electron' ? {} : realLoad.call(this, req, ...rest) }
 const { tooltipText } = require('../src/main/trayStatus.js')
 Module._load = realLoad
-assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle', classicNote: 'Classic 處理器礦池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.2\n記帳中：Classic 處理器礦池 Shard1')
+assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle', classicNote: 'Classic 處理器記帳池 Shard1' }, 'CN'), 'SCDO Wallet 3.0.2\n記帳中：Classic 處理器記帳池 Shard1')
 assert.strictEqual(tooltipText('3.0.2', { running: false, classicNote: 'Classic processor pool Shard2' }, 'EN'), 'SCDO Wallet 3.0.2\nBookkeeping: Classic processor pool Shard2')
 assert.strictEqual(tooltipText('3.0.2', { running: false, phase: 'idle' }, 'CN'), 'SCDO Wallet 3.0.2\n未在記帳')
 assert.ok(tooltipText('3.0.2', { running: true, mode: 'mine', code: 'MINING', hashrate: 5, classicNote: 'Classic 顯示卡 Shard1' }, 'CN').endsWith('\nClassic 顯示卡 Shard1'))
 assert.ok(tooltipText('3.0.2', { running: false, phase: 'error', code: 'PORTS', classicNote: 'Classic 顯示卡 Shard1' }, 'CN').includes('記帳節點出錯：'))
-assert.ok(mainJs.includes("(cn ? 'Classic 處理器礦池' : 'Classic processor pool')"))
-assert.ok(mainJs.includes("(cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')"))
+assert.ok(mainJs.includes("(cn ? 'Classic 處理器記帳池' : 'Classic processor pool')"))
+assert.ok(mainJs.includes("(cn ? 'Classic 顯示卡記帳池' : 'Classic graphics card pool')"))
 
 console.log('miner-start-error: ok')

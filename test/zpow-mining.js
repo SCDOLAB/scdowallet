@@ -640,8 +640,8 @@ for (const langName of ['CN', 'EN']) {
     assert.ok(!s.toLowerCase().includes('cuda'), langName + ': ' + s.slice(0, 90))
     assert.ok(!s.includes('RPC'), langName + ': ' + s.slice(0, 90))
     assert.ok(!/GPU/i.test(s), langName + ' GPU: ' + s.slice(0, 90))
-    // The one-tap hint is the product name 「先用 CPU 經礦池挖」. Nothing else may say CPU.
-    const cpuLeft = s.split('先用 CPU 經礦池記帳').join('').split('已改用 CPU 經礦池記帳').join('').split('改用 CPU').join('').split('讓出部分 CPU').join('')
+    // The one-tap hint is the product name 「先用 CPU 經記帳池記帳」. Nothing else may say CPU.
+    const cpuLeft = s.split('先用 CPU 經記帳池記帳').join('').split('已改用 CPU 經記帳池記帳').join('').split('改用 CPU').join('').split('讓出部分 CPU').join('')
     assert.ok(!/CPU/.test(cpuLeft), langName + ' CPU: ' + s.slice(0, 90))
     assert.ok(!s.includes('算力'), langName + ' 算力: ' + s.slice(0, 90))
   })
@@ -679,10 +679,10 @@ const traySrc = fs.readFileSync(path.join(__dirname, '../src/main/trayStatus.js'
 assert.ok(traySrc.includes("return '記帳速度 (H/s) 每秒 ' + num + ' 次'"))
 assert.ok(traySrc.includes("return 'Bookkeeping speed (H/s) ' + num + ' tries per second'"))
 assert.ok(!traySrc.includes('MH/s') && !traySrc.includes('kH/s'))
-assert.ok(mainSrc.includes('Classic 處理器礦池'))
+assert.ok(mainSrc.includes('Classic 處理器記帳池'))
 assert.ok(mainSrc.includes('Classic processor pool'))
 assert.ok(mainSrc.includes('Classic graphics card'))
-assert.ok(!mainSrc.includes('Classic CPU 礦池') && !mainSrc.includes("'Classic GPU'"))
+assert.ok(!mainSrc.includes('Classic CPU 記帳池') && !mainSrc.includes("'Classic GPU'"))
 assert.strictEqual(miningBox.window.SCDOMining.TW['Graphics memory could not be measured exactly (nvidia-smi unavailable).'], '無法精確測量顯示記憶體（nvidia-smi 無法使用）。')
 miningBox.window.SCDOMining.lang = 'CN'
 assert.strictEqual(miningBox.window.SCDOMining.reason('Not enough graphics memory: at least 4 GB is required, found 2 GB.'), '顯示記憶體不足：至少需要 4 GB，目前只有 2 GB。')
@@ -945,7 +945,7 @@ assert.deepStrictEqual(parseGpuTemp('Tesla T4, 40\nQuadro, RTX, 55\n'), [{ name:
 assert.deepStrictEqual(parseGpuTemp(''), [])
 assert.deepStrictEqual(parseGpuTemp('no comma here\n'), [])
 const pillT = (k, p) => {
-  const m = { pillStopped: '未在記帳', pillMining: '記帳中', pillStarting: '記帳節點啟動中…', pillNode: '只執行節點（未記帳）', pillError: '記帳節點出錯', pillShard0: 'Shard0 EVM', mineShardN: 'Shard{n}', classicCpu: 'CPU 礦池', classicGpu: '顯示卡節點' }
+  const m = { pillStopped: '未在記帳', pillMining: '記帳中', pillStarting: '記帳節點啟動中…', pillNode: '只執行節點（未記帳）', pillError: '記帳節點出錯', pillShard0: 'Shard0 EVM', mineShardN: 'Shard{n}', classicCpu: 'CPU 記帳池', classicGpu: '顯示卡節點' }
   let s = m[k] || k
   if (p) s = s.replace(/\{(\w+)\}/g, (mm, n) => p[n] != null ? p[n] : mm)
   return s
@@ -1073,7 +1073,7 @@ async function publishedZminer () {
   assert.ok(String(findCudart(path.join(cudaDir, 'node.exe'), 'win32', {})).endsWith('libcudart.dll'))
   fs.rmSync(cudaDir, { recursive: true, force: true })
   const pkg = require('../package.json')
-  assert.strictEqual(pkg.version, '3.1.8')
+  assert.strictEqual(pkg.version, '3.1.9')
   assert.strictEqual(pkg.productName, 'SCDO Wallet')
   assert.ok(!/beta/i.test(pkg.version))
   assert.strictEqual(pkg.build.appId, 'io.scdoscan.scdowallet')
@@ -1284,7 +1284,7 @@ assert.strictEqual(caps.pools[2].statsBase, '')
   assert.strictEqual(savedSolo.backend, 'zminer-gpu')
   assert.strictEqual(soloFleet.childUp(soloFleet.kids.get(1)), true)
   assert.deepStrictEqual(soloFleet.kids.get(1).launchSpec.args, ['-pool', 'pool.test:3341', '-user', REAL, '-worker', 'SCDO-4060', '-device', '0', '-batch', '8192'])
-  assert.strictEqual(soloFleet.kids.get(1).state.mineLabel, '顯卡經礦池記帳（本機節點同步 52%）')
+  assert.strictEqual(soloFleet.kids.get(1).state.mineLabel, '顯卡經記帳池記帳（本機節點同步 52%）')
   await soloFleet.stop()
   fs.rmSync(soloRoot, { recursive: true, force: true })
   const tStop = Date.now()
@@ -1348,7 +1348,7 @@ assert.strictEqual(caps.pools[2].statsBase, '')
         assert.ok(kid.proc.stdin && kid.proc.stdin.writable, label + ' stdin ' + n)
         assert.ok(kid.launchSpec.args.includes('pool.test:334' + n), label + ' pool ' + n)
         assert.ok(kid.launchSpec.args.includes(classic(n, 'ab'.repeat(18) + 'c1')), label + ' user ' + n)
-        if (startOpts && startOpts.syncPct === 52) assert.strictEqual(kid.state.mineLabel, '顯卡經礦池記帳（本機節點同步 52%）')
+        if (startOpts && startOpts.syncPct === 52) assert.strictEqual(kid.state.mineLabel, '顯卡經記帳池記帳（本機節點同步 52%）')
       }
       await new Promise(resolve => setTimeout(resolve, 400))
       assert.strictEqual(four.childPids().length, 4, label + ' still up')

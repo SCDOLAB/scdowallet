@@ -927,10 +927,10 @@ function poolFallbackLabel (opts, gpuMiner) {
   const pct = finitePct(opts.syncPct)
   const zh = opts.zh !== false
   if (pct != null && pct < 100) {
-    return zh ? ('顯卡經礦池記帳（本機節點同步 ' + pct + '%）') : ('Graphics card bookkeeping through the pool (local node sync ' + pct + '%)')
+    return zh ? ('顯卡經記帳池記帳（本機節點同步 ' + pct + '%）') : ('Graphics card bookkeeping through the pool (local node sync ' + pct + '%)')
   }
   if (!current || current === '顯卡記帳中' || current === 'Graphics card bookkeeping') {
-    return zh ? '顯卡經礦池記帳' : 'Graphics card bookkeeping through the pool'
+    return zh ? '顯卡經記帳池記帳' : 'Graphics card bookkeeping through the pool'
   }
   return current
 }

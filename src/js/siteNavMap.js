@@ -36,8 +36,8 @@
     {
       id: 'mining', cn: '記帳', en: 'Bookkeeping', children: [
         { id: 'mine', cn: '記帳', en: 'Bookkeeping', action: 'mineHome' },
-        { id: 'pool', cn: '算力中心', en: 'Hashrate centre', href: '/pool/' },
-        { id: 'nodes', cn: '算力服務分支', en: 'Node service', action: 'mineSettings' }
+        { id: 'pool', cn: '記帳池', en: 'Bookkeeping pool', href: '/pool/' },
+        { id: 'nodes', cn: '節點', en: 'Nodes', action: 'mineSettings' }
       ]
     },
     {

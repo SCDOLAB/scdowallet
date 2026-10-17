@@ -100,8 +100,8 @@ const down = mine.minePageHtml({
   caps: { cpu: { available: true }, gpu: { available: true } },
   pools: { 3: { online: false } }
 }, T, esc)
-assert.ok(down.includes('Shard3 礦池暫時連不上'))
-assert.ok(!down.includes('礦池還沒上線'))
+assert.ok(down.includes('Shard3 記帳池暫時連不上'))
+assert.ok(!down.includes('記帳池還沒上線'))
 assert.ok(mine.chainSupport('cpu', 3, {}).ok)
 assert.ok(!mine.chainSupport('cpu', 3, {}, { 3: { online: false } }).ok)
 

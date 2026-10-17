@@ -24,7 +24,7 @@
       EN: 'The connection ports this computer needs for bookkeeping are in use. Close the other bookkeeping nodes or restart the computer, then try again.'
     },
     BAD_POOL: {
-      CN: '礦池地址不對。請改成完整的礦池地址後再試。',
+      CN: '記帳池地址不對。請改成完整的記帳池地址後再試。',
       EN: 'The pool address is not valid. Enter the full pool address and try again.'
     },
     BAD_PAYOUT: {
@@ -45,7 +45,7 @@
       EN: 'The processor bookkeeping program was not found. Please reinstall SCDO Wallet.'
     },
     NO_POOL: {
-      CN: 'Shard1 到 Shard4 的處理器礦池目前還沒有開放，所以沒有開始記帳。Shard0 EVM 請用顯示卡記帳。',
+      CN: 'Shard1 到 Shard4 的處理器記帳池目前還沒有開放，所以沒有開始記帳。Shard0 EVM 請用顯示卡記帳。',
       EN: 'The Shard1 to Shard4 processor pools are not open yet, so bookkeeping did not start. Shard0 EVM does bookkeeping with a graphics card.'
     },
     NO_ROSETTA: {
@@ -57,7 +57,7 @@
       EN: 'The Classic graphics-card bookkeeping program was not found. Please reinstall SCDO Wallet.'
     },
     NO_ZMINER_GPU: {
-      CN: '找不到顯卡礦池程式。請重新安裝 SCDO Wallet。',
+      CN: '找不到顯卡記帳池程式。請重新安裝 SCDO Wallet。',
       EN: 'The graphics-card pool program was not found. Please reinstall SCDO Wallet.'
     },
     NO_CUDART: {
@@ -77,7 +77,7 @@
       EN: 'The settings for starting the bookkeeping node are not valid, so bookkeeping did not start. Check the bookkeeping address and settings, then try again.'
     },
     BAD_POOLS: {
-      CN: '礦池設定不對，所以沒有開始記帳。請再試一次；如果一直失敗，請重新安裝 SCDO Wallet。',
+      CN: '記帳池設定不對，所以沒有開始記帳。請再試一次；如果一直失敗，請重新安裝 SCDO Wallet。',
       EN: 'The pool settings are not valid, so bookkeeping did not start. Try again. If it keeps failing, reinstall SCDO Wallet.'
     },
     BAD_DATADIR: {
@@ -89,7 +89,7 @@
       EN: 'The key this computer uses to join the bookkeeping network has a problem, so bookkeeping did not start. Close SCDO Wallet, open it again, and try again.'
     },
     NETWORK: {
-      CN: '連不上礦池或節點，請檢查網路後再試一次。',
+      CN: '連不上記帳池或節點，請檢查網路後再試一次。',
       EN: 'Could not reach the pool or the node. Check the network and try again.'
     },
     UNKNOWN: {
@@ -104,23 +104,23 @@
     DOWNLOAD: { CN: '下載失敗', EN: 'download failed' },
     SHA256: { CN: '下載的程式不完整', EN: 'downloaded program was incomplete' },
     PORTS: { CN: '連線埠被佔用', EN: 'connection ports are in use' },
-    BAD_POOL: { CN: '礦池地址不對', EN: 'pool address is not valid' },
+    BAD_POOL: { CN: '記帳池地址不對', EN: 'pool address is not valid' },
     BAD_PAYOUT: { CN: '服務費地址不對', EN: 'service-fee address is not valid' },
     CRASHING: { CN: '程式反覆關掉', EN: 'the program kept closing' },
     EXTERNAL_DOWN: { CN: '另一個節點沒有回應', EN: 'the other node is not answering' },
     NO_ZMINER: { CN: '找不到處理器記帳節點', EN: 'processor bookkeeping program not found' },
-    NO_POOL: { CN: '礦池還沒開放', EN: 'pool not open yet' },
+    NO_POOL: { CN: '記帳池還沒開放', EN: 'pool not open yet' },
     NO_ROSETTA: { CN: '需要安裝 Rosetta 2', EN: 'Rosetta 2 is needed' },
     NO_CLASSIC_NODE: { CN: '找不到顯示卡記帳節點', EN: 'graphics-card bookkeeping program not found' },
-    NO_ZMINER_GPU: { CN: '找不到顯卡礦池程式', EN: 'graphics-card pool program not found' },
+    NO_ZMINER_GPU: { CN: '找不到顯卡記帳池程式', EN: 'graphics-card pool program not found' },
     NO_CUDART: { CN: '顯示卡記帳檔案不見了', EN: 'a graphics-card bookkeeping file is missing' },
     SHA256_MISSING: { CN: '沒辦法確認是官方版本', EN: 'could not check the official version' },
     SHA256_MISMATCH: { CN: '跟官方版本對不上', EN: 'does not match the official version' },
     BAD_ARGS: { CN: '啟動設定不對', EN: 'start settings are not valid' },
-    BAD_POOLS: { CN: '礦池設定不對', EN: 'pool settings are not valid' },
+    BAD_POOLS: { CN: '記帳池設定不對', EN: 'pool settings are not valid' },
     BAD_DATADIR: { CN: '資料夾位置不對', EN: 'data folder is in the wrong place' },
     BAD_KEY: { CN: '網路金鑰有問題', EN: 'network key has a problem' },
-    NETWORK: { CN: '連不上礦池或節點', EN: 'could not reach the pool or node' },
+    NETWORK: { CN: '連不上記帳池或節點', EN: 'could not reach the pool or node' },
     UNKNOWN: { CN: '沒有啟動成功', EN: 'did not start' }
   }
 

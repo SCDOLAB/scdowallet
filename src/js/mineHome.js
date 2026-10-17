@@ -504,7 +504,7 @@ function gpuWaitText (shard, pct, zh) {
 }
 
 function cpuPoolText (zh) {
-  return zh ? '經礦池記帳' : 'Bookkeeping through the pool'
+  return zh ? '經記帳池記帳' : 'Bookkeeping through the pool'
 }
 
 function gpuMineText (zh) {
@@ -512,12 +512,12 @@ function gpuMineText (zh) {
 }
 
 function gpuPoolText (zh) {
-  return zh ? '顯卡經礦池記帳' : 'Graphics card bookkeeping through the pool'
+  return zh ? '顯卡經記帳池記帳' : 'Graphics card bookkeeping through the pool'
 }
 
 function gpuPoolSyncText (zh, pct) {
   const n = Math.round(Number(pct))
-  if (zh) return '顯卡經礦池記帳（本機節點同步 ' + n + '%）'
+  if (zh) return '顯卡經記帳池記帳（本機節點同步 ' + n + '%）'
   return 'Graphics card bookkeeping through the pool (local node sync ' + n + '%)'
 }
 
@@ -529,7 +529,7 @@ function shownPoolLabel (zh, held, session) {
   }
   for (let i = 0; i < candidates.length; i++) {
     const label = candidates[i]
-    if (label.indexOf('顯卡經礦池記帳') === 0 || label.indexOf('Graphics card bookkeeping through the pool') === 0) return label
+    if (label.indexOf('顯卡經記帳池記帳') === 0 || label.indexOf('Graphics card bookkeeping through the pool') === 0) return label
   }
   return gpuPoolText(zh)
 }
@@ -1092,7 +1092,7 @@ function chainPickHtml (device, picked, other, caps, T, esc, pools, open, input)
   const boxes = [0, 1, 2, 3, 4].map(n => {
     const sup = chainSupport(device, n, caps, pools)
     const on = sup.ok && picked.indexOf(n) >= 0
-    const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 礦池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
+    const down = sup.poolDown ? (zhUi(T) ? ('Shard' + n + ' 記帳池暫時連不上') : ('Shard' + n + ' pool cannot be reached right now')) : ''
     const why = sup.ok ? '' : ` <span class="mine-why">${esc(down || tr(T, sup.reasonKey))}</span>`
     const label = `<label class="mine-chain${sup.ok ? '' : ' off'}"><input type="checkbox" data-act="mineChain" data-dev="${device}" data-v="${n}"${on ? ' checked' : ''}${sup.ok ? '' : ' disabled'}> ${esc(chainLabel(n))}${why}</label>`
     return `<div class="mine-chain-row">${label}${chainExpandHtml(input, device, n, T, esc, pools)}</div>`

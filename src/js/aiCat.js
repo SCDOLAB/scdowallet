@@ -70,7 +70,7 @@ function startFail (code) {
   const map = {
     NO_ZMINER: '找不到處理器記帳節點。',
     NO_CLASSIC_NODE: '找不到顯卡記帳節點。',
-    NO_ZMINER_GPU: '找不到顯卡礦池程式。',
+    NO_ZMINER_GPU: '找不到顯卡記帳池程式。',
     NO_CUDART: '顯卡記帳節點缺少執行元件。',
     NO_NVIDIA: '這台電腦沒有可用的 NVIDIA 顯卡。',
     ALREADY_RUNNING: '這個記帳節點已經在跑。',

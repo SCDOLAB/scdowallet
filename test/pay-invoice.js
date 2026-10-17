@@ -237,6 +237,6 @@ assert.ok(html.indexOf('src/js/payInvoice/screen.js') < html.indexOf('src/js/app
 assert.ok(main.includes('payInvoice.isHandoffUri') && main.includes('payInvoice.isWalletDeepLink'))
 assert.ok(!main.includes('setAsDefaultProtocolClient'))
 assert.ok(!main.includes("'open-url'") && !main.includes('"open-url"'))
-assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.8')
+assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.9')
 
 console.log('pay-invoice: ok')

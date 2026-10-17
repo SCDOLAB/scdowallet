@@ -25,9 +25,9 @@ const pay = ui.slice(ui.indexOf('function payModal'), ui.indexOf('function paySh
 
 assert.strictEqual(I.CN.shellBoot, '啟動中')
 assert.strictEqual(I.CN.shellMineOn, '運算中')
-assert.strictEqual(I.CN.sessionEarn, '本次收益')
+assert.strictEqual(I.CN.sessionEarn, '本次記帳獎勵')
 assert.strictEqual(I.CN.sessionEarnShares, '份額 {n}')
-assert.strictEqual(I.CN.sessionEarnPaid, '收益 {n} SCDO')
+assert.strictEqual(I.CN.sessionEarnPaid, '記帳獎勵 {n} SCDO')
 assert.strictEqual(I.EN.sessionEarnShares, 'Shares {n}')
 assert.strictEqual(I.EN.sessionEarnPaid, 'Paid {n} SCDO')
 assert.strictEqual(I.CN.shellDupAsk, '要再送一次一樣的轉帳嗎？')
@@ -39,7 +39,7 @@ assert.strictEqual(I.CN.wizSent, '已送出')
 assert.strictEqual(I.CN.wizCopyHash, '複製交易雜湊')
 assert.strictEqual(I.CN.wizScan, '在 scdo.com.au 查看')
 assert.strictEqual(I.CN.wizFinish, '完成')
-assert.strictEqual(I.CN.relNotes[0].v, '3.1.8')
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.9')
 assert.strictEqual(I.CN.relNotes.find(n => n.v === '3.1.1').items[0].includes('按開始之後'), true)
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(!/收益|價格|年化|報酬|yield|return|price|幣安|binance|okx/i.test(I.EN.relNotes[0].items[0]))
@@ -55,7 +55,7 @@ const booting = mine.minePageHtml({
   chains: { cpu: [], gpu: [1] }
 }, CN, esc)
 assert.ok(booting.includes('啟動中'))
-assert.ok(booting.includes('本次收益'))
+assert.ok(booting.includes('本次記帳獎勵'))
 assert.ok(booting.includes('class="dash"'))
 assert.ok(booting.includes('mine-load wait'))
 assert.ok(!booting.includes('每秒'))
@@ -76,7 +76,7 @@ const running = mine.minePageHtml({
 }, CN, esc)
 assert.ok(running.includes('運算中'))
 assert.ok(running.includes('每秒 180,000'))
-assert.ok(running.includes('份額 2 · 收益 0.5 SCDO'))
+assert.ok(running.includes('份額 2 · 記帳獎勵 0.5 SCDO'))
 assert.ok(!running.includes('>2 · 0.5 SCDO<'))
 
 const zeroPay = mine.minePageHtml({
@@ -90,7 +90,7 @@ const zeroPay = mine.minePageHtml({
   },
   chains: { cpu: [], gpu: [1] }
 }, CN, esc)
-assert.ok(zeroPay.includes('份額 109 · 收益 0 SCDO'))
+assert.ok(zeroPay.includes('份額 109 · 記帳獎勵 0 SCDO'))
 assert.ok(!zeroPay.includes('109 · 0 SCDO'))
 const unknownEarn = mine.minePageHtml({
   miners: {
@@ -103,7 +103,7 @@ const unknownEarn = mine.minePageHtml({
   chains: { cpu: [], gpu: [1] }
 }, CN, esc)
 const unknownLine = unknownEarn.slice(unknownEarn.indexOf('class="mine-earn"'), unknownEarn.indexOf('</div>', unknownEarn.indexOf('class="mine-earn"')))
-assert.ok(unknownLine.includes('本次收益'))
+assert.ok(unknownLine.includes('本次記帳獎勵'))
 assert.ok(unknownLine.includes('class="dash"'))
 assert.ok(unknownLine.includes('\u2014'))
 assert.ok(!unknownLine.includes('份額'))
@@ -148,7 +148,7 @@ assert.ok(!ui.slice(ui.indexOf('function pageRecv'), ui.indexOf('function paintR
 assert.strictEqual(I.CN.wizNextAmt, '下一步填金額')
 assert.strictEqual(I.CN.backupNow, '匯出備份檔')
 assert.strictEqual(I.CN.acctId, '帳戶識別碼')
-assert.strictEqual(I.CN.homeLineGpuPool, '顯示卡經礦池記帳中')
+assert.strictEqual(I.CN.homeLineGpuPool, '顯示卡經記帳池記帳中')
 assert.strictEqual(I.CN.setResumeHint, '開啟後，下次啟動錢包會自動繼續上次的記帳')
 assert.strictEqual(I.CN.recvAddrLbl, '地址')
 assert.strictEqual(I.CN.homeTxOk, '已確認')

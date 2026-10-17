@@ -313,13 +313,13 @@ function classicNote () {
   const cn = uiLang() === 'CN'
   if (zpowCpu && zpowCpu.wantRunning) {
     const n = Number(zpowCpu.state && zpowCpu.state.shard)
-    parts.push((cn ? 'Classic 處理器礦池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
+    parts.push((cn ? 'Classic 處理器記帳池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
   }
   if (zpowGpu && zpowGpu.wantRunning) {
     const st = zpowGpu.status()
     const shards = (st.shards || []).map(s => Number(s.shard)).filter(n => n >= 1 && n <= 4)
     const solo = st.backend === 'classic-node'
-    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')
+    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡記帳池' : 'Classic graphics card pool')
     parts.push(label + (shards.length ? ' Shard' + shards.join(' ') : ''))
   }
   return parts.join(' · ')

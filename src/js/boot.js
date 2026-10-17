@@ -6,7 +6,7 @@
   const api = window.scdo
   const $ = (id) => document.getElementById(id)
   const TX = {
-    CN: { loading: '正在載入錢包…', mining: '記帳中', starting: '記帳節點啟動中…', stopped: '目前沒有在記帳', node: '只執行節點（未記帳）', error: '記帳節點出錯', pool: '礦池', local: '本機節點（單獨記帳）', slow: '載入時間比平常久。記帳不受影響。', reload: '重新載入畫面', speed: '記帳速度 (H/s) 每秒 {n} 次' },
+    CN: { loading: '正在載入錢包…', mining: '記帳中', starting: '記帳節點啟動中…', stopped: '目前沒有在記帳', node: '只執行節點（未記帳）', error: '記帳節點出錯', pool: '記帳池', local: '本機節點（單獨記帳）', slow: '載入時間比平常久。記帳不受影響。', reload: '重新載入畫面', speed: '記帳速度 (H/s) 每秒 {n} 次' },
     EN: { loading: 'Loading wallet…', mining: 'Bookkeeping', starting: 'Bookkeeping node starting…', stopped: 'Not bookkeeping right now', node: 'Node only (not bookkeeping)', error: 'Bookkeeping node error', pool: 'pool', local: 'local node (solo)', slow: 'Loading is taking longer than usual. Bookkeeping is not affected.', reload: 'Reload the window', speed: 'Bookkeeping speed (H/s) {n} tries per second' }
   }
   let L = TX.CN, lang = 'CN', done = false, last = null, off = null

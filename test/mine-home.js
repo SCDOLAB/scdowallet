@@ -41,7 +41,7 @@ function stopped () {
   assert.strictEqual(m.speedText, '記帳速度 (H/s) —')
   assert.strictEqual(m.tempText, '顯卡溫度 —')
   assert.strictEqual(m.todayText, '今天記到 —')
-  assert.strictEqual(m.lastText, '最近一次收益：—')
+  assert.strictEqual(m.lastText, '最近一次記帳獎勵：—')
   assert.strictEqual(m.chainsText, '正在記帳的鏈：—')
   assert.strictEqual(m.buttonText, '開始記帳')
   assert.strictEqual(m.buttonDisabled, false)
@@ -80,7 +80,7 @@ function stopped () {
   assert.strictEqual(m.todayText, '今天記到 4 SCDO')
   assert.strictEqual(m.lastClock, '14:05')
   assert.strictEqual(m.lastMinutes, 3)
-  assert.strictEqual(m.lastText, '最近一次收益：14:05（3 分鐘前）')
+  assert.strictEqual(m.lastText, '最近一次記帳獎勵：14:05（3 分鐘前）')
   assert.deepStrictEqual(m.chains, ['Shard0 EVM', 'Shard1 Classic', 'Shard3 Classic'])
   assert.strictEqual(m.chainsText, '正在記帳的鏈：Shard0 EVM、Shard1 Classic、Shard3 Classic')
   assert.ok(!/Shard1 EVM|主鏈/.test(m.chainsText + m.statusText))
@@ -120,10 +120,10 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
   const miners = { classicCpu: { running: true, mode: 'cpu', chain: 'classic', shard: 2, hashrate: 0, procs: ['zminer'] } }
   const known = mine.formatMineHome({ miners, temps: [{ tempC: 90 }], earnLog: { certain: true, items: [] }, now: Date.now(), phase: 'mining' }, CN)
   assert.strictEqual(known.todayText, '今天記到 0 SCDO')
-  assert.strictEqual(known.lastText, '最近一次收益：—')
+  assert.strictEqual(known.lastText, '最近一次記帳獎勵：—')
   const guessed = mine.formatMineHome({ miners, earnLog: { items: [{ t: Date.now(), shard: 1, height: 9 }] }, now: Date.now(), phase: 'mining' }, CN)
   assert.strictEqual(guessed.todayText, '今天記到 —')
-  assert.strictEqual(guessed.lastText, '最近一次收益：—')
+  assert.strictEqual(guessed.lastText, '最近一次記帳獎勵：—')
   assert.strictEqual(known.speedText, '記帳速度 (H/s) —')
   assert.strictEqual(known.tempText, '顯卡溫度 —', 'processor bookkeeping does not invent a graphics-card temperature')
   assert.strictEqual(known.chainsText, '正在記帳的鏈：—', 'a process with no speed is not listed')
@@ -472,7 +472,7 @@ assert.deepStrictEqual(mine.jobsForHome({
   assert.strictEqual(paused.buttonKind, 'stop')
   assert.deepStrictEqual(paused.chains, [])
   assert.strictEqual(paused.todayText, '今天記到 —')
-  assert.strictEqual(paused.lastText, '最近一次收益：—')
+  assert.strictEqual(paused.lastText, '最近一次記帳獎勵：—')
   const pausedEn = mine.formatMineHome({
     miners: {
       classicGpu: {
@@ -541,7 +541,7 @@ assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: 
 assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).label, '顯卡經礦池記帳（本機節點同步 52%）')
+}).label, '顯卡經記帳池記帳（本機節點同步 52%）')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
 }).action, 'pool')
@@ -553,7 +553,7 @@ assert.strictEqual(mine.chooseMinePath({
 }).action, 'mine')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: false, nodeSynced: true, syncPct: 100, poolOnline: false, zh: true
-}).label, '顯卡經礦池記帳')
+}).label, '顯卡經記帳池記帳')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: false, nodeSynced: false, zh: true
 }).action, 'pool')
@@ -579,7 +579,7 @@ assert.strictEqual(mine.chooseMinePath({
     zh: true
   })
   assert.strictEqual(built.jobs.length, 4)
-  assert.ok(built.jobs.every(j => j.gpuMiner === 'zminer-gpu' && j.action === 'pool' && j.mineLabel === '顯卡經礦池記帳'))
+  assert.ok(built.jobs.every(j => j.gpuMiner === 'zminer-gpu' && j.action === 'pool' && j.mineLabel === '顯卡經記帳池記帳'))
   assert.deepStrictEqual(built.jobs.map(j => j.shard), [1, 2, 3, 4])
   assert.ok(built.notices.indexOf('shellOneClassic') < 0)
   assert.strictEqual(built.jobs[0].address, addr(1))
@@ -602,7 +602,7 @@ assert.strictEqual(mine.chooseMinePath({
     const job = soloWait.jobs.find(j => j.shard === shard)
     assert.strictEqual(job.gpuMiner, 'zminer-gpu')
     assert.strictEqual(job.action, 'pool')
-    assert.strictEqual(job.mineLabel, '顯卡經礦池記帳（本機節點同步 52%）')
+    assert.strictEqual(job.mineLabel, '顯卡經記帳池記帳（本機節點同步 52%）')
     assert.strictEqual(job.nodeSynced, false)
     assert.strictEqual(job.miningMode, 'solo')
   }
@@ -616,7 +616,7 @@ assert.strictEqual(mine.chooseMinePath({
     addresses: { 1: addr(1) },
     mineRows: { 1: { action: 'pool', label: soloWait.jobs[0].mineLabel, syncPct: 52 } }
   }, CN, esc)
-  assert.ok(row.includes('Shard1 Classic · 顯卡經礦池記帳（本機節點同步 52%）'))
+  assert.ok(row.includes('Shard1 Classic · 顯卡經記帳池記帳（本機節點同步 52%）'))
   assert.ok(soloWait.notices.indexOf('shellOneClassic') < 0)
   assert.strictEqual(soloWait.blocked.length, 0)
   const twoSynced = mine.jobsForDevice({
@@ -663,7 +663,7 @@ assert.strictEqual(mine.chooseMinePath({
     addresses: { 1: addr(1) },
     zh: true
   })
-  assert.strictEqual(cpu.jobs[0].mineLabel, '經礦池記帳')
+  assert.strictEqual(cpu.jobs[0].mineLabel, '經記帳池記帳')
   assert.strictEqual(cpu.jobs[0].backend, 'cpu')
   const now = Date.now()
   const earnLog = {
@@ -719,7 +719,7 @@ assert.strictEqual(mine.chooseMinePath({
     }
   }, CN)
   assert.strictEqual(ghostLine, I.CN.homeLineIdle)
-  assert.ok(shown.includes('先用 CPU 經礦池記帳'))
+  assert.ok(shown.includes('先用 CPU 經記帳池記帳'))
   assert.ok(shown.includes('data-act="mineCpuFirst"'))
   assert.ok(shown.includes('class="wait"'))
   assert.ok(!shown.includes('每秒 80'))
@@ -737,7 +737,7 @@ assert.strictEqual(mine.chooseMinePath({
     now: now
   }, CN, esc)
   assert.ok(mining.includes('顯卡記帳中'))
-  assert.ok(!mining.includes('先用 CPU 經礦池記帳'))
+  assert.ok(!mining.includes('先用 CPU 經記帳池記帳'))
   assert.ok(!mining.includes('90'))
   const quiet = mine.minePageHtml({
     miners: {
@@ -751,7 +751,7 @@ assert.strictEqual(mine.chooseMinePath({
     earnLog: earnLog,
     now: now
   }, CN, esc)
-  assert.ok(quiet.includes('顯卡經礦池記帳'))
+  assert.ok(quiet.includes('顯卡經記帳池記帳'))
   assert.ok(quiet.includes('每秒 180,000'))
   assert.ok(quiet.includes('運算中'))
   assert.ok(!quiet.includes('2 SCDO'))
@@ -768,7 +768,7 @@ assert.strictEqual(mine.chooseMinePath({
     earnLog: earnLog,
     now: now
   }, CN, esc)
-  assert.ok(shared.includes('顯卡經礦池記帳'))
+  assert.ok(shared.includes('顯卡經記帳池記帳'))
   assert.ok(shared.includes('每秒 180,000'))
   const fallback = mine.minePageHtml({
     miners: {},
@@ -777,7 +777,7 @@ assert.strictEqual(mine.chooseMinePath({
     caps: { gpu: { available: true } },
     addresses: { 1: addr(1) }
   }, CN, esc)
-  assert.ok(fallback.includes('這台電腦沒有可用的 NVIDIA 顯卡，已改用 CPU 經礦池記帳'))
+  assert.ok(fallback.includes('這台電腦沒有可用的 NVIDIA 顯卡，已改用 CPU 經記帳池記帳'))
   assert.ok(fallback.includes('改用 CPU'))
   assert.ok(fallback.includes('data-act="mineCpuInstead"'))
 }
