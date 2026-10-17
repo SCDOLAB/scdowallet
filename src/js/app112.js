@@ -931,7 +931,7 @@
     try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
   function pageRemit () {
-    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><div id="remitHost"></div></div>`
+    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button><div id="remitHost"></div></div>`
   }
   function pageSettings () {
     return `<div class="page shell-set" id="setPage"><h1 class="shell-h">${esc(T('navSettings'))}</h1><div id="setHost"></div></div>`
@@ -4059,6 +4059,7 @@
       case 'copy': copyText(v); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
+      case 'payInvoice': openPayInvoice(); break
       case 'create': createModal(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
       case 'phraseLater': laterLeave(); break
@@ -4216,6 +4217,19 @@
 
   // application menu (main process) -> page, over the allowlisted 'menu:action' event
   function openRemittance () { openRemitFor((headerAccount() || {}).filename || st.sel) }
+  function openPayInvoice () {
+    const PI = window.SCDOPayInvoice
+    if (!PI || !PI.mount) return
+    modal('<div id="payInvRoot"></div>', { width: 720, noFocus: true })
+    const root = $('payInvRoot')
+    if (!root) return
+    PI.mount(root, {
+      open: function (url) { api.invoke('shell:openExternal', url) },
+      qr: function (el, text) {
+        try { new window.QRCode(el, { text: text, width: 220, height: 220, correctLevel: window.QRCode.CorrectLevel.M }) } catch (e) { console.error(e) }
+      }
+    })
+  }
   // 3.0.2: every action is reachable by hand from the window menu (the fallback if AI小貓 misbehaves).
   function openAboutPanel () {
     st.openAbout = true
@@ -4253,6 +4267,7 @@
       case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
       case 'remit': openRemittance(); break
+      case 'payInvoice': openPayInvoice(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': goPage('settings'); break
       case 'about': openAboutPanel(); break

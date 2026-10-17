@@ -60,7 +60,7 @@ const cnMenu = menu.buildTemplate(null, undefined)
 const enMenu = menu.buildTemplate(null, 'EN')
 assert.strictEqual(cnMenu[0].label, 'SCDO 錢包', 'first launch menu is 華語繁體')
 assert.deepStrictEqual(cnMenu.slice(2, 8).map(m => m.label), ['首頁', 'GPU 共享', '錢包', '遊戲', '區塊鏈', '運算服務'])
-assert.strictEqual(cnMenu.find(m => m.label === '錢包').submenu.map(s => s.label).join('|'), '收款|匯款…|設定|建立新地址（Shard0–Shard4 任選）…|匯入錢包（帳戶檔案或私鑰）…')
+assert.strictEqual(cnMenu.find(m => m.label === '錢包').submenu.map(s => s.label).join('|'), '收款|匯款…|支付發票|設定|建立新地址（Shard0–Shard4 任選）…|匯入錢包（帳戶檔案或私鑰）…')
 assert.strictEqual(cnMenu.find(m => m.label === '運算服務').submenu[0].label, '運算服務')
 assert.strictEqual(enMenu[0].label, 'SCDO Wallet', 'saved English menu stays English')
 assert.deepStrictEqual(enMenu.slice(2, 8).map(m => m.label), ['Home', 'GPU share', 'Wallet', 'Games', 'Blockchain', 'Mining'])
@@ -71,8 +71,10 @@ assert.ok(!flat(cnMenu).includes('開始挖礦') && !flat(cnMenu).includes('停�
 assert.ok(flat(cnMenu).includes('匯款…') && flat(cnMenu).includes('收款') && flat(cnMenu).includes('設定'))
 assert.ok(!flat(cnMenu).includes('挖礦'))
 menu.createMenu({ isDestroyed: () => false }, undefined)
-assert.strictEqual(menu.buildTemplate(null, 'EN').find(m => m.label === 'Wallet').submenu[2].label, 'Settings')
-assert.strictEqual(menu.buildTemplate(null, 'CN').find(m => m.label === '錢包').submenu[2].label, '設定')
+assert.strictEqual(menu.buildTemplate(null, 'EN').find(m => m.label === 'Wallet').submenu[2].label, 'Pay invoice')
+assert.strictEqual(menu.buildTemplate(null, 'EN').find(m => m.label === 'Wallet').submenu[3].label, 'Settings')
+assert.strictEqual(menu.buildTemplate(null, 'CN').find(m => m.label === '錢包').submenu[2].label, '支付發票')
+assert.strictEqual(menu.buildTemplate(null, 'CN').find(m => m.label === '錢包').submenu[3].label, '設定')
 
 // ---- (2) platform strings: Windows bytes unchanged, Mac path and notification centre ----
 const box = { window: {} }

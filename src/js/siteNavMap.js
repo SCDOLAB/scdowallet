@@ -18,6 +18,7 @@
       id: 'wallets', cn: '錢包', en: 'Wallet', children: [
         { id: 'receive', cn: '收款', en: 'Receive', action: 'recv' },
         { id: 'remit', cn: '匯款', en: 'Send', action: 'remit' },
+        { id: 'payInvoice', cn: '支付發票', en: 'Pay invoice', action: 'payInvoice' },
         { id: 'settings', cn: '設定', en: 'Settings', action: 'settings' },
         { id: 'create', cn: '建立新地址', en: 'Create address', action: 'create' },
         { id: 'import', cn: '匯入錢包', en: 'Import wallet', action: 'import' }

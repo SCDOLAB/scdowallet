@@ -92,9 +92,16 @@ const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
 // 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
 const DEMO_LINKS = require('./src/js/demoLinks')
 const EXACT_ALLOW = [DEMO_LINKS.DEMO_WHEEL_URL, DEMO_LINKS.TELEGRAM_URL]
+// Pay invoice hand-off only. MetaMask and Coinbase dapp links, plus a parsed
+// ton: or ethereum: transfer. This does not register those schemes with the OS.
+const payInvoice = require('./src/js/payInvoice/parse')
 function openExternalSafe (url) {
+  const raw = String(url || '').trim()
+  if (payInvoice.isHandoffUri(raw) || (payInvoice.isWalletDeepLink(raw) && !/scdoscan\.io/i.test(raw))) {
+    try { shell.openExternal(raw); return true } catch (e) { return false }
+  }
   let u
-  try { u = new URL(String(url)) } catch (e) { return false }
+  try { u = new URL(raw) } catch (e) { return false }
   if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
