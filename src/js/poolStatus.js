@@ -47,7 +47,7 @@ async function readAll (listPools, fetchImpl, now) {
   await Promise.all([1, 2, 3, 4].map(async (n) => {
     const pool = pools[n] || pools[String(n)]
     const url = statsUrl(pool)
-    if (!url) { out[n] = { shard: n, online: false, url: '' }; return }
+    if (!url) { out[n] = { shard: n, online: false, url: '', notConfigured: true }; return }
     try {
       const res = await fetchFn(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
       let body = null

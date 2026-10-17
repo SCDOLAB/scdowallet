@@ -188,6 +188,24 @@ function rpc (url, method, params, timeoutMs) {
   })
 }
 
+// 3.1.8: latest block difficulty from the same reference RPCs (Melbourne first) for the mining page.
+function networkDifficulty (primary, timeoutMs) {
+  const urls = []
+  const add = (u) => { if (u && urls.indexOf(u) < 0) urls.push(u) }
+  add(primary)
+  try { for (const u of rpcCandidates(0)) add(u) } catch (e) {}
+  return (async () => {
+    for (const url of urls) {
+      try {
+        const b = await rpc(url, 'eth_getBlockByNumber', ['latest', false], timeoutMs || 4000)
+        const d = b && b.difficulty ? Number(BigInt(b.difficulty)) : NaN
+        if (Number.isFinite(d) && d > 0) return d
+      } catch (e) {}
+    }
+    return null
+  })()
+}
+
 function networkHeight (primary, timeoutMs) {
   const urls = []
   const add = (u) => { if (u && urls.indexOf(u) < 0) urls.push(u) }
@@ -706,11 +724,12 @@ class MinerManager extends EventEmitter {
         hr = MinerManager.rigelHashrate(j)
         if (hr != null) { patch.hashrate = hr; patch.hashrateSource = 'rigel' }
         const sh = MinerManager.rigelShares(j)
-        if (sh) { patch.rigelShares = sh; patch.sharesAccepted = sh.accepted; patch.sharesRejected = sh.rejected }
+        if (sh) { patch.rigelShares = sh; patch.sharesAccepted = sh.accepted; patch.sharesRejected = sh.rejected; patch.sharesSeen = true }
       } catch (e) {}
       if (!this.lastRef || Date.now() - this.lastRef > 15000) {
         this.lastRef = Date.now()
         networkHeight(this.o.refRpc, 8000).then(n => { if (n != null) this.set({ networkBlock: n }) })
+        networkDifficulty(this.o.refRpc, 8000).then(d => { if (d != null) this.set({ networkDifficulty: d }) })
       }
       if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Mining on pool ' + this.state.poolUrl } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU miner starting / connecting to the pool ...' }
       this.set(patch); return
@@ -734,6 +753,7 @@ class MinerManager extends EventEmitter {
     if (!this.lastRef || Date.now() - this.lastRef > 15000) {
       this.lastRef = Date.now()
       networkHeight(this.o.refRpc, 8000).then(n => { if (n != null) this.set({ networkBlock: n }) })
+      networkDifficulty(this.o.refRpc, 8000).then(d => { if (d != null) this.set({ networkDifficulty: d }) })
     }
     if (this.external) { this.extFail = 0; patch.code = 'EXTERNAL_NODE'; this.set(patch); return }
     const watch = this.syncWatch(patch.localBlock, patch.peers, this.state.phase === 'syncing')
@@ -766,7 +786,7 @@ class MinerManager extends EventEmitter {
         hr = MinerManager.rigelHashrate(j)
         if (hr != null) { patch.hashrate = hr; patch.hashrateSource = 'rigel' }
         const sh = MinerManager.rigelShares(j)
-        if (sh) patch.rigelShares = sh
+        if (sh) { patch.rigelShares = sh; patch.sharesAccepted = sh.accepted; patch.sharesRejected = sh.rejected; patch.sharesSeen = true }
       } catch (e) {}
       // B3: only say "mining" when the GPU really produces hashes
       if (this.state.paused) { patch.code = 'PAUSED'; patch.message = 'Paused by the proxy (node lost peers or out of sync) – resumes automatically' } else if (hr != null && hr > 0) { patch.code = 'MINING'; patch.message = 'Mining to ' + this.state.wallet } else { patch.code = 'MINING_STARTING'; patch.message = 'GPU miner starting (building the DAG) ...' }

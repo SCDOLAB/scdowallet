@@ -3636,12 +3636,33 @@
       }
       if (cpu == null) cpu = d.cpu
       if (gpu == null) gpu = d.gpu
-      try {
-        if (loadChainList('mineChainsCpu310') == null) localStorage.setItem('mineChainsCpu310', JSON.stringify(cpu || []))
-        if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
-      } catch (e) {}
+      // 3.1.8: only save the default once the device check is known. Saving it before
+      // (Mac caps not loaded yet) dropped Shard0 for good and left the box unticked.
+      if (st.caps) {
+        try {
+          if (loadChainList('mineChainsCpu310') == null) localStorage.setItem('mineChainsCpu310', JSON.stringify(cpu || []))
+          if (loadChainList('mineChainsGpu310') == null) localStorage.setItem('mineChainsGpu310', JSON.stringify(gpu || []))
+        } catch (e) {}
+      }
     }
+    // 3.1.8: the ticks follow what is really running (auto-resume / keep mining can start a chain
+    // without a click). Save it so the selection persists.
+    const running = runningChains()
+    for (const n of running.gpu) if ((gpu || []).indexOf(n) < 0) { gpu = (gpu || []).concat([n]); writeChainPick('gpu', gpu) }
+    for (const n of running.cpu) if ((cpu || []).indexOf(n) < 0) { cpu = (cpu || []).concat([n]); writeChainPick('cpu', cpu) }
     return window.SCDOMineHome.sanitizeChainPick({ cpu: cpu, gpu: gpu }, st.caps, st.poolStatus)
+  }
+  function runningChains () {
+    const out = { cpu: [], gpu: [] }
+    const ms = st.miners || {}
+    const s0 = ms.shard0
+    if (s0 && s0.running && s0.mode !== 'node' && s0.chain !== 'classic' && (s0.phase === 'mining' || s0.mode === 'pool')) out.gpu.push(0)
+    const c = ms.classicCpu
+    if (c && c.running && c.mode !== 'node' && Number(c.shard) >= 1 && Number(c.shard) <= 4) out.cpu.push(Number(c.shard))
+    const g = ms.classicGpu
+    const list = g && Array.isArray(g.shards) ? g.shards : (g ? [g] : [])
+    for (const k of list) if (k && k.running && k.mode !== 'node' && k.mode !== 'cpu' && Number(k.shard) >= 1 && Number(k.shard) <= 4) out.gpu.push(Number(k.shard))
+    return out
   }
   function writeChainPick (device, list) {
     const key = device === 'cpu' ? 'mineChainsCpu310' : 'mineChainsGpu310'

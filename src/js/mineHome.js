@@ -731,6 +731,13 @@ function poolKnownDown (pools, n) {
   return p.online === false
 }
 
+// 3.1.8: no Classic pool configured is not an outage; say so calmly.
+function poolNotOffered (pools, n) {
+  if (!pools || typeof pools !== 'object') return false
+  const p = pools[n] || pools[String(n)]
+  return !!(p && p.notConfigured === true && p.online !== true)
+}
+
 function chainSupport (device, n, caps, pools) {
   n = Number(n)
   const known = !!(caps && (caps.gpu || caps.cpu))
@@ -738,6 +745,7 @@ function chainSupport (device, n, caps, pools) {
     if (n === 0) return { ok: false, reasonKey: 'shellOnlyGpu' }
     if (n >= 1 && n <= 4) {
       if (known && caps.cpu && caps.cpu.available === false) return { ok: false, reasonKey: 'shellNoCpu' }
+      if (poolNotOffered(pools, n)) return { ok: false, reasonKey: 'shellPoolNone' }
       if (poolKnownDown(pools, n)) return { ok: false, reasonKey: '', poolDown: true }
       return { ok: true, reasonKey: '' }
     }
@@ -1014,6 +1022,8 @@ function foldSummary (title) {
 
 function reportedRate (m) {
   if (!m || m.hashrateSource === 'pool' || m.mode === 'node') return null
+  // 3.1.8: Shard0 graphics card miner (rigel / scdo-clminer API) reports its own rate.
+  if (m.hashrateSource === 'rigel') return num(m.hashrate)
   const zpow = m.backend === 'zminer-gpu' || m.backend === 'zminer' || m.mode === 'cpu'
   if (!zpow) return null
   if (m.rateSeen === false) return null
@@ -1109,9 +1119,12 @@ function chainExpandHtml (input, device, n, T, esc, pools) {
   const speed = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
   const sharesN = reportedShares(session)
   const shares = sharesN == null ? DASH : String(sharesN)
-  const local = session && knownHeight(session.localBlock) != null ? String(Math.round(knownHeight(session.localBlock))) : DASH
+  // 3.1.8: pool mode has no local node; show the network height from the reference RPC instead of a dash.
+  const localH = session ? (knownHeight(session.localBlock) != null ? knownHeight(session.localBlock) : (alive && session.mode === 'pool' ? knownHeight(session.networkBlock) : null)) : null
+  const local = localH != null ? String(Math.round(localH)) : DASH
   const pool = pools && (pools[n] || pools[String(n)])
-  const diff = pool && pool.network_difficulty != null && pool.network_difficulty !== '' ? String(pool.network_difficulty) : DASH
+  const diffRaw = pool && pool.network_difficulty != null && pool.network_difficulty !== '' ? pool.network_difficulty : (session && alive && Number(session.networkDifficulty) > 0 ? Math.round(Number(session.networkDifficulty)).toLocaleString('en-US') : null)
+  const diff = diffRaw != null ? String(diffRaw) : DASH
   const row = (k, v) => `<div class="mine-kv"><span>${esc(k)}</span><b class="${v === DASH ? 'dash' : ''}">${esc(v)}</b></div>`
   return `<details class="mine-x" id="mineX-${device}-${n}">${foldSummary('')}
       <div class="mine-x-body">
