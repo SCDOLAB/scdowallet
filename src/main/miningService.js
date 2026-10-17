@@ -32,10 +32,21 @@ function vendorOf (name) {
   if (/intel|iris|uhd|arc/.test(n)) return 'Intel'
   return 'Unknown'
 }
+// 3.1.7: macOS uses the bundled OpenCL miner; the probe result from MinerManager.gpu() decides.
+function macPreflight (res, minerGpu) {
+  const list = (minerGpu && minerGpu.macGpu && Array.isArray(minerGpu.adapters)) ? minerGpu.adapters : []
+  for (const a of list) {
+    const ok = !!a.ready
+    res.gpus.push({ vendor: 'Apple', deviceName: a.name, vramGB: Math.round((a.globalMB || 0) / 1024 * 10) / 10, driverVersion: 'OpenCL', cuda: false, status: ok ? 'ready' : 'notReady',
+      reasons: [ok ? 'All pre-flight checks passed.' : 'Not enough graphics memory for Shard0 mining on this Mac graphics card.'] })
+  }
+  res.supported = res.gpus.some(g => g.status === 'ready')
+  return res
+}
 // -> { platform, supported, gpus: [{ vendor, deviceName, vramGB, driverVersion, cuda, status: ready|warn|notReady, reasons:[...] }], checkedAt }
 async function gpuPreflight (minerGpu) {
   const res = { platform: process.platform, supported: true, gpus: [], checkedAt: new Date().toISOString() }
-  if (process.platform === 'darwin') { res.supported = false; return res }
+  if (process.platform === 'darwin') return macPreflight(res, minerGpu)
   const cudaDll = process.platform === 'win32' && fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvcuda.dll'))
   const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,memory.total,driver_version', '--format=csv,noheader,nounits'], 15000)
   const seen = new Set()
@@ -239,10 +250,22 @@ function parseGpuTemp (text) {
   }
   return gpus
 }
-async function gpuTemperature () {
+// macOS exposes no graphics-chip temperature to normal apps; scdo-clminer reports the system thermal state
+// (nominal/fair/serious/critical) and pauses itself at serious/critical.
+function macThermal (apiPort) {
+  return new Promise(resolve => {
+    if (!apiPort) return resolve({ ok: false, gpus: [], thermal: null })
+    const req = require('http').get({ host: '127.0.0.1', port: apiPort, path: '/', timeout: 2000, agent: false }, r => {
+      let d = ''; r.on('data', c => { d += c }); r.on('end', () => { try { const j = JSON.parse(d); resolve({ ok: true, gpus: [], thermal: j.thermal || null, paused: !!j.paused }) } catch (e) { resolve({ ok: false, gpus: [], thermal: null }) } })
+    })
+    req.on('timeout', () => req.destroy()); req.on('error', () => resolve({ ok: false, gpus: [], thermal: null }))
+  })
+}
+async function gpuTemperature (opts) {
+  if (process.platform === 'darwin') return macThermal(opts && opts.apiPort)
   const smi = await execP(nvidiaSmiPath(), ['--query-gpu=name,temperature.gpu', '--format=csv,noheader,nounits'], 8000)
   const gpus = parseGpuTemp(smi)
   return { ok: !!smi, gpus }
 }
 
-module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature }
+module.exports = { gpuPreflight, networkStats, exportLogs, sanitizeLog, maskAddr, poolAccount, parsePoolAccount, isOfficialPool, shannonToScdo, httpsGetText, POOL_API, OFFICIAL_POOL_HOSTS, parseGpuTemp, gpuTemperature, macPreflight }

@@ -1,6 +1,6 @@
 {
     "name": "ScdoWallet",
-    "version": "3.1.6",
+    "version": "3.1.7",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
@@ -123,7 +123,7 @@
                 {
                     "from": "miner-bin/darwin",
                     "to": "miner/bin",
-                    "filter": ["zminer-darwin-amd64"]
+                    "filter": ["zminer-darwin-amd64", "scdo-clminer"]
                 }
             ]
         },

@@ -112,8 +112,26 @@ function readWinAdapters () {
   }))
 }
 
-function detectGpu (platform) {
+// 3.1.7: on macOS the bundled scdo-clminer (OpenCL, Apple graphics chips) is the Shard0 miner.
+// "--probe" lists OpenCL devices; a chip that can hold one ~1.1 GB DAG half (plus headroom) is ready.
+const MAC_MIN_ALLOC_MB = 1536
+function parseMacProbe (text) {
+  let j = null
+  try { j = JSON.parse(String(text || '').trim().split(/\r?\n/).pop()) } catch (e) { j = null }
+  const devs = (j && Array.isArray(j.devices)) ? j.devices : []
+  const adapters = devs.filter(d => d && d.name).map((d, i) => ({ name: String(d.name), pnp: '', compat: 'Apple', virtual: false, nvidia: false, apple: true, cudaIndex: null, index: i, globalMB: Number(d.globalMB) || 0, maxAllocMB: Number(d.maxAllocMB) || 0, ready: (Number(d.maxAllocMB) || 0) >= MAC_MIN_ALLOC_MB }))
+  const ready = adapters.filter(a => a.ready)
+  return { names: adapters.map(a => a.name), adapters, nvidia: ready.length > 0, macGpu: true, nvidiaNames: [], driver: ready.length > 0, nvidiaNoDriver: false, mineDevices: [], mineNames: ready.map(a => a.name), minerVersion: j && j.version || null }
+}
+function detectMacGpu (binDir) {
+  const exe = path.join(binDir || '', 'scdo-clminer')
+  if (!binDir || !fs.existsSync(exe)) return Promise.resolve(parseMacProbe(''))
+  return execFileText(exe, ['--probe'], 20000).then(r => parseMacProbe(r.out))
+}
+
+function detectGpu (platform, binDir) {
   platform = platform || process.platform
+  if (platform === 'darwin') return detectMacGpu(binDir)
   if (platform === 'win32') {
     const sys = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
     const hasCuda = fs.existsSync(path.join(sys, 'nvcuda.dll'))
@@ -401,6 +419,7 @@ class MinerManager extends EventEmitter {
 
   rigelPath () {
     if (this.o.rigelExe) return this.o.rigelExe
+    if (this.o.platform === 'darwin') return path.join(this.o.binDir, 'scdo-clminer')
     const r = RIGEL[this.o.platform === 'win32' ? 'win32' : 'linux']
     return path.join(this.minerDir, r.dir, r.exe)
   }
@@ -408,6 +427,7 @@ class MinerManager extends EventEmitter {
   async ensureRigel () {
     const exe = this.rigelPath()
     if (fs.existsSync(exe)) return exe
+    if (this.o.platform === 'darwin') { const e = new Error('The Mac graphics card miner (scdo-clminer) is missing from the app – reinstall SCDO Wallet.'); e.code = 'ERROR'; throw e }
     const r = RIGEL[this.o.platform === 'win32' ? 'win32' : 'linux']
     fs.mkdirSync(this.minerDir, { recursive: true })
     const archive = path.join(this.minerDir, r.file)
@@ -567,7 +587,7 @@ class MinerManager extends EventEmitter {
   }
 
   async gpu () {
-    if (!this.gpuInfo || Date.now() - this.gpuInfo.at > 10 * 60 * 1000) this.gpuInfo = Object.assign(await detectGpu(this.o.platform), { at: Date.now() })
+    if (!this.gpuInfo || Date.now() - this.gpuInfo.at > 10 * 60 * 1000) this.gpuInfo = Object.assign(await detectGpu(this.o.platform, this.o.binDir), { at: Date.now() })
     return this.gpuInfo
   }
 
@@ -588,6 +608,7 @@ class MinerManager extends EventEmitter {
     let gpuPick = null
     if (mode !== 'node' && !opts.noRigel && !this.o.rigelExe) {
       gpuPick = await this.gpu()
+      if (!miningGpuReady(gpuPick) && this.o.platform === 'darwin') { const e = new Error('Mac graphics card not supported yet – no suitable Apple graphics chip was found.'); e.code = 'NO_NVIDIA'; throw e }
       if (!miningGpuReady(gpuPick)) { const e = new Error('No NVIDIA GPU found on this PC – GPU mining is not possible. Use "Run node only".'); e.code = 'NO_NVIDIA'; throw e }
       this.cudaDevices = (gpuPick.mineDevices || []).filter(n => Number.isInteger(n) && n >= 0)
     }
@@ -1087,4 +1108,4 @@ class MinerManager extends EventEmitter {
   }
 }
 
-module.exports = { MinerManager, RIGEL, PORTS, BASE_PORTS, BOOTNODE, extractZip, download, sha256File, detectGpu, portsFree, miningGpuReady, evaluateGpu }
+module.exports = { parseMacProbe, MAC_MIN_ALLOC_MB, MinerManager, RIGEL, PORTS, BASE_PORTS, BOOTNODE, extractZip, download, sha256File, detectGpu, portsFree, miningGpuReady, evaluateGpu }

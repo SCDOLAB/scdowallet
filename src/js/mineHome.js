@@ -719,7 +719,7 @@ function chainLabel (n) {
   return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
 }
 
-// 3.1.6: a Mac has no supported GPU miner yet; say that instead of "no graphics card detected".
+// 3.1.6: a Mac without a suitable graphics chip (3.1.7: Shard0 on Apple graphics chips works); say that instead of "no graphics card detected".
 function noGpuKey (caps) {
   return caps && caps.platform === 'darwin' ? 'shellMacGpu' : 'shellNoGpu'
 }
@@ -741,6 +741,12 @@ function chainSupport (device, n, caps, pools) {
       if (poolKnownDown(pools, n)) return { ok: false, reasonKey: '', poolDown: true }
       return { ok: true, reasonKey: '' }
     }
+    return { ok: false, reasonKey: '' }
+  }
+  // 3.1.7: on a Mac only Shard0 can use the graphics card (bundled OpenCL miner), and only when a suitable chip was found.
+  if (caps && caps.platform === 'darwin') {
+    if (n === 0 && caps.macGpu && caps.macGpu.available) return { ok: true, reasonKey: '' }
+    if (n === 0 || (n >= 1 && n <= 4)) return { ok: false, reasonKey: noGpuKey(caps) }
     return { ok: false, reasonKey: '' }
   }
   if (known && caps.gpu && caps.gpu.available === false) return { ok: false, reasonKey: noGpuKey(caps) }

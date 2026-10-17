@@ -389,6 +389,7 @@ async function stopClassic (backend, opts) {
   if (!jobs.length) return
   await withinMs(() => Promise.all(jobs), 2000)
 }
+const MAC_SHARD0_POOL = 'ethproxy+tcp://139.84.196.31:3333'
 function getMiner () {
   if (!miner) {
     const res = app.isPackaged ? path.join(process.resourcesPath, 'miner') : path.join(__dirname, 'miner-bin')
@@ -516,9 +517,13 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     }
   }
   const cfg = readIntent() || {}
-  const mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  let mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  // 3.1.7: no Shard0 node ships for macOS, so the Mac graphics card always mines through a pool
+  // (the user's own pool when set, otherwise the SCDO pool in Melbourne).
+  const macPool = process.platform === 'darwin' && mode !== 'node'
+  if (macPool) mode = 'pool'
   const startOpts = { mode, payout: opts.payout }
-  if (mode === 'pool') startOpts.poolUrl = cfg.poolUrl
+  if (mode === 'pool') startOpts.poolUrl = macPool ? ((cfg.miningMode === 'pool' && MinerManager.validPoolUrl(cfg.poolUrl)) || MAC_SHARD0_POOL) : cfg.poolUrl
   await afterCleanup()
   try {
     await getMiner().start(wallet, startOpts)
@@ -608,7 +613,9 @@ ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dat
 ipcMain.handle('miner:caps', async () => {
   try {
     if (guardActive()) await guardHost.ready()
-    return getZpow('cpu').capabilities()
+    const caps = getZpow('cpu').capabilities()
+    if (process.platform === 'darwin') { try { const g = await getMiner().gpu(); caps.macGpu = { available: !!(g && g.nvidia), names: (g && g.mineNames) || [] } } catch (e) { caps.macGpu = { available: false, names: [] } } }
+    return caps
   } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } }
 })
 ipcMain.handle('miner:classicStatus', () => classicSnapshot())
@@ -616,7 +623,7 @@ function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu'
 
 // ---------------- 2.0.1 mining batch 1 ----------------
 ipcMain.handle('mining:gpuPreflight', async () => { let g = null; try { g = await getMiner().gpu() } catch (e) {} return miningService.gpuPreflight(g) })
-ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature() } catch (err) { return { ok: false, gpus: [], error: err.message } } })
+ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature({ apiPort: miner && miner.state && miner.state.ports && miner.state.ports.rigelApi }) } catch (err) { return { ok: false, gpus: [], error: err.message } } })
 ipcMain.handle('mining:networkStats', async () => {
   const st = miner ? miner.status() : null
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0
