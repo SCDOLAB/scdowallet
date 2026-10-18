@@ -1465,6 +1465,7 @@
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
+    h += `<div class="lbl" id="ledgerNodeNote" style="margin-top:8px">${esc(T('ledgerNodeLine'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
