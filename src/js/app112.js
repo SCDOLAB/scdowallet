@@ -849,7 +849,8 @@
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
     const qr = link ? `<div class="qrwrap"><div id="homeInviteQr" data-addr="${esc(link)}"></div></div>` : ''
-    const giftBtn = (window.SCDOWalletUi ? window.SCDOWalletUi.flagOn(st.walletUi || window.SCDOWalletUi.defaults(), 'inviteGift') : true)
+    const giftDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
+    const giftBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(giftDoc, ['invite', 'inviteGift']))
       ? `<button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button>` : ''
     return `<div class="page shell-home" id="homePage">
       ${offlineNoticeHtml()}
@@ -933,12 +934,13 @@
   function pageInviteGift () {
     const J = window.SCDOAgentJoin
     if (!J) return ''
-    return J.inviteGiftHtml(T, esc, { gift: st.inviteGift == null ? 1 : st.inviteGift })
+    return J.inviteGiftHtml(T, esc, { gift: st.inviteGift == null ? 1 : st.inviteGift, view: st.inviteView, id: st.inviteId || '' })
   }
   function pageInviteClaim () {
     const J = window.SCDOAgentJoin
     if (!J) return ''
-    return J.inviteClaimHtml(T, esc)
+    const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
+    return J.inviteClaimHtml(T, esc) + claim
   }
   function pagePanel () {
     const U = window.SCDOWalletUi
@@ -1138,7 +1140,8 @@
     try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
   function pageRemit () {
-    const payBtn = (window.SCDOWalletUi ? window.SCDOWalletUi.flagOn(st.walletUi || window.SCDOWalletUi.defaults(), 'payInvoice') : true)
+    const payDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
+    const payBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(payDoc, ['send', 'payInvoice']))
       ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
     return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1>${payBtn}<div id="remitHost"></div></div>`
   }
@@ -4295,6 +4298,9 @@
       case 'agentUseWallet': startMyAgent(); break
       case 'claimRetry': runClaim(); break
       case 'inviteCreate': openInviteCreate(); break
+      case 'inviteCreateSubmit': submitInviteCreate(); break
+      case 'inviteCancelSubmit': submitInviteCancel(); break
+      case 'inviteClaimSubmit': submitInviteClaim(); break
       case 'liveCard': runLiveCard(v); break
       case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
       case 'trayHintDismiss': st.trayHint = false; api.invoke('session:trayHintDismiss').catch(() => {}); render(); break
@@ -5058,6 +5064,44 @@
     render()
     refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
     api.invoke('session:armLogin').then((s) => { st.session = s || st.session; applySessionUi() }).catch(() => {})
+  }
+  function inviteAccountFile () {
+    return (selected() && selected().filename) || st.sel || ''
+  }
+  async function submitInviteCreate () {
+    const password = ($('invitePass') && $('invitePass').value) || ''
+    const gift = st.inviteGift
+    const Opt = window.SCDOOptimistic
+    if (Opt) st.inviteView = Opt.createView()
+    render()
+    let res = null
+    try { res = await api.invoke('invite:create', { gift: gift, file: inviteAccountFile(), password: password }) } catch (e) { res = { ok: false } }
+    st.inviteView = Opt ? Opt.actionFromResult(st.inviteView, res) : null
+    if (res && res.ok) { st.inviteId = res.id || ''; st.inviteLink = res.link || '' }
+    if (password && $('invitePass')) $('invitePass').value = ''
+    render()
+    if (res && res.ok && Opt) {
+      Opt.confirmInBackground(st.inviteView, async () => {
+        try { const c = await api.invoke('s0:waitReceipt', res.hash); return !!(c && c.ok) } catch (e) { return false }
+      }).then(next => { st.inviteView = next; if (st.tab === 'inviteGift') render() })
+    }
+  }
+  async function submitInviteCancel () {
+    const password = ($('invitePass') && $('invitePass').value) || ''
+    const Opt = window.SCDOOptimistic
+    if (!st.inviteId) return
+    if (Opt) st.inviteView = Opt.cancelView()
+    render()
+    let res = null
+    try { res = await api.invoke('invite:cancel', { id: st.inviteId, file: inviteAccountFile(), password: password }) } catch (e) { res = { ok: false } }
+    st.inviteView = Opt ? Opt.actionFromResult(st.inviteView, res) : null
+    if (password && $('invitePass')) $('invitePass').value = ''
+    render()
+  }
+  async function submitInviteClaim () {
+    const msg = st.inviteClaim || {}
+    const acct = selected()
+    await runClaim({ secret: msg.secret, contract: msg.contract, chainId: msg.chainId, newAddr: (acct && acct.evm) || '' })
   }
   async function runClaim (body) {
     if (body) st.claimBody = body

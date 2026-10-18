@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Sign wallet-ui.json (or any UI JSON document) with an external Ed25519 PEM key.
 // The key path must sit outside this repository. The key is never written into the file
-// except as the detached "sig" field.
+// except as the detached signature. wallet-ui.json uses "signature", the same
+// field the update feed uses. Pass --field sig for ui-latest.json.
 //
 //   node tools/sign-ui-config.js --key /path/to/ed25519.pem --in wallet-ui.json --out wallet-ui.json
 'use strict'
@@ -38,6 +39,7 @@ if (privateKey.asymmetricKeyType !== 'ed25519') fail('key must be Ed25519')
 
 const doc = JSON.parse(fs.readFileSync(inPath, 'utf8'))
 if (!doc || typeof doc !== 'object' || Array.isArray(doc)) fail('input must be a JSON object')
-const signed = signDoc(doc, privateKey)
+const field = arg('--field') === 'sig' ? 'sig' : 'signature'
+const signed = signDoc(doc, privateKey, field)
 fs.writeFileSync(outPath, JSON.stringify(signed, null, 2) + '\n')
 console.log('signed ' + outPath)

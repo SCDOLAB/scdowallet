@@ -622,4 +622,36 @@ function register (ipcMain, getWin) {
 
 // 2.0.6: language for main-process dialogs / tray / window titles
 function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+// InviteRegistry and other allow-listed contract calls. The caller picks the calldata.
+// Private keys stay in this process for the one signature.
+async function sendContract (p) {
+  p = p || {}
+  let file
+  try { file = safeName(p.file) } catch (e) { return { ok: false, error: 'NO_ACCOUNT' } }
+  const a = accByFile(file)
+  if (!a || !a.evm) return { ok: false, error: 'NO_ACCOUNT' }
+  if (typeof p.password !== 'string' || !p.password) return { ok: false, error: 'NO_PASSWORD' }
+  if (!ADDR_RE.test(String(p.to || ''))) return { ok: false, error: 'BAD_TO' }
+  const data = String(p.data || '')
+  if (!/^0x[0-9a-fA-F]+$/.test(data) || (data.length - 2) % 2 !== 0) return { ok: false, error: 'BAD_DATA' }
+  let value
+  try { value = BigInt(String(p.valueWei == null ? '0' : p.valueWei)) } catch (e) { return { ok: false, error: 'BAD_VALUE' } }
+  if (value < 0n) return { ok: false, error: 'BAD_VALUE' }
+  let priv
+  try { priv = await c().decKeyFile(a.filename, p.password) } catch (e) { return { ok: false, error: 'WRONG_PASSWORD' } }
+  try {
+    if (Shard0.addressFromPrivateKey(priv).toLowerCase() !== a.evm.toLowerCase()) return { ok: false, error: 'KEY_MISMATCH' }
+    const wallet = new ethers.Wallet(priv, shard0().provider)
+    const tx = await shard0().prepare(wallet, { to: p.to, data: data, value: value })
+    if (Number(tx.chainId) !== S0_CHAIN_ID) return { ok: false, error: 'WRONG_CHAIN' }
+    const raw = await wallet.signTransaction(tx)
+    const hash = ethers.keccak256(raw)
+    s0txUpsert(hash, { t: Date.now(), from: a.evm, to: p.to, amount: value.toString(), asset: 'SCDO', status: 'pending', nonce: tx.nonce, raw: raw, lastBcast: Date.now() })
+    await shard0().broadcastRaw(raw, BCAST_TIMEOUT_MS)
+    return { ok: true, hash: hash }
+  } catch (e) {
+    return { ok: false, error: plainErr(e).split(' (')[0].slice(0, 200) }
+  } finally { priv = null }
+}
+
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }

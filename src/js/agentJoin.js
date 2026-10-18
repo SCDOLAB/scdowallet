@@ -95,16 +95,35 @@
   function inviteGiftHtml (t, esc, opts) {
     opts = opts || {}
     const n = giftAmount(opts.gift == null ? 1 : opts.gift)
+    const view = opts.view || {}
+    let status = ''
+    if (view.phase === 'creating' || view.phase === 'cancelling') {
+      status = '<p class="home-state" id="inviteBadge">' + esc(t(view.phase === 'cancelling' ? 'inviteCancelling' : 'inviteCreating')) + '</p>'
+    } else if (view.phase === 'confirming' && view.link) {
+      status = '<p class="lbl" id="inviteLinkLabel">' + esc(t('inviteLinkLabel')) + '</p><p class="mono" id="inviteLink">' + esc(view.link) + '</p><p class="home-state" id="inviteBadge">' + esc(t('claimConfirming')) + '</p>'
+    } else if (view.phase === 'confirmed') {
+      status = '<p class="home-state" id="inviteBadge">' + esc(t('claimConfirmed')) + '</p>'
+    } else if (view.phase === 'retry') {
+      status = '<p class="agent-claim" id="inviteRetry"><button type="button" class="shell-act sec" data-act="inviteCreateSubmit">' + esc(t('claimRetry')) + '</button></p>'
+    }
+    const cancel = opts.id
+      ? '<button type="button" class="shell-act sec" id="inviteCancelBtn" data-act="inviteCancelSubmit">' + esc(t('inviteCancelBtn')) + '</button>'
+      : ''
     return '<div class="page shell-home" id="inviteGift"><h1 class="shell-h">' + esc(t('inviteGiftTitle')) + '</h1>' +
       '<p class="home-lead" id="inviteGiftOwn">' + esc(t('inviteGiftOwn', { n: n })) + '</p>' +
       '<div class="field"><div class="lbl">' + esc(t('inviteGiftAsk')) + '</div>' +
-      '<input class="inp" id="inviteGiftAmt" inputmode="numeric" maxlength="4" value="' + n + '" autocomplete="off"></div></div>'
+      '<input class="inp" id="inviteGiftAmt" inputmode="numeric" maxlength="4" value="' + n + '" autocomplete="off"></div>' +
+      '<div class="field"><div class="lbl">' + esc(t('invitePassword')) + '</div>' +
+      '<input class="inp" id="invitePass" type="password" autocomplete="off"></div>' +
+      '<div class="shell-actions"><button type="button" class="shell-act" id="inviteCreateBtn" data-act="inviteCreateSubmit">' + esc(t('inviteCreateBtn')) + '</button>' + cancel + '</div>' +
+      status + '</div>'
   }
 
   function inviteClaimHtml (t, esc) {
     return '<div class="page shell-home" id="inviteClaim"><h1 class="shell-h">' + esc(t('inviteClaimTitle')) + '</h1>' +
       '<p class="home-lead" id="inviteClaimBody">' + esc(t('inviteClaimBody')) + '</p>' +
-      '<p class="home-state">' + esc(t('inviteClaimConsent')) + '</p></div>'
+      '<p class="home-state">' + esc(t('inviteClaimConsent')) + '</p>' +
+      '<div class="shell-actions"><button type="button" class="shell-act" id="inviteClaimBtn" data-act="inviteClaimSubmit">' + esc(t('inviteClaimBtn')) + '</button></div></div>'
   }
 
   function urlsFromArgv (argv) {

@@ -1601,6 +1601,23 @@ ipcMain.handle('agentJoin:useSelection', (e, p) => {
   return applied.view
 })
 ipcMain.handle('agentJoin:refcode', () => joinCtl.refcode().catch(() => ({ ok: false, error: 'refcode' })))
+ipcMain.handle('invite:create', async (e, p) => {
+  p = p || {}
+  const Invite = require('./src/js/inviteRegistry')
+  const plan = Invite.planCreate({ gift: p.gift, feeBps: p.feeBps })
+  const sent = await walletService.sendContract({ file: p.file, password: p.password, to: plan.to, data: plan.data, valueWei: plan.valueWei })
+  if (!sent || !sent.ok) return { ok: false, error: (sent && sent.error) || 'send' }
+  return { ok: true, hash: sent.hash, id: plan.id, link: plan.link }
+})
+ipcMain.handle('invite:cancel', async (e, p) => {
+  p = p || {}
+  const Invite = require('./src/js/inviteRegistry')
+  const plan = Invite.planCancel(p.id)
+  if (!plan) return { ok: false, error: 'id' }
+  const sent = await walletService.sendContract({ file: p.file, password: p.password, to: plan.to, data: plan.data, valueWei: '0' })
+  if (!sent || !sent.ok) return { ok: false, error: (sent && sent.error) || 'send' }
+  return { ok: true, hash: sent.hash, id: plan.id }
+})
 ipcMain.handle('invite:claim', async (e, body) => {
   body = body && typeof body === 'object' ? body : {}
   claimWatch = String(body.newAddr || '')

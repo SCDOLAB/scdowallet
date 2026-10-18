@@ -4,7 +4,7 @@ The desktop wallet can change copy, home cards, and the renderer page without a 
 
 The signing key is the same Ed25519 key already used for `latest.json`. The public key embedded in the app is the 32-byte raw key in `src/updater.js` (`PUBKEY_B64`). Sign with an external PEM file. Do not commit that file.
 
-Canonical bytes: copy the object, delete `sig`, sort keys recursively, `JSON.stringify` with no extra space, UTF-8. `sig` is standard base64 of the Ed25519 signature. This is the same canonical form as `sign-latest.js`. The installer manifest still uses the field name `signature`. These UI files use `sig`.
+Canonical bytes: copy the object, delete `sig`, sort keys recursively, `JSON.stringify` with no extra space, UTF-8. `sig` is standard base64 of the Ed25519 signature. This is the same canonical form as `sign-latest.js`. The installer manifest and the live `wallet-ui.json` use the field name `signature`. `ui-latest.json` may use `sig`. The wallet accepts either field. Canonical bytes drop both names before hashing.
 
 Anything unsigned, badly signed, or carrying a URL outside the two hosts is ignored. The last good signed copy is used next, then the copy built into the app.
 
@@ -48,15 +48,17 @@ Publish at:
   "cards": [{ "id": "hub", "en": "Wallet hub", "cn": "錢包總覽" }],
   "minVersion": "3.1.9",
   "recommendedVersion": "3.1.9",
-  "sig": "<base64>"
+  "signature": "<base64>"
 }
 ```
+
+The file published at `https://scdo.com.au/wallet/wallet-ui.json` uses this shape: `links.hub`, `flags`, `banner` (or null), `homeCards` (or an empty list), `strings` (or an empty object), `minVersion`, and `signature`.
 
 `strings` overrides existing i18n keys. `en` is English. `zh-Hant` is both 華語 variants. Only string values are kept. Unknown keys are ignored when the page draws. Values that contain `<` or `>` are dropped. The stay-online lines use `agentStayOpen`, `agentOnlineLine`, `agentOfflineLine`, `trayStayNotice`, `quitAgentMsg`, `quitAgentQuit`, `quitAgentStay`, and `quitAgentDontAsk`. The settings label `loginToggle` is Launch at login (start minimised in tray).
 
 `homeCards` actions are `open-url` (`url` on the allowlist), `open-page` (`page` must be a key in `links`), `start-agent`, `invite`, and `claim`. A bad action or a bad URL rejects the whole file.
 
-`flags` hides a control when the value is `false`. Missing means show. `inviteGift` hides Invite with a gift. `payInvoice` hides Pay invoice.
+`flags` hides a control when the value is `false`. Missing means show. `invite` and `inviteGift` hide Invite with a gift. `send` and `payInvoice` hide Pay invoice. `agent` is reserved for the agent card.
 
 `minVersion` and `recommendedVersion` show a note when this install is older. They do not stop the wallet.
 

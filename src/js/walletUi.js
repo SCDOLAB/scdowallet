@@ -304,6 +304,13 @@
     return flags[name] !== false
   }
 
+  // Every named flag must be on. A missing name stays on.
+  function flagsAllow (doc, names) {
+    const list = names || []
+    for (let i = 0; i < list.length; i++) if (!flagOn(doc, list[i])) return false
+    return true
+  }
+
   function versionNote (doc, shell) {
     if (!doc) return ''
     if (doc.minVersion && compareVer(shell, doc.minVersion) < 0) return 'min'
@@ -410,6 +417,7 @@
     current: current,
     setCurrent: setCurrent,
     flagOn: flagOn,
+    flagsAllow: flagsAllow,
     versionNote: versionNote,
     cardsHtml: cardsHtml,
     homeCardsHtml: homeCardsHtml,

@@ -82,7 +82,7 @@ Module._load = function (req, parent, ...rest) {
   if (req === 'electron') return {}
   return realLoad.call(this, req, parent, ...rest)
 }
-const { fmtHash, trayIconFile } = require('../src/main/trayStatus.js')
+const { fmtHash, trayIconFile, menuLines } = require('../src/main/trayStatus.js')
 Module._load = realLoad
 assert.strictEqual(fmtHash(4150068, 'CN'), '記帳速度 4.15 MH/s')
 assert.strictEqual(fmtHash(4150068, 'EN'), 'Bookkeeping speed 4.15 MH/s')
@@ -96,4 +96,10 @@ assert.strictEqual(trayIconFile('win32', null), 'tray/tray.ico')
 for (const file of [trayIconFile('darwin', null), trayIconFile('win32', null)]) {
   assert.ok(fs.existsSync(path.join(root, 'assets', file)), file)
 }
+const menu = menuLines('CN', { running: true, code: 'MINING', hashrate: 4150068 }, { agentOnline: true, light: true, loginLaunch: true })
+assert.ok(menu.lines.includes('在線 · 請保持程式執行'))
+assert.ok(menu.lines.includes('記帳中：記帳速度 4.15 MH/s'))
+assert.ok(menu.lines.includes('恢復記帳'))
+assert.strictEqual(menu.icon, 'tray/trayTemplate-on.png')
+assert.ok(!menu.lines.some(line => /中文|简体|繁體/.test(line)))
 console.log('tray-icon: ok')

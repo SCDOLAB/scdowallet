@@ -82,6 +82,36 @@ const missing = Object.assign({}, base)
 delete missing.sig
 assert.strictEqual(Ui.acceptSigned(missing, { publicKey: pubB64 }), null)
 
+const signedAsSignature = signDoc(base, privateKey, 'signature')
+assert.ok(signedAsSignature.signature && !signedAsSignature.sig)
+assert.ok(Ui.acceptSigned(signedAsSignature, { publicKey: pubB64 }))
+assert.strictEqual(Ui.flagsAllow(accepted, ['invite', 'inviteGift']), false)
+assert.strictEqual(Ui.flagsAllow(accepted, ['send', 'payInvoice']), true)
+
+// The file live at https://scdo.com.au/wallet/wallet-ui.json on 2026-10-18.
+// Signed with the update-feed key. Field name is signature, same as updater.js.
+const live = {
+  minVersion: '0.1.0',
+  banner: null,
+  flags: { send: true, agent: true, invite: true },
+  homeCards: [],
+  strings: {},
+  links: { hub: 'https://scdo.com.au/wallet/hub/' },
+  signature: 'JDIZew4GXC83eU6GSTBRwd2HQF0+9AKwU8MonXUzK5EsaZV9JrJ5TZbRWbaJ0KqXPpZgWXOUqz5yQ/YdDAqBAA=='
+}
+const liveDoc = Ui.acceptSigned(live)
+assert.ok(liveDoc)
+assert.strictEqual(liveDoc.links.hub, 'https://scdo.com.au/wallet/hub/')
+assert.strictEqual(liveDoc.banner, null)
+assert.deepStrictEqual(liveDoc.homeCards, [])
+assert.deepStrictEqual(liveDoc.strings.en, {})
+assert.strictEqual(liveDoc.minVersion, '0.1.0')
+assert.strictEqual(liveDoc.flags.send, true)
+assert.strictEqual(liveDoc.flags.agent, true)
+assert.strictEqual(liveDoc.flags.invite, true)
+assert.strictEqual(Ui.flagsAllow(liveDoc, ['send', 'invite', 'agent']), true)
+assert.strictEqual(Ui.versionNote(liveDoc, '3.1.9'), '')
+
 const evil = sign(Object.assign({}, base, { links: { hub: 'https://evil.example/wallet/' } }))
 assert.strictEqual(Ui.acceptSigned(evil, { publicKey: pubB64 }), null)
 const badAction = sign(Object.assign({}, base, {

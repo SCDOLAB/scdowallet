@@ -323,4 +323,26 @@ class TrayStatus {
   destroy () { try { if (this.tray && !this.tray.isDestroyed()) this.tray.destroy() } catch (e) {} this.tray = null }
 }
 
-module.exports = { TrayStatus, badgeState, tooltipText, fmtHash, trayIconFile }
+function menuLines (lang, st, sess) {
+  const L = TL[lang === 'EN' ? 'EN' : 'CN']
+  const online = !!(sess && sess.agentOnline)
+  const running = !!(st && st.running && st.code === 'MINING')
+  const speed = running ? L.mining + fmtHash(st.hashrate, lang === 'EN' ? 'EN' : 'CN') : (st && st.phase === 'error' ? L.minerError : L.notMining)
+  return {
+    icon: trayIconFile('darwin', st),
+    lines: [
+      L.show,
+      online ? L.agentOnline : L.agentOffline,
+      speed,
+      sess && sess.light ? L.modeLight : L.modeFull,
+      L.login,
+      L.light,
+      L.pauseHour,
+      L.pauseToday,
+      L.pauseClear,
+      L.quit
+    ]
+  }
+}
+
+module.exports = { TrayStatus, badgeState, tooltipText, fmtHash, trayIconFile, menuLines }

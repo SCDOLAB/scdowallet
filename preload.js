@@ -34,7 +34,7 @@ const INVOKE = Object.freeze([
   'agent:status', 'agent:setReporting',
   // 3.1.9: start-my-agent join (ref lock, payout, referral code). Keys stay in main.
   'agentJoin:get', 'agentJoin:start', 'agentJoin:setPayout', 'agentJoin:useSelection', 'agentJoin:refcode',
-  'invite:claim', 'invite:confirm',
+  'invite:claim', 'invite:confirm', 'invite:create', 'invite:cancel',
   'panel:doc', 'panel:show', 'panel:close',
   'session:get', 'session:setLogin', 'session:setLight', 'session:setPace', 'session:loginAnswer', 'session:armLogin', 'session:trayHintDismiss'
 ])

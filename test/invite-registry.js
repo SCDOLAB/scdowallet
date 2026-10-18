@@ -1,0 +1,78 @@
+// InviteRegistry create, claim, and cancel. The screen paints before the chain call.
+'use strict'
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const { ethers } = require('ethers')
+const Invite = require('../src/js/inviteRegistry')
+const Opt = require('../src/js/optimistic')
+
+const iface = new ethers.Interface([
+  'function invite(address id, uint96 sponsorFeeWei) payable',
+  'function cancel(address id)',
+  'function claim(address sponsor, address newbie, bytes sig)'
+])
+const id = '0x2222222222222222222222222222222222222222'
+const newbie = '0x3333333333333333333333333333333333333333'
+const one = ethers.parseEther('1')
+
+assert.strictEqual(Invite.REGISTRY, '0x458F974CcC4F1DB16Fe9F57489b134D7013bAD0d')
+assert.strictEqual(Invite.CHAIN_ID, 5680)
+assert.strictEqual(Invite.clampGift(0), 1)
+assert.strictEqual(Invite.clampGift(1001), 1000)
+assert.strictEqual(Invite.giftWei(2), ethers.parseEther('2'))
+assert.strictEqual(Invite.sponsorFeeWei(one, 0), 0n)
+assert.strictEqual(Invite.sponsorFeeWei(one, 1000), one / 10n)
+assert.strictEqual(Invite.sponsorFeeWei(one, 5000), one / 10n)
+
+assert.strictEqual(Invite.encodeInvite(id, 0), iface.encodeFunctionData('invite', [id, 0]))
+assert.strictEqual(Invite.encodeCancel(id), iface.encodeFunctionData('cancel', [id]))
+assert.strictEqual(Invite.encodeClaim(id, newbie, '0xabcd'), iface.encodeFunctionData('claim', [id, newbie, '0xabcd']))
+assert.strictEqual(Invite.encodeInvite('nope', 0), '')
+assert.strictEqual(Invite.planCancel('nope'), null)
+
+const secret = 'ab'.repeat(32)
+const plan = Invite.planCreate({ gift: 3, feeBps: 0, secret: secret })
+assert.strictEqual(plan.to, Invite.REGISTRY)
+assert.strictEqual(plan.valueWei, ethers.parseEther('3').toString())
+assert.strictEqual(plan.feeWei, '0')
+assert.strictEqual(plan.id, new ethers.Wallet('0x' + secret).address)
+assert.strictEqual(plan.data, iface.encodeFunctionData('invite', [plan.id, 0]))
+assert.ok(plan.link.indexOf('scdowallet://invite?s=' + secret) === 0)
+assert.ok(plan.link.includes('c=' + Invite.REGISTRY))
+assert.ok(plan.link.includes('n=5680'))
+const cancel = Invite.planCancel(plan.id)
+assert.strictEqual(cancel.data, Invite.encodeCancel(plan.id))
+assert.strictEqual(cancel.valueWei, '0')
+
+const creating = Opt.createView()
+assert.strictEqual(creating.phase, 'creating')
+assert.strictEqual(creating.spinner, false)
+assert.strictEqual(creating.blocking, false)
+const cancelling = Opt.cancelView()
+assert.strictEqual(cancelling.phase, 'cancelling')
+assert.strictEqual(cancelling.spinner, false)
+const painted = Opt.actionFromResult(creating, { ok: true, hash: '0x' + '1'.repeat(64), id: plan.id, link: plan.link })
+assert.strictEqual(painted.phase, 'confirming')
+assert.strictEqual(painted.link, plan.link)
+assert.strictEqual(painted.spinner, false)
+const missed = Opt.actionFromResult(creating, { ok: false, error: 'NO_PASSWORD' })
+assert.strictEqual(missed.phase, 'retry')
+assert.strictEqual(missed.text, '')
+assert.strictEqual(missed.gentle, true)
+
+const root = path.join(__dirname, '..')
+const app = fs.readFileSync(path.join(root, 'src/js/app112.js'), 'utf8')
+const createFn = app.slice(app.indexOf('async function submitInviteCreate'), app.indexOf('async function submitInviteCancel'))
+assert.ok(createFn.indexOf('render()') < createFn.indexOf("invoke('invite:create'"))
+const cancelFn = app.slice(app.indexOf('async function submitInviteCancel'), app.indexOf('async function submitInviteClaim'))
+assert.ok(cancelFn.indexOf('render()') < cancelFn.indexOf("invoke('invite:cancel'"))
+const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
+assert.ok(main.includes("handle('invite:create'"))
+assert.ok(main.includes("handle('invite:cancel'"))
+assert.ok(main.includes('planCreate'))
+assert.ok(main.includes('planCancel'))
+assert.ok(main.includes("handle('invite:claim'"))
+const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8')
+assert.ok(preload.includes("'invite:create'") && preload.includes("'invite:cancel'") && preload.includes("'invite:claim'"))
+console.log('invite-registry: ok')
