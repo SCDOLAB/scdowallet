@@ -14,27 +14,54 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/reconcile"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/update"
 )
 
-func cmdUpgrade(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
+func cmdUpgrade(b i18n.Bundle, root string, dataExplicit bool, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("upgrade-now", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dry := fs.Bool("dry-run", false, "")
+	userMode := fs.Bool("user", false, "")
 	passFile := fs.String("passphrase-file", "", "")
-	configDir := fs.String("config-dir", "/etc/scdo-agent", "")
-	binary := fs.String("binary", "/usr/bin/scdo-agent", "")
+	configDir := fs.String("config-dir", "", "")
+	binary := fs.String("binary", "", "")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2
 	}
-	if !*dry && os.Geteuid() != 0 {
-		fmt.Fprintln(stderr, b.T("needRoot"))
-		return 1
+	mode := installmode.Resolve(installmode.Input{
+		DataRoot:     root,
+		Binary:       *binary,
+		ForceUser:    *userMode,
+		DataExplicit: dataExplicit,
+	})
+	if mode == installmode.ModeUser {
+		if !dataExplicit && (root == "" || root == agent.DefaultRoot) {
+			root = installmode.UserData()
+		}
+		if *binary == "" {
+			*binary = installmode.UserBin()
+		}
+		if *configDir == "" {
+			*configDir = installmode.UserConfig()
+		}
+	} else {
+		if *binary == "" {
+			*binary = installmode.SystemBin
+		}
+		if *configDir == "" {
+			*configDir = installmode.SystemConfig
+		}
+		if !*dry && os.Geteuid() != 0 {
+			fmt.Fprintln(stderr, b.T("needRoot"))
+			return 1
+		}
 	}
 	pass, err := passphrase(*passFile)
 	if err != nil {
@@ -67,7 +94,7 @@ func cmdUpgrade(b i18n.Bundle, root string, args []string, stdout, stderr io.Wri
 		_ = lock.Close()
 	}()
 
-	sys := update.Systemctl{DataRoot: root}
+	sys := update.Systemctl{DataRoot: root, User: mode == installmode.ModeUser}
 	opt := reconcile.Options{
 		DataRoot:   root,
 		ConfigDir:  *configDir,
@@ -129,7 +156,7 @@ func dryRun(ctx context.Context, b i18n.Bundle, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, b.T("upgradeUnreachable"))
 		return 0
 	}
-	manifest, err := update.Verify(raw, update.PubKeyB64)
+	manifest, err := update.VerifyArch(raw, update.PubKeyB64, runtime.GOARCH)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1

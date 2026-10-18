@@ -77,6 +77,11 @@ Commands:
   version   Print the version
   help      Show this help
 
+version:
+  scdo-agent version
+  scdo-agent --version
+  scdo-agent -v
+
 Language:
   English by default. For 華語, pass --lang zh or use a LANG=zh* locale.
 
@@ -102,12 +107,23 @@ logs:
   scdo-agent logs --name NAME
 
 upgrade-now:
-  sudo scdo-agent upgrade-now [--dry-run] [--passphrase-file PATH]
+  sudo scdo-agent upgrade-now [--dry-run] [--user] [--passphrase-file PATH]
       [--config-dir DIR] [--binary PATH]
 
-  Root is required except for --dry-run, which only checks the signed feed.
+  A system install needs root, except for --dry-run, which only checks the signed feed.
+  install.sh --user updates ~/.local/bin/scdo-agent without root and restarts
+  systemctl --user units. The feed selects files.<cpu> (url, sha256, size)
+  and falls back to the top-level file. The signature stays Ed25519 over the
+  canonical JSON with the signature removed.
   A failed health check restores the previous binary. Key files are copied
   into the backup and are not deleted.
+
+User install (no root):
+  sh install.sh --user
+  Binary ~/.local/bin/scdo-agent. Data ~/.local/share/scdo-agent.
+  systemctl --user enable --now scdo-agent@NAME.service
+  loginctl enable-linger $USER keeps the user services running after logout.
+  A name already enabled as a system unit is not started a second time.
 
 wallet:
   scdo-agent wallet create --bot ID [--name NAME] [--email ADDR]
@@ -207,7 +223,10 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"erc8004Tx":          "Transaction: %s",
 	"erc8004Ready":       "ERC-8004 identity %s is registered.",
 	"erc8004Already":     "ERC-8004 identity %s is already registered.",
-	"needRoot":           "upgrade-now needs root. Use --dry-run to check the feed without replacing the binary.",
+	"needRoot":           "upgrade-now needs root for a system install. Use --user after install.sh --user, or --dry-run to check the feed without replacing the binary.",
+	"otherMode":          "Agent %s is already active in the other install mode. It was not started.",
+	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",
+	"logsHintUser":       "Service log: journalctl --user -u scdo-agent@%s.service -f",
 	"upgradeBusy":        "An upgrade is already running.",
 	"upgradeUnreachable": "The release feed could not be reached. The installed binary was left in place.",
 	"upgradeCurrent":     "Installed %s is current.",
@@ -239,6 +258,11 @@ var zh = map[string]string{
   version   顯示版本
   help      顯示這份說明
 
+version：
+  scdo-agent version
+  scdo-agent --version
+  scdo-agent -v
+
 語言：
   預設為英文。華語：--lang zh，或 LANG=zh* 語系。
 
@@ -262,11 +286,21 @@ logs：
   scdo-agent logs --name 名稱
 
 upgrade-now：
-  sudo scdo-agent upgrade-now [--dry-run] [--passphrase-file 路徑]
+  sudo scdo-agent upgrade-now [--dry-run] [--user] [--passphrase-file 路徑]
       [--config-dir 目錄] [--binary 路徑]
 
-  除了 --dry-run 之外需要 root。--dry-run 只檢查簽章後的發布檔。
+  系統安裝除了 --dry-run 之外需要 root。--dry-run 只檢查簽章後的發布檔。
+  install.sh --user 不需要 root 就能替換 ~/.local/bin/scdo-agent，並重啟
+  systemctl --user 的單元。發布檔會讀取 files.<處理器> 的 url、sha256、size，
+  沒有時改用最外層欄位。簽章仍是 Ed25519，對象是拿掉 signature 之後的規範 JSON。
   健康檢查失敗時會還原先前的執行檔。金鑰會複製進備份，不會被刪除。
+
+使用者安裝（不需要 root）：
+  sh install.sh --user
+  執行檔在 ~/.local/bin/scdo-agent，資料在 ~/.local/share/scdo-agent。
+  systemctl --user enable --now scdo-agent@名稱.service
+  登出後若要繼續執行，請跑 loginctl enable-linger $USER。
+  已經在系統單元裡啟用的名稱不會再啟動第二次。
 
 wallet：
   scdo-agent wallet create --bot 編號 [--name 名稱] [--email 信箱]
@@ -364,7 +398,10 @@ erc8004：
 	"erc8004Tx":          "交易：%s",
 	"erc8004Ready":       "ERC-8004 身份 %s 已登記。",
 	"erc8004Already":     "ERC-8004 身份 %s 已經登記。",
-	"needRoot":           "upgrade-now 需要 root。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
+	"needRoot":           "系統安裝的 upgrade-now 需要 root。若已用 install.sh --user，請加 --user。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
+	"otherMode":          "代理 %s 已在另一種安裝模式中啟用，因此沒有啟動。",
+	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",
+	"logsHintUser":       "服務紀錄：journalctl --user -u scdo-agent@%s.service -f",
 	"upgradeBusy":        "已有一個更新正在執行。",
 	"upgradeUnreachable": "無法連上發布檔。已安裝的執行檔保持不變。",
 	"upgradeCurrent":     "已安裝的 %s 已是最新。",

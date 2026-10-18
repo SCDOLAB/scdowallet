@@ -16,6 +16,10 @@ func TestPackagingCopy(t *testing.T) {
 		"packaging/scdo-agent-update.timer",
 		"packaging/scdo-agent-boot.service",
 		"packaging/postinstall.sh",
+		"packaging/user/scdo-agent@.service",
+		"packaging/user/scdo-agent-update.service",
+		"packaging/user/scdo-agent-update.timer",
+		"packaging/user/scdo-agent-boot.service",
 		"README.md",
 		"scripts/package.sh",
 		"scripts/rig-hook.sh",
@@ -48,12 +52,41 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ver), `Version = "0.5.0"`) {
+	if !strings.Contains(string(ver), `Version = "0.5.1"`) {
 		t.Fatal("version")
 	}
 	inst, _ := os.ReadFile("packaging/install.sh")
-	if !strings.Contains(string(inst), `VERSION="0.5.0"`) {
+	if !strings.Contains(string(inst), `VERSION="0.5.1"`) {
 		t.Fatal("install.sh version")
+	}
+	for _, needle := range []string{
+		"--user",
+		".local/bin",
+		".local/share/scdo-agent",
+		"systemd-user",
+		"systemctl --user",
+		"loginctl enable-linger",
+		"install-scope",
+	} {
+		if !strings.Contains(string(inst), needle) {
+			t.Fatal("install.sh missing " + needle)
+		}
+	}
+	userUnit, err := os.ReadFile("packaging/user/scdo-agent@.service")
+	if err != nil || !strings.Contains(string(userUnit), `%h/.local/bin/scdo-agent --data-dir %h/.local/share/scdo-agent run --name %i`) {
+		t.Fatal("user unit")
+	}
+	if strings.Contains(string(userUnit), "User=scdo-agent") || strings.Contains(string(userUnit), "ProtectHome=") {
+		t.Fatal("user unit must not set User= or ProtectHome=")
+	}
+	pkg, err := os.ReadFile("scripts/package.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{"-trimpath", "-buildid=", "SOURCE_DATE_EPOCH", "gzip -n", "--mtime", "systemd-user"} {
+		if !strings.Contains(string(pkg), needle) {
+			t.Fatal("package.sh missing " + needle)
+		}
 	}
 	for _, needle := range []string{
 		"scdo-agent-update.timer",

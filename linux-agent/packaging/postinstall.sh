@@ -7,6 +7,8 @@ fi
 mkdir -p /var/lib/scdo-agent
 chown scdo-agent:scdo-agent /var/lib/scdo-agent
 chmod 0755 /var/lib/scdo-agent
+printf 'system\n' > /var/lib/scdo-agent/install-scope
+chown scdo-agent:scdo-agent /var/lib/scdo-agent/install-scope
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
   systemctl enable --now scdo-agent-update.timer || true

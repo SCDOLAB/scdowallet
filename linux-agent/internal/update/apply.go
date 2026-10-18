@@ -79,7 +79,7 @@ func Apply(ctx context.Context, cfg Config, deps Deps) (Outcome, error) {
 		deps.Log("feed unreachable")
 		return OutcomeNone, nil
 	}
-	manifest, err := Verify(raw, cfg.PubKey)
+	manifest, err := VerifyArch(raw, cfg.PubKey, cfg.Arch)
 	if err != nil {
 		return OutcomeNone, err
 	}

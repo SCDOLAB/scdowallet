@@ -19,6 +19,7 @@ import (
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/erc8004"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
 )
@@ -29,6 +30,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	global.SetOutput(io.Discard)
 	langFlag := global.String("lang", "", "en or zh")
 	dataFlag := global.String("data-dir", "", "agent data root")
+	showVersion := global.Bool("version", false, "print version")
+	showV := global.Bool("v", false, "print version")
 	global.Usage = func() {}
 	if err := global.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -39,6 +42,9 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	b := i18n.New(i18n.Detect(*langFlag, os.Getenv("LC_ALL"), os.Getenv("LANG")))
+	if *showVersion || *showV {
+		return printVersion(b, stdout)
+	}
 	rest := global.Args()
 	if len(rest) == 0 {
 		fmt.Fprint(stdout, b.T("help"))
@@ -50,9 +56,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, b.T("help"))
 		return 0
 	case "version", "-v", "--version":
-		fmt.Fprintf(stdout, b.T("version")+"\n", buildinfo.Version)
-		fmt.Fprintln(stdout, b.T("about"))
-		return 0
+		return printVersion(b, stdout)
 	case "init":
 		return cmdInit(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "run":
@@ -62,9 +66,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	case "list":
 		return cmdList(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "logs":
-		return cmdLogs(b, rest, stdout, stderr)
+		return cmdLogs(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "upgrade-now":
-		return cmdUpgrade(b, dataDir(*dataFlag), rest, stdout, stderr)
+		explicit := strings.TrimSpace(*dataFlag) != "" || strings.TrimSpace(os.Getenv("SCDO_AGENT_DATA")) != ""
+		return cmdUpgrade(b, dataDir(*dataFlag), explicit, rest, stdout, stderr)
 	case "wallet":
 		return cmdWallet(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "pay":
@@ -79,12 +84,22 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func printVersion(b i18n.Bundle, stdout io.Writer) int {
+	fmt.Fprintf(stdout, b.T("version")+"\n", buildinfo.Version)
+	fmt.Fprintln(stdout, b.T("about"))
+	return 0
+}
+
 func dataDir(flag string) string {
 	if strings.TrimSpace(flag) != "" {
 		return flag
 	}
 	if v := strings.TrimSpace(os.Getenv("SCDO_AGENT_DATA")); v != "" {
 		return v
+	}
+	// A rootless install is the default for a user who already ran install.sh --user.
+	if installmode.Resolve(installmode.Input{}) == installmode.ModeUser {
+		return installmode.UserData()
 	}
 	return agent.DefaultRoot
 }
@@ -137,7 +152,11 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 	fmt.Fprintf(stdout, b.T("role")+"\n", roleLabel(b, lay.Meta.Role))
 	fmt.Fprintf(stdout, b.T("data")+"\n", lay.Dir)
 	fmt.Fprintln(stdout, b.T("next"))
-	fmt.Fprintf(stdout, b.T("nextEnable")+"\n", lay.Name)
+	if installmode.Resolve(installmode.Input{DataRoot: root, DataExplicit: true}) == installmode.ModeUser {
+		fmt.Fprintf(stdout, b.T("nextEnableUser")+"\n", lay.Name)
+	} else {
+		fmt.Fprintf(stdout, b.T("nextEnable")+"\n", lay.Name)
+	}
 	fmt.Fprintf(stdout, b.T("nextStatus")+"\n", lay.Name)
 	return 0
 }
@@ -204,7 +223,11 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 		}
 	}
 	if err := svc.Run(ctx); err != nil {
-		if errors.Is(err, agent.ErrRunning) {
+		if errors.Is(err, installmode.ErrConflict) {
+			fmt.Fprintf(stderr, b.T("otherMode")+"\n", *name)
+			return 1
+		}
+		if errors.Is(err, agent.ErrRunning) || errors.Is(err, installmode.ErrHeld) {
 			fmt.Fprintf(stderr, b.T("running")+"\n", *name)
 			return 1
 		}
@@ -284,7 +307,7 @@ func cmdList(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 	return 0
 }
 
-func cmdLogs(b i18n.Bundle, args []string, stdout, stderr io.Writer) int {
+func cmdLogs(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("logs", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "")
@@ -296,7 +319,11 @@ func cmdLogs(b i18n.Bundle, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
-	fmt.Fprintf(stdout, b.T("logsHint")+"\n", *name)
+	hint := "logsHint"
+	if installmode.Resolve(installmode.Input{DataRoot: root, DataExplicit: true}) == installmode.ModeUser {
+		hint = "logsHintUser"
+	}
+	fmt.Fprintf(stdout, b.T(hint)+"\n", *name)
 	fmt.Fprintln(stdout, b.T("logsOut"))
 	return 0
 }

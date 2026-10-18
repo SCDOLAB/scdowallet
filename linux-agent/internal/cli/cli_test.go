@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -150,8 +151,52 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.5.0") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.5.1") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
+	}
+	for _, args := range [][]string{{"--version"}, {"-v"}, {"--lang", "zh", "--version"}} {
+		out.Reset()
+		errb.Reset()
+		if code := Main(args, &out, &errb); code != 0 {
+			t.Fatalf("%v code %d %s", args, code, errb.String())
+		}
+		if !strings.Contains(out.String(), "0.5.1") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
+			t.Fatalf("%v %s", args, out.String())
+		}
+	}
+	out.Reset()
+	errb.Reset()
+	if code := Main([]string{"--not-a-flag"}, &out, &errb); code != 2 || !strings.Contains(errb.String(), "help") {
+		t.Fatalf("unknown flag code %d %q", code, errb.String())
+	}
+}
+
+func TestUserInstallDefaultsDataDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SCDO_AGENT_MODE", "")
+	t.Setenv("SCDO_AGENT_DATA", "")
+	t.Setenv("SCDO_AGENT_PASSPHRASE_FILE", "")
+	data := filepath.Join(home, ".local", "share", "scdo-agent")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "install-scope"), []byte("user\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := Main([]string{"init", "--name", "rack", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	if _, err := os.Stat(filepath.Join(data, "rack", "meta.json")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "systemctl --user") {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	if code := Main([]string{"logs", "--name", "rack"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "journalctl --user") {
+		t.Fatalf("%d %s", code, out.String())
 	}
 }
 
@@ -160,6 +205,8 @@ func TestUpgradeNowNeedsRoot(t *testing.T) {
 		t.Skip("running as root")
 	}
 	var out, errb bytes.Buffer
+	t.Setenv("SCDO_AGENT_MODE", "")
+	t.Setenv("HOME", t.TempDir())
 	code := Main([]string{"upgrade-now"}, &out, &errb)
 	if code != 1 || !strings.Contains(errb.String(), "root") {
 		t.Fatalf("code %d out %q err %q", code, out.String(), errb.String())

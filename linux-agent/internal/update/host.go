@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 )
 
 // FetchVerified reads the first feed URL whose signature and fields check out.
@@ -42,7 +45,7 @@ func FetchVerified(ctx context.Context, urls []string, pub string, client *http.
 			last = fmt.Errorf("feed HTTP %d", resp.StatusCode)
 			continue
 		}
-		if _, err := Verify(body, pub); err != nil {
+		if _, err := VerifyArch(body, pub, runtime.GOARCH); err != nil {
 			last = err
 			continue
 		}
@@ -74,13 +77,21 @@ func DownloadGET(ctx context.Context, m Manifest, client *http.Client) ([]byte, 
 	return io.ReadAll(io.LimitReader(resp.Body, m.Size+1))
 }
 
-// Systemctl is the production host.
+// Systemctl is the production host. User selects the systemd --user bus.
 type Systemctl struct {
 	DataRoot string
+	User     bool
+}
+
+func (s Systemctl) args(extra ...string) []string {
+	if s.User {
+		return append([]string{"--user"}, extra...)
+	}
+	return extra
 }
 
 func (s Systemctl) ListUnits() ([]string, error) {
-	out, err := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-legend", "scdo-agent@*").CombinedOutput()
+	out, err := exec.Command("systemctl", s.args("list-units", "--type=service", "--all", "--no-legend", "scdo-agent@*")...).CombinedOutput()
 	if err != nil {
 		if len(out) == 0 {
 			return nil, err
@@ -105,11 +116,11 @@ func (s Systemctl) ListUnits() ([]string, error) {
 }
 
 func (s Systemctl) Restart(name string) error {
-	return exec.Command("systemctl", "restart", "scdo-agent@"+name+".service").Run()
+	return exec.Command("systemctl", s.args("restart", "scdo-agent@"+name+".service")...).Run()
 }
 
 func (s Systemctl) Active(name string) bool {
-	return exec.Command("systemctl", "is-active", "--quiet", "scdo-agent@"+name+".service").Run() == nil
+	return exec.Command("systemctl", s.args("is-active", "--quiet", "scdo-agent@"+name+".service")...).Run() == nil
 }
 
 func (s Systemctl) Heartbeat(name string) (time.Time, bool) {
@@ -124,19 +135,35 @@ func (s Systemctl) Heartbeat(name string) (time.Time, bool) {
 	return time.UnixMilli(ms), true
 }
 
-// EnableNow starts one agent instance.
+// EnableNow starts one agent instance on the system bus.
 func EnableNow(name string) error {
-	return exec.Command("systemctl", "enable", "--now", "scdo-agent@"+name+".service").Run()
+	return Systemctl{}.EnableNow(name)
 }
 
 // StopDisable stops an instance and does not remove its directory.
 func StopDisable(name string) error {
-	_ = exec.Command("systemctl", "disable", "scdo-agent@"+name+".service").Run()
-	return exec.Command("systemctl", "stop", "scdo-agent@"+name+".service").Run()
+	return Systemctl{}.Stop(name)
 }
 
-// EnableNow implements reconcile.System.
-func (s Systemctl) EnableNow(name string) error { return EnableNow(name) }
+// EnableNow implements reconcile.System. A name claimed by the other
+// install mode is not started.
+func (s Systemctl) EnableNow(name string) error {
+	mode := installmode.ModeSystem
+	if s.User {
+		mode = installmode.ModeUser
+	}
+	claimed, err := installmode.PeerClaimed(mode, name)
+	if err != nil {
+		return err
+	}
+	if claimed {
+		return installmode.ErrConflict
+	}
+	return exec.Command("systemctl", s.args("enable", "--now", "scdo-agent@"+name+".service")...).Run()
+}
 
 // Stop implements reconcile.System. The directory and keys are left in place.
-func (s Systemctl) Stop(name string) error { return StopDisable(name) }
+func (s Systemctl) Stop(name string) error {
+	_ = exec.Command("systemctl", s.args("disable", "scdo-agent@"+name+".service")...).Run()
+	return exec.Command("systemctl", s.args("stop", "scdo-agent@"+name+".service")...).Run()
+}

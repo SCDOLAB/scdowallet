@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/update"
 )
@@ -110,6 +111,12 @@ func (s *Service) log(msg string) {
 
 // Run holds the process lock, registers, heartbeats, and repeats until ctx ends.
 func (s *Service) Run(ctx context.Context) error {
+	mode := installmode.Resolve(installmode.Input{DataRoot: s.Layout.Root, DataExplicit: true})
+	release, err := installmode.Acquire(s.Layout.Name, mode)
+	if err != nil {
+		return err
+	}
+	defer release()
 	unlock, err := s.Layout.LockRun()
 	if err != nil {
 		return err

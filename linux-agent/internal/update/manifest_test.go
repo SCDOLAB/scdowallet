@@ -1,9 +1,12 @@
 package update
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +76,100 @@ func TestManifestRejectsOtherHosts(t *testing.T) {
 	}
 	if err := urlAllowed("https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.2.0_linux_amd64.tar.gz"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFilesArchFallsBackAndRejectsTamper(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	amd := strings.Repeat("cd", 32)
+	arm := strings.Repeat("ef", 32)
+	flat := strings.Repeat("ab", 32)
+	obj := map[string]any{
+		"arch":    "amd64",
+		"sha256":  flat,
+		"size":    10,
+		"url":     "https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.5.0_linux_amd64.tar.gz",
+		"version": "0.5.0",
+		"files": map[string]any{
+			"amd64": map[string]any{
+				"sha256": amd,
+				"size":   11,
+				"url":    "https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.5.0_linux_amd64.tar.gz",
+				"deb": map[string]any{
+					"sha256": strings.Repeat("11", 32),
+					"size":   3,
+					"url":    "https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.5.0_linux_amd64.deb",
+				},
+			},
+			"arm64": map[string]any{
+				"sha256": arm,
+				"size":   12,
+				"url":    "https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.5.0_linux_arm64.tar.gz",
+			},
+		},
+	}
+	msg, err := CanonicalManifest(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(msg, `"files"`) || strings.Contains(msg, `"signature"`) {
+		t.Fatal(msg)
+	}
+	obj["signature"] = base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(msg)))
+	blob, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubB64 := base64.StdEncoding.EncodeToString(pub)
+	armManifest, err := VerifyArch(blob, pubB64, "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if armManifest.Arch != "arm64" || armManifest.SHA256 != arm || armManifest.Size != 12 {
+		t.Fatalf("%+v", armManifest)
+	}
+	if !strings.HasSuffix(armManifest.URL, "linux_arm64.tar.gz") {
+		t.Fatal(armManifest.URL)
+	}
+	amdManifest, err := VerifyArch(blob, pubB64, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if amdManifest.Arch != "amd64" || amdManifest.SHA256 != amd || amdManifest.Size != 11 {
+		t.Fatalf("files.amd64 not selected: %+v", amdManifest)
+	}
+	flatManifest, err := Verify(blob, pubB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flatManifest.SHA256 != flat || flatManifest.Arch != "amd64" || flatManifest.Size != 10 {
+		t.Fatalf("flat fallback %+v", flatManifest)
+	}
+	delete(obj["files"].(map[string]any), "arm64")
+	msg2, err := CanonicalManifest(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj["signature"] = base64.StdEncoding.EncodeToString(ed25519.Sign(priv, []byte(msg2)))
+	blob2, _ := json.Marshal(obj)
+	fell, err := VerifyArch(blob2, pubB64, "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fell.Arch != "amd64" || fell.SHA256 != flat {
+		t.Fatalf("missing files.arm64 should use flat fields: %+v", fell)
+	}
+	obj["files"].(map[string]any)["arm64"] = map[string]any{
+		"sha256": arm,
+		"size":   12,
+		"url":    "https://scdo.com.au/downloads/wallet/linux/tampered.tar.gz",
+	}
+	bad, _ := json.Marshal(obj)
+	if _, err := VerifyArch(bad, pubB64, "arm64"); err == nil {
+		t.Fatal("tampered files.arm64 was accepted")
 	}
 }
 

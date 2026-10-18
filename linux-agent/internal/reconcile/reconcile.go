@@ -102,7 +102,9 @@ func accounts(opt Options) error {
 		}
 		opt.Log("created agent " + row.Agent)
 		if opt.System != nil {
-			_ = opt.System.EnableNow(row.Agent)
+			if err := opt.System.EnableNow(row.Agent); err != nil {
+				opt.Log("enable " + row.Agent + ": " + err.Error())
+			}
 		}
 	}
 	return nil
@@ -149,7 +151,9 @@ func adapters(ctx context.Context, opt Options) error {
 			}
 			opt.Log("created " + name)
 			if opt.System != nil {
-				_ = opt.System.EnableNow(name)
+				if err := opt.System.EnableNow(name); err != nil {
+					opt.Log("enable " + name + ": " + err.Error())
+				}
 			}
 		}
 		lay.Meta.GPUIndex = &c.Index

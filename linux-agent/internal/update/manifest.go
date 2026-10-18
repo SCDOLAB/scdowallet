@@ -79,9 +79,19 @@ func cloneVal(v any) any {
 	}
 }
 
-// Verify checks the Ed25519 signature first, then the fields.
-// pubB64 empty uses the production key.
+var shaRe = regexp.MustCompile(`(?i)^[0-9a-f]{64}$`)
+
+// Verify checks the Ed25519 signature first, then the flat fields.
+// pubB64 empty uses the production key. The signature covers every key
+// except signature, including a files map when one is present.
 func Verify(raw []byte, pubB64 string) (Manifest, error) {
+	return VerifyArch(raw, pubB64, "")
+}
+
+// VerifyArch checks the same signature, then selects files[arch] when that
+// object has url, sha256, and size. A missing entry falls back to the flat
+// fields. arch empty always uses the flat fields.
+func VerifyArch(raw []byte, pubB64, arch string) (Manifest, error) {
 	if strings.TrimSpace(pubB64) == "" {
 		pubB64 = PubKeyB64
 	}
@@ -105,34 +115,13 @@ func Verify(raw []byte, pubB64 string) (Manifest, error) {
 	if err != nil || !ed25519.Verify(ed25519.PublicKey(pub), []byte(msg), sigBytes) {
 		return Manifest{}, fmt.Errorf("signature mismatch")
 	}
-	return validate(obj)
+	return validate(obj, arch)
 }
 
-func validate(obj map[string]any) (Manifest, error) {
+func validate(obj map[string]any, wantArch string) (Manifest, error) {
 	version, _ := obj["version"].(string)
-	rawURL, _ := obj["url"].(string)
-	sum, _ := obj["sha256"].(string)
-	arch, _ := obj["arch"].(string)
 	if !verRe.MatchString(version) {
 		return Manifest{}, fmt.Errorf("bad version")
-	}
-	if err := urlAllowed(rawURL); err != nil {
-		return Manifest{}, err
-	}
-	if !strings.HasSuffix(strings.ToLower(pathOf(rawURL)), ".tar.gz") {
-		return Manifest{}, fmt.Errorf("package url is not a .tar.gz")
-	}
-	if !regexp.MustCompile(`(?i)^[0-9a-f]{64}$`).MatchString(sum) {
-		return Manifest{}, fmt.Errorf("bad sha256")
-	}
-	size, err := asInt(obj["size"])
-	if err != nil || size <= 0 || size > maxBytes {
-		return Manifest{}, fmt.Errorf("bad size")
-	}
-	switch arch {
-	case "amd64", "arm64":
-	default:
-		return Manifest{}, fmt.Errorf("bad arch")
 	}
 	if ch, ok := obj["changelog"]; ok && ch != nil {
 		m, ok := ch.(map[string]any)
@@ -145,7 +134,83 @@ func validate(obj map[string]any) (Manifest, error) {
 			}
 		}
 	}
-	return Manifest{Version: version, URL: rawURL, SHA256: strings.ToLower(sum), Size: size, Arch: arch}, nil
+	if wantArch != "" {
+		entry, ok, err := archEntry(obj, wantArch)
+		if err != nil {
+			return Manifest{}, err
+		}
+		if ok {
+			bits, err := fileFields(entry)
+			if err != nil {
+				return Manifest{}, err
+			}
+			return Manifest{Version: version, URL: bits.url, SHA256: bits.sum, Size: bits.size, Arch: wantArch}, nil
+		}
+	}
+	bits, err := fileFields(obj)
+	if err != nil {
+		return Manifest{}, err
+	}
+	arch, _ := obj["arch"].(string)
+	switch arch {
+	case "amd64", "arm64":
+	default:
+		return Manifest{}, fmt.Errorf("bad arch")
+	}
+	return Manifest{Version: version, URL: bits.url, SHA256: bits.sum, Size: bits.size, Arch: arch}, nil
+}
+
+type fileBits struct {
+	url  string
+	sum  string
+	size int64
+}
+
+func fileFields(obj map[string]any) (fileBits, error) {
+	rawURL, _ := obj["url"].(string)
+	sum, _ := obj["sha256"].(string)
+	if err := urlAllowed(rawURL); err != nil {
+		return fileBits{}, err
+	}
+	if !strings.HasSuffix(strings.ToLower(pathOf(rawURL)), ".tar.gz") {
+		return fileBits{}, fmt.Errorf("package url is not a .tar.gz")
+	}
+	if !shaRe.MatchString(sum) {
+		return fileBits{}, fmt.Errorf("bad sha256")
+	}
+	size, err := asInt(obj["size"])
+	if err != nil || size <= 0 || size > maxBytes {
+		return fileBits{}, fmt.Errorf("bad size")
+	}
+	return fileBits{url: rawURL, sum: strings.ToLower(sum), size: size}, nil
+}
+
+// archEntry returns files[arch] when the signed document has that object.
+// A missing files key or a missing arch key is not an error: the caller
+// falls back to the flat fields. A present but unusable value is an error.
+func archEntry(obj map[string]any, arch string) (map[string]any, bool, error) {
+	switch arch {
+	case "amd64", "arm64":
+	default:
+		return nil, false, nil
+	}
+	raw, ok := obj["files"]
+	if !ok || raw == nil {
+		return nil, false, nil
+	}
+	files, ok := raw.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("bad files")
+	}
+	entry, ok := files[arch]
+	if !ok || entry == nil {
+		return nil, false, nil
+	}
+	m, ok := entry.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("bad files")
+	}
+	return m, true, nil
 }
 
 func asInt(v any) (int64, error) {

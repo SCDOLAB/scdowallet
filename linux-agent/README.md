@@ -26,6 +26,17 @@ sudo sh install.sh
 
 The installer prefers the `.deb` when `dpkg` is present, and the tarball otherwise. `sha256sum -c` must succeed before anything is copied into place.
 
+Without root, install for the current user. The binary is `~/.local/bin/scdo-agent`, the data root is `~/.local/share/scdo-agent`, and the units are systemd user units:
+
+```sh
+sh install.sh --user
+scdo-agent --data-dir ~/.local/share/scdo-agent init --name rack-a --payout 0x<your payout address>
+systemctl --user enable --now scdo-agent@rack-a.service
+loginctl enable-linger "$USER"
+```
+
+`loginctl enable-linger` keeps those user units running after logout. `upgrade-now` then replaces `~/.local/bin/scdo-agent` and restarts `scdo-agent@*` on the user bus. It does not need root, and it does not touch a system install. A name that is already enabled as a system unit is not started a second time. `scdo-agent --version` and `scdo-agent -v` print the same line as `scdo-agent version`.
+
 ## One agent
 
 ```sh
@@ -149,21 +160,22 @@ A failed registration does not stop heartbeats. The RPC is `https://scdo.com.au/
 
 ## Update
 
-`upgrade-now` is the stable entry point. It needs root, except for `--dry-run`.
+`upgrade-now` is the stable entry point. A system install needs root, except for `--dry-run`. A user install (`install.sh --user`) updates without root.
 
 ```sh
 sudo scdo-agent upgrade-now
 sudo scdo-agent upgrade-now --dry-run
+scdo-agent upgrade-now
 ```
 
-`--dry-run` checks the signed feed and does not replace the binary.
+`--dry-run` checks the signed feed and does not replace the binary. The last command is the user-install form: it writes `~/.local/bin/scdo-agent` and restarts user units.
 
 The installer enables two units:
 
 - `scdo-agent-update.timer` runs `upgrade-now` once a day, with up to one hour of random delay.
 - `scdo-agent-boot.service` runs `upgrade-now` at boot so adapters are reconciled after a restart.
 
-The feed is `https://scdo.com.au/downloads/wallet/linux/latest.json`, then `https://apeccapital.org/downloads/wallet/linux/latest.json`. The signature is Ed25519 over the same canonical JSON the desktop wallet uses. The package sha256 is checked before the binary is replaced. The previous binary, the config directory, and each keystore are copied to `/var/lib/scdo-agent/backups/<timestamp>/`. Only the newest five of those timestamp directories are kept. Key files are copied into the backup and are not deleted from the agent directory.
+The feed is `https://scdo.com.au/downloads/wallet/linux/latest.json`, then `https://apeccapital.org/downloads/wallet/linux/latest.json`. The signature is Ed25519 over the same canonical JSON the desktop wallet uses: sorted keys, compact JSON, with the `signature` field removed. A `files.<arch>` object supplies `url`, `sha256`, and `size` for that CPU. The updater uses `files.amd64` or `files.arm64` for the host and falls back to the top-level fields when that entry is absent. The package sha256 is checked before the binary is replaced. The previous binary, the config directory, and each keystore are copied to `<data>/backups/<timestamp>/`. A system install uses `/var/lib/scdo-agent`. A user install uses `~/.local/share/scdo-agent`. Only the newest five of those timestamp directories are kept. Key files are copied into the backup and are not deleted from the agent directory.
 
 After the swap, each `scdo-agent@*` instance restarts one at a time. If a restarted instance is not active, or has no successful heartbeat within 3 minutes, the previous binary is restored and the instances restart again. The next heartbeat reports `ok` or `rolled-back`.
 
@@ -220,7 +232,7 @@ go test ./...
 sh scripts/package.sh
 ```
 
-`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. GitHub Actions (`.github/workflows/linux-agent.yml`) runs the tests and uploads those files as the `scdo-agent-linux` artifact. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
+`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build uses `-trimpath`, a fixed `-buildid`, and `SOURCE_DATE_EPOCH`, and the archives pin mtimes, so a second build produces the same SHA-256. GitHub Actions (`.github/workflows/linux-agent.yml`) runs the tests and uploads those files as the `scdo-agent-linux` artifact. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
 
 ## 華語
 
@@ -236,6 +248,17 @@ sh scripts/package.sh
 curl -fsSL -o install.sh https://scdo.com.au/downloads/wallet/linux/install.sh
 sudo sh install.sh
 ```
+
+沒有 root 時，安裝到目前的使用者。執行檔是 `~/.local/bin/scdo-agent`，資料目錄是 `~/.local/share/scdo-agent`，單元是 systemd 的使用者單元：
+
+```sh
+sh install.sh --user
+scdo-agent --data-dir ~/.local/share/scdo-agent init --name rack-a --payout 0x<收款地址>
+systemctl --user enable --now scdo-agent@rack-a.service
+loginctl enable-linger "$USER"
+```
+
+`loginctl enable-linger` 讓這些使用者單元在登出後繼續執行。`upgrade-now` 會替換 `~/.local/bin/scdo-agent`，並在使用者匯流排上重啟 `scdo-agent@*`。它不需要 root，也不會改動系統安裝。已經在系統單元裡啟用的名稱不會再啟動第二次。`scdo-agent --version` 與 `scdo-agent -v` 印出的內容和 `scdo-agent version` 相同。
 
 ### 一個代理
 
@@ -325,21 +348,22 @@ erc8004 = true
 
 ### 更新
 
-`upgrade-now` 是固定的進入點。除了 `--dry-run` 之外需要 root。
+`upgrade-now` 是固定的進入點。系統安裝除了 `--dry-run` 之外需要 root。`install.sh --user` 的安裝不需要 root。
 
 ```sh
 sudo scdo-agent upgrade-now
 sudo scdo-agent upgrade-now --dry-run
+scdo-agent upgrade-now
 ```
 
-`--dry-run` 只檢查簽章後的發布檔，不替換執行檔。
+`--dry-run` 只檢查簽章後的發布檔，不替換執行檔。最後一條是使用者安裝的形式：寫入 `~/.local/bin/scdo-agent`，並重啟使用者單元。
 
 安裝程式會啟用兩個單元：
 
 - `scdo-agent-update.timer` 每天執行一次 `upgrade-now`，並加上最多一小時的隨機延遲。
 - `scdo-agent-boot.service` 在開機時執行 `upgrade-now`，以便重新啟動後核對顯示卡。
 
-發布檔先讀 `https://scdo.com.au/downloads/wallet/linux/latest.json`，失敗時改讀 `https://apeccapital.org/downloads/wallet/linux/latest.json`。簽章是 Ed25519，規範 JSON 與桌面錢包相同。替換執行檔之前會核對套件的 sha256。先前的執行檔、設定目錄與每份金鑰庫會複製到 `/var/lib/scdo-agent/backups/<時間戳>/`。只保留最新的五個時間戳目錄。金鑰會複製進備份，代理目錄裡的金鑰不會被刪除。
+發布檔先讀 `https://scdo.com.au/downloads/wallet/linux/latest.json`，失敗時改讀 `https://apeccapital.org/downloads/wallet/linux/latest.json`。簽章是 Ed25519，規範 JSON 與桌面錢包相同：排序後的緊湊 JSON，並拿掉 `signature`。`files.<架構>` 提供該處理器的 `url`、`sha256` 與 `size`。更新程式依主機使用 `files.amd64` 或 `files.arm64`，沒有該項目時改用最外層欄位。替換執行檔之前會核對套件的 sha256。先前的執行檔、設定目錄與每份金鑰庫會複製到 `<資料目錄>/backups/<時間戳>/`。系統安裝用 `/var/lib/scdo-agent`。使用者安裝用 `~/.local/share/scdo-agent`。只保留最新的五個時間戳目錄。金鑰會複製進備份，代理目錄裡的金鑰不會被刪除。
 
 替換之後，每個 `scdo-agent@*` 實例會逐一重新啟動。若重新啟動的實例沒有處於執行中，或 3 分鐘內沒有成功的心跳，就還原先前的執行檔並再次啟動這些實例。下一次心跳會回報 `ok` 或 `rolled-back`。
 
