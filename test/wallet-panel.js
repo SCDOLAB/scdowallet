@@ -27,7 +27,8 @@ assert.deepStrictEqual(Ui.samePaths('https://apeccapital.org'), {
   invite: 'https://apeccapital.org/wallet/invite/',
   agents: 'https://apeccapital.org/wallet/agents/',
   pool: 'https://apeccapital.org/wallet/pool/',
-  help: 'https://apeccapital.org/wallet/help/'
+  help: 'https://apeccapital.org/wallet/help/',
+  connect: 'https://apeccapital.org/wallet/connect/'
 })
 assert.deepStrictEqual(Ui.UI_URLS, [
   'https://apeccapital.org/wallet/wallet-ui.json',
@@ -50,6 +51,16 @@ assert.strictEqual(Ui.classifyNavigation('http://scdo.com.au/wallet/hub/').actio
 assert.strictEqual(Ui.classifyNavigation('https://scdo.com.au:444/wallet/').action, 'drop')
 assert.strictEqual(Ui.classifyNavigation('javascript:alert(1)').action, 'drop')
 assert.strictEqual(Ui.classifyNavigation('file:///etc/passwd').action, 'drop')
+assert.strictEqual(Ui.classifyNavigation('tg://resolve?domain=scdowallet').action, 'external')
+assert.strictEqual(Ui.classifyNavigation('tg://resolve?domain=scdowallet').href, 'tg://resolve?domain=scdowallet')
+assert.strictEqual(Ui.classifyNavigation('TG://msg?text=hi').href, 'tg://msg?text=hi')
+assert.strictEqual(Ui.classifyNavigation('tg:resolve?domain=x').action, 'drop')
+assert.strictEqual(Ui.classifyNavigation('tg://user:pass@resolve').action, 'drop')
+assert.strictEqual(Ui.classifyNavigation('tg://').action, 'drop')
+assert.strictEqual(Ui.classifyNavigation('ton://transfer/EQ').action, 'drop')
+assert.strictEqual(Ui.withPanelLang(Ui.defaults().links.connect, 'EN'), 'https://scdo.com.au/wallet/connect/?lang=en')
+assert.strictEqual(Ui.withPanelLang(Ui.samePaths('https://apeccapital.org').connect, 'zh-Hant'), 'https://apeccapital.org/wallet/connect/?lang=zh')
+assert.ok(!Ui.defaults().cards.some(c => c.id === 'connect'))
 
 const ban = /挖礦|算力|mining|GPU|CPU|主鏈|RPC|cuda/i
 for (const c of Ui.defaults().cards) {
@@ -160,6 +171,15 @@ async function main () {
   const mirrored = Ui.acceptSigned(mirror, { publicKey: pubB64 })
   assert.strictEqual(mirrored.links.hub, 'https://apeccapital.org/wallet/hub/')
   assert.strictEqual(mirrored.links.help, 'https://apeccapital.org/wallet/help/')
+  assert.strictEqual(mirrored.links.connect, 'https://apeccapital.org/wallet/connect/')
+  const bare = sign({ v: 1, links: { hub: HUB }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] })
+  const bareDoc = Ui.acceptSigned(bare, { publicKey: pubB64 })
+  assert.strictEqual(bareDoc.links.connect, 'https://scdo.com.au/wallet/connect/')
+  const custom = sign({ v: 1, links: { hub: HUB, connect: 'https://apeccapital.org/wallet/connect/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] })
+  const customDoc = Ui.acceptSigned(custom, { publicKey: pubB64 })
+  assert.strictEqual(customDoc.links.connect, 'https://apeccapital.org/wallet/connect/')
+  const offHost = sign({ v: 1, links: { hub: HUB, connect: 'https://evil.example/wallet/connect/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] })
+  assert.strictEqual(Ui.acceptSigned(offHost, { publicKey: pubB64 }), null)
 
   let fetched = 0
   const quiet = await Ui.refresh({ publicKey: pubB64, fetchImpl () { fetched++; return '' } })
@@ -223,6 +243,73 @@ async function main () {
   assert.ok(index.includes('src/js/walletUi.js'))
   assert.ok(read('src/js/i18n112.js').includes("panelSection: 'Wallet hub'"))
   assert.ok(read('src/js/i18n112.js').includes("panelSection: '錢包總覽'"))
+  assert.ok(read('src/js/i18n112.js').includes("navConnect: 'Connected wallets & agents'"))
+  assert.ok(read('src/js/i18n112.js').includes("navConnect: '連接錢包與 Agent'"))
+  assert.ok(app.includes("['connect', 'navConnect']") && app.includes("openPanel('connect')") && app.includes("T('navConnect')"))
+  const native = ['src/js/app112.js', 'src/js/i18n112.js', 'src/js/walletUi.js', 'src/js/menu.js', 'src/js/siteNavMap.js', 'src/main/walletPanel.js', 'index.html'].map(read).join('\n')
+  for (const name of ['Telegram Wallet', 'X Money', 'Grok']) assert.ok(!native.includes(name), name)
+
+  const opened = []
+  const handlers = {}
+  const contents = {
+    on (name, fn) { (handlers[name] = handlers[name] || []).push(fn) },
+    setWindowOpenHandler (fn) { contents.open = fn },
+    executeJavaScript () { return Promise.resolve(true) },
+    loadURL (url) { contents.loaded = url },
+    isDestroyed () { return false },
+    session: { setPermissionRequestHandler () {} }
+  }
+  function View () {
+    return { webContents: contents, setVisible () {}, setBounds () {} }
+  }
+  const panelWin = {
+    isDestroyed () { return false },
+    getContentSize () { return [1280, 900] },
+    contentView: { addChildView () {}, removeChildView () {} },
+    setBrowserView () {}
+  }
+  let panelLang = 'EN'
+  Module._load = function (req, parent, ...rest) {
+    if (req === 'electron') return { shell: { openExternal (u) { opened.push(u) } }, WebContentsView: View, BrowserView: View }
+    return realLoad.call(this, req, parent, ...rest)
+  }
+  const panel = Panel.create({
+    shell: { openExternal (u) { opened.push(u) } },
+    getWindow () { return panelWin },
+    getLang () { return panelLang }
+  })
+  Module._load = realLoad
+  Ui.setCurrent(Ui.defaults())
+  const shown = panel.show({ id: 'connect', x: 12, y: 24, width: 640, height: 480 })
+  assert.strictEqual(shown.ok, true)
+  assert.strictEqual(shown.url, 'https://scdo.com.au/wallet/connect/?lang=en')
+  assert.strictEqual(contents.loaded, shown.url)
+  panelLang = 'CN'
+  const fallback = Ui.defaults()
+  fallback.links = Object.assign({}, fallback.links, { connect: 'https://apeccapital.org/wallet/connect/' })
+  Ui.setCurrent(fallback)
+  const mirroredShow = panel.show({ id: 'connect', x: 12, y: 24, width: 640, height: 480 })
+  assert.strictEqual(mirroredShow.url, 'https://apeccapital.org/wallet/connect/?lang=zh')
+  function navigate (url) {
+    const ev = { preventDefault () { ev.stopped = true } }
+    handlers['will-navigate'][0](ev, url)
+    return ev
+  }
+  navigate('https://example.com/out')
+  navigate('tg://resolve?domain=scdowallet')
+  assert.deepStrictEqual(opened, ['https://example.com/out', 'tg://resolve?domain=scdowallet'])
+  const before = opened.length
+  navigate('javascript:alert(1)')
+  navigate('file:///etc/passwd')
+  navigate('http://example.com/x')
+  navigate('ton://transfer/EQ')
+  navigate('tg:resolve?domain=x')
+  navigate('https://scdo.com.au/wallet/connect/')
+  assert.strictEqual(opened.length, before)
+  assert.strictEqual(contents.open({ url: 'tg://msg?text=hi' }).action, 'deny')
+  assert.ok(opened.includes('tg://msg?text=hi'))
+  assert.strictEqual(contents.open({ url: 'ton://transfer/EQ' }).action, 'deny')
+  assert.ok(!opened.includes('ton://transfer/EQ'))
   console.log('wallet-panel: ok')
 }
 

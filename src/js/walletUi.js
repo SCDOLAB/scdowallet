@@ -13,7 +13,8 @@
     invite: '/wallet/invite/',
     agents: '/wallet/agents/',
     pool: '/wallet/pool/',
-    help: '/wallet/help/'
+    help: '/wallet/help/',
+    connect: '/wallet/connect/'
   }
   const UI_URLS = [
     'https://apeccapital.org/wallet/wallet-ui.json',
@@ -80,6 +81,13 @@
     const proto = String(u.protocol || '').toLowerCase()
     if (proto === 'scdowallet:') return { action: 'protocol', href: raw }
     if (proto === 'about:' && u.href === 'about:blank') return { action: 'allow', href: 'about:blank' }
+    if (proto === 'tg:') {
+      const href = u.href
+      if (u.username || u.password || u.port || !u.hostname || !/^tg:\/\//i.test(href) || href.length > 2048) {
+        return { action: 'drop', reason: 'scheme' }
+      }
+      return { action: 'external', href: href }
+    }
     if (proto !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) {
       return { action: 'drop', reason: 'scheme' }
     }

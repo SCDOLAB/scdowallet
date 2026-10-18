@@ -951,8 +951,9 @@
   function pagePanel () {
     const U = window.SCDOWalletUi
     const doc = st.walletUi || (U && U.defaults()) || { cards: [] }
-    const card = (doc.cards || []).find(c => c.id === st.panelId) || { en: 'Wallet hub', cn: '錢包總覽' }
-    const title = lang() === 'EN' ? card.en : card.cn
+    const card = (doc.cards || []).find(c => c.id === st.panelId)
+    const fallback = st.panelId === 'connect' ? T('navConnect') : (lang() === 'EN' ? 'Wallet hub' : '錢包總覽')
+    const title = card ? (lang() === 'EN' ? card.en : card.cn) : fallback
     return `<div class="page shell-panel" id="panelPage"><div class="panel-bar"><button type="button" class="link back-home" data-act="panelClose" id="panelClose">${esc(T('goHome'))}</button><h1 class="shell-h" id="panelTitle">${esc(title)}</h1></div><div id="panelFrame" class="panel-frame"></div></div>`
   }
   function openPanel (id) {
@@ -1567,13 +1568,14 @@
   }
   function renderSideNav () {
     const nav = $('sideNav'); if (!nav) return
-    const cur = st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab)
-    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit']].concat(rigUi() ? [['mine', 'navMine']] : []).concat([['settings', 'navSettings']])
+    const cur = st.tab === 'panel' && st.panelId === 'connect' ? 'connect' : (st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab))
+    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit']].concat(rigUi() ? [['mine', 'navMine']] : []).concat([['connect', 'navConnect'], ['settings', 'navSettings']])
     const ico = {
       home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
       recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
       remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
       mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
+      connect: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M8.2 11.2a3.2 3.2 0 0 1 0-4.5l1.6-1.6a3.2 3.2 0 0 1 4.5 4.5l-.8.8-1.4-1.4.8-.8a1.2 1.2 0 0 0-1.7-1.7l-1.6 1.6a1.2 1.2 0 0 0 0 1.7l.7.7-1.4 1.4zm7.6 1.6a3.2 3.2 0 0 1 0 4.5l-1.6 1.6a3.2 3.2 0 0 1-4.5-4.5l.8-.8 1.4 1.4-.8.8a1.2 1.2 0 0 0 1.7 1.7l1.6-1.6a1.2 1.2 0 0 0 0-1.7l-.7-.7z"/></svg>',
       settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
     }
     const html = items.map(([id, key]) => `<button type="button" class="nav-item${cur === id ? ' on' : ''}" data-act="nav" data-v="${id}">${ico[id]}<span>${esc(T(key))}</span></button>`).join('')
@@ -4251,6 +4253,7 @@
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'nav': {
         if ($('md')) SD.clear($('modalRoot'))
+        if (v === 'connect') { openPanel('connect'); break }
         setTab(v)
         render()
         if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }

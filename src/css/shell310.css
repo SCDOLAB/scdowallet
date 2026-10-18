@@ -11,6 +11,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .side-nav { width: 216px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 12px; background: #fff; border-right: 1px solid #e5e5ea; }
 .nav-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 12px 16px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 800; text-align: left; }
 .nav-item svg { display: block; flex: none; }
+.nav-item span { min-width: 0; line-height: 1.25; }
 .nav-item:hover { background: #E8F5E9; color: #1d7a34; }
 .nav-item.on, .nav-item.on:hover { background: #1d7a34; color: #fff; }
 
