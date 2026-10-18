@@ -862,6 +862,7 @@
     return {
       accounts: st.accounts || [],
       minerReward: reward,
+      intentReward: st.intentReward || '',
       minerWallet: (s0 && s0.wallet) || '',
       nodePayout: node,
       agentPayout: (st.agent && st.agent.payout) || ''
@@ -884,6 +885,7 @@
   async function refreshExternalPayout () {
     const EH = window.SCDOEmptyHome
     if (!EH) return
+    try { const it = await api.invoke('miner:intent'); st.intentReward = it && /^0x[0-9a-fA-F]{40}$/.test(String(it.reward || '')) ? it.reward : '' } catch (e) {}
     const found = EH.externalPayout(payoutInput())
     if (!found) { st.extBal = null; return }
     try {
@@ -1463,6 +1465,7 @@
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
+    h += `<div class="lbl" id="ledgerNodeNote" style="margin-top:8px">${esc(T('ledgerNodeLine'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
