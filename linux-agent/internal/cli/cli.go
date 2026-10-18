@@ -17,6 +17,7 @@ import (
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/erc8004"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
@@ -66,6 +67,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdUpgrade(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "wallet":
 		return cmdWallet(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "erc8004":
+		return cmdERC8004(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2
@@ -140,6 +143,7 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "")
 	ledgerURL := fs.String("ledger", "", "")
+	configDir := fs.String("config-dir", "", "")
 	passFile := fs.String("passphrase-file", "", "")
 	if err := fs.Parse(args); err != nil || strings.TrimSpace(*name) == "" {
 		fmt.Fprintln(stderr, b.T("needName"))
@@ -178,8 +182,22 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 		Version: buildinfo.Version,
 		Client:  &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version},
 		Log: func(msg string) {
-			fmt.Fprintf(stdout, "%s %s\n", time.Now().UTC().Format(time.RFC3339), msg)
+			fmt.Fprintf(stdout, "%s %s\n", time.Now().UTC().Format(time.RFC3339), agent.Scrub(msg))
 		},
+	}
+	if erc8004.Enabled(*configDir) {
+		svc.OnStart = func(ctx context.Context) {
+			res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Dir: lay.Dir})
+			if err != nil {
+				svc.Log("erc8004 " + err.Error())
+				return
+			}
+			if res.Already {
+				svc.Log("erc8004 already " + res.AgentID)
+				return
+			}
+			svc.Log("erc8004 registered " + res.AgentID + " tx " + res.Tx)
+		}
 	}
 	if err := svc.Run(ctx); err != nil {
 		if errors.Is(err, agent.ErrRunning) {

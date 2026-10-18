@@ -46,6 +46,9 @@ type Service struct {
 	Now        func() int64
 	Sleep      func(time.Duration)
 	Log        func(string)
+	// OnStart runs once after the ledger register is accepted. Used for optional
+	// ERC-8004 registration. A failure here must not stop heartbeats.
+	OnStart    func(context.Context)
 	registered bool
 }
 
@@ -136,6 +139,9 @@ func (s *Service) Tick(ctx context.Context) bool {
 			return false
 		}
 		s.registered = true
+		if s.OnStart != nil {
+			s.OnStart(ctx)
+		}
 	}
 	s.reportUpdate(ctx)
 	if err := s.deliver(ctx, "heartbeat", s.heartbeatBody()); err != nil {

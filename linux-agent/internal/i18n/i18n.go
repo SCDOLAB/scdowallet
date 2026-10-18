@@ -71,6 +71,7 @@ Commands:
   logs      Show how to read the service log
   upgrade-now  Check the signed feed, swap the binary, and reconcile adapters
   wallet    Create a bot wallet, pay on Base Sepolia, or stop payments
+  erc8004   Register this agent on the Shard0 ERC-8004 identity registry
   version   Print the version
   help      Show this help
 
@@ -121,6 +122,14 @@ wallet:
   (6 decimals). An empty payee list allows any Base Sepolia payee. kill stops
   signing and freezes the ledger record.
 
+erc8004:
+  scdo-agent erc8004 register --name NAME [--rpc URL] [--passphrase-file PATH]
+
+  Registers the ledger address on Shard0 (eip155:5680). Gas is native SCDO.
+  The key is not printed. An address that already has an identity is left as it is.
+  Automatic registration on start stays off unless /etc/scdo-agent/config.toml
+  contains erc8004 = true.
+
 Data directory: /var/lib/scdo-agent/<name>/
 One systemd instance per agent: scdo-agent@<name>.service.
 `,
@@ -162,6 +171,11 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"walletTx":           "Transaction: https://sepolia.basescan.org/tx/%s",
 	"walletKilled":       "Payments are stopped and the ledger record is frozen.",
 	"walletUnkilled":     "Payments are allowed and the ledger record is unfrozen.",
+	"erc8004ID":          "Agent id: %s",
+	"erc8004URI":         "Registration: %s",
+	"erc8004Tx":          "Transaction: %s",
+	"erc8004Ready":       "ERC-8004 identity %s is registered.",
+	"erc8004Already":     "ERC-8004 identity %s is already registered.",
 	"needRoot":           "upgrade-now needs root. Use --dry-run to check the feed without replacing the binary.",
 	"upgradeBusy":        "An upgrade is already running.",
 	"upgradeUnreachable": "The release feed could not be reached. The installed binary was left in place.",
@@ -188,6 +202,7 @@ var zh = map[string]string{
   logs      顯示如何查看服務紀錄
   upgrade-now  檢查簽章後的發布檔，替換執行檔，並核對顯示卡與帳號對應
   wallet    建立機器人錢包、在 Base Sepolia 付款，或停止付款
+  erc8004   在 Shard0 的 ERC-8004 身份登記冊登記這個代理
   version   顯示版本
   help      顯示這份說明
 
@@ -234,6 +249,13 @@ wallet：
   --max 是單筆上限，--daily 是每日上限，單位是最小單位（6 位小數）。
   收款清單是空的時候，允許任何 Base Sepolia 收款地址。kill 會停止簽章並凍結帳本紀錄。
 
+erc8004：
+  scdo-agent erc8004 register --name 名稱 [--rpc URL] [--passphrase-file 路徑]
+
+  在 Shard0（eip155:5680）登記帳本地址。手續費使用原生 SCDO。金鑰不會印出。
+  這個地址若已經有身份，就不會再送出交易。
+  除非 /etc/scdo-agent/config.toml 寫了 erc8004 = true，否則啟動時不會自動登記。
+
 資料目錄：/var/lib/scdo-agent/<名稱>/
 每台代理一個 systemd 實例：scdo-agent@<名稱>.service。
 `,
@@ -275,6 +297,11 @@ wallet：
 	"walletTx":           "交易：https://sepolia.basescan.org/tx/%s",
 	"walletKilled":       "付款已停止，帳本紀錄已凍結。",
 	"walletUnkilled":     "付款已恢復，帳本紀錄已解除凍結。",
+	"erc8004ID":          "代理編號：%s",
+	"erc8004URI":         "登記檔：%s",
+	"erc8004Tx":          "交易：%s",
+	"erc8004Ready":       "ERC-8004 身份 %s 已登記。",
+	"erc8004Already":     "ERC-8004 身份 %s 已經登記。",
 	"needRoot":           "upgrade-now 需要 root。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
 	"upgradeBusy":        "已有一個更新正在執行。",
 	"upgradeUnreachable": "無法連上發布檔。已安裝的執行檔保持不變。",

@@ -164,6 +164,41 @@ func TestServiceRegisterAndHeartbeat(t *testing.T) {
 	}
 }
 
+func TestOnStartRunsOnceAfterRegister(t *testing.T) {
+	root := t.TempDir()
+	lay, err := Create(root, "node1", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "lab", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := lay.OpenKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	var starts int
+	svc := &Service{
+		Layout:     lay,
+		Key:        key,
+		Version:    "0.1.0",
+		Interval:   time.Hour,
+		RetryEvery: time.Millisecond,
+		Client:     &ledger.Client{URLs: []string{srv.URL}},
+		Now:        func() int64 { return 1700000000000 },
+		Sleep:      func(time.Duration) {},
+		OnStart:    func(context.Context) { starts++ },
+	}
+	if !svc.Tick(context.Background()) || !svc.Tick(context.Background()) {
+		t.Fatal("ticks")
+	}
+	if starts != 1 {
+		t.Fatal(starts)
+	}
+}
+
 func payloadOf(t *testing.T, env map[string]any) map[string]any {
 	t.Helper()
 	p, ok := env["payload"].(map[string]any)

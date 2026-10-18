@@ -48,11 +48,11 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ver), `Version = "0.3.0"`) {
+	if !strings.Contains(string(ver), `Version = "0.4.0"`) {
 		t.Fatal("version")
 	}
 	inst, _ := os.ReadFile("packaging/install.sh")
-	if !strings.Contains(string(inst), `VERSION="0.3.0"`) {
+	if !strings.Contains(string(inst), `VERSION="0.4.0"`) {
 		t.Fatal("install.sh version")
 	}
 	for _, needle := range []string{
@@ -61,6 +61,9 @@ func TestPackagingCopy(t *testing.T) {
 		"RandomizedDelaySec=1h",
 		"upgrade-now",
 		"ExecStart=/usr/bin/scdo-agent upgrade-now",
+		"0xe1A6728e467ed9Fa2F2d0d7eE425a95c9d941F4d",
+		"0xeB49023E929bb71A4818924DffC46Eb8B46546c4",
+		"0x5bc80C209263Fe4F0455c76eC41F663E62D814dF",
 	} {
 		if !strings.Contains(all, needle) {
 			t.Fatal("missing " + needle)

@@ -112,6 +112,32 @@ scdo-agent wallet record --name rack-a
 
 The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This build does not pay Base mainnet.
 
+## ERC-8004
+
+Shard0 (`eip155:5680`) runs the plain ERC-8004 registries from [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts) commit `b9e466c`:
+
+| Registry | Address |
+| --- | --- |
+| IdentityRegistry | `0xe1A6728e467ed9Fa2F2d0d7eE425a95c9d941F4d` |
+| ReputationRegistry | `0xeB49023E929bb71A4818924DffC46Eb8B46546c4` |
+| ValidationRegistry | `0x5bc80C209263Fe4F0455c76eC41F663E62D814dF` |
+
+SCDO's main agent is agent id 2. A ledger agent registers with agent URI `https://scdo.com.au/agent-ledger/api/agents/<0x>/registration.json` and metadata key `scdoLedgerAgent` set to that ledger address.
+
+```sh
+scdo-agent erc8004 register --name rack-a
+```
+
+The transaction is on Shard0. Gas is native SCDO. The key is not printed. If that address already has an identity, the command does not send another transaction.
+
+Automatic registration on process start stays off unless `/etc/scdo-agent/config.toml` contains:
+
+```
+erc8004 = true
+```
+
+A failed registration does not stop heartbeats. The RPC is `https://scdo.com.au/rpc/0`, then `https://apeccapital.org/rpc/0`.
+
 ## Update
 
 `upgrade-now` is the stable entry point. It needs root, except for `--dry-run`.
@@ -252,6 +278,32 @@ scdo-agent wallet record --name rack-a
 `create` 會把錢包地址與該錢包的 EIP-191 證明送到 `/bind`。`pay` 由 SDK 簽署 exact EIP-3009 授權並重試 HTTP 402，然後送到 `/ledger/spend`。`--max` 與 `--daily` 的單位是 6 位小數的最小單位。預設單筆 `1000000`（1 USDC），每個 UTC 日 `5000000`。收款清單是空的時候，允許任何 Base Sepolia 收款地址。`kill` 會停止簽章並送到 `/freeze`。
 
 錢包需要 Base Sepolia 上的測試 USDC。燃料費由 facilitator 支付。這個版本不會在 Base 主網付款。
+
+### ERC-8004
+
+Shard0（`eip155:5680`）上的 ERC-8004 登記冊是 [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts) 提交 `b9e466c` 的一般合約：
+
+| 登記冊 | 地址 |
+| --- | --- |
+| IdentityRegistry | `0xe1A6728e467ed9Fa2F2d0d7eE425a95c9d941F4d` |
+| ReputationRegistry | `0xeB49023E929bb71A4818924DffC46Eb8B46546c4` |
+| ValidationRegistry | `0x5bc80C209263Fe4F0455c76eC41F663E62D814dF` |
+
+SCDO 的主要代理是代理編號 2。帳本代理的 URI 是 `https://scdo.com.au/agent-ledger/api/agents/<0x>/registration.json`，鏈上中繼資料鍵 `scdoLedgerAgent` 的值是該帳本地址。
+
+```sh
+scdo-agent erc8004 register --name rack-a
+```
+
+交易在 Shard0。手續費使用原生 SCDO。金鑰不會印出。這個地址若已經有身份，就不會再送出交易。
+
+除非 `/etc/scdo-agent/config.toml` 寫了下面這一行，否則行程啟動時不會自動登記：
+
+```
+erc8004 = true
+```
+
+登記失敗不會停止心跳。RPC 先用 `https://scdo.com.au/rpc/0`，失敗時改用 `https://apeccapital.org/rpc/0`。
 
 ### 更新
 
