@@ -1106,8 +1106,9 @@ if (!app.requestSingleInstanceLock()) {
     registerScdoProtocol()
     takeJoinArgv(process.argv)
     fixCors()
-    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
-    session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'clipboard-sanitized-write')
+    const allowClip = (perm) => perm === 'clipboard-sanitized-write' || perm === 'clipboard-read'
+    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(allowClip(perm)))
+    session.defaultSession.setPermissionCheckHandler((wc, perm) => allowClip(perm))
     app.on('web-contents-created', (e, wc) => {
       let panelGuest = false
       try { panelGuest = String((wc.session && wc.session.storagePath) || '').indexOf('wallet-panel') >= 0 } catch (err) {}

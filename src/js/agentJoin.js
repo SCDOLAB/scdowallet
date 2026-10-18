@@ -26,6 +26,32 @@
   function validRef (value) { return cleanToken(value) !== '' }
   function validSrc (value) { return cleanToken(value) !== '' }
 
+  // A pasted join link becomes its ref. Anything else is cleaned as a plain code.
+  // Only https on scdo.com.au and apeccapital.org, or scdowallet://join, can carry a ref.
+  function refFromPaste (raw) {
+    const text = String(raw == null ? '' : raw).trim()
+    if (!text) return ''
+    let candidate = text
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(text) && /^(?:scdo\.com\.au|apeccapital\.org)(?:[/:?#]|$)/i.test(text)) {
+      candidate = 'https://' + text
+    }
+    let u
+    try { u = new URL(candidate) } catch (e) { return cleanToken(text) }
+    const proto = String(u.protocol || '').toLowerCase()
+    if (proto === 'scdowallet:') {
+      const parsed = parseJoinUrl(candidate)
+      return parsed.ok ? parsed.ref : ''
+    }
+    if (proto !== 'https:') return ''
+    const host = String(u.hostname || '').toLowerCase()
+    if (host !== 'scdo.com.au' && host !== 'apeccapital.org') return ''
+    if (u.username || u.password) return ''
+    if (u.port && u.port !== '443') return ''
+    const refRaw = u.searchParams.get('ref')
+    if (refRaw == null || refRaw === '') return ''
+    return cleanToken(refRaw)
+  }
+
   function parseJoinUrl (input) {
     const raw = String(input || '').trim()
     let u
@@ -356,12 +382,15 @@
   function firstRunHtml (t, esc, opts) {
     opts = opts || {}
     const pending = cleanToken(opts.pendingRef)
-    const readonly = pending ? ' readonly' : ''
+    const input = '<input class="inp" id="joinRef" maxlength="64" value="' + esc(pending) + '" autocomplete="off" spellcheck="false"' + (pending ? ' readonly' : '') + '>'
+    const btn = pending
+      ? '<button type="button" class="shell-copy" id="joinRefCopy" data-act="copy" data-v="' + esc(pending) + '">' + esc(t('copy')) + '</button>'
+      : '<button type="button" class="shell-copy" id="joinRefPaste" data-act="pasteJoinRef">' + esc(t('paste')) + '</button>'
     return '<div class="page shell-home first-run" id="firstRun"><h1 class="shell-h">' + esc(t('startAgent')) + '</h1>' +
       '<p class="home-lead" id="agentRewards">' + esc(t('agentRewards')) + '</p>' +
       '<p class="agent-stay" id="agentStayOpen">' + esc(t('agentStayOpen')) + '</p>' +
       '<div class="field"><div class="lbl">' + esc(t('inviteCodeAsk')) + '</div>' +
-      '<input class="inp" id="joinRef" maxlength="64" value="' + esc(pending) + '" autocomplete="off" spellcheck="false"' + readonly + '></div>' +
+      '<div class="join-ref-row">' + input + btn + '</div></div>' +
       '<div class="shell-actions first-run-actions">' +
       '<button type="button" class="shell-act" id="startAgentBtn" data-act="startAgent">' + esc(t('startAgent')) + '</button>' +
       '<button type="button" class="shell-act sec" data-act="import">' + esc(t('importShort')) + '</button></div>' +
@@ -404,6 +433,7 @@
   const api = {
     JOIN: JOIN,
     cleanToken: cleanToken,
+    refFromPaste: refFromPaste,
     validRef: validRef,
     validSrc: validSrc,
     parseJoinUrl: parseJoinUrl,

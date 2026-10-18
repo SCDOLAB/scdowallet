@@ -4290,6 +4290,7 @@
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
+      case 'pasteJoinRef': pasteJoinRef(); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'payInvoice': openPayInvoice(); break
@@ -4411,6 +4412,13 @@
       localStorage.setItem(t.id === 'mReward' ? 'minerReward' : 'nodePayout', addr)
       if (t.id === 'mReward') syncRewardPayout(addr)
     }
+  })
+  document.addEventListener('paste', (ev) => {
+    const t = ev.target
+    if (!t || t.id !== 'joinRef' || t.readOnly) return
+    ev.preventDefault()
+    const text = (ev.clipboardData && ev.clipboardData.getData('text')) || ''
+    applyJoinPaste(t, text)
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
@@ -4994,9 +5002,11 @@
     if (msg.route === 'invite-create') { openInviteCreate(); return }
     if (msg.route === 'invite-claim') { openInviteClaim(msg); return }
     st.agent = st.agent || {}
-    if (msg.pendingRef && !(st.agent && st.agent.locked)) st.agent.pendingRef = msg.pendingRef
-    const input = $('joinRef')
-    if (input && msg.pendingRef && !input.value) input.value = msg.pendingRef
+    if (msg.pendingRef && !(st.agent && st.agent.locked)) {
+      st.agent.pendingRef = msg.pendingRef
+      const input = $('joinRef')
+      if (input && !input.readOnly) render()
+    }
   })
   api.on('panel:doc', (doc) => {
     if (!doc || !doc.links || !doc.links.hub) return
@@ -5042,8 +5052,21 @@
     }
     await refreshAgent()
   }
+  function applyJoinPaste (input, raw) {
+    if (!input || input.readOnly) return
+    const Join = window.SCDOAgentJoin
+    input.value = Join ? Join.refFromPaste(raw) : ''
+  }
+  async function pasteJoinRef () {
+    const input = $('joinRef')
+    if (!input || input.readOnly) return
+    let text = ''
+    try { text = await navigator.clipboard.readText() } catch (e) { return }
+    applyJoinPaste($('joinRef'), text)
+  }
   async function startMyAgent () {
-    const typed = ($('joinRef') && $('joinRef').value) || ''
+    const field = $('joinRef')
+    const typed = field ? (window.SCDOAgentJoin ? window.SCDOAgentJoin.refFromPaste(field.value) : field.value) : ''
     const btn = $('startAgentBtn')
     if (btn) btn.disabled = true
     let r = null

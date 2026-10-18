@@ -142,7 +142,7 @@ window.I18N112 = {
     catToggle: '顯示 AI小貓', catHint: '角落的小貓只在這台電腦上用規則幫忙。彈出視窗裡的按鈕只做修同步。你也可以直接打字，它會打開對應的畫面。它不會簽名，也不會把錢送出。可在這裡關閉。',
     // account switcher
     accounts: '帳戶', switchAccount: '切換帳戶', manageAccounts: '管理帳戶', noAccount: '還沒有帳戶',
-    locked: '輸入密碼才能看 Shard0 EVM 收款地址', lockedShort: '未解鎖', copy: '複製', copied: '已複製', qr: '二維碼',
+    locked: '輸入密碼才能看 Shard0 EVM 收款地址', lockedShort: '未解鎖', copy: '複製', copied: '已複製', paste: '貼上', qr: '二維碼',
     // home
     s0Balance: 'Shard0 EVM 餘額', currentAccount: '當前帳戶', allNewTotal: '全部 Shard0 EVM 帳戶合計', nAccounts: '{n} 個帳戶', exclHidden: '不含已隱藏帳戶',
     receive: '收款', send: '傳送', swap: '兌換',
@@ -581,7 +581,7 @@ window.I18N112 = {
     settings: 'Settings', language: 'Language',
     catToggle: 'Show AI小貓', catHint: 'The corner cat stays on this PC and only follows local rules. Its button only repairs a stalled sync. You can also type, and it opens the matching screen. It never signs or sends. Turn it off here.',
     accounts: 'Accounts', switchAccount: 'Switch account', manageAccounts: 'Manage accounts', noAccount: 'No account yet',
-    locked: 'Enter password to show address', lockedShort: 'locked', copy: 'Copy', copied: 'Copied', qr: 'QR code',
+    locked: 'Enter password to show address', lockedShort: 'locked', copy: 'Copy', copied: 'Copied', paste: 'Paste', qr: 'QR code',
     s0Balance: 'Shard0 EVM balance', currentAccount: 'Current account', allNewTotal: 'All Shard0 EVM accounts', nAccounts: '{n} account(s)', exclHidden: 'hidden accounts excluded',
     receive: 'Receive', send: 'Send', swap: 'Swap',
     assets: 'Assets', activity: 'Activity',

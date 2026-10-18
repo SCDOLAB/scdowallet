@@ -68,6 +68,10 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .first-run-actions { grid-template-columns: 1fr; max-width: 420px; }
 .first-run .field { margin: 14px 0 4px; max-width: 420px; }
 .first-run .field .lbl { margin-bottom: 6px; font-weight: 700; color: #3d4160; }
+.join-ref-row { display: flex; align-items: center; gap: 8px; }
+.join-ref-row .inp { flex: 1 1 auto; width: auto; min-width: 0; }
+.join-ref-row .shell-copy { flex: 0 0 auto; height: 50px; padding: 0 16px; font-size: 16px; }
+#joinRef { -webkit-user-select: text; user-select: text; }
 .agent-claim { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 16px; font-weight: 800; }
 .agent-card { background: #fff; border-radius: 24px; padding: 22px 24px; margin: 16px 0; border: 1px solid #e5e5ea; }
 .agent-card h2 { margin: 0 0 8px; font-size: 22px; }
