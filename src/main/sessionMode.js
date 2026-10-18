@@ -1,4 +1,4 @@
-// Launch at login turns on when the user starts an agent or bookkeeping.
+// Launch at login is opt-in (3.1.10): only the Settings toggle or the first-run question turns it on.
 // The Settings toggle can turn it off, and that choice stays off.
 // A login start is Light until the user has chosen a mode, unless keep-bookkeeping should resume.
 'use strict'
@@ -41,12 +41,10 @@ function offerLogin (intent) {
   return p.loginAsked !== true && p.loginLaunch !== true
 }
 
-// Already on, or the user turned the toggle off: do not flip it back on.
+// 3.1.10: launch at login is opt-in. Starting an agent or bookkeeping never turns it on by itself;
+// only the Settings toggle or a Yes to the first-run question (setLoginLaunch) does.
 function shouldArmLogin (intent) {
-  const p = normalizePrefs(intent)
-  if (p.loginLaunch === true) return false
-  if (p.loginOff === true) return false
-  return true
+  return false
 }
 
 function armLoginPatch () {
