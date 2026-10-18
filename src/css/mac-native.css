@@ -108,3 +108,35 @@ html.mac-native [style*="font-size:28px"], html.mac-native [style*="font-size:26
 html.mac-native [style*="font-size:22px"], html.mac-native [style*="font-size:21px"] { font-size: 15px !important; }
 html.mac-native [style*="font-size:20px"], html.mac-native [style*="font-size:19px"], html.mac-native [style*="font-size:18px"] { font-size: 14px !important; }
 html.mac-native [style*="font-size:17px"], html.mac-native [style*="font-size:16px"] { font-size: 13px !important; }
+
+/* bookkeeping page */
+html.mac-native .shell-mine-page { padding: 20px 28px 120px; }
+html.mac-native .mine-ledger-note { margin: -6px 0 14px; }
+html.mac-native .mine-panels { gap: 12px; }
+html.mac-native .mine-panel { border-radius: 12px; padding: 16px 18px; border: .5px solid var(--mn-line); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+html.mac-native .mine-panel h2 { font-size: 13px; font-weight: 600; color: var(--mn-text2); }
+html.mac-native .mine-glance { justify-content: flex-start; gap: 8px; margin: 4px 0 12px; }
+html.mac-native .mine-glance .mine-glance-t { font-size: 20px; font-weight: 600; letter-spacing: -.2px; }
+html.mac-native .mine-dot { width: 9px; height: 9px; }
+html.mac-native .mine-glance.on .mine-dot { box-shadow: none; background: #28a745; }
+html.mac-native .mine-load { height: 4px; }
+html.mac-native .mine-rate, html.mac-native .mine-earn, html.mac-native .home-bal, html.mac-native .home-last { font-size: 14px; font-weight: 500; }
+html.mac-native .home-bal, html.mac-native .home-last { padding: 9px 4px; border-bottom: .5px solid var(--mn-line); }
+html.mac-native .mine-kv { font-size: 14px; } html.mac-native .mine-kv span { font-size: 11px; font-weight: 500; }
+html.mac-native .mine-chain, html.mac-native .mine-chain.off { font-size: 13px; font-weight: 500; }
+html.mac-native .mine-chain input { width: 14px; height: 14px; accent-color: var(--mn-accent); }
+html.mac-native .shell-huge { width: auto; min-width: 160px; padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; color: #fff; background: var(--mn-accent); border: 0; box-shadow: none; }
+html.mac-native .shell-huge:disabled { opacity: .45; }
+html.mac-native .shell-huge-wrap { margin: 4px 0 8px; }
+html.mac-native .shell-hint { border-radius: 6px; font-size: 13px; font-weight: 500; padding: 5px 12px; }
+html.mac-native .shell-sub { justify-content: flex-start; gap: 24px; font-size: 12px; } html.mac-native .shell-sub b { font-size: 14px; font-weight: 600; }
+html.mac-native .shell-mine-page .mh-status { text-align: left; font-weight: 600; }
+html.mac-native .mine-why, html.mac-native .mine-note { font-weight: 500; font-size: 13px; }
+
+/* settings rows and switches */
+html.mac-native .shell-back { color: var(--mn-accent); font-size: 13px; font-weight: 500; padding: 4px 0; }
+html.mac-native .toggle { font-size: 14px; color: var(--mn-text); gap: 10px; margin: 2px 16px 2px 0; }
+html.mac-native .sw { transform: none; width: 32px; height: 19px; border-radius: 10px; background: rgba(0,0,0,.14); }
+html.mac-native .sw::after { left: 1.5px; top: 1.5px; width: 16px; height: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+html.mac-native .sw.on { background: var(--mn-accent); } html.mac-native .sw.on::after { left: 14.5px; }
+html.mac-native .setsec h3 { font-size: 13px; font-weight: 600; color: var(--mn-text2); text-transform: none; }
