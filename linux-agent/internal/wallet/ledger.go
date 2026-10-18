@@ -14,8 +14,12 @@ func record(ctx context.Context, lay *agent.Layout, agentKey *ledger.Key, doc Do
 	if doc.LastTx == "" || doc.LastPayTo == "" || doc.LastAmount == "" {
 		return "", fmt.Errorf("no payment to record")
 	}
+	network := doc.LastNetwork
+	if network == "" {
+		network = NetworkSepolia
+	}
 	body := map[string]any{
-		"network": NetworkSepolia,
+		"network": network,
 		"amount":  doc.LastAmount,
 		"payTo":   doc.LastPayTo,
 		"tx":      doc.LastTx,
@@ -59,7 +63,7 @@ func Record(ctx context.Context, opt PayOptions) (Paid, error) {
 		PayTo:    doc.LastPayTo,
 		Amount:   doc.LastAmount,
 		Ledger:   ledgerURL,
-		Basescan: "https://sepolia.basescan.org/tx/" + doc.LastTx,
+		Basescan: basescan(doc.LastNetwork, doc.LastTx),
 	}, nil
 }
 

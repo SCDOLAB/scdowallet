@@ -76,8 +76,11 @@ func incomeBody(in Income) (map[string]any, error) {
 		copied := in.Payload.Accepted
 		reqs = &copied
 	}
-	if reqs.Network != "" && reqs.Network != NetworkSepolia {
+	if reqs.Network != "" && reqs.Network != NetworkSepolia && reqs.Network != NetworkShard0 {
 		return nil, fmt.Errorf("income network")
+	}
+	if reqs.Network == NetworkShard0 && !sameAddr(reqs.Asset, WSCDO) {
+		return nil, fmt.Errorf("income asset")
 	}
 	version := in.Payload.X402Version
 	if version == 0 {
@@ -85,7 +88,13 @@ func incomeBody(in Income) (map[string]any, error) {
 	}
 	network := string(in.Settlement.Network)
 	if network == "" {
+		network = reqs.Network
+	}
+	if network == "" {
 		network = NetworkSepolia
+	}
+	if network != NetworkSepolia && network != NetworkShard0 {
+		return nil, fmt.Errorf("income network")
 	}
 	settlement := map[string]any{
 		"success":     true,

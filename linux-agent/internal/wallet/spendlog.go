@@ -15,6 +15,7 @@ const spendLogName = "spend-log.json"
 type spendEntry struct {
 	ID     string `json:"id,omitempty"`
 	Amount string `json:"amount"`
+	Asset  string `json:"asset,omitempty"`
 	At     string `json:"at"`
 	Until  string `json:"until,omitempty"`
 	Nonce  string `json:"nonce,omitempty"`
@@ -88,9 +89,16 @@ func withSpendLock(dir string, fn func(*spendLog) error) error {
 }
 
 func (l spendLog) window(now time.Time) *big.Int {
+	return l.windowAsset(now, "")
+}
+
+func (l spendLog) windowAsset(now time.Time, asset string) *big.Int {
 	cut := now.Add(-24 * time.Hour)
 	sum := big.NewInt(0)
 	for _, e := range l.Entries {
+		if !spendAssetMatch(e.Asset, asset) {
+			continue
+		}
 		amt, ok := new(big.Int).SetString(e.Amount, 10)
 		if !ok {
 			continue
@@ -136,10 +144,19 @@ func enforcedSpent(doc Doc, log spendLog, now time.Time) *big.Int {
 	return log.window(now)
 }
 
-func reservePending(log *spendLog, id, amount string, now time.Time) {
+func spendAssetMatch(entry, want string) bool {
+	usdc := want == "" || want == AssetUSDC || sameAddr(want, SepoliaUSDC)
+	if usdc {
+		return entry == "" || entry == AssetUSDC || sameAddr(entry, SepoliaUSDC)
+	}
+	return entry == want || sameAddr(entry, want)
+}
+
+func reservePending(log *spendLog, id, amount, asset string, now time.Time) {
 	log.Entries = append(log.Entries, spendEntry{
 		ID:     id,
 		Amount: amount,
+		Asset:  asset,
 		At:     now.UTC().Format(time.RFC3339),
 		Until:  now.Add(120 * time.Second).UTC().Format(time.RFC3339),
 		State:  "pending",

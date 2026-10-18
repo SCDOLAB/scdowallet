@@ -22,6 +22,9 @@ func TestPaywall402RoundTrip(t *testing.T) {
 	if FacilitatorURL != "https://x402.org/facilitator" || x402http.DefaultFacilitatorURL != FacilitatorURL {
 		t.Fatal(FacilitatorURL)
 	}
+	if WSCDOFacilitatorURL+"/settle" != "https://scdo.com.au/x402-scdo/settle" {
+		t.Fatal(WSCDOFacilitatorURL)
+	}
 	root := t.TempDir()
 	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
@@ -122,8 +125,66 @@ func TestPaywall402RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPaywallWSCDO(t *testing.T) {
+	root := t.TempDir()
+	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(context.Background(), CreateOptions{
+		Root: root, Name: "bot", BotID: "bot", Asset: "wscdo", LedgerURLs: []string{stubLedger(t)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h, err := Paywall(PaywallOptions{
+		Root: root, Name: "bot", Price: "0.005", Path: "/answer",
+		Facilitator: &mockFacilitator{network: NetworkShard0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://paywall.test/answer", nil)
+	req.Header.Set("accept", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	decoded, err := base64.StdEncoding.DecodeString(rec.Header().Get("Payment-Required"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(decoded)
+	if strings.Contains(text, `"eip155:8453"`) || strings.Contains(rec.Body.String(), `"eip155:8453"`) {
+		t.Fatal(text)
+	}
+	for _, want := range []string{NetworkShard0, WSCDO, WSCDOName, "5000000000000000"} {
+		if !strings.Contains(strings.ToLower(text), strings.ToLower(want)) {
+			t.Fatalf("missing %s in %s", want, text)
+		}
+	}
+	if !strings.Contains(text, `"version":"1"`) && !strings.Contains(text, `"version": "1"`) {
+		t.Fatalf("version %s", text)
+	}
+}
+
 type mockFacilitator struct {
 	onSettle func()
+	network  string
+	amount   string
+}
+
+func (m *mockFacilitator) net() string {
+	if m.network == "" {
+		return NetworkSepolia
+	}
+	return m.network
+}
+
+func (m *mockFacilitator) amt() string {
+	if m.amount == "" {
+		return "10000"
+	}
+	return m.amount
 }
 
 func (m *mockFacilitator) GetSupported(context.Context) (x402.SupportedResponse, error) {
@@ -131,7 +192,7 @@ func (m *mockFacilitator) GetSupported(context.Context) (x402.SupportedResponse,
 		Kinds: []x402.SupportedKind{{
 			X402Version: 2,
 			Scheme:      "exact",
-			Network:     NetworkSepolia,
+			Network:     m.net(),
 		}},
 		Extensions: []string{},
 		Signers:    map[string][]string{},
@@ -147,7 +208,7 @@ func (m *mockFacilitator) Settle(context.Context, []byte, []byte) (*x402.SettleR
 		m.onSettle()
 	}
 	return &x402.SettleResponse{
-		Success: true, Transaction: "0x" + strings.Repeat("cd", 32), Network: NetworkSepolia,
-		Payer: "0x0000000000000000000000000000000000000001", Amount: "10000",
+		Success: true, Transaction: "0x" + strings.Repeat("cd", 32), Network: x402.Network(m.net()),
+		Payer: "0x0000000000000000000000000000000000000001", Amount: m.amt(),
 	}, nil
 }

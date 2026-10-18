@@ -29,6 +29,8 @@ type Decision struct {
 	PayTo    string
 	Amount   string
 	Resource string
+	Name     string
+	Version  string
 	Now      time.Time
 }
 
@@ -39,28 +41,18 @@ func Allow(doc Doc, d Decision) error {
 	if doc.Killed {
 		return policyf("wallet kill switch is on")
 	}
-	if d.Network != NetworkSepolia {
-		return policyf("only Base Sepolia (eip155:84532) payments are enabled")
-	}
-	if !sameAddr(d.Asset, SepoliaUSDC) {
-		return policyf("only Base Sepolia USDC is enabled")
+	max, daily, spent, err := capFor(doc, d)
+	if err != nil {
+		return err
 	}
 	amount, ok := new(big.Int).SetString(d.Amount, 10)
 	if !ok || amount.Sign() <= 0 {
 		return policyf("bad amount")
 	}
-	max, ok := new(big.Int).SetString(doc.MaxAtomic, 10)
-	if !ok {
-		return policyf("bad spend cap")
-	}
 	if amount.Cmp(max) > 0 {
-		return policyf("amount %s is above the per-payment cap %s", d.Amount, doc.MaxAtomic)
+		return policyf("amount %s is above the per-payment cap %s", d.Amount, max.String())
 	}
-	daily, ok := new(big.Int).SetString(doc.DailyAtomic, 10)
-	if !ok {
-		return policyf("bad daily cap")
-	}
-	if new(big.Int).Add(doc.spentToday(d.Now), amount).Cmp(daily) > 0 {
+	if new(big.Int).Add(spent, amount).Cmp(daily) > 0 {
 		return policyf("Payment stopped: over today's limit")
 	}
 	if len(doc.Payees) > 0 && !payeeAllowed(doc.Payees, d.PayTo) {
@@ -107,8 +99,13 @@ func domainAllowed(list []string, rawURL string) bool {
 
 // ParseUSDC converts a decimal USDC string such as "1" or "0.10" into 6-decimal atomic units.
 func ParseUSDC(s string) (string, error) {
+	return ParseDecimal(s, USDCDecimals)
+}
+
+// ParseDecimal converts a decimal token amount into atomic units.
+func ParseDecimal(s string, decimals int) (string, error) {
 	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "$"))
-	if s == "" || strings.HasPrefix(s, "-") || strings.ContainsAny(s, "eE+") {
+	if s == "" || strings.HasPrefix(s, "-") || strings.ContainsAny(s, "eE+") || decimals < 0 || decimals > 36 {
 		return "", fmt.Errorf("bad amount")
 	}
 	parts := strings.Split(s, ".")
@@ -123,10 +120,10 @@ func ParseUSDC(s string) (string, error) {
 	if len(parts) == 2 {
 		frac = parts[1]
 	}
-	if len(frac) > 6 || !digits(whole) || !digits(frac) {
-		return "", fmt.Errorf("USDC supports 6 decimals")
+	if len(frac) > decimals || !digits(whole) || !digits(frac) {
+		return "", fmt.Errorf("amount supports %d decimals", decimals)
 	}
-	for len(frac) < 6 {
+	for len(frac) < decimals {
 		frac += "0"
 	}
 	w, ok := new(big.Int).SetString(whole, 10)
@@ -137,12 +134,40 @@ func ParseUSDC(s string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("bad amount")
 	}
-	w.Mul(w, big.NewInt(1_000_000))
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+	w.Mul(w, scale)
 	w.Add(w, f)
 	if w.Sign() <= 0 {
 		return "", fmt.Errorf("bad amount")
 	}
 	return w.String(), nil
+}
+
+func capFor(doc Doc, d Decision) (max, daily, spent *big.Int, err error) {
+	var maxRaw, dailyRaw string
+	switch {
+	case d.Network == NetworkSepolia && sameAddr(d.Asset, SepoliaUSDC):
+		maxRaw, dailyRaw = doc.MaxAtomic, doc.DailyAtomic
+		spent = doc.spentToday(d.Now)
+	case d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO):
+		if d.Name != WSCDOName || d.Version != WSCDOVersion {
+			return nil, nil, nil, policyf("WSCDO domain must be name %s version %s", WSCDOName, WSCDOVersion)
+		}
+		maxRaw, dailyRaw = doc.maxWSCDO(), doc.dailyWSCDO()
+		spent = doc.spentWSCDO(d.Now)
+	default:
+		return nil, nil, nil, policyf("only Base Sepolia USDC (eip155:84532) and Shard0 WSCDO (eip155:5680) are enabled")
+	}
+	var ok bool
+	max, ok = new(big.Int).SetString(maxRaw, 10)
+	if !ok {
+		return nil, nil, nil, policyf("bad spend cap")
+	}
+	daily, ok = new(big.Int).SetString(dailyRaw, 10)
+	if !ok {
+		return nil, nil, nil, policyf("bad daily cap")
+	}
+	return max, daily, spent, nil
 }
 
 func digits(s string) bool {
@@ -159,13 +184,28 @@ func digits(s string) bool {
 
 // FormatUSDC renders a 6-decimal atomic amount as a fixed decimal string.
 func FormatUSDC(atomic string) string {
+	return FormatDecimal(atomic, USDCDecimals)
+}
+
+// FormatDecimal renders an atomic amount with a fixed number of decimals.
+func FormatDecimal(atomic string, decimals int) string {
+	if decimals < 0 || decimals > 36 {
+		return "0"
+	}
 	n, ok := new(big.Int).SetString(strings.TrimSpace(atomic), 10)
 	if !ok || n.Sign() < 0 {
-		return "0.000000"
+		n = big.NewInt(0)
 	}
-	whole := new(big.Int).Quo(n, big.NewInt(1_000_000))
-	frac := new(big.Int).Mod(n, big.NewInt(1_000_000)).Int64()
-	return fmt.Sprintf("%s.%06d", whole.String(), frac)
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+	whole := new(big.Int).Quo(n, scale)
+	frac := new(big.Int).Mod(n, scale).String()
+	if decimals == 0 {
+		return whole.String()
+	}
+	if len(frac) < decimals {
+		frac = strings.Repeat("0", decimals-len(frac)) + frac
+	}
+	return whole.String() + "." + frac
 }
 
 // USDCap is the x402 SDK per-payment dollar cap for a 6-decimal atomic amount.

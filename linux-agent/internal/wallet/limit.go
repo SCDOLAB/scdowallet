@@ -9,8 +9,9 @@ import (
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
 )
 
-// LimitUpdate changes the local policy. Amounts are decimal USDC.
+// LimitUpdate changes the local policy. Amounts are decimal units of Asset.
 type LimitUpdate struct {
+	Asset        string
 	PerPayment   string
 	Daily        string
 	Payees       []string
@@ -21,11 +22,14 @@ type LimitUpdate struct {
 
 // View is the public wallet record for wallet show.
 type View struct {
-	Agent        string
-	Doc          Doc
-	SpentDisplay string
-	MaxDisplay   string
-	DailyDisplay string
+	Agent           string
+	Doc             Doc
+	SpentDisplay    string
+	MaxDisplay      string
+	DailyDisplay    string
+	Asset           string
+	WSCDOMaxDisplay string
+	WSCDODaily      string
 }
 
 // Show reads the public wallet record. It does not open a key.
@@ -40,12 +44,19 @@ func Show(root, name string) (View, error) {
 	}
 	now := time.Now()
 	spent := enforcedSpent(doc, readSpend(lay.Dir), now)
+	asset := doc.Asset
+	if asset == "" {
+		asset = AssetUSDC
+	}
 	return View{
-		Agent:        lay.Meta.Address,
-		Doc:          doc,
-		SpentDisplay: FormatUSDC(spent.String()),
-		MaxDisplay:   FormatUSDC(doc.MaxAtomic),
-		DailyDisplay: FormatUSDC(doc.DailyAtomic),
+		Agent:           lay.Meta.Address,
+		Doc:             doc,
+		SpentDisplay:    FormatUSDC(spent.String()),
+		MaxDisplay:      FormatUSDC(doc.MaxAtomic),
+		DailyDisplay:    FormatUSDC(doc.DailyAtomic),
+		Asset:           asset,
+		WSCDOMaxDisplay: FormatDecimal(doc.maxWSCDO(), WSCDODecimals),
+		WSCDODaily:      FormatDecimal(doc.dailyWSCDO(), WSCDODecimals),
 	}, nil
 }
 
@@ -59,19 +70,36 @@ func ApplyLimit(root, name string, upd LimitUpdate) (Doc, error) {
 	if err != nil {
 		return Doc{}, err
 	}
+	asset, err := NormalizeAsset(upd.Asset)
+	if err != nil {
+		return Doc{}, err
+	}
+	decimals := USDCDecimals
+	if asset == AssetWSCDO {
+		decimals = WSCDODecimals
+		doc.Asset = AssetWSCDO
+	}
 	if strings.TrimSpace(upd.PerPayment) != "" {
-		atomic, err := ParseUSDC(upd.PerPayment)
+		atomic, err := ParseDecimal(upd.PerPayment, decimals)
 		if err != nil {
 			return Doc{}, err
 		}
-		doc.MaxAtomic = atomic
+		if asset == AssetWSCDO {
+			doc.MaxWSCDO = atomic
+		} else {
+			doc.MaxAtomic = atomic
+		}
 	}
 	if strings.TrimSpace(upd.Daily) != "" {
-		atomic, err := ParseUSDC(upd.Daily)
+		atomic, err := ParseDecimal(upd.Daily, decimals)
 		if err != nil {
 			return Doc{}, err
 		}
-		doc.DailyAtomic = atomic
+		if asset == AssetWSCDO {
+			doc.DailyWSCDO = atomic
+		} else {
+			doc.DailyAtomic = atomic
+		}
 	}
 	if upd.ClearPayees {
 		doc.Payees = nil

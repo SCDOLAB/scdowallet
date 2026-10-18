@@ -21,7 +21,9 @@ type CreateOptions struct {
 	Name  string
 	BotID string
 	Email string
-	// MaxAtomic and Daily are decimal USDC ("1", "0.10"), not atomic units.
+	// Asset is usdc or wscdo. Empty means usdc.
+	Asset string
+	// MaxAtomic and Daily are decimal amounts of Asset ("1", "0.10"), not atomic units.
 	MaxAtomic  string
 	Daily      string
 	Payees     []string
@@ -70,25 +72,42 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
+	asset, err := NormalizeAsset(opt.Asset)
+	if err != nil {
+		return Created{}, err
+	}
 	doc.BotID = opt.BotID
 	doc.Network = NetworkSepolia
 	doc.Address = walletKey.Address()
-	// --max and --daily are decimal USDC, the same units as wallet limit.
-	// Storing the raw flag would leave a cap of 0 or 1 atomic unit, and the
-	// first payment would be refused until wallet limit rewrote the file.
+	doc.Asset = asset
+	// --max and --daily are decimal amounts of the selected asset.
+	// USDC has 6 decimals and WSCDO has 18. Storing the raw flag would leave
+	// a cap of 0 or 1 atomic unit.
+	decimals := USDCDecimals
+	if asset == AssetWSCDO {
+		decimals = WSCDODecimals
+	}
 	if strings.TrimSpace(opt.MaxAtomic) != "" {
-		atomic, err := ParseUSDC(opt.MaxAtomic)
+		atomic, err := ParseDecimal(opt.MaxAtomic, decimals)
 		if err != nil {
 			return Created{}, err
 		}
-		doc.MaxAtomic = atomic
+		if asset == AssetWSCDO {
+			doc.MaxWSCDO = atomic
+		} else {
+			doc.MaxAtomic = atomic
+		}
 	}
 	if strings.TrimSpace(opt.Daily) != "" {
-		atomic, err := ParseUSDC(opt.Daily)
+		atomic, err := ParseDecimal(opt.Daily, decimals)
 		if err != nil {
 			return Created{}, err
 		}
-		doc.DailyAtomic = atomic
+		if asset == AssetWSCDO {
+			doc.DailyWSCDO = atomic
+		} else {
+			doc.DailyAtomic = atomic
+		}
 	}
 	if len(opt.Payees) > 0 {
 		doc.Payees = opt.Payees
@@ -219,13 +238,20 @@ func limitsCommit(doc Doc) (string, error) {
 	if domains == nil {
 		domains = []string{}
 	}
-	c, err := ledger.Canonical(map[string]any{
+	fields := map[string]any{
 		"budgetAtomic": doc.DailyAtomic,
 		"domains":      domains,
 		"maxAtomic":    doc.MaxAtomic,
 		"network":      doc.Network,
 		"payees":       payees,
-	})
+	}
+	if doc.Asset == AssetWSCDO || doc.MaxWSCDO != "" || doc.DailyWSCDO != "" {
+		fields["wscdo"] = WSCDO
+		fields["wscdoNetwork"] = NetworkShard0
+		fields["wscdoMaxAtomic"] = doc.maxWSCDO()
+		fields["wscdoDailyAtomic"] = doc.dailyWSCDO()
+	}
+	c, err := ledger.Canonical(fields)
 	if err != nil {
 		return "", err
 	}

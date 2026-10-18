@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
 )
 
@@ -161,6 +162,165 @@ func TestConfigFlag(t *testing.T) {
 	}
 	if !Enabled(dir) {
 		t.Fatal("true")
+	}
+}
+
+func TestPackSelectors(t *testing.T) {
+	uri, err := packRegisterURI("https://scdo.com.au/agent-ledger/api/agents/0xabc/registration.json")
+	if err != nil || common.Bytes2Hex(uri[:4]) != "f2c298be" {
+		t.Fatalf("%x %v", uri, err)
+	}
+	reg, err := packRegister("https://scdo.com.au/agent-ledger/api/agents/0xabc/registration.json", "0x0000000000000000000000000000000000000001")
+	if err != nil || common.Bytes2Hex(reg[:4]) != "8ea42286" {
+		t.Fatalf("%x %v", reg, err)
+	}
+	xfer, err := packTransfer("0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000001", big.NewInt(4))
+	if err != nil || common.Bytes2Hex(xfer[:4]) != "42842e0e" {
+		t.Fatalf("%x %v", xfer, err)
+	}
+}
+
+func TestSponsoredRegisterTransfersToTheAgent(t *testing.T) {
+	agentKey, err := ledger.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentAddr := agentKey.Address()
+	store := keys.Store{Dir: t.TempDir()}
+	if _, err := store.Create("ledger", nil); err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.Path("ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sponsor, err := keys.OpenFile(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keys.OpenFile(path, nil); err == nil {
+		t.Fatal("mode 0644 key file was accepted")
+	}
+	sponsorAddr := sponsor.Address()
+	if strings.EqualFold(sponsorAddr, agentAddr) {
+		t.Fatal("sponsor and agent collided")
+	}
+	scalar := sponsor.Scalar()
+	secret := common.Bytes2Hex(scalar)
+	ledger.Wipe(scalar)
+
+	var bodies []string
+	var sent int
+	const agentID = "7"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(b, &req)
+		write := func(v any) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "result": v})
+		}
+		switch req.Method {
+		case "eth_chainId":
+			write("0x1630")
+		case "eth_getLogs":
+			write([]any{})
+		case "eth_call":
+			var call struct {
+				Data string `json:"data"`
+			}
+			_ = json.Unmarshal(req.Params[0], &call)
+			if strings.HasPrefix(call.Data, "0x6352211e") {
+				who := sponsorAddr
+				if sent >= 2 {
+					who = agentAddr
+				}
+				write("0x" + common.Bytes2Hex(common.LeftPadBytes(common.HexToAddress(who).Bytes(), 32)))
+				return
+			}
+			t.Fatalf("unexpected call %s", call.Data)
+		case "eth_getBalance":
+			write("0xde0b6b3a7640000")
+		case "eth_getTransactionCount":
+			if sent == 0 {
+				write("0x0")
+			} else {
+				write("0x1")
+			}
+		case "eth_gasPrice":
+			write("0x3b9aca00")
+		case "eth_estimateGas":
+			write("0x30d40")
+		case "eth_sendRawTransaction":
+			var raw string
+			_ = json.Unmarshal(req.Params[0], &raw)
+			tx := new(types.Transaction)
+			if err := tx.UnmarshalBinary(common.FromHex(raw)); err != nil {
+				t.Fatal(err)
+			}
+			from, err := types.Sender(types.NewEIP155Signer(big.NewInt(ChainID)), tx)
+			if err != nil || !strings.EqualFold(from.Hex(), sponsorAddr) || strings.EqualFold(from.Hex(), agentAddr) {
+				t.Fatalf("sender %s", from.Hex())
+			}
+			sel := common.Bytes2Hex(tx.Data()[:4])
+			blob := string(tx.Data())
+			switch sent {
+			case 0:
+				if sel != "f2c298be" || !strings.Contains(blob, AgentURI(agentAddr)) {
+					t.Fatalf("register selector %s", sel)
+				}
+			case 1:
+				if sel != "42842e0e" {
+					t.Fatalf("transfer selector %s", sel)
+				}
+				hexData := strings.ToLower(common.Bytes2Hex(tx.Data()))
+				if !strings.Contains(hexData, strings.ToLower(strings.TrimPrefix(sponsorAddr, "0x"))) || !strings.Contains(hexData, strings.ToLower(strings.TrimPrefix(agentAddr, "0x"))) {
+					t.Fatal("transfer calldata")
+				}
+			default:
+				t.Fatalf("extra transaction %d", sent)
+			}
+			sent++
+			write("0x" + strings.Repeat("cd", 32))
+		case "eth_getTransactionReceipt":
+			logs := []any{}
+			if sent == 1 {
+				logs = []any{regLog(agentID, sponsorAddr, "0x"+strings.Repeat("cd", 32))}
+			}
+			write(map[string]any{"status": "0x1", "logs": logs})
+		default:
+			t.Fatalf("unexpected %s", req.Method)
+		}
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	opt := Options{Sponsor: sponsor, Agent: agentAddr, Dir: dir, Client: &rpc{URLs: []string{srv.URL}}}
+	got, err := Register(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Already || got.AgentID != agentID || got.Address != agentAddr || sent != 2 {
+		t.Fatalf("%+v sent %d", got, sent)
+	}
+	raw, err := os.ReadFile(dir + "/erc8004.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), secret) || strings.Contains(strings.Join(bodies, "\n"), secret) {
+		t.Fatal("sponsor key was logged")
+	}
+	again, err := Register(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Already || again.AgentID != agentID || sent != 2 {
+		t.Fatalf("again %+v sent %d", again, sent)
 	}
 }
 

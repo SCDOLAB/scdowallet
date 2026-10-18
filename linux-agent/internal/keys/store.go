@@ -84,6 +84,33 @@ func (s Store) Create(purpose string, passphrase []byte) (*ledger.Key, error) {
 	return k, nil
 }
 
+// OpenFile reads one key file that was written by this package.
+// The file must be mode 0600. The key material is not included in errors.
+func OpenFile(path string, passphrase []byte) (*ledger.Key, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("key file must be mode 0600")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer ledger.Wipe(raw)
+	var outer fileDoc
+	if err := json.Unmarshal(raw, &outer); err != nil || outer.V != fileVersion {
+		return nil, fmt.Errorf("key file is not a scdo-agent key")
+	}
+	switch outer.Purpose {
+	case purposeLedger, purposeWallet, "sponsor":
+	default:
+		return nil, fmt.Errorf("key file is not a scdo-agent key")
+	}
+	return openDoc(outer, passphrase)
+}
+
 // Open reads a key. passphrase is required when the file is encrypted.
 func (s Store) Open(purpose string, passphrase []byte) (*ledger.Key, error) {
 	path, err := s.Path(purpose)
@@ -98,16 +125,20 @@ func (s Store) Open(purpose string, passphrase []byte) (*ledger.Key, error) {
 	if err := json.Unmarshal(raw, &outer); err != nil || outer.V != fileVersion || outer.Purpose != purpose {
 		return nil, fmt.Errorf("key file is not a scdo-agent key")
 	}
+	return openDoc(outer, passphrase)
+}
+
+func openDoc(outer fileDoc, passphrase []byte) (*ledger.Key, error) {
 	if outer.KDF == kdfScrypt {
 		if len(passphrase) == 0 {
 			return nil, ErrPassphrase
 		}
-		plain, err := decrypt(outer, purpose, passphrase)
+		plain, err := decrypt(outer, outer.Purpose, passphrase)
 		if err != nil {
 			return nil, ErrPassphrase
 		}
 		defer ledger.Wipe(plain)
-		return keyFromPlain(plain, purpose)
+		return keyFromPlain(plain, outer.Purpose)
 	}
 	if outer.KDF != kdfNone && outer.KDF != "" {
 		return nil, fmt.Errorf("key file is not a scdo-agent key")

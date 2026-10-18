@@ -12,7 +12,7 @@ func TestSpendLogCountsPendingInTheWindow(t *testing.T) {
 	doc := Doc{SpentAtomic: "0"}
 	if err := withSpendLock(dir, func(log *spendLog) error {
 		seedHistory(doc, log, now)
-		reservePending(log, "a", "10000", now)
+		reservePending(log, "a", "10000", "", now)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestSpendLogCountsPendingInTheWindow(t *testing.T) {
 	}
 	if err := withSpendLock(dir, func(log *spendLog) error {
 		noteSettled(log, "a", "0x"+bytesHex(32), now)
-		reservePending(log, "b", "6000", now)
+		reservePending(log, "b", "6000", "", now)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

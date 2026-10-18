@@ -51,7 +51,13 @@ type Result struct {
 // Options registers one ledger identity.
 type Options struct {
 	Key *ledger.Key
-	Dir string
+	// Sponsor pays gas on Shard0. It calls register(uri), then safeTransferFrom
+	// of the new agent id to the agent address. The sponsor key is never logged.
+	Sponsor *ledger.Key
+	// Agent is the ledger address that must own the identity. Used when Sponsor
+	// is set and Key is not opened.
+	Agent string
+	Dir   string
 	// RPCs overrides the public Shard0 endpoints. Client is set by tests.
 	RPCs   []string
 	Client *rpc
@@ -77,7 +83,12 @@ func AgentURI(address string) string {
 
 // Register sends register(agentURI, metadata) when this address has no identity yet.
 // A second call finds the existing agent id and does not send a transaction.
+// When Sponsor is set, the sponsor calls register(uri) and transfers the new id
+// to the agent. Shard0 only. Base mainnet is not used.
 func Register(ctx context.Context, opt Options) (Result, error) {
+	if opt.Sponsor != nil {
+		return registerSponsored(ctx, opt)
+	}
 	if opt.Key == nil {
 		return Result{}, fmt.Errorf("agent key is missing")
 	}
@@ -160,6 +171,160 @@ func packRegister(uri, address string) ([]byte, error) {
 	}})
 }
 
+// packRegisterURI packs register(string). The ABI parser names the overload register0.
+func packRegisterURI(uri string) ([]byte, error) {
+	return registryABI.Pack("register0", uri)
+}
+
+func packTransfer(from, to string, id *big.Int) ([]byte, error) {
+	return registryABI.Pack("safeTransferFrom", common.HexToAddress(from), common.HexToAddress(to), id)
+}
+
+func registerSponsored(ctx context.Context, opt Options) (Result, error) {
+	if opt.Sponsor == nil {
+		return Result{}, fmt.Errorf("sponsor key is missing")
+	}
+	address := strings.TrimSpace(opt.Agent)
+	if opt.Key != nil {
+		address = opt.Key.Address()
+	}
+	if address == "" {
+		return Result{}, fmt.Errorf("agent address is missing")
+	}
+	uri := AgentURI(address)
+	out := Result{URI: uri, Address: address, Registry: IdentityRegistry}
+	node, err := opt.client().dial(ctx)
+	if err != nil {
+		return out, err
+	}
+	if id, tx, ok := localMatch(ctx, node, opt.Dir, address); ok {
+		out.AgentID, out.Tx, out.Already = id, tx, true
+		return out, nil
+	}
+	sponsor := opt.Sponsor.Address()
+	if id, owner, tx, ok := findForAgent(ctx, node, address, sponsor); ok {
+		out.Tx = tx
+		if strings.EqualFold(owner, address) {
+			out.AgentID = id.String()
+			out.Already = true
+			if err := saveRecord(opt.Dir, out); err != nil {
+				return out, err
+			}
+			return out, nil
+		}
+		if !strings.EqualFold(owner, sponsor) {
+			return out, fmt.Errorf("ERC-8004 identity %s is owned by %s", id.String(), owner)
+		}
+		return transferIdentity(ctx, opt, node, out, id)
+	}
+	bal, err := node.balance(ctx, sponsor)
+	if err != nil {
+		return out, err
+	}
+	if bal.Sign() == 0 {
+		return out, fmt.Errorf("Shard0 account %s has no SCDO for gas", sponsor)
+	}
+	data, err := packRegisterURI(uri)
+	if err != nil {
+		return out, err
+	}
+	raw, err := sign(ctx, opt.Sponsor, node, data)
+	if err != nil {
+		return out, err
+	}
+	hash, err := node.send(ctx, raw)
+	if err != nil {
+		return out, err
+	}
+	out.Tx = hash
+	rec, err := node.wait(ctx, hash)
+	if err != nil {
+		return out, err
+	}
+	if !rec.ok {
+		return out, fmt.Errorf("registration transaction reverted")
+	}
+	id, ok := rec.agentID()
+	if !ok {
+		return out, fmt.Errorf("registration receipt has no agent id")
+	}
+	return transferIdentity(ctx, opt, node, out, id)
+}
+
+func transferIdentity(ctx context.Context, opt Options, node *rpc, out Result, id *big.Int) (Result, error) {
+	owner, err := node.ownerOf(ctx, id)
+	if err != nil {
+		return out, err
+	}
+	if strings.EqualFold(owner, out.Address) {
+		out.AgentID = id.String()
+		out.Already = true
+		if err := saveRecord(opt.Dir, out); err != nil {
+			return out, err
+		}
+		return out, nil
+	}
+	if !strings.EqualFold(owner, opt.Sponsor.Address()) {
+		return out, fmt.Errorf("ERC-8004 identity %s is owned by %s", id.String(), owner)
+	}
+	data, err := packTransfer(opt.Sponsor.Address(), out.Address, id)
+	if err != nil {
+		return out, err
+	}
+	raw, err := sign(ctx, opt.Sponsor, node, data)
+	if err != nil {
+		return out, err
+	}
+	hash, err := node.send(ctx, raw)
+	if err != nil {
+		return out, err
+	}
+	out.Tx = hash
+	rec, err := node.wait(ctx, hash)
+	if err != nil {
+		return out, err
+	}
+	if !rec.ok {
+		return out, fmt.Errorf("transfer transaction reverted")
+	}
+	owner, err = node.ownerOf(ctx, id)
+	if err != nil {
+		return out, err
+	}
+	if !strings.EqualFold(owner, out.Address) {
+		return out, fmt.Errorf("ERC-8004 identity %s is owned by %s", id.String(), owner)
+	}
+	out.AgentID = id.String()
+	if err := saveRecord(opt.Dir, out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func findForAgent(ctx context.Context, node *rpc, agentAddr, sponsorAddr string) (*big.Int, string, string, bool) {
+	want := AgentURI(agentAddr)
+	for _, who := range []string{agentAddr, sponsorAddr} {
+		if strings.TrimSpace(who) == "" {
+			continue
+		}
+		found, err := node.registrations(ctx, who)
+		if err != nil {
+			continue
+		}
+		for _, item := range found {
+			if item.uri != want {
+				continue
+			}
+			owner, err := node.ownerOf(ctx, item.id)
+			if err != nil {
+				continue
+			}
+			return item.id, owner, item.tx, true
+		}
+	}
+	return nil, "", "", false
+}
+
 func sign(ctx context.Context, key *ledger.Key, node *rpc, data []byte) ([]byte, error) {
 	nonce, err := node.nonce(ctx, key.Address())
 	if err != nil {
@@ -203,8 +368,9 @@ func wipePriv(priv *ecdsa.PrivateKey) {
 }
 
 type foundReg struct {
-	id *big.Int
-	tx string
+	id  *big.Int
+	tx  string
+	uri string
 }
 
 func choose(ctx context.Context, node *rpc, address string, found []foundReg) foundReg {

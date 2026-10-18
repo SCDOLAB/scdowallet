@@ -33,6 +33,10 @@ func TestSepoliaUSDCAuthorizationVector(t *testing.T) {
 }
 
 func authorizationDigest(from, to, value, validAfter, validBefore, nonce string) ([]byte, error) {
+	return domainDigest("USDC", "2", 84532, SepoliaUSDC, from, to, value, validAfter, validBefore, nonce)
+}
+
+func domainDigest(name, version string, chainID int64, verifying, from, to, value, validAfter, validBefore, nonce string) ([]byte, error) {
 	typed := apitypes.TypedData{
 		Types: apitypes.Types{
 			"EIP712Domain": {
@@ -52,10 +56,10 @@ func authorizationDigest(from, to, value, validAfter, validBefore, nonce string)
 		},
 		PrimaryType: "TransferWithAuthorization",
 		Domain: apitypes.TypedDataDomain{
-			Name:              "USDC",
-			Version:           "2",
-			ChainId:           math.NewHexOrDecimal256(84532),
-			VerifyingContract: SepoliaUSDC,
+			Name:              name,
+			Version:           version,
+			ChainId:           math.NewHexOrDecimal256(chainID),
+			VerifyingContract: verifying,
 		},
 		Message: apitypes.TypedDataMessage{
 			"from":        from,

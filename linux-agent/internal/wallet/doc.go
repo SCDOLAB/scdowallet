@@ -7,6 +7,7 @@ package wallet
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -17,36 +18,57 @@ import (
 )
 
 const (
-	// NetworkSepolia is the only network this agent pays.
+	// NetworkSepolia is Base Sepolia. Base mainnet (eip155:8453) stays off.
 	NetworkSepolia = "eip155:84532"
+	// NetworkShard0 is SCDO Shard0.
+	NetworkShard0 = "eip155:5680"
 	// SepoliaUSDC is the Base Sepolia USDC contract the x402 SDK already lists
-	// with EIP-712 name "USDC" and version "2".
+	// with EIP-712 name "USDC" and version "2". It has 6 decimals.
 	SepoliaUSDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-	fileName    = "wallet.json"
+	// WSCDO is Wrapped SCDO (WSCDO3009) on Shard0. eip712Domain() and the
+	// published x402 manifest both use name "Wrapped SCDO" and version "1".
+	// The contract has 18 decimals. The facilitator is WSCDOFacilitatorURL.
+	WSCDO        = "0xea830FF078410C22342a39e8985E439dc0035cf5"
+	WSCDOName    = "Wrapped SCDO"
+	WSCDOVersion = "1"
+	// AssetUSDC and AssetWSCDO are the wallet create --asset names.
+	AssetUSDC     = "usdc"
+	AssetWSCDO    = "wscdo"
+	USDCDecimals  = 6
+	WSCDODecimals = 18
+	fileName      = "wallet.json"
 )
 
 // Doc is the public wallet record. It never contains a private key.
 type Doc struct {
-	V            int      `json:"v"`
-	BotID        string   `json:"botId"`
-	Network      string   `json:"network"`
-	Address      string   `json:"address"`
-	MaxAtomic    string   `json:"maxAtomic"`
-	DailyAtomic  string   `json:"dailyAtomic"`
-	SpentAtomic  string   `json:"spentAtomic"`
-	SpentDay     string   `json:"spentDay,omitempty"`
-	Payees       []string `json:"payees,omitempty"`
-	Domains      []string `json:"domains,omitempty"`
-	EmailCommit  string   `json:"emailCommit,omitempty"`
-	BindHash     string   `json:"bindHash,omitempty"`
-	LimitsCommit string   `json:"limitsCommit,omitempty"`
-	Killed       bool     `json:"killed"`
-	LastTx       string   `json:"lastTx,omitempty"`
-	LastPayTo    string   `json:"lastPayTo,omitempty"`
-	LastAmount   string   `json:"lastAmount,omitempty"`
-	LastResource string   `json:"lastResource,omitempty"`
-	LastNonce    string   `json:"lastNonce,omitempty"`
-	LastRecorded bool     `json:"lastRecorded,omitempty"`
+	V       int    `json:"v"`
+	BotID   string `json:"botId"`
+	Network string `json:"network"`
+	Address string `json:"address"`
+	// Asset is the serve-paywall asset: usdc or wscdo. Empty means usdc.
+	Asset       string `json:"asset,omitempty"`
+	MaxAtomic   string `json:"maxAtomic"`
+	DailyAtomic string `json:"dailyAtomic"`
+	SpentAtomic string `json:"spentAtomic"`
+	SpentDay    string `json:"spentDay,omitempty"`
+	// WSCDO caps are 18-decimal atomic units. Empty means the default of 1 and 5.
+	MaxWSCDO      string   `json:"maxWscdo,omitempty"`
+	DailyWSCDO    string   `json:"dailyWscdo,omitempty"`
+	SpentWSCDO    string   `json:"spentWscdo,omitempty"`
+	SpentWSCDODay string   `json:"spentWscdoDay,omitempty"`
+	LastNetwork   string   `json:"lastNetwork,omitempty"`
+	Payees        []string `json:"payees,omitempty"`
+	Domains       []string `json:"domains,omitempty"`
+	EmailCommit   string   `json:"emailCommit,omitempty"`
+	BindHash      string   `json:"bindHash,omitempty"`
+	LimitsCommit  string   `json:"limitsCommit,omitempty"`
+	Killed        bool     `json:"killed"`
+	LastTx        string   `json:"lastTx,omitempty"`
+	LastPayTo     string   `json:"lastPayTo,omitempty"`
+	LastAmount    string   `json:"lastAmount,omitempty"`
+	LastResource  string   `json:"lastResource,omitempty"`
+	LastNonce     string   `json:"lastNonce,omitempty"`
+	LastRecorded  bool     `json:"lastRecorded,omitempty"`
 }
 
 func docPath(dir string) string {
@@ -101,7 +123,18 @@ func (d Doc) spentToday(now time.Time) *big.Int {
 	return n
 }
 
-func (d *Doc) addSpent(amount string, now time.Time) {
+func (d *Doc) addSpent(network, amount string, now time.Time) {
+	if network == NetworkShard0 {
+		day := now.UTC().Format("2006-01-02")
+		spent := d.spentWSCDO(now)
+		add, ok := new(big.Int).SetString(amount, 10)
+		if !ok {
+			return
+		}
+		d.SpentWSCDODay = day
+		d.SpentWSCDO = spent.Add(spent, add).String()
+		return
+	}
 	day := now.UTC().Format("2006-01-02")
 	spent := d.spentToday(now)
 	add, ok := new(big.Int).SetString(amount, 10)
@@ -110,6 +143,44 @@ func (d *Doc) addSpent(amount string, now time.Time) {
 	}
 	d.SpentDay = day
 	d.SpentAtomic = spent.Add(spent, add).String()
+}
+
+func (d Doc) spentWSCDO(now time.Time) *big.Int {
+	day := now.UTC().Format("2006-01-02")
+	if d.SpentWSCDODay != day {
+		return big.NewInt(0)
+	}
+	n, ok := new(big.Int).SetString(d.SpentWSCDO, 10)
+	if !ok {
+		return big.NewInt(0)
+	}
+	return n
+}
+
+func (d Doc) maxWSCDO() string {
+	if strings.TrimSpace(d.MaxWSCDO) == "" {
+		return "1000000000000000000"
+	}
+	return d.MaxWSCDO
+}
+
+func (d Doc) dailyWSCDO() string {
+	if strings.TrimSpace(d.DailyWSCDO) == "" {
+		return "5000000000000000000"
+	}
+	return d.DailyWSCDO
+}
+
+// NormalizeAsset accepts usdc, wscdo, and the manifest symbol wscdo3009.
+func NormalizeAsset(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", AssetUSDC:
+		return AssetUSDC, nil
+	case AssetWSCDO, "wscdo3009":
+		return AssetWSCDO, nil
+	default:
+		return "", fmt.Errorf("asset")
+	}
 }
 
 // LayoutDir is the agent directory that holds wallet.json.

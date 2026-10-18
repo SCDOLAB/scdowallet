@@ -127,9 +127,15 @@ scdo-agent wallet unfreeze --bot rack-a
 
 `--bot` is the agent name when `--name` is omitted. `create` POSTs `/bind` with the wallet address, an EIP-191 wallet proof signed by that wallet, and `emailCommit`. The commitment is `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`. The 32-byte salt is `email.salt` in the agent directory, mode `0600`. The normalised address is kept in `email.txt`, mode `0600`, so `bind-email` can send it. Neither file is printed.
 
-`pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `create --max`, `create --daily`, `limit`, and `pay --max` are decimal USDC, stored as 6-decimal atomic units. `1` is `1000000`. Defaults are 1 USDC per payment and 5 USDC across a rolling 24 hours. An empty payee list allows any Base Sepolia payee. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
+`pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `create --max`, `create --daily`, `limit`, and `pay --max` are decimal amounts of the selected asset. USDC uses 6 decimals, so `1` is `1000000`. WSCDO uses 18 decimals, so `1` is `1000000000000000000`. Defaults are 1 per payment and 5 across a rolling 24 hours, in that asset's own units. The two caps are not mixed. An empty payee list allows any payee on the enabled networks. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
 
-`serve-paywall` is a receiver for one path. It uses the official SDK middleware and `https://x402.org/facilitator`. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response) for `eip155:84532`. The ledger books that credit as tUSDC.
+```sh
+scdo-agent wallet create --bot rack-a --asset wscdo --max 1 --daily 5
+```
+
+`--asset wscdo` turns on Wrapped SCDO (`WSCDO3009`) at `0xea830FF078410C22342a39e8985E439dc0035cf5` on Shard0 (`eip155:5680`). The built-in allowlist entry is that contract. It is EIP-3009. The EIP-712 domain name is `Wrapped SCDO` and the version is `1`. `pay` and `serve-paywall` both accept it. A requirement whose domain name or version does not match is refused before a signature. Base mainnet (`eip155:8453`) stays off. Native SCDO is not a payment asset in this build.
+
+`serve-paywall` is a receiver for one path. It uses the official SDK middleware. A USDC wallet uses `https://x402.org/facilitator`. A WSCDO wallet uses `https://scdo.com.au/x402-scdo`, and the settle endpoint is `https://scdo.com.au/x402-scdo/settle`. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response). USDC income is `eip155:84532`. WSCDO income is `eip155:5680` and the asset must be that Wrapped SCDO contract. The ledger books a Sepolia credit as tUSDC.
 
 `export` writes a Web3 Secret Storage v3 keystore (scrypt n=2^18) under a new passphrase from `--export-passphrase-file`. A raw key is printed only on a terminal, and only with `--raw` plus `--i-understand-raw-key` (or `--i-understand-this-reveals-the-key`). Each completed export appends a line to `export-audit.log` without the key.
 
@@ -156,10 +162,13 @@ Shard0 (`eip155:5680`) runs the plain ERC-8004 registries from [erc-8004/erc-800
 SCDO's main agent is agent id 2. A ledger agent registers with agent URI `https://scdo.com.au/agent-ledger/api/agents/<0x>/registration.json` and metadata key `scdoLedgerAgent` set to that ledger address.
 
 ```sh
-scdo-agent erc8004 register --name rack-a
+scdo-agent erc8004 register --name rack-a --self
+scdo-agent erc8004 register --name rack-a --sponsor-key-file /etc/scdo-agent/sponsor.key
 ```
 
-The transaction is on Shard0. Gas is native SCDO. The key is not printed. If that address already has an identity, the command does not send another transaction.
+The identity registry is an ERC-721. Pass exactly one of `--self` or `--sponsor-key-file`. `--self` sends the registration from the agent key when that account has native SCDO for gas. `--sponsor-key-file` reads a mode `0600` key file. The key is not embedded in the program and is not printed. The sponsor calls `register(uri)`, then `safeTransferFrom` of the new agent id to the agent address. That is one or two transactions, both from the sponsor. The command checks that `ownerOf` is the agent before it saves `erc8004.json`. Shard0 only. Base mainnet is not used. If the agent already owns that identity, the command does not send another transaction.
+
+An encrypted sponsor file needs `--sponsor-passphrase-file`. That passphrase is not the agent passphrase.
 
 Automatic registration on process start stays off unless `/etc/scdo-agent/config.toml` contains:
 
@@ -325,9 +334,15 @@ scdo-agent wallet unfreeze --bot rack-a
 
 未加 `--name` 時，`--bot` 就是代理名稱。`create` 會把錢包地址、該錢包的 EIP-191 證明，以及 `emailCommit` 送到 `/bind`。承諾是 `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`。32 位元組的鹽在代理目錄的 `email.salt`，權限 `0600`。正規化後的信箱存在 `email.txt`，權限 `0600`，供 `bind-email` 送出。這兩個檔案都不會印出。
 
-`pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`create --max`、`create --daily`、`limit` 與 `pay --max` 的金額是十進位 USDC，存成 6 位小數的最小單位。`1` 是 `1000000`。預設單筆 1 USDC，滾動 24 小時 5 USDC。收款清單是空的時候，允許任何 Base Sepolia 收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
+`pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`create --max`、`create --daily`、`limit` 與 `pay --max` 的金額是所選資產的十進位數量。USDC 是 6 位小數，`1` 是 `1000000`。WSCDO 是 18 位小數，`1` 是 `1000000000000000000`。預設單筆 1、滾動 24 小時 5，單位屬於該資產自己。兩組上限不會混用。收款清單是空的時候，允許已啟用網路上的任何收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
 
-`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層與 `https://x402.org/facilitator`。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`（`eip155:84532`）。帳本把這筆貸方記成 tUSDC。
+```sh
+scdo-agent wallet create --bot rack-a --asset wscdo --max 1 --daily 5
+```
+
+`--asset wscdo` 啟用 Shard0（`eip155:5680`）上的 Wrapped SCDO（`WSCDO3009`），合約 `0xea830FF078410C22342a39e8985E439dc0035cf5`。內建允許清單就是這個合約。它使用 EIP-3009。EIP-712 領域名稱是 `Wrapped SCDO`，版本是 `1`。`pay` 與 `serve-paywall` 都接受它。領域名稱或版本不符的要求會在簽章前被拒絕。Base 主網（`eip155:8453`）保持關閉。這個版本不以原生 SCDO 作為付款資產。
+
+`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層。USDC 錢包使用 `https://x402.org/facilitator`。WSCDO 錢包使用 `https://scdo.com.au/x402-scdo`，結算端點是 `https://scdo.com.au/x402-scdo/settle`。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`。USDC 的入帳網路是 `eip155:84532`。WSCDO 的入帳網路是 `eip155:5680`，資產必須是這個 Wrapped SCDO 合約。帳本把 Sepolia 的貸方記成 tUSDC。
 
 `export` 以新的通行詞（來自 `--export-passphrase-file`）寫出 Web3 Secret Storage v3 金鑰庫（scrypt n=2^18）。原始金鑰只在終端機上印出，而且必須加上 `--raw` 與 `--i-understand-raw-key`（或 `--i-understand-this-reveals-the-key`）。每次完成的匯出都會在 `export-audit.log` 附加一行，裡面沒有金鑰。
 
@@ -354,10 +369,13 @@ Shard0（`eip155:5680`）上的 ERC-8004 登記冊是 [erc-8004/erc-8004-contrac
 SCDO 的主要代理是代理編號 2。帳本代理的 URI 是 `https://scdo.com.au/agent-ledger/api/agents/<0x>/registration.json`，鏈上中繼資料鍵 `scdoLedgerAgent` 的值是該帳本地址。
 
 ```sh
-scdo-agent erc8004 register --name rack-a
+scdo-agent erc8004 register --name rack-a --self
+scdo-agent erc8004 register --name rack-a --sponsor-key-file /etc/scdo-agent/sponsor.key
 ```
 
-交易在 Shard0。手續費使用原生 SCDO。金鑰不會印出。這個地址若已經有身份，就不會再送出交易。
+身份登記冊是 ERC-721。`--self` 與 `--sponsor-key-file` 必須正好指定一個。`--self` 在代理帳戶有原生 SCDO 可付手續費時，由代理金鑰送出登記。`--sponsor-key-file` 讀取權限 `0600` 的金鑰檔。金鑰不會內嵌在程式裡，也不會印出。贊助者呼叫 `register(uri)`，再以 `safeTransferFrom` 把新的代理編號轉給代理地址。這是一筆或兩筆交易，都由贊助者送出。命令在寫入 `erc8004.json` 之前會檢查 `ownerOf` 就是該代理。只在 Shard0。Base 主網不會使用。代理若已經擁有這個身份，就不會再送出交易。
+
+加密的贊助者金鑰需要 `--sponsor-passphrase-file`。那份通行詞不是代理的通行詞。
 
 除非 `/etc/scdo-agent/config.toml` 寫了下面這一行，否則行程啟動時不會自動登記：
 
