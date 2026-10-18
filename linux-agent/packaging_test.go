@@ -83,9 +83,51 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, needle := range []string{"-trimpath", "-buildid=", "SOURCE_DATE_EPOCH", "gzip -n", "--mtime", "systemd-user"} {
+	for _, needle := range []string{
+		"CGO_ENABLED=0",
+		"-trimpath",
+		"-buildvcs=false",
+		"-buildid=",
+		"-B none",
+		"SOURCE_DATE_EPOCH",
+		"--sort=name",
+		"gzip -n",
+		"--mtime",
+		"systemd-user",
+		"GOFLAGS=-mod=readonly",
+		"go mod verify",
+		"toolchain.sum",
+		"GOMODCACHE=/tmp/scdo-gopath/pkg/mod",
+		"GOTOOLCHAIN=local",
+	} {
 		if !strings.Contains(string(pkg), needle) {
 			t.Fatal("package.sh missing " + needle)
+		}
+	}
+	if strings.Contains(string(pkg), "gobuildid") {
+		t.Fatal("package.sh must not derive a GNU build id")
+	}
+	sums, err := os.ReadFile("scripts/toolchain.sum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{
+		"cb2396bae64183cdccf81a9a6df0aea3bce9511fc21469fb89a0c00470088073",
+		"8df5750ffc0281017fb6070fba450f5d22b600a02081dceef47966ffaf36a3af",
+		"go1.24.1.linux-amd64.tar.gz",
+		"go1.24.1.linux-arm64.tar.gz",
+	} {
+		if !strings.Contains(string(sums), needle) {
+			t.Fatal("toolchain.sum missing " + needle)
+		}
+	}
+	wf, err := os.ReadFile("../.github/workflows/linux-agent.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{"ubuntu-24.04", "ubuntu-22.04", "diff -u", "scdo-agent-linux"} {
+		if !strings.Contains(string(wf), needle) {
+			t.Fatal("workflow missing " + needle)
 		}
 	}
 	for _, needle := range []string{

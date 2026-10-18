@@ -233,7 +233,7 @@ English is the default. 華語 is `--lang zh`, or any `LANG` / `LC_ALL` value th
 
 ## Build
 
-Go 1.24 or newer. `CGO_ENABLED=0` produces a static binary.
+Go 1.24.1, checked against `scripts/toolchain.sum`. `package.sh` downloads that tarball itself.
 
 ```sh
 cd linux-agent
@@ -241,7 +241,7 @@ go test ./...
 sh scripts/package.sh
 ```
 
-`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build uses `-trimpath`, a fixed `-buildid`, and `SOURCE_DATE_EPOCH`, and the archives pin mtimes, so a second build produces the same SHA-256. GitHub Actions (`.github/workflows/linux-agent.yml`) runs the tests and uploads those files as the `scdo-agent-linux` artifact. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
+`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build sets `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags '-s -w -buildid='` with the version string from `internal/buildinfo`. `GOFLAGS=-mod=readonly` is set after `go mod verify`. `GOROOT` and `GOMODCACHE` are fixed paths, because an assembly include otherwise records the home directory. `SOURCE_DATE_EPOCH` pins tar and deb mtimes, and tar members are sorted by name. GitHub Actions (`.github/workflows/linux-agent.yml`) builds that script on `ubuntu-24.04` and `ubuntu-22.04` and fails if the SHA-256 files differ. The published hashes are the `scdo-agent-linux` artifact from that job. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
 
 ## 華語
 
@@ -427,3 +427,7 @@ sudo sh linux-agent/scripts/rig-hook.sh
 ### 語言
 
 預設英文。華語使用 `--lang zh`，或 `LANG` / `LC_ALL` 以 `zh` 開頭。
+
+### 建置
+
+`scripts/package.sh` 核對 Go 1.24.1 官方壓縮檔的 sha256，再用 `CGO_ENABLED=0`、`-trimpath`、空的 `-buildid`、`SOURCE_DATE_EPOCH` 與排序後的檔案順序打包。模組快取路徑是固定的。GitHub Actions 在 `ubuntu-24.04` 與 `ubuntu-22.04` 各建置一次，SHA-256 不同就失敗。對外公布的雜湊是該 `scdo-agent-linux` 成品。
