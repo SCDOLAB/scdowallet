@@ -142,3 +142,53 @@ html.mac-native .sw.on { background: var(--mn-accent); } html.mac-native .sw.on:
 html.mac-native .setsec h3 { font-size: 13px; font-weight: 600; color: var(--mn-text2); text-transform: none; }
 html.mac-native .back-home-row .back-home, html.mac-native .link.back-home { color: var(--mn-accent); font-size: 13px; font-weight: 500; }
 html.mac-native .shell-set .toggle { margin-top: 10px; }
+
+/* ---------- round 2: dark appearance (tokens; component twins are in mac-native-dark.css) ---------- */
+@media (prefers-color-scheme: dark) {
+  html.mac-native {
+    --mn-accent: #2f9a4c; --mn-accent-hover: #37ab57; --mn-accent-soft: rgba(63,185,80,.16);
+    --mn-text: #f5f5f7; --mn-text2: #a1a1a6; --mn-text3: #8e8e93;
+    --mn-bg: #1e1e1f; --mn-surface: #2a2a2c; --mn-line: rgba(255,255,255,.1); --mn-line2: rgba(255,255,255,.06);
+    --mn-ctl: #3a3a3c; --mn-ctl-line: rgba(255,255,255,.14);
+    color-scheme: dark;
+  }
+  html.mac-native body { color: var(--mn-text); }
+  html.mac-native .side-nav { background: rgba(38,38,42,.62); }
+  html.mac-native .nav-item:hover { background: rgba(255,255,255,.06); }
+  html.mac-native .nav-item.on, html.mac-native .nav-item.on:hover { background: rgba(255,255,255,.12); }
+  html.mac-native .nav-item::before { background: #4cc46b; }
+  html.mac-native .site-bar .site-link:hover, html.mac-native .site-bar .site-fold > summary:hover { background: rgba(255,255,255,.08); }
+  html.mac-native .lang-switch { background: rgba(255,255,255,.08); }
+  html.mac-native .lang-opt.on { background: #636366; color: #fff; box-shadow: none; }
+  html.mac-native .btn.sec:hover, html.mac-native .btn.ghost:hover, html.mac-native .shell-actions .shell-act:not(:first-child):hover, html.mac-native .shell-act.sec:hover { background: #48484a; }
+  html.mac-native .home-backup-banner, html.mac-native .home-backup-legacy { background: rgba(255,214,10,.12); color: #ffd60a; }
+  html.mac-native .home-backup-x { color: #ffd60a; }
+  html.mac-native .sw { background: rgba(255,255,255,.18); }
+  html.mac-native .card, html.mac-native .shell-fold, html.mac-native .empty-wallet, html.mac-native .ext-payout, html.mac-native .agent-card, html.mac-native .bal-hero, html.mac-native .mine-panel { box-shadow: none; }
+  html.mac-native .agent-presence.online, html.mac-native .mine-glance.on, html.mac-native .shell-mine-page .mh-status.on, html.mac-native .back-home { color: #4cc46b; }
+  html.mac-native input.inp, html.mac-native select.inp { background: var(--mn-ctl); color: var(--mn-text); }
+  html.mac-native .modal { background: var(--mn-surface); color: var(--mn-text); }
+  html.mac-native .bootsplash { background: var(--mn-bg); }
+  html.mac-native [style*="color:#1c1c1e"], html.mac-native [style*="color:#1b1d33"], html.mac-native [style*="color: #1c1c1e"] { color: var(--mn-text) !important; }
+  html.mac-native [style*="background:#fff"], html.mac-native [style*="background: #fff"] { background: var(--mn-surface) !important; }
+}
+
+/* ---------- round 2: Settings in the System Settings style (grouped inset rows, controls on the right) ---------- */
+html.mac-native .shell-set #setHost { display: flex; flex-direction: column; gap: 18px; }
+html.mac-native .shell-set .set-open { background: var(--mn-surface); border: .5px solid var(--mn-line); border-radius: 10px; padding: 0 14px; }
+html.mac-native .shell-set #setLang { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+html.mac-native .shell-set #setLang > .lbl { font-size: 13px; color: var(--mn-text); }
+html.mac-native .shell-set #setLang .row { gap: 0; padding: 2px; border-radius: 7px; background: rgba(0,0,0,.07); }
+html.mac-native .shell-set #setLang .btn { height: 22px; border: 0; border-radius: 5px; box-shadow: none; background: transparent; color: var(--mn-text); font-size: 12px; padding: 0 12px; }
+html.mac-native .shell-set #setLang .btn.pri { background: #fff; color: var(--mn-text); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.06); }
+html.mac-native .shell-set .toggle { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; margin: 0; padding: 8px 0; font-size: 13px; text-align: left; border-top: .5px solid var(--mn-line); }
+html.mac-native .shell-set .set-open > .toggle:first-child, html.mac-native .shell-set #setGuard > .lbl:first-child + .toggle { border-top: 0; }
+html.mac-native .shell-set .toggle + .lbl { margin: -6px 0 0; padding: 0 0 9px; font-size: 11.5px; color: var(--mn-text2); max-width: 88%; }
+html.mac-native .shell-set #setGuard > .lbl:first-child { padding: 10px 0 2px; font-size: 11.5px; }
+html.mac-native .shell-set #setAdvanced { margin-top: 0; }
+html.mac-native .shell-set #setAdvanced > .set-open { border: 0; padding: 0; background: transparent; }
+html.mac-native .shell-set #setAdvanced > :not(summary) { margin-left: 14px; margin-right: 14px; }
+@media (prefers-color-scheme: dark) {
+  html.mac-native .shell-set #setLang .row { background: rgba(255,255,255,.08); }
+  html.mac-native .shell-set #setLang .btn.pri { background: #636366; color: #fff; box-shadow: none; }
+}
