@@ -20,19 +20,26 @@ type BatchOptions struct {
 	Now        func() time.Time
 }
 
+// BatchConfirmed is a booked operator batch.
+type BatchConfirmed struct {
+	ledger.Result
+	MerkleRoot string
+	Receipt    string
+}
+
 // ConfirmBatch POSTs /operator/batch. The merkle root is the sorted-pair
 // keccak of each bot's bind hash, in the order given. An odd node is carried up.
-func ConfirmBatch(ctx context.Context, opt BatchOptions) (ledger.Result, error) {
+func ConfirmBatch(ctx context.Context, opt BatchOptions) (BatchConfirmed, error) {
 	if len(opt.Bots) == 0 || len(opt.Bots) > 1000 {
-		return ledger.Result{}, fmt.Errorf("agents")
+		return BatchConfirmed{}, fmt.Errorf("agents")
 	}
 	lay, err := agent.Open(opt.Root, opt.Name)
 	if err != nil {
-		return ledger.Result{}, err
+		return BatchConfirmed{}, err
 	}
 	agentKey, err := lay.OpenKey(opt.Passphrase)
 	if err != nil {
-		return ledger.Result{}, err
+		return BatchConfirmed{}, err
 	}
 	defer wipeKey(agentKey)
 	agents := make([]any, 0, len(opt.Bots))
@@ -41,14 +48,14 @@ func ConfirmBatch(ctx context.Context, opt BatchOptions) (ledger.Result, error) 
 	for _, bot := range opt.Bots {
 		child, err := agent.Open(opt.Root, bot)
 		if err != nil {
-			return ledger.Result{}, err
+			return BatchConfirmed{}, err
 		}
 		doc, err := loadDoc(child.Dir)
 		if err != nil {
-			return ledger.Result{}, err
+			return BatchConfirmed{}, err
 		}
 		if doc.BindHash == "" {
-			return ledger.Result{}, fmt.Errorf("bind hash")
+			return BatchConfirmed{}, fmt.Errorf("bind hash")
 		}
 		addr := child.Meta.Address
 		if _, ok := seen[strings.ToLower(addr)]; ok {
@@ -60,7 +67,7 @@ func ConfirmBatch(ctx context.Context, opt BatchOptions) (ledger.Result, error) 
 	}
 	root, err := ledger.MerkleRoot(leaves)
 	if err != nil {
-		return ledger.Result{}, err
+		return BatchConfirmed{}, err
 	}
 	now := time.Now()
 	if opt.Now != nil {
@@ -72,24 +79,35 @@ func ConfirmBatch(ctx context.Context, opt BatchOptions) (ledger.Result, error) 
 	}
 	seq, err := lay.NextSeq()
 	if err != nil {
-		return ledger.Result{}, err
+		return BatchConfirmed{}, err
 	}
 	env, _, err := ledger.Sign(agentKey, "batch", seq, map[string]any{
 		"agents":     agents,
 		"merkleRoot": root,
 	}, now.UnixMilli())
 	if err != nil {
-		return ledger.Result{}, err
+		return BatchConfirmed{}, err
 	}
 	res, err := (&ledger.Client{URLs: urls, Agent: "scdo-agent"}).Post(ctx, "batch", env)
 	if err != nil || !res.OK {
 		if res.Error != "" {
-			return res, fmt.Errorf("%s", res.Error)
+			return BatchConfirmed{Result: res, MerkleRoot: root}, fmt.Errorf("%s", res.Error)
 		}
 		if err != nil {
-			return res, err
+			return BatchConfirmed{Result: res, MerkleRoot: root}, err
 		}
-		return res, fmt.Errorf("ledger")
+		return BatchConfirmed{Result: res, MerkleRoot: root}, fmt.Errorf("ledger")
 	}
-	return res, nil
+	if echoed, _ := res.Body["merkleRoot"].(string); echoed != "" && !strings.EqualFold(echoed, root) {
+		return BatchConfirmed{Result: res, MerkleRoot: root}, fmt.Errorf("merkle root")
+	}
+	receipt := res.Body
+	if receipt == nil {
+		receipt = map[string]any{"ok": true}
+	}
+	text, err := ledger.Canonical(receipt)
+	if err != nil {
+		return BatchConfirmed{Result: res, MerkleRoot: root}, err
+	}
+	return BatchConfirmed{Result: res, MerkleRoot: root, Receipt: text}, nil
 }

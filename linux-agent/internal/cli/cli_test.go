@@ -151,7 +151,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.5.3") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.5.4") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
 	}
 	for _, args := range [][]string{{"--version"}, {"-v"}, {"--lang", "zh", "--version"}} {
@@ -160,7 +160,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		if code := Main(args, &out, &errb); code != 0 {
 			t.Fatalf("%v code %d %s", args, code, errb.String())
 		}
-		if !strings.Contains(out.String(), "0.5.3") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
+		if !strings.Contains(out.String(), "0.5.4") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
 			t.Fatalf("%v %s", args, out.String())
 		}
 	}

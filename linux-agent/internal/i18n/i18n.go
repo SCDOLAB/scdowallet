@@ -69,7 +69,7 @@ Commands:
   status    Show the agent address and ledger online state
   list      List agent identities on this machine
   logs      Show how to read the service log
-  upgrade-now  Check the signed feed, swap the binary, and reconcile adapters
+  upgrade-now  Check the signed feed and swap the binary. It does not create agents
   wallet    Create a bot wallet, set limits, or export the keystore
   pay       Pay an HTTP 402 with Base Sepolia USDC
   serve-paywall  Receive a payment through the testnet facilitator
@@ -118,6 +118,8 @@ upgrade-now:
   canonical JSON with the signature removed.
   A failed health check restores the previous binary. Key files are copied
   into the backup and are not deleted.
+  upgrade-now does not create agents. A graphics adapter or an x-account row
+  with no agent only prints a hint. Create that agent with init.
 
 User install (no root):
   sh install.sh --user
@@ -128,7 +130,7 @@ User install (no root):
 
 wallet:
   scdo-agent wallet create --bot ID [--name NAME] [--email ADDR]
-      [--passphrase-file PATH] [--ledger URL]
+      [--max USDC] [--daily USDC] [--passphrase-file PATH] [--ledger URL]
   scdo-agent wallet show --bot ID
   scdo-agent wallet limit --bot ID [--per-payment USDC] [--daily USDC]
       [--allow-domain HOST] [--allow-payto 0xADDR]
@@ -145,6 +147,8 @@ wallet:
   --bot is the agent name when --name is omitted. An email is stored only as a
   salted commitment. The salt stays in the agent directory and is sent only to
   /bind/email/start, never printed.
+  --max and --daily on create are decimal USDC. They are stored as 6-decimal
+  atomic units, the same units as wallet limit.
   Payments use the open-source x402 SDK. Only Base Sepolia USDC is enabled.
   Limits are checked before signing. A policy refusal exits with status 3.
   An empty payee or domain list allows any Base Sepolia payee or host.
@@ -166,8 +170,9 @@ operator:
   scdo-agent operator batch --name OPERATOR --bot BOT [--bot BOT]
 
   OPERATOR is the local agent whose address those bots named on bind.
-  The command signs /operator/batch. The merkle root is the bind hash of
-  each bot, in the order given. One bot's hash is the root by itself.
+  The command signs /operator/batch and prints the merkleRoot and the ledger
+  receipt. The merkle root is the bind hash of each bot, in the order given.
+  One bot's hash is the root by itself.
 
 Data directory: /var/lib/scdo-agent/<name>/
 One systemd instance per agent: scdo-agent@<name>.service.
@@ -246,6 +251,8 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"erc8004Already":     "ERC-8004 identity %s is already registered.",
 	"needBatch":          "Set --name for the operator and --bot for each bot.",
 	"batchReady":         "Operator batch sent for %d bot(s).",
+	"batchRoot":          "merkleRoot: %s",
+	"batchReceipt":       "Ledger receipt: %s",
 	"needRoot":           "upgrade-now needs root for a system install. Use --user after install.sh --user, or --dry-run to check the feed without replacing the binary.",
 	"otherMode":          "Agent %s is already active in the other install mode. It was not started.",
 	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",
@@ -273,7 +280,7 @@ var zh = map[string]string{
   status    顯示代理地址與帳本上的在線狀態
   list      列出這台機器上的代理
   logs      顯示如何查看服務紀錄
-  upgrade-now  檢查簽章後的發布檔，替換執行檔，並核對顯示卡與帳號對應
+  upgrade-now  檢查簽章後的發布檔並替換執行檔。它不會建立代理
   wallet    建立機器人錢包、設定限額，或匯出金鑰庫
   pay       對 HTTP 402 支付 Base Sepolia USDC
   serve-paywall  以測試網 facilitator 收取付款
@@ -318,6 +325,7 @@ upgrade-now：
   systemctl --user 的單元。發布檔會讀取 files.<處理器> 的 url、sha256、size，
   沒有時改用最外層欄位。簽章仍是 Ed25519，對象是拿掉 signature 之後的規範 JSON。
   健康檢查失敗時會還原先前的執行檔。金鑰會複製進備份，不會被刪除。
+  upgrade-now 不會建立代理。沒有代理的顯示卡或 X 帳號列只會印出提示。請用 init 建立該代理。
 
 使用者安裝（不需要 root）：
   sh install.sh --user
@@ -328,7 +336,7 @@ upgrade-now：
 
 wallet：
   scdo-agent wallet create --bot 編號 [--name 名稱] [--email 信箱]
-      [--passphrase-file 路徑] [--ledger URL]
+      [--max USDC] [--daily USDC] [--passphrase-file 路徑] [--ledger URL]
   scdo-agent wallet show --bot 編號
   scdo-agent wallet limit --bot 編號 [--per-payment USDC] [--daily USDC]
       [--allow-domain 網域] [--allow-payto 0x地址]
@@ -344,6 +352,7 @@ wallet：
 
   未加 --name 時，--bot 就是代理名稱。電子郵件只存成加鹽的承諾。鹽留在代理目錄，
   只在 /bind/email/start 送出，不會印出。
+  create 的 --max 與 --daily 是十進位 USDC，存成 6 位小數的最小單位，與 wallet limit 相同。
   付款使用開源的 x402 SDK。只啟用 Base Sepolia 的 USDC。
   簽章前會先檢查限額。政策拒絕時結束代碼為 3。
   收款地址或網域清單是空的時候，允許任何 Base Sepolia 收款地址或主機。
@@ -363,7 +372,7 @@ operator：
   scdo-agent operator batch --name 操作者 --bot 機器人 [--bot 機器人]
 
   操作者是本機上的代理，這些機器人在綁定時寫了它的地址。
-  這個命令簽署 /operator/batch。Merkle 根是每個機器人的綁定雜湊，順序與參數相同。
+  這個命令簽署 /operator/batch，並印出 merkleRoot 與帳本回執。根是每個機器人的綁定雜湊，順序與參數相同。
   只有一個機器人時，根就是那個雜湊。
 
 資料目錄：/var/lib/scdo-agent/<名稱>/
@@ -443,6 +452,8 @@ operator：
 	"erc8004Already":     "ERC-8004 身份 %s 已經登記。",
 	"needBatch":          "請用 --name 指定操作者，並用 --bot 指定每個機器人。",
 	"batchReady":         "已送出 %d 個機器人的操作者批次。",
+	"batchRoot":          "merkleRoot：%s",
+	"batchReceipt":       "帳本回執：%s",
 	"needRoot":           "系統安裝的 upgrade-now 需要 root。若已用 install.sh --user，請加 --user。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
 	"otherMode":          "代理 %s 已在另一種安裝模式中啟用，因此沒有啟動。",
 	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",

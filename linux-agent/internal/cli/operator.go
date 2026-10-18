@@ -54,6 +54,10 @@ func cmdOperator(b i18n.Bundle, root string, args []string, stdout, stderr io.Wr
 		return 1
 	}
 	fmt.Fprintf(stdout, b.T("batchReady")+"\n", len(bots))
+	fmt.Fprintf(stdout, b.T("batchRoot")+"\n", res.MerkleRoot)
+	if res.Receipt != "" {
+		fmt.Fprintf(stdout, b.T("batchReceipt")+"\n", res.Receipt)
+	}
 	if res.Ledger != "" {
 		fmt.Fprintf(stdout, b.T("walletLedger")+"\n", res.Ledger)
 	}

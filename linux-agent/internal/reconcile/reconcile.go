@@ -1,5 +1,5 @@
-// Package reconcile creates missing bookkeeping agents for graphics adapters
-// and for rows in x-accounts.toml. Existing keys are never replaced.
+// Package reconcile records graphics adapters and x-account rows.
+// It never creates an agent. Existing keys are never replaced.
 package reconcile
 
 import (
@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
@@ -37,14 +36,8 @@ type Options struct {
 	Log        func(string)
 }
 
-// OnNewAgent runs after a new identity is created.
-// The default writes keys/wallet.key with the same keystore format and does not
-// open a payment account. A later wallet command can replace this function.
-var OnNewAgent = func(dir string, passphrase []byte) error {
-	return agent.EnsureWallet(dir, passphrase)
-}
-
 // Run detects adapters and applies x-accounts.toml.
+// It never creates an agent. A missing graphics adapter or x-account row is a hint.
 func Run(ctx context.Context, opt Options) error {
 	if opt.Log == nil {
 		opt.Log = func(string) {}
@@ -77,7 +70,6 @@ func accounts(opt Options) error {
 	if err != nil {
 		return err
 	}
-	payout, _ := findPayout(opt.DataRoot, opt.ConfigDir)
 	for _, row := range rows {
 		if _, err := agent.Open(opt.DataRoot, row.Agent); err == nil {
 			if err := touchBinding(opt.DataRoot, row); err != nil {
@@ -85,27 +77,7 @@ func accounts(opt Options) error {
 			}
 			continue
 		}
-		if payout == "" {
-			return fmt.Errorf("payout is required in %s before creating %s", filepath.Join(opt.ConfigDir, "config.toml"), row.Agent)
-		}
-		lay, err := agent.Create(opt.DataRoot, row.Agent, payout, row.Handle, agent.RoleLight, "", "x-account", opt.Passphrase)
-		if err != nil {
-			return err
-		}
-		lay.Meta.XHandle = row.Handle
-		lay.Meta.XUserID = row.UserID
-		if err := lay.SaveMeta(); err != nil {
-			return err
-		}
-		if err := OnNewAgent(lay.Dir, opt.Passphrase); err != nil {
-			return err
-		}
-		opt.Log("created agent " + row.Agent)
-		if opt.System != nil {
-			if err := opt.System.EnableNow(row.Agent); err != nil {
-				opt.Log("enable " + row.Agent + ": " + err.Error())
-			}
-		}
+		opt.Log("hint: x-account " + row.Agent + " has no agent. upgrade-now does not create agents. Run: scdo-agent init --name " + row.Agent + " --payout 0x<address>")
 	}
 	return nil
 }
@@ -132,29 +104,13 @@ func adapters(ctx context.Context, opt Options) error {
 		return nil
 	}
 	seen := map[string]gpu.Card{}
-	payout, _ := findPayout(opt.DataRoot, opt.ConfigDir)
 	for _, c := range cards {
 		name := fmt.Sprintf("gpu%d", c.Index)
 		seen[name] = c
 		lay, err := agent.Open(opt.DataRoot, name)
 		if err != nil {
-			if payout == "" {
-				opt.Log("skip " + name + ": no payout configured")
-				continue
-			}
-			lay, err = agent.Create(opt.DataRoot, name, payout, c.Model, agent.RoleLight, "", "adapter", opt.Passphrase)
-			if err != nil {
-				return err
-			}
-			if err := OnNewAgent(lay.Dir, opt.Passphrase); err != nil {
-				return err
-			}
-			opt.Log("created " + name)
-			if opt.System != nil {
-				if err := opt.System.EnableNow(name); err != nil {
-					opt.Log("enable " + name + ": " + err.Error())
-				}
-			}
+			opt.Log("hint: graphics adapter " + name + " (" + c.Model + ") has no agent. upgrade-now does not create agents. Run: scdo-agent init --name " + name + " --payout 0x<address>")
+			continue
 		}
 		lay.Meta.GPUIndex = &c.Index
 		lay.Meta.GPUModel = c.Model
@@ -218,33 +174,4 @@ func reportGone(ctx context.Context, opt Options, lay *agent.Layout) error {
 	}
 	_, err = (&ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version}).Post(ctx, "report", env)
 	return err
-}
-
-func findPayout(root, configDir string) (string, error) {
-	if b, err := os.ReadFile(filepath.Join(configDir, "config.toml")); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			s := strings.TrimSpace(line)
-			if s == "" || strings.HasPrefix(s, "#") || !strings.HasPrefix(s, "payout") {
-				continue
-			}
-			_, val, ok := strings.Cut(s, "=")
-			if !ok {
-				continue
-			}
-			val = strings.Trim(strings.TrimSpace(val), `"`)
-			if val != "" {
-				return ledger.ChecksumAddress(val)
-			}
-		}
-	}
-	items, err := agent.List(root)
-	if err != nil {
-		return "", err
-	}
-	for _, m := range items {
-		if m.Payout != "" {
-			return m.Payout, nil
-		}
-	}
-	return "", nil
 }
