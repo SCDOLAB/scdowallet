@@ -79,6 +79,44 @@ func TestPackagingCopy(t *testing.T) {
 	if strings.Contains(string(userUnit), "User=scdo-agent") || strings.Contains(string(userUnit), "ProtectHome=") {
 		t.Fatal("user unit must not set User= or ProtectHome=")
 	}
+	for _, bad := range []string{
+		"PrivateTmp=",
+		"ProtectSystem=",
+		"ProtectKernelTunables=",
+		"ProtectKernelModules=",
+		"ProtectControlGroups=",
+		"CapabilityBoundingSet=",
+	} {
+		if strings.Contains(string(userUnit), bad) {
+			t.Fatal("user unit has sandbox option " + bad)
+		}
+	}
+	sysUnit, err := os.ReadFile("packaging/scdo-agent@.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{
+		"PrivateTmp=true",
+		"ProtectSystem=strict",
+		"ProtectHome=true",
+		"ProtectKernelTunables=true",
+		"ProtectKernelModules=true",
+		"ProtectControlGroups=true",
+	} {
+		if !strings.Contains(string(sysUnit), needle) {
+			t.Fatal("system unit missing " + needle)
+		}
+	}
+	for _, needle := range []string{
+		"is-active",
+		"218/CAPABILITIES",
+		"apparmor_restrict_unprivileged_userns",
+		"scdo-agent@install-check.service",
+	} {
+		if !strings.Contains(string(inst), needle) {
+			t.Fatal("install.sh missing " + needle)
+		}
+	}
 	pkg, err := os.ReadFile("scripts/package.sh")
 	if err != nil {
 		t.Fatal(err)

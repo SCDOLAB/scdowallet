@@ -10,12 +10,12 @@ ExecStart=%h/.local/bin/scdo-agent --data-dir %h/.local/share/scdo-agent run --n
 Environment=SCDO_AGENT_MODE=user
 Restart=on-failure
 RestartSec=10
+# A user manager cannot apply sandbox options that need a user namespace or
+# capabilities. Ubuntu sets kernel.apparmor_restrict_unprivileged_userns=1,
+# and those options then fail the unit with status=218/CAPABILITIES.
+# Kept off here: PrivateTmp, ProtectSystem, ProtectKernelTunables,
+# ProtectKernelModules, ProtectControlGroups. The system unit still sets them.
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
 LockPersonality=true
 
 [Install]

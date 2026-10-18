@@ -37,6 +37,8 @@ loginctl enable-linger "$USER"
 
 `loginctl enable-linger` keeps those user units running after logout. `upgrade-now` then replaces `~/.local/bin/scdo-agent` and restarts `scdo-agent@*` on the user bus. It does not need root, and it does not touch a system install. A name that is already enabled as a system unit is not started a second time. `scdo-agent --version` and `scdo-agent -v` print the same line as `scdo-agent version`.
 
+The user unit does not set `PrivateTmp`, `ProtectSystem`, `ProtectKernelTunables`, `ProtectKernelModules`, or `ProtectControlGroups`. Those options need a user namespace or capabilities, and recent Ubuntu blocks unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`), which makes the user manager fail the unit with `status=218/CAPABILITIES`. The system unit keeps that hardening. `install.sh --user` starts the user timer, checks that it is active, and prints that hint if a user unit does not come up.
+
 ## One agent
 
 ```sh
@@ -266,6 +268,8 @@ loginctl enable-linger "$USER"
 ```
 
 `loginctl enable-linger` 讓這些使用者單元在登出後繼續執行。`upgrade-now` 會替換 `~/.local/bin/scdo-agent`，並在使用者匯流排上重啟 `scdo-agent@*`。它不需要 root，也不會改動系統安裝。已經在系統單元裡啟用的名稱不會再啟動第二次。`scdo-agent --version` 與 `scdo-agent -v` 印出的內容和 `scdo-agent version` 相同。
+
+使用者單元不設定 `PrivateTmp`、`ProtectSystem`、`ProtectKernelTunables`、`ProtectKernelModules`、`ProtectControlGroups`。這些選項需要使用者命名空間或權限。較新的 Ubuntu 預設 `kernel.apparmor_restrict_unprivileged_userns=1`，使用者管理員會以 `status=218/CAPABILITIES` 失敗。系統單元仍保留這些限制。`install.sh --user` 會啟動使用者計時器，確認它處於執行中，若使用者單元沒有起來就印出這個提示。
 
 ### 一個代理
 
