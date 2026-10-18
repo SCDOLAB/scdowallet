@@ -26,35 +26,66 @@ func cmdERC8004(b i18n.Bundle, root string, args []string, stdout, stderr io.Wri
 	name := fs.String("name", "", "")
 	rpcFlag := fs.String("rpc", "", "")
 	passFile := fs.String("passphrase-file", "", "")
+	self := fs.Bool("self", false, "")
+	sponsorFile := fs.String("sponsor-key-file", "", "")
+	sponsorPass := fs.String("sponsor-passphrase-file", "", "")
 	if err := fs.Parse(args[1:]); err != nil || strings.TrimSpace(*name) == "" {
 		fmt.Fprintln(stderr, b.T("needName"))
 		return 2
 	}
-	return registerERC8004(b, root, *name, *rpcFlag, *passFile, stdout, stderr)
+	if *self == (strings.TrimSpace(*sponsorFile) != "") {
+		fmt.Fprintln(stderr, b.T("needERC"))
+		return 2
+	}
+	return registerERC8004(b, root, *name, *rpcFlag, *passFile, *self, *sponsorFile, *sponsorPass, stdout, stderr)
 }
 
-func registerERC8004(b i18n.Bundle, root, name, rpcFlag, passFile string, stdout, stderr io.Writer) int {
+func registerERC8004(b i18n.Bundle, root, name, rpcFlag, passFile string, self bool, sponsorFile, sponsorPassFile string, stdout, stderr io.Writer) int {
 	lay, err := agent.Open(root, name)
 	if err != nil {
 		fmt.Fprintf(stderr, b.T("notInit")+"\n", name)
 		return 1
 	}
-	pass, err := passphrase(passFile)
-	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
-		return 1
-	}
-	defer ledger.Wipe(pass)
-	key, err := lay.OpenKey(pass)
-	if err != nil {
-		if err == keys.ErrPassphrase {
-			fmt.Fprintln(stderr, b.T("passFile"))
+	var key *ledger.Key
+	var sponsor *ledger.Key
+	if self {
+		pass, err := passphrase(passFile)
+		if err != nil {
+			fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
-		fmt.Fprintln(stderr, "key file could not be read")
-		return 1
+		defer ledger.Wipe(pass)
+		key, err = lay.OpenKey(pass)
+		if err != nil {
+			if err == keys.ErrPassphrase {
+				fmt.Fprintln(stderr, b.T("passFile"))
+				return 1
+			}
+			fmt.Fprintln(stderr, "key file could not be read")
+			return 1
+		}
+		defer ledger.Wipe(key.Scalar())
+	} else {
+		var sponsorPass []byte
+		if strings.TrimSpace(sponsorPassFile) != "" {
+			sponsorPass, err = keys.ReadPassphraseFile(sponsorPassFile)
+			if err != nil {
+				fmt.Fprintln(stderr, err.Error())
+				return 1
+			}
+			defer ledger.Wipe(sponsorPass)
+		}
+		sponsor, err = keys.OpenFile(sponsorFile, sponsorPass)
+		if err != nil {
+			if err == keys.ErrPassphrase {
+				fmt.Fprintln(stderr, b.T("passFile"))
+				return 1
+			}
+			fmt.Fprintln(stderr, "sponsor key file could not be read")
+			return 1
+		}
+		defer ledger.Wipe(sponsor.Scalar())
 	}
-	defer ledger.Wipe(key.Scalar())
 	var rpcs []string
 	if strings.TrimSpace(rpcFlag) != "" {
 		one, err := erc8004.SanitizeRPC(rpcFlag)
@@ -66,7 +97,7 @@ func registerERC8004(b i18n.Bundle, root, name, rpcFlag, passFile string, stdout
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Dir: lay.Dir, RPCs: rpcs})
+	res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Sponsor: sponsor, Agent: lay.Meta.Address, Dir: lay.Dir, RPCs: rpcs})
 	if res.AgentID != "" {
 		fmt.Fprintf(stdout, b.T("erc8004ID")+"\n", res.AgentID)
 	}

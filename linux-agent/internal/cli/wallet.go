@@ -93,7 +93,18 @@ func cmdServePaywall(b i18n.Bundle, root string, args []string, stdout, stderr i
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(stdout, b.T("paywallReady")+"\n", dirName, *price, *path, *port)
+	view, err := wallet.Show(root, dirName)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	assetName := "USDC"
+	fac := wallet.FacilitatorURL
+	if view.Asset == wallet.AssetWSCDO {
+		assetName = "WSCDO"
+		fac = wallet.WSCDOFacilitatorURL
+	}
+	fmt.Fprintf(stdout, b.T("paywallReady")+"\n", dirName, *price, assetName, *path, *port, fac)
 	err = wallet.ServePaywall(ctx, wallet.PaywallOptions{
 		Root: root, Name: dirName, Price: *price, Path: *path,
 		Addr: fmt.Sprintf(":%d", *port), Passphrase: pass, LedgerURLs: urls, Log: stdout,
@@ -111,6 +122,7 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 	name := fs.String("name", "", "")
 	bot := fs.String("bot", "", "")
 	email := fs.String("email", "", "")
+	asset := fs.String("asset", "usdc", "")
 	max := fs.String("max", "", "")
 	daily := fs.String("daily", "", "")
 	payee := fs.String("payee", "", "")
@@ -145,7 +157,7 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	created, err := wallet.Create(ctx, wallet.CreateOptions{
-		Root: root, Name: dirName, BotID: botID, Email: *email, MaxAtomic: *max, Daily: *daily,
+		Root: root, Name: dirName, BotID: botID, Email: *email, Asset: *asset, MaxAtomic: *max, Daily: *daily,
 		Payees: payees, Platform: *platform, Operator: *operator,
 		Passphrase: pass, LedgerURLs: urls,
 	})
@@ -187,6 +199,9 @@ func walletShow(b i18n.Bundle, root string, args []string, stdout, stderr io.Wri
 	fmt.Fprintf(stdout, b.T("walletBot")+"\n", view.Doc.Address)
 	fmt.Fprintf(stdout, b.T("address")+"\n", view.Agent)
 	fmt.Fprintf(stdout, b.T("walletNetwork")+"\n", view.Doc.Network)
+	fmt.Fprintf(stdout, b.T("walletAsset")+"\n", view.Asset)
+	fmt.Fprintf(stdout, b.T("walletPerWSCDO")+"\n", view.WSCDOMaxDisplay)
+	fmt.Fprintf(stdout, b.T("walletDailyWSCDO")+"\n", view.WSCDODaily)
 	if view.Doc.EmailCommit != "" {
 		fmt.Fprintf(stdout, b.T("walletEmail")+"\n", view.Doc.EmailCommit)
 	}
@@ -217,6 +232,7 @@ func walletLimit(b i18n.Bundle, root string, args []string, stdout, stderr io.Wr
 	fs.SetOutput(io.Discard)
 	bot := fs.String("bot", "", "")
 	name := fs.String("name", "", "")
+	asset := fs.String("asset", "usdc", "")
 	per := fs.String("per-payment", "", "")
 	daily := fs.String("daily", "", "")
 	var domains stringList
@@ -237,7 +253,7 @@ func walletLimit(b i18n.Bundle, root string, args []string, stdout, stderr io.Wr
 		return 2
 	}
 	doc, err := wallet.ApplyLimit(root, dirName, wallet.LimitUpdate{
-		PerPayment: *per, Daily: *daily, Payees: payees, Domains: domains,
+		Asset: *asset, PerPayment: *per, Daily: *daily, Payees: payees, Domains: domains,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -278,15 +294,7 @@ func walletPay(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 		fmt.Fprintln(stderr, b.T("needURL"))
 		return 2
 	}
-	atomic := ""
-	if strings.TrimSpace(*max) != "" {
-		atomic, err = wallet.ParseUSDC(*max)
-		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
-			return 2
-		}
-	}
-	return finishPay(b, root, dirName, fs.Arg(0), atomic, *dry, *ledgerURL, *passFile, stdout, stderr, false)
+	return finishPay(b, root, dirName, fs.Arg(0), strings.TrimSpace(*max), *dry, *ledgerURL, *passFile, stdout, stderr, false)
 }
 
 func walletRecord(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {

@@ -2,4 +2,4 @@
 package buildinfo
 
 // Version is the bookkeeping agent release. Override with -ldflags at pack time.
-var Version = "0.5.4"
+var Version = "0.5.5"

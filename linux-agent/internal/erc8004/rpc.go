@@ -64,6 +64,7 @@ type rpcResponse struct {
 
 type logJSON struct {
 	Topics          []string `json:"topics"`
+	Data            string   `json:"data"`
 	TransactionHash string   `json:"transactionHash"`
 }
 
@@ -142,9 +143,22 @@ func (c *rpc) registrations(ctx context.Context, address string) ([]foundReg, er
 		if id.Sign() == 0 {
 			continue
 		}
-		out = append(out, foundReg{id: id, tx: lg.TransactionHash})
+		out = append(out, foundReg{id: id, tx: lg.TransactionHash, uri: uriFromLog(lg.Data)})
 	}
 	return out, nil
+}
+
+func uriFromLog(data string) string {
+	b := common.FromHex(data)
+	if len(b) < 64 {
+		return ""
+	}
+	decoded, err := registryABI.Events["Registered"].Inputs.NonIndexed().Unpack(b)
+	if err != nil || len(decoded) == 0 {
+		return ""
+	}
+	s, _ := decoded[0].(string)
+	return s
 }
 
 func (c *rpc) ownerOf(ctx context.Context, id *big.Int) (string, error) {

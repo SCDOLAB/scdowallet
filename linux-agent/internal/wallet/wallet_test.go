@@ -190,13 +190,151 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 	}
 }
 
+func TestCreateWSCDOCapsAndPay(t *testing.T) {
+	var spendBody map[string]any
+	ledgerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var env map[string]any
+		_ = json.Unmarshal(b, &env)
+		payload, _ := env["payload"].(map[string]any)
+		if r.URL.Path == "/ledger/spend" {
+			spendBody, _ = payload["body"].(map[string]any)
+		}
+		if strings.HasPrefix(r.URL.Path, "/agents/") {
+			w.Header().Set("content-type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"summary":{"frozen":null}}`))
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ledgerSrv.Close()
+
+	root := t.TempDir()
+	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(context.Background(), CreateOptions{
+		Root: root, Name: "bot", BotID: "bot", Asset: "wscdo3009", MaxAtomic: "1", Daily: "5",
+		LedgerURLs: []string{ledgerSrv.URL},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := Export(root, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Asset != AssetWSCDO || doc.MaxWSCDO != "1000000000000000000" || doc.DailyWSCDO != "5000000000000000000" {
+		t.Fatalf("asset %s max %s daily %s", doc.Asset, doc.MaxWSCDO, doc.DailyWSCDO)
+	}
+	if FormatDecimal(doc.MaxWSCDO, WSCDODecimals) != "1.000000000000000000" || FormatDecimal(doc.DailyWSCDO, WSCDODecimals) != "5.000000000000000000" {
+		t.Fatal(FormatDecimal(doc.MaxWSCDO, WSCDODecimals))
+	}
+	now := time.Unix(1_800_000_000, 0)
+	wscdo := Decision{
+		Network: NetworkShard0, Asset: WSCDO, Name: WSCDOName, Version: WSCDOVersion,
+		PayTo: "0xE3837fE309618AE075DbeF0A20735c0615a308E6", Amount: "5000000000000000",
+		Resource: "https://example.com/paid", Now: now,
+	}
+	if err := Allow(doc, wscdo); err != nil {
+		t.Fatal(err)
+	}
+	wscdo.Amount = "1000000000000000001"
+	if err := Allow(doc, wscdo); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
+	wscdo.Amount = "5000000000000000"
+	wscdo.Name = "Unknown Token"
+	if err := Allow(doc, wscdo); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
+	if err := Allow(doc, Decision{Network: "eip155:8453", Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "1", Now: now}); err == nil || !strings.Contains(err.Error(), "eip155:84532") {
+		t.Fatal(err)
+	}
+	if err := Allow(doc, Decision{Network: NetworkSepolia, Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "10000", Now: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	tx := "0x" + strings.Repeat("cd", 32)
+	cap := &payCapture{}
+	paySrv := paymentServerOffer(t, tx, paymentOffer{
+		network: NetworkShard0, asset: WSCDO, amount: "5000000000000000",
+		name: WSCDOName, version: WSCDOVersion, timeout: 60,
+	}, cap)
+	defer paySrv.Close()
+	paid, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: paySrv.URL, LedgerURLs: []string{ledgerSrv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paid.Tx != tx || paid.Basescan != "" || paid.Amount != "5000000000000000" {
+		t.Fatalf("%+v", paid)
+	}
+	if spendBody["network"] != NetworkShard0 || spendBody["amount"] != "5000000000000000" {
+		t.Fatalf("spend %#v", spendBody)
+	}
+	if cap.network != NetworkShard0 || cap.value != "5000000000000000" {
+		t.Fatalf("authorization %+v", cap)
+	}
+	addr, err := recoverSig(cap.digest, cap.signature)
+	if err != nil || !strings.EqualFold(addr.Hex(), paid.Wallet) {
+		t.Fatalf("signature %v %s", err, addr)
+	}
+	saved, _, err := Export(root, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.SpentWSCDO != "5000000000000000" || saved.SpentAtomic != "0" {
+		t.Fatalf("spent wscdo %s usdc %s", saved.SpentWSCDO, saved.SpentAtomic)
+	}
+	if err := Allow(saved, Decision{Network: NetworkSepolia, Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "10000", Now: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	wrong := paymentServerOffer(t, tx, paymentOffer{
+		network: NetworkShard0, asset: WSCDO, amount: "5000000000000000",
+		name: "Unknown Token", version: "1", timeout: 60,
+	}, nil)
+	defer wrong.Close()
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: wrong.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
+	mainnet := paymentServer(t, tx, "eip155:8453", "10000", 60, nil)
+	defer mainnet.Close()
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "eip155:84532") {
+		t.Fatal(err)
+	}
+	over := paymentServerOffer(t, tx, paymentOffer{
+		network: NetworkShard0, asset: WSCDO, amount: "1500000000000000000",
+		name: WSCDOName, version: WSCDOVersion, timeout: 60,
+	}, nil)
+	defer over.Close()
+	if _, err := Pay(context.Background(), PayOptions{
+		Root: root, Name: "bot", URL: over.URL, MaxAtomic: "2", LedgerURLs: []string{ledgerSrv.URL},
+	}); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
+}
+
 type payCapture struct {
 	sig, xpay, from, to, value, network, signature string
 	validBefore                                    int64
 	digest                                         []byte
 }
 
+type paymentOffer struct {
+	network, asset, amount, name, version string
+	timeout                               int
+}
+
 func paymentServer(t *testing.T, tx, network, amount string, timeout int, cap *payCapture) *httptest.Server {
+	t.Helper()
+	return paymentServerOffer(t, tx, paymentOffer{
+		network: network, asset: SepoliaUSDC, amount: amount,
+		name: "USDC", version: "2", timeout: timeout,
+	}, cap)
+}
+
+func paymentServerOffer(t *testing.T, tx string, offer paymentOffer, cap *payCapture) *httptest.Server {
 	t.Helper()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -205,10 +343,10 @@ func paymentServer(t *testing.T, tx, network, amount string, timeout int, cap *p
 				"x402Version": 2,
 				"resource":    map[string]any{"url": srv.URL, "mimeType": "application/json"},
 				"accepts": []any{map[string]any{
-					"scheme": "exact", "network": network, "amount": amount,
-					"asset": SepoliaUSDC, "payTo": "0xE3837fE309618AE075DbeF0A20735c0615a308E6",
-					"maxTimeoutSeconds": timeout,
-					"extra":             map[string]any{"name": "USDC", "version": "2"},
+					"scheme": "exact", "network": offer.network, "amount": offer.amount,
+					"asset": offer.asset, "payTo": "0xE3837fE309618AE075DbeF0A20735c0615a308E6",
+					"maxTimeoutSeconds": offer.timeout,
+					"extra":             map[string]any{"name": offer.name, "version": offer.version},
 				}},
 			})
 			w.Header().Set("Payment-Required", base64.StdEncoding.EncodeToString(raw))
@@ -222,7 +360,7 @@ func paymentServer(t *testing.T, tx, network, amount string, timeout int, cap *p
 			notePayment(t, cap)
 		}
 		raw, _ := json.Marshal(map[string]any{
-			"success": true, "transaction": tx, "network": network, "payer": "0x0000000000000000000000000000000000000001",
+			"success": true, "transaction": tx, "network": offer.network, "payer": "0x0000000000000000000000000000000000000001",
 		})
 		w.Header().Set("Payment-Response", base64.StdEncoding.EncodeToString(raw))
 		w.Header().Set("content-type", "application/json")
@@ -263,7 +401,12 @@ func notePayment(t *testing.T, cap *payCapture) {
 	cap.network = payload.Accepted.Network
 	cap.signature = payload.Payload.Signature
 	cap.validBefore, _ = strconvParse(auth.ValidBefore)
-	digest, err := authorizationDigest(auth.From, auth.To, auth.Value, auth.ValidAfter, auth.ValidBefore, auth.Nonce)
+	var digest []byte
+	if payload.Accepted.Network == NetworkShard0 {
+		digest, err = domainDigest(WSCDOName, WSCDOVersion, 5680, WSCDO, auth.From, auth.To, auth.Value, auth.ValidAfter, auth.ValidBefore, auth.Nonce)
+	} else {
+		digest, err = authorizationDigest(auth.From, auth.To, auth.Value, auth.ValidAfter, auth.ValidBefore, auth.Nonce)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

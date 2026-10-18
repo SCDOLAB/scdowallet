@@ -18,6 +18,11 @@ import (
 	evmserver "github.com/x402-foundation/x402/go/v2/mechanisms/evm/exact/server"
 )
 
+// WSCDOFacilitatorURL is the Shard0 EIP-3009 facilitator from
+// https://scdo.com.au/.well-known/x402.json (id scdo-wscdo3009).
+// The client appends /supported, /verify, and /settle.
+const WSCDOFacilitatorURL = "https://scdo.com.au/x402-scdo"
+
 // FacilitatorURL is the public Base Sepolia facilitator. It needs no API key.
 const FacilitatorURL = x402http.DefaultFacilitatorURL
 
@@ -36,7 +41,8 @@ type PaywallOptions struct {
 }
 
 // Paywall builds an HTTP handler that answers 402 for Path and settles through
-// the x402.org testnet facilitator. Only eip155:84532 is registered.
+// the facilitator for the wallet asset. USDC uses eip155:84532. WSCDO uses
+// eip155:5680. Base mainnet stays off.
 func Paywall(opt PaywallOptions) (http.Handler, error) {
 	lay, doc, agentKey, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
 	if err != nil {
@@ -63,9 +69,23 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	if !strings.HasPrefix(price, "$") {
 		price = "$" + price
 	}
+	asset, err := NormalizeAsset(doc.Asset)
+	if err != nil {
+		return nil, err
+	}
+	network := x402.Network(NetworkSepolia)
+	facilitatorURL := FacilitatorURL
+	var extra map[string]any
+	scheme := evmserver.NewExactEvmScheme()
+	if asset == AssetWSCDO {
+		network = x402.Network(NetworkShard0)
+		facilitatorURL = WSCDOFacilitatorURL
+		extra = map[string]any{"name": WSCDOName, "version": WSCDOVersion}
+		scheme.RegisterMoneyParser(wscdoMoney)
+	}
 	facilitator := opt.Facilitator
 	if facilitator == nil {
-		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{URL: FacilitatorURL})
+		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{URL: facilitatorURL})
 	}
 	routes := x402http.RoutesConfig{
 		"GET " + path: {
@@ -73,8 +93,9 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 				Scheme:            "exact",
 				PayTo:             payTo,
 				Price:             price,
-				Network:           x402.Network(NetworkSepolia),
+				Network:           network,
 				MaxTimeoutSeconds: 120,
+				Extra:             extra,
 			}},
 			Description: "SCDO bot answer",
 			MimeType:    "application/json",
@@ -86,19 +107,19 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	log := opt.Log
 	mw := nethttp.PaymentMiddlewareFromConfig(routes,
 		nethttp.WithFacilitatorClient(facilitator),
-		nethttp.WithScheme(x402.Network(NetworkSepolia), evmserver.NewExactEvmScheme()),
+		nethttp.WithScheme(network, scheme),
 		nethttp.WithSyncFacilitatorOnStart(true),
 		nethttp.WithSettlementHandler(func(_ http.ResponseWriter, r *http.Request, resp *x402.SettleResponse) {
 			if resp == nil || !resp.Success {
 				return
 			}
-			network := string(resp.Network)
-			if network == "" {
-				network = NetworkSepolia
+			paidNet := string(resp.Network)
+			if paidNet == "" {
+				paidNet = string(network)
 			}
 			rec := receipt{
 				At:       stamp(now),
-				Network:  network,
+				Network:  paidNet,
 				Tx:       resp.Transaction,
 				Payer:    resp.Payer,
 				Amount:   resp.Amount,
@@ -135,7 +156,8 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	return mw(next), nil
 }
 
-// ServePaywall listens until ctx is cancelled. The facilitator is https://x402.org/facilitator.
+// ServePaywall listens until ctx is cancelled. USDC uses FacilitatorURL.
+// WSCDO uses WSCDOFacilitatorURL.
 func ServePaywall(ctx context.Context, opt PaywallOptions) error {
 	h, err := Paywall(opt)
 	if err != nil {
@@ -193,6 +215,21 @@ func appendReceipt(dir string, rec receipt) error {
 	}
 	_, err = f.Write(append(b, '\n'))
 	return err
+}
+
+func wscdoMoney(amount string, network x402.Network) (*x402.AssetAmount, error) {
+	if string(network) != NetworkShard0 {
+		return nil, nil
+	}
+	atomic, err := x402.ConvertToTokenAmount(amount, WSCDODecimals)
+	if err != nil {
+		return nil, err
+	}
+	return &x402.AssetAmount{
+		Asset:  WSCDO,
+		Amount: atomic,
+		Extra:  map[string]any{"name": WSCDOName, "version": WSCDOVersion},
+	}, nil
 }
 
 func stamp(now func() time.Time) string {

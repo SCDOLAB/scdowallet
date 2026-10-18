@@ -16,11 +16,24 @@ const registryABIJSON = `[
       {"name":"metadataValue","type":"bytes"}
     ]}
   ],"outputs":[{"name":"agentId","type":"uint256"}]},
+  {"type":"function","name":"register","stateMutability":"nonpayable","inputs":[
+    {"name":"agentURI","type":"string"}
+  ],"outputs":[{"name":"agentId","type":"uint256"}]},
+  {"type":"function","name":"safeTransferFrom","stateMutability":"nonpayable","inputs":[
+    {"name":"from","type":"address"},
+    {"name":"to","type":"address"},
+    {"name":"tokenId","type":"uint256"}
+  ],"outputs":[]},
   {"type":"function","name":"ownerOf","stateMutability":"view","inputs":[{"name":"tokenId","type":"uint256"}],"outputs":[{"name":"","type":"address"}]},
   {"type":"function","name":"getMetadata","stateMutability":"view","inputs":[
     {"name":"agentId","type":"uint256"},
     {"name":"metadataKey","type":"string"}
-  ],"outputs":[{"name":"","type":"bytes"}]}
+  ],"outputs":[{"name":"","type":"bytes"}]},
+  {"type":"event","name":"Registered","inputs":[
+    {"name":"agentId","type":"uint256","indexed":true},
+    {"name":"agentURI","type":"string","indexed":false},
+    {"name":"owner","type":"address","indexed":true}
+  ]}
 ]`
 
 var (

@@ -28,9 +28,11 @@ import (
 
 // PayOptions pays one HTTP resource and records the settlement on the ledger.
 type PayOptions struct {
-	Root       string
-	Name       string
-	URL        string
+	Root string
+	Name string
+	URL  string
+	// MaxAtomic is a decimal cap for this one payment ("1", "0.10").
+	// It is parsed with the selected asset's decimals and can only tighten the stored cap.
 	MaxAtomic  string
 	DryRun     bool
 	Passphrase []byte
@@ -52,7 +54,8 @@ type Paid struct {
 }
 
 // Pay uses the x402 SDK to sign an EIP-3009 exact payment and retry with
-// PAYMENT-SIGNATURE. Only eip155:84532 is registered. Limits run before the signature.
+// PAYMENT-SIGNATURE. eip155:84532 (USDC) and eip155:5680 (WSCDO) are registered.
+// Limits run before the signature. Base mainnet stays off.
 func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	if opt.DryRun {
 		return Preview(ctx, opt)
@@ -68,13 +71,6 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		now = opt.Now()
 	}
 	policyDoc := doc
-	if strings.TrimSpace(opt.MaxAtomic) != "" {
-		tighter, err := tighterCap(doc.MaxAtomic, opt.MaxAtomic)
-		if err != nil {
-			return Paid{}, err
-		}
-		policyDoc.MaxAtomic = tighter
-	}
 	if doc.Killed {
 		return Paid{}, policyf("wallet kill switch is on")
 	}
@@ -94,24 +90,18 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	var policyErr error
 	var settled *x402.SettleResponse
 	client := x402.Newx402Client(
-		x402.WithSpendControls(x402.SpendControls{MaxAmountPerPayment: USDCap(policyDoc.MaxAtomic)}),
-	).Register(x402.Network(NetworkSepolia), evmclient.NewExactEvmScheme(signer, nil))
+		x402.WithSpendControls(spendControls(policyDoc)),
+	).Register(x402.Network(NetworkSepolia), evmclient.NewExactEvmScheme(signer, nil)).
+		Register(x402.Network(NetworkShard0), evmclient.NewExactEvmScheme(signer, nil))
 	client.OnBeforePaymentCreation(func(pc x402.PaymentCreationContext) (*x402.BeforePaymentCreationHookResult, error) {
 		req := pc.SelectedRequirements
-		chosen = Decision{
-			Network:  req.GetNetwork(),
-			Asset:    req.GetAsset(),
-			PayTo:    req.GetPayTo(),
-			Amount:   req.GetAmount(),
-			Resource: opt.URL,
-			Now:      now,
-		}
+		chosen = decisionFrom(req, opt.URL, now)
 		err := withSpendLock(lay.Dir, func(log *spendLog) error {
 			seedHistory(doc, log, now)
-			spent := enforcedSpent(doc, *log, now)
-			check := policyDoc
-			check.SpentAtomic = spent.String()
-			check.SpentDay = now.UTC().Format("2006-01-02")
+			check, err := spentCheck(policyDoc, *log, chosen, opt.MaxAtomic, now)
+			if err != nil {
+				return err
+			}
 			if err := Allow(check, chosen); err != nil {
 				return err
 			}
@@ -120,7 +110,7 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 				return err
 			}
 			reserveID = id
-			reservePending(log, id, chosen.Amount, now)
+			reservePending(log, id, chosen.Amount, chosen.Asset, now)
 			return nil
 		})
 		if err != nil {
@@ -193,7 +183,8 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		resource = ""
 	}
 	if doc.LastTx != settled.Transaction {
-		doc.addSpent(chosen.Amount, now)
+		doc.addSpent(chosen.Network, chosen.Amount, now)
+		doc.LastNetwork = chosen.Network
 		doc.LastTx = settled.Transaction
 		doc.LastPayTo = payTo
 		doc.LastAmount = chosen.Amount
@@ -219,7 +210,7 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 			PayTo:    payTo,
 			Amount:   chosen.Amount,
 			Resource: resource,
-			Basescan: "https://sepolia.basescan.org/tx/" + settled.Transaction,
+			Basescan: basescan(chosen.Network, settled.Transaction),
 		}, err
 	}
 	doc.LastRecorded = true
@@ -234,8 +225,76 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		Amount:   chosen.Amount,
 		Resource: resource,
 		Ledger:   ledgerURL,
-		Basescan: "https://sepolia.basescan.org/tx/" + settled.Transaction,
+		Basescan: basescan(chosen.Network, settled.Transaction),
 	}, nil
+}
+
+func spendControls(doc Doc) x402.SpendControls {
+	return x402.SpendControls{
+		MaxAmountPerPayment: USDCap(doc.MaxAtomic),
+		AllowedAssets: []x402.SpendControlAsset{{
+			Network:             x402.Network(NetworkShard0),
+			Asset:               WSCDO,
+			MaxAmountPerPayment: doc.maxWSCDO(),
+		}},
+	}
+}
+
+func decisionFrom(req x402.PaymentRequirementsView, resource string, now time.Time) Decision {
+	d := Decision{
+		Network:  req.GetNetwork(),
+		Asset:    req.GetAsset(),
+		PayTo:    req.GetPayTo(),
+		Amount:   req.GetAmount(),
+		Resource: resource,
+		Now:      now,
+	}
+	extra := req.GetExtra()
+	if extra != nil {
+		d.Name, _ = extra["name"].(string)
+		d.Version, _ = extra["version"].(string)
+	}
+	return d
+}
+
+func spentCheck(doc Doc, log spendLog, d Decision, maxDecimal string, now time.Time) (Doc, error) {
+	check := doc
+	day := now.UTC().Format("2006-01-02")
+	if d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO) {
+		check.SpentWSCDO = log.windowAsset(now, WSCDO).String()
+		check.SpentWSCDODay = day
+	} else {
+		spent := enforcedSpent(doc, log, now)
+		check.SpentAtomic = spent.String()
+		check.SpentDay = day
+	}
+	if strings.TrimSpace(maxDecimal) == "" {
+		return check, nil
+	}
+	decimals := USDCDecimals
+	if d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO) {
+		decimals = WSCDODecimals
+	}
+	atomic, err := ParseDecimal(maxDecimal, decimals)
+	if err != nil {
+		return Doc{}, err
+	}
+	if decimals == WSCDODecimals {
+		check.MaxWSCDO, err = tighterCap(check.maxWSCDO(), atomic)
+	} else {
+		check.MaxAtomic, err = tighterCap(check.MaxAtomic, atomic)
+	}
+	if err != nil {
+		return Doc{}, err
+	}
+	return check, nil
+}
+
+func basescan(network, tx string) string {
+	if network != "" && network != NetworkSepolia {
+		return ""
+	}
+	return "https://sepolia.basescan.org/tx/" + tx
 }
 
 // sepoliaOnly keeps the Base Sepolia refusal visible when the SDK drops an
@@ -342,7 +401,7 @@ func sepoliaOnly(err error) error {
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "no supported payment schemes") || strings.Contains(msg, "no client registered for network") {
-		return policyf("only Base Sepolia (eip155:84532) payments are enabled")
+		return policyf("only Base Sepolia USDC (eip155:84532) and Shard0 WSCDO (eip155:5680) are enabled")
 	}
 	return err
 }

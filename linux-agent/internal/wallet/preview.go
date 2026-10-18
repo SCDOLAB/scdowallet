@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
@@ -28,24 +27,13 @@ func Preview(ctx context.Context, opt PayOptions) (Paid, error) {
 	if opt.Now != nil {
 		now = opt.Now()
 	}
-	policyDoc := doc
-	if strings.TrimSpace(opt.MaxAtomic) != "" {
-		tighter, err := tighterCap(doc.MaxAtomic, opt.MaxAtomic)
-		if err != nil {
-			return Paid{}, err
-		}
-		policyDoc.MaxAtomic = tighter
-	}
 	if err := rejectFrozen(ctx, opt.LedgerURLs, lay.Meta.Address); err != nil {
 		return Paid{}, err
 	}
-	var spentDoc Doc
+	var spend spendLog
 	err = withSpendLock(lay.Dir, func(log *spendLog) error {
 		seedHistory(doc, log, now)
-		spent := enforcedSpent(doc, *log, now)
-		spentDoc = policyDoc
-		spentDoc.SpentAtomic = spent.String()
-		spentDoc.SpentDay = now.UTC().Format("2006-01-02")
+		spend = *log
 		return nil
 	})
 	if err != nil {
@@ -83,7 +71,11 @@ func Preview(ctx context.Context, opt PayOptions) (Paid, error) {
 	}
 	chosen.Resource = opt.URL
 	chosen.Now = now
-	if err := Allow(spentDoc, chosen); err != nil {
+	check, err := spentCheck(doc, spend, chosen, opt.MaxAtomic, now)
+	if err != nil {
+		return Paid{}, err
+	}
+	if err := Allow(check, chosen); err != nil {
 		return Paid{}, err
 	}
 	payTo := chosen.PayTo
@@ -119,7 +111,14 @@ func pickAccept(raw []byte) (Decision, error) {
 			PayTo:   strField(item, "payTo"),
 			Amount:  strField(item, "amount"),
 		}
+		if extra, ok := item["extra"].(map[string]any); ok {
+			d.Name = strField(extra, "name")
+			d.Version = strField(extra, "version")
+		}
 		if d.Network == NetworkSepolia && sameAddr(d.Asset, SepoliaUSDC) {
+			return d, nil
+		}
+		if d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO) {
 			return d, nil
 		}
 		if !found {
