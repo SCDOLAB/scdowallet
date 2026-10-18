@@ -49,7 +49,10 @@ type Service struct {
 	Log        func(string)
 	// OnStart runs once after the ledger register is accepted. Used for optional
 	// ERC-8004 registration. A failure here must not stop heartbeats.
-	OnStart    func(context.Context)
+	OnStart func(context.Context)
+	// Prove runs after a successful register and after each accepted heartbeat.
+	// It posts a GPU attestation and a challenge solution when both are real.
+	Prove      func(context.Context)
 	registered bool
 }
 
@@ -152,13 +155,23 @@ func (s *Service) Tick(ctx context.Context) bool {
 	}
 	s.reportUpdate(ctx)
 	if err := s.deliver(ctx, "heartbeat", s.heartbeatBody()); err != nil {
+		if s.registered {
+			s.prove(ctx)
+		}
 		return false
 	}
 	s.stampHeartbeat()
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
 		_ = update.MarkReported(s.Layout.Root)
 	}
+	s.prove(ctx)
 	return true
+}
+
+func (s *Service) prove(ctx context.Context) {
+	if s.Prove != nil {
+		s.Prove(ctx)
+	}
 }
 
 func (s *Service) reportUpdate(ctx context.Context) {

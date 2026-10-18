@@ -189,6 +189,49 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 	}
 }
 
+func TestIntelDoesNotCreateOrRewriteGPU(t *testing.T) {
+	root := t.TempDir()
+	cfg := t.TempDir()
+	if _, err := agent.Create(root, "gpu0", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "old", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, filepath.Join(root, "gpu0", "meta.json"))
+	key := readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))
+	intel := probe{
+		have: map[string]bool{"lspci": true},
+		out:  map[string]string{"lspci -nn": "00:02.0 VGA compatible controller [0300]: Intel Corporation UHD Graphics 610\n"},
+	}
+	host := &sys{}
+	var logs []string
+	opt := Options{DataRoot: root, ConfigDir: cfg, Probe: intel, System: host, Log: func(s string) { logs = append(logs, s) }}
+	if err := Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.stopped) != 0 || len(host.enabled) != 0 {
+		t.Fatalf("stopped %v enabled %v", host.stopped, host.enabled)
+	}
+	if !bytes.Equal(key, readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))) {
+		t.Fatal("key changed")
+	}
+	if !bytes.Equal(before, readFile(t, filepath.Join(root, "gpu0", "meta.json"))) {
+		t.Fatal("intel probe rewrote meta.json")
+	}
+	text := strings.Join(logs, "\n")
+	if strings.Contains(text, "init --name gpu0") {
+		t.Fatal(text)
+	}
+	empty := probe{have: map[string]bool{"lspci": true}, out: map[string]string{"lspci -nn": "00:00.0 Host bridge: Intel\n"}}
+	opt.Probe = empty
+	opt.Log = func(string) {}
+	if _, err := os.Stat(filepath.Join(root, "gpu0")); err != nil {
+		t.Fatal(err)
+	}
+	_ = Run(context.Background(), Options{DataRoot: t.TempDir(), ConfigDir: cfg, Probe: intel, Log: func(s string) { text = s }})
+	if strings.Contains(text, "init --name") {
+		t.Fatal(text)
+	}
+}
+
 func readFile(t *testing.T, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)

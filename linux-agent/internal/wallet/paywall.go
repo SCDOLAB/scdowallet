@@ -85,7 +85,10 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	}
 	facilitator := opt.Facilitator
 	if facilitator == nil {
-		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{URL: facilitatorURL})
+		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
+			URL:     facilitatorURL,
+			Timeout: SettleTimeout,
+		})
 	}
 	routes := x402http.RoutesConfig{
 		"GET " + path: {
@@ -108,6 +111,7 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	mw := nethttp.PaymentMiddlewareFromConfig(routes,
 		nethttp.WithFacilitatorClient(facilitator),
 		nethttp.WithScheme(network, scheme),
+		nethttp.WithTimeout(SettleTimeout),
 		nethttp.WithSyncFacilitatorOnStart(true),
 		nethttp.WithSettlementHandler(func(_ http.ResponseWriter, r *http.Request, resp *x402.SettleResponse) {
 			if resp == nil || !resp.Success {

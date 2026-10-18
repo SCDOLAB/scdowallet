@@ -17,6 +17,8 @@ Published files live at `https://scdo.com.au/downloads/wallet/linux/` (you publi
 | `scdo-agent_<version>_linux_arm64.deb` | Debian package |
 | `scdo-agent_<version>_linux_amd64.tar.gz` | Binary plus the systemd unit |
 | `scdo-agent_<version>_linux_arm64.tar.gz` | Binary plus the systemd unit |
+| `scdo-ethash-verify_<version>_linux_amd64` | Ledger ethash-light checker for amd64 |
+| `scdo-ethash-verify_<version>_linux_arm64` | Ledger ethash-light checker for arm64 |
 | `SHA256SUMS` | sha256 of the files above |
 
 ```sh
@@ -135,7 +137,7 @@ scdo-agent wallet create --bot rack-a --asset wscdo --max 1 --daily 5
 
 `--asset wscdo` turns on Wrapped SCDO (`WSCDO3009`) at `0xea830FF078410C22342a39e8985E439dc0035cf5` on Shard0 (`eip155:5680`). The built-in allowlist entry is that contract. It is EIP-3009. The EIP-712 domain name is `Wrapped SCDO` and the version is `1`. `pay` and `serve-paywall` both accept it. A requirement whose domain name or version does not match is refused before a signature. Base mainnet (`eip155:8453`) stays off. Native SCDO is not a payment asset in this build.
 
-`serve-paywall` is a receiver for one path. It uses the official SDK middleware. A USDC wallet uses `https://x402.org/facilitator`. A WSCDO wallet uses `https://scdo.com.au/x402-scdo`, and the settle endpoint is `https://scdo.com.au/x402-scdo/settle`. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response). USDC income is `eip155:84532`. WSCDO income is `eip155:5680` and the asset must be that Wrapped SCDO contract. The ledger books a Sepolia credit as tUSDC.
+`serve-paywall` is a receiver for one path. It uses the official SDK middleware. A USDC wallet uses `https://x402.org/facilitator`. A WSCDO wallet uses `https://scdo.com.au/x402-scdo`, and the settle endpoint is `https://scdo.com.au/x402-scdo/settle`. The facilitator settle wait is 120 seconds, so a Shard0 confirmation that takes longer than 30 seconds is still booked. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response). USDC income is `eip155:84532`. WSCDO income is `eip155:5680` and the asset must be that Wrapped SCDO contract. The ledger books a Sepolia credit as tUSDC.
 
 `export` writes a Web3 Secret Storage v3 keystore (scrypt n=2^18) under a new passphrase from `--export-passphrase-file`. A raw key is printed only on a terminal, and only with `--raw` plus `--i-understand-raw-key` (or `--i-understand-this-reveals-the-key`). Each completed export appends a line to `export-audit.log` without the key.
 
@@ -166,7 +168,7 @@ scdo-agent erc8004 register --name rack-a --self
 scdo-agent erc8004 register --name rack-a --sponsor-key-file /etc/scdo-agent/sponsor.key
 ```
 
-The identity registry is an ERC-721. Pass exactly one of `--self` or `--sponsor-key-file`. `--self` sends the registration from the agent key when that account has native SCDO for gas. `--sponsor-key-file` reads a mode `0600` key file. The key is not embedded in the program and is not printed. The sponsor calls `register(uri)`, then `safeTransferFrom` of the new agent id to the agent address. That is one or two transactions, both from the sponsor. The command checks that `ownerOf` is the agent before it saves `erc8004.json`. Shard0 only. Base mainnet is not used. If the agent already owns that identity, the command does not send another transaction.
+The identity registry is an ERC-721. Pass exactly one of `--self` or `--sponsor-key-file`. `--self` sends the registration from the agent key when that account has native SCDO for gas. `--sponsor-key-file` reads a mode `0600` key file. The file may be a Web3 keystore, or a raw hex scalar: 64 hex characters, an optional `0x` prefix, and an optional trailing newline. The key is not embedded in the program and is not printed. The sponsor calls `register(uri)`, then `safeTransferFrom` of the new agent id to the agent address. That is one or two transactions, both from the sponsor. The command checks that `ownerOf` is the agent before it saves `erc8004.json`. Shard0 only. Base mainnet is not used. Before a new registration, `--self` and `status` ask IdentityRegistry whether this agent address already owns an agent id (`ownerOf` and `Transfer` logs). An owned id is reported and no second identity is sent.
 
 An encrypted sponsor file needs `--sponsor-passphrase-file`. That passphrase is not the agent passphrase.
 
@@ -212,9 +214,30 @@ scdo-agent init --name gpu0 --payout 0x<address>
 sudo systemctl enable --now scdo-agent@gpu0.service
 ```
 
-An existing `gpuN` agent gets its model name and memory size refreshed in `meta.json`. No workload is started on the adapter, and `upgrade-now` does not start a new unit.
+An existing `gpuN` agent gets its model name and memory size refreshed in `meta.json` when the adapter is NVIDIA or ROCm. No workload is started on the adapter, and `upgrade-now` does not start a new unit. An adapter reported only by `lspci`, including an Intel integrated adapter, does not print a create hint. An existing directory for that name is left in place, including `meta.json`.
 
-When an existing adapter is no longer listed, that instance is stopped and an offline report is sent. The directory and the keys stay on disk. A probe that cannot run at all leaves existing adapter instances running.
+When an existing NVIDIA or ROCm adapter is no longer listed, that instance is stopped and an offline report is sent. The directory and the keys stay on disk. A probe that cannot run at all leaves existing adapter instances running.
+
+## Graphics adapter proof
+
+A NVIDIA adapter can attest to the ledger and answer an ethash challenge. Intel integrated adapters and `lspci`-only listings do not attest.
+
+After register succeeds, and again on each heartbeat, an agent named `gpuN` (or any agent whose meta records an adapter) does this when `nvidia-smi` returns a real UUID:
+
+1. `POST /gpu/attest` with a signed `gpuattest` envelope. The body is `{uuid, model, vramMiB, pciBusId}`.
+2. `GET /gpu/challenge?agent=<address>`. An open challenge is `{id, epoch, header, target, difficulty, gpuClass, deadline}`. `scdo-ethash-gpu` searches on that NVIDIA adapter. A hit is `POST /gpu/solve` with a signed `gpusolve` body `{challengeId, nonce, mixHash}`.
+
+No NVIDIA adapter, no helper, or a missed deadline sends nothing. The agent does not invent a nonce. The difficulty is whatever target the ledger sent.
+
+`scdo-ethash-gpu` is a separate binary. `solve` runs only when `nvidia-smi -L` lists an adapter and OpenCL exposes a NVIDIA GPU. Install it at `/usr/lib/scdo-agent/scdo-ethash-gpu`, beside `scdo-agent`, or point `SCDO_ETHASH_GPU` at it. It needs `libOpenCL.so.1`. It is not in the reproducible package hashes. CI publishes it as the `scdo-ethash-gpu` artifact.
+
+`scdo-ethash-verify` is the ledger checker. Set `LEDGER_GPU_CHALLENGE_VERIFY` to that binary. It holds no keys. One JSON object on stdin:
+
+```json
+{"epoch":0,"header":"0x<64 hex>","target":"0x<64 hex>","nonce":"0x<hex>","mixHash":"0x<64 hex>"}
+```
+
+stdout is `{"ok":true}` or `{"ok":false}`. The check is one ethash-light hashimoto. `nonce` is the integer (`0x` plus hex digits), not a little-endian byte string. Exit 0 means the check ran. Exit 2 is malformed input. CI publishes `scdo-ethash-verify_<version>_linux_amd64` and `scdo-ethash-verify_<version>_linux_arm64`, and their sha256 lines are in `SHA256SUMS`.
 
 ## X account file
 
@@ -251,7 +274,7 @@ go test ./...
 sh scripts/package.sh
 ```
 
-`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build sets `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags '-s -w -buildid='` with the version string from `internal/buildinfo`. `GOFLAGS=-mod=readonly` is set after `go mod verify`. `GOROOT` and `GOMODCACHE` are fixed paths, because an assembly include otherwise records the home directory. `SOURCE_DATE_EPOCH` pins archive mtimes. The tarball is written by `scripts/mktar` with the pinned Go toolchain and members sorted by name, because Ubuntu 22.04 and 24.04 tar write different ustar headers. Deb mtimes use the same epoch. GitHub Actions (`.github/workflows/linux-agent.yml`) builds that script on `ubuntu-24.04` and `ubuntu-22.04` and fails if the SHA-256 files differ. The published hashes are the `scdo-agent-linux` artifact from that job. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
+`package.sh` writes both architectures, both archives, both `scdo-ethash-verify` binaries, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build sets `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags '-s -w -buildid='` with the version string from `internal/buildinfo`. `GOFLAGS=-mod=readonly` is set after `go mod verify`. `GOROOT` and `GOMODCACHE` are fixed paths, because an assembly include otherwise records the home directory. `SOURCE_DATE_EPOCH` pins archive mtimes. The tarball is written by `scripts/mktar` with the pinned Go toolchain and members sorted by name, because Ubuntu 22.04 and 24.04 tar write different ustar headers. Deb mtimes use the same epoch. GitHub Actions (`.github/workflows/linux-agent.yml`) builds that script on `ubuntu-24.04` and `ubuntu-22.04` and fails if the SHA-256 files differ. The published hashes are the `scdo-agent-linux` artifact from that job. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host. `scripts/build-ethash-gpu.sh` builds the OpenCL helper; that job uploads `scdo-ethash-gpu` separately.
 
 ## 華語
 
@@ -261,7 +284,7 @@ sh scripts/package.sh
 
 ### 安裝
 
-發布檔案放在 `https://scdo.com.au/downloads/wallet/linux/`。`install.sh` 會判斷 x86_64 或 arm64，核對 `SHA256SUMS`，再安裝執行檔與 systemd 單元。有 `dpkg` 時用 `.deb`，否則用壓縮檔。
+發布檔案放在 `https://scdo.com.au/downloads/wallet/linux/`。`install.sh` 會判斷 x86_64 或 arm64，核對 `SHA256SUMS`，再安裝執行檔與 systemd 單元。有 `dpkg` 時用 `.deb`，否則用壓縮檔。同一份 `SHA256SUMS` 也列出 `scdo-ethash-verify_<版本>_linux_amd64` 與 `scdo-ethash-verify_<版本>_linux_arm64`。這兩個檔案是帳本用的 ethash-light 檢查程式，安裝程式不會把它們複製進代理目錄。
 
 ```sh
 curl -fsSL -o install.sh https://scdo.com.au/downloads/wallet/linux/install.sh
@@ -342,7 +365,7 @@ scdo-agent wallet create --bot rack-a --asset wscdo --max 1 --daily 5
 
 `--asset wscdo` 啟用 Shard0（`eip155:5680`）上的 Wrapped SCDO（`WSCDO3009`），合約 `0xea830FF078410C22342a39e8985E439dc0035cf5`。內建允許清單就是這個合約。它使用 EIP-3009。EIP-712 領域名稱是 `Wrapped SCDO`，版本是 `1`。`pay` 與 `serve-paywall` 都接受它。領域名稱或版本不符的要求會在簽章前被拒絕。Base 主網（`eip155:8453`）保持關閉。這個版本不以原生 SCDO 作為付款資產。
 
-`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層。USDC 錢包使用 `https://x402.org/facilitator`。WSCDO 錢包使用 `https://scdo.com.au/x402-scdo`，結算端點是 `https://scdo.com.au/x402-scdo/settle`。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`。USDC 的入帳網路是 `eip155:84532`。WSCDO 的入帳網路是 `eip155:5680`，資產必須是這個 Wrapped SCDO 合約。帳本把 Sepolia 的貸方記成 tUSDC。
+`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層。USDC 錢包使用 `https://x402.org/facilitator`。WSCDO 錢包使用 `https://scdo.com.au/x402-scdo`，結算端點是 `https://scdo.com.au/x402-scdo/settle`。結算等候時間是 120 秒，所以超過 30 秒才在 Shard0 確認的付款仍會入帳。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`。USDC 的入帳網路是 `eip155:84532`。WSCDO 的入帳網路是 `eip155:5680`，資產必須是這個 Wrapped SCDO 合約。帳本把 Sepolia 的貸方記成 tUSDC。
 
 `export` 以新的通行詞（來自 `--export-passphrase-file`）寫出 Web3 Secret Storage v3 金鑰庫（scrypt n=2^18）。原始金鑰只在終端機上印出，而且必須加上 `--raw` 與 `--i-understand-raw-key`（或 `--i-understand-this-reveals-the-key`）。每次完成的匯出都會在 `export-audit.log` 附加一行，裡面沒有金鑰。
 
@@ -373,7 +396,7 @@ scdo-agent erc8004 register --name rack-a --self
 scdo-agent erc8004 register --name rack-a --sponsor-key-file /etc/scdo-agent/sponsor.key
 ```
 
-身份登記冊是 ERC-721。`--self` 與 `--sponsor-key-file` 必須正好指定一個。`--self` 在代理帳戶有原生 SCDO 可付手續費時，由代理金鑰送出登記。`--sponsor-key-file` 讀取權限 `0600` 的金鑰檔。金鑰不會內嵌在程式裡，也不會印出。贊助者呼叫 `register(uri)`，再以 `safeTransferFrom` 把新的代理編號轉給代理地址。這是一筆或兩筆交易，都由贊助者送出。命令在寫入 `erc8004.json` 之前會檢查 `ownerOf` 就是該代理。只在 Shard0。Base 主網不會使用。代理若已經擁有這個身份，就不會再送出交易。
+身份登記冊是 ERC-721。`--self` 與 `--sponsor-key-file` 必須正好指定一個。`--self` 在代理帳戶有原生 SCDO 可付手續費時，由代理金鑰送出登記。`--sponsor-key-file` 讀取權限 `0600` 的金鑰檔。檔案可以是 Web3 金鑰庫，也可以是原始十六進位純量：64 個十六進位字元，可加 `0x`，可有結尾換行。金鑰不會內嵌在程式裡，也不會印出。贊助者呼叫 `register(uri)`，再以 `safeTransferFrom` 把新的代理編號轉給代理地址。這是一筆或兩筆交易，都由贊助者送出。命令在寫入 `erc8004.json` 之前會檢查 `ownerOf` 就是該代理。只在 Shard0。Base 主網不會使用。`--self` 與 `status` 會先向 IdentityRegistry 查這個代理地址是否已經擁有代理編號（`ownerOf` 與 `Transfer` 紀錄）。已經擁有就回報該編號，不再送出第二個身份。
 
 加密的贊助者金鑰需要 `--sponsor-passphrase-file`。那份通行詞不是代理的通行詞。
 
@@ -419,9 +442,30 @@ scdo-agent init --name gpu0 --payout 0x<地址>
 sudo systemctl enable --now scdo-agent@gpu0.service
 ```
 
-既有的 `gpuN` 代理會在 `meta.json` 更新型號與記憶體大小。不會在顯示卡上啟動工作，`upgrade-now` 也不會啟動新的單元。
+既有的 `gpuN` 代理，在顯示卡是 NVIDIA 或 ROCm 時，會在 `meta.json` 更新型號與記憶體大小。不會在顯示卡上啟動工作，`upgrade-now` 也不會啟動新的單元。只由 `lspci` 回報的顯示卡（包含 Intel 內建）不會印出建立提示。該名稱若已有目錄，目錄與 `meta.json` 會保留。
 
-既有的顯示卡若不再出現在清單上，該實例會停止，並送出離線回報。目錄與金鑰留在磁碟上。探測完全無法執行時，既有的顯示卡實例會繼續運行。
+既有的 NVIDIA 或 ROCm 顯示卡若不再出現在清單上，該實例會停止，並送出離線回報。目錄與金鑰留在磁碟上。探測完全無法執行時，既有的顯示卡實例會繼續運行。
+
+### 顯示卡證明
+
+NVIDIA 顯示卡可以向帳本證明自己，並回答 ethash 題目。Intel 內建與只由 `lspci` 列出的顯示卡不會送出證明。
+
+登記成功之後，以及每一次心跳，名稱是 `gpuN` 的代理（或 `meta` 裡記錄了顯示卡的代理）在 `nvidia-smi` 回傳真實 UUID 時會做兩件事：
+
+1. 以簽署過的 `gpuattest` 信封 `POST /gpu/attest`。內容是 `{uuid, model, vramMiB, pciBusId}`。
+2. `GET /gpu/challenge?agent=<地址>`。開放的題目是 `{id, epoch, header, target, difficulty, gpuClass, deadline}`。`scdo-ethash-gpu` 在該 NVIDIA 顯示卡上搜尋。找到後以簽署過的 `gpusolve` 內容 `{challengeId, nonce, mixHash}` `POST /gpu/solve`。
+
+沒有 NVIDIA 顯示卡、沒有這個輔助程式，或超過期限，就什麼都不送。代理不會編造 nonce。難度就是帳本送來的 target。
+
+`scdo-ethash-gpu` 是另一個執行檔。`solve` 只在 `nvidia-smi -L` 列出顯示卡，而且 OpenCL 看得到 NVIDIA GPU 時才搜尋。把它放到 `/usr/lib/scdo-agent/scdo-ethash-gpu`、與 `scdo-agent` 同一目錄，或用 `SCDO_ETHASH_GPU` 指向它。它需要 `libOpenCL.so.1`。它不在可重現套件的雜湊裡。CI 以 `scdo-ethash-gpu` 成品另外發布。
+
+`scdo-ethash-verify` 是帳本的檢查程式。把 `LEDGER_GPU_CHALLENGE_VERIFY` 設成這個執行檔。它沒有金鑰。標準輸入是一個 JSON：
+
+```json
+{"epoch":0,"header":"0x<64 hex>","target":"0x<64 hex>","nonce":"0x<hex>","mixHash":"0x<64 hex>"}
+```
+
+標準輸出是 `{"ok":true}` 或 `{"ok":false}`。檢查是一次 ethash-light hashimoto。`nonce` 是整數（`0x` 加十六進位），不是小端位元組。結束代碼 0 表示檢查已執行。結束代碼 2 是輸入格式不對。CI 發布 `scdo-ethash-verify_<版本>_linux_amd64` 與 `scdo-ethash-verify_<版本>_linux_arm64`，它們的 sha256 寫在 `SHA256SUMS`。
 
 ### X 帳號檔
 

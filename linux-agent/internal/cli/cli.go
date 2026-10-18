@@ -18,6 +18,7 @@ import (
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/erc8004"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/gpu"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
@@ -201,14 +202,27 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	client := &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version}
 	svc := &agent.Service{
 		Layout:  lay,
 		Key:     key,
 		Version: buildinfo.Version,
-		Client:  &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version},
+		Client:  client,
 		Log: func(msg string) {
 			fmt.Fprintf(stdout, "%s %s\n", time.Now().UTC().Format(time.RFC3339), agent.Scrub(msg))
 		},
+	}
+	proof := &gpu.Proof{
+		Key:    key,
+		Client: client,
+		Index:  lay.Meta.GPUIndex,
+		Log:    func(msg string) { svc.Log(msg) },
+	}
+	wantsGPU := gpu.IsAdapterName(lay.Name) || lay.Meta.GPUIndex != nil || lay.Meta.GPUModel != ""
+	if wantsGPU {
+		svc.Prove = func(ctx context.Context) {
+			proof.Run(ctx, lay.NextSeq)
+		}
 	}
 	if erc8004.Enabled(*configDir) {
 		svc.OnStart = func(ctx context.Context) {
@@ -283,6 +297,11 @@ func cmdStatus(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 	if sum.Code != "" {
 		fmt.Fprintf(stdout, b.T("code")+"\n", sum.Code)
 	}
+	ercCtx, ercCancel := context.WithTimeout(ctx, 8*time.Second)
+	if id, ok, _ := erc8004.OwnedID(ercCtx, nil, lay.Meta.Address); ok && id != "" {
+		fmt.Fprintf(stdout, b.T("erc8004ID")+"\n", id)
+	}
+	ercCancel()
 	return 0
 }
 

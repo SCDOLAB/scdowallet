@@ -130,3 +130,44 @@ func TestRocm(t *testing.T) {
 		t.Fatalf("%v %v %+v", ok, err, cards)
 	}
 }
+
+func TestNvidiaIdentity(t *testing.T) {
+	f := &fake{
+		have: map[string]bool{"nvidia-smi": true},
+		run: map[string]struct {
+			out string
+			err error
+		}{
+			"nvidia-smi --query-gpu=uuid,name,memory.total,pci.bus_id --format=csv,noheader": {
+				out: "GPU-11111111-2222-3333-4444-555555555555, NVIDIA GeForce 940MX, 2048 MiB, 00000000:01:00.0\n",
+			},
+		},
+	}
+	ids, ok := Identities(f)
+	if !ok || len(ids) != 1 {
+		t.Fatalf("%v %+v", ok, ids)
+	}
+	if ids[0].UUID != "GPU-11111111-2222-3333-4444-555555555555" || ids[0].Model != "NVIDIA GeForce 940MX" || ids[0].VRAMMiB != 2048 || ids[0].PCIBusID != "00000000:01:00.0" {
+		t.Fatalf("%+v", ids[0])
+	}
+}
+
+func TestIntelHasNoIdentity(t *testing.T) {
+	f := &fake{
+		have: map[string]bool{"lspci": true},
+		run: map[string]struct {
+			out string
+			err error
+		}{
+			"lspci -nn": {out: "00:02.0 VGA compatible controller [0300]: Intel Corporation UHD Graphics 610\n"},
+		},
+	}
+	ids, ok := Identities(f)
+	if ok || len(ids) != 0 {
+		t.Fatalf("intel attested %+v", ids)
+	}
+	cards, detected, err := Detect(f)
+	if err != nil || !detected || len(cards) != 1 || cards[0].Source != "lspci" {
+		t.Fatalf("%v %v %+v", detected, err, cards)
+	}
+}

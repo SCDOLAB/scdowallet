@@ -99,9 +99,10 @@ func Register(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if id, tx, ok := localMatch(ctx, node, opt.Dir, address); ok {
-		out.AgentID, out.Tx, out.Already = id, tx, true
-		return out, nil
+	if owned, ok, err := alreadyOwned(ctx, node, opt.Dir, address, out); err != nil {
+		return out, err
+	} else if ok {
+		return owned, nil
 	}
 	found, err := node.registrations(ctx, address)
 	if err != nil {
@@ -197,9 +198,10 @@ func registerSponsored(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if id, tx, ok := localMatch(ctx, node, opt.Dir, address); ok {
-		out.AgentID, out.Tx, out.Already = id, tx, true
-		return out, nil
+	if owned, ok, err := alreadyOwned(ctx, node, opt.Dir, address, out); err != nil {
+		return out, err
+	} else if ok {
+		return owned, nil
 	}
 	sponsor := opt.Sponsor.Address()
 	if id, owner, tx, ok := findForAgent(ctx, node, address, sponsor); ok {
@@ -299,6 +301,93 @@ func transferIdentity(ctx context.Context, opt Options, node *rpc, out Result, i
 		return out, err
 	}
 	return out, nil
+}
+
+func alreadyOwned(ctx context.Context, node *rpc, dir, address string, out Result) (Result, bool, error) {
+	if id, tx, ok := localMatch(ctx, node, dir, address); ok {
+		out.AgentID, out.Tx, out.Already = id, tx, true
+		return out, true, nil
+	}
+	item, ok, err := findOwned(ctx, node, address)
+	if err != nil || !ok {
+		return out, false, err
+	}
+	out.AgentID = item.id.String()
+	out.Tx = item.tx
+	out.Already = true
+	if err := saveRecord(dir, out); err != nil {
+		return out, false, err
+	}
+	return out, true, nil
+}
+
+// OwnedID is the lowest ERC-721 agent id this address currently owns.
+// A sponsored registration that was later transferred still counts.
+func OwnedID(ctx context.Context, rpcs []string, address string) (string, bool, error) {
+	if len(rpcs) == 0 {
+		rpcs = DefaultRPCs()
+	}
+	node, err := (&rpc{URLs: rpcs}).dial(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	item, ok, err := findOwned(ctx, node, address)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return item.id.String(), true, nil
+}
+
+func findOwned(ctx context.Context, node *rpc, address string) (foundReg, bool, error) {
+	var found []foundReg
+	logs, err := node.getLogs(ctx, []any{transferTopic.Hex(), nil, topicAddress(address)})
+	if err != nil {
+		return foundReg{}, false, err
+	}
+	seen := map[string]bool{}
+	for _, lg := range logs {
+		if len(lg.Topics) < 4 || !strings.EqualFold(lg.Topics[0], transferTopic.Hex()) {
+			continue
+		}
+		if !strings.EqualFold(lg.Topics[2], topicAddress(address)) {
+			continue
+		}
+		id := new(big.Int).SetBytes(common.FromHex(lg.Topics[3]))
+		if id.Sign() == 0 || seen[id.String()] {
+			continue
+		}
+		owner, err := node.ownerOf(ctx, id)
+		if err != nil || !strings.EqualFold(owner, address) {
+			continue
+		}
+		seen[id.String()] = true
+		found = append(found, foundReg{id: id, tx: lg.TransactionHash})
+	}
+	regs, err := node.registrations(ctx, address)
+	if err != nil {
+		return foundReg{}, false, err
+	}
+	for _, item := range regs {
+		if seen[item.id.String()] {
+			continue
+		}
+		owner, err := node.ownerOf(ctx, item.id)
+		if err != nil || !strings.EqualFold(owner, address) {
+			continue
+		}
+		seen[item.id.String()] = true
+		found = append(found, item)
+	}
+	if len(found) == 0 {
+		return foundReg{}, false, nil
+	}
+	best := found[0]
+	for _, item := range found[1:] {
+		if item.id.Cmp(best.id) < 0 {
+			best = item
+		}
+	}
+	return best, true, nil
 }
 
 func findForAgent(ctx context.Context, node *rpc, agentAddr, sponsorAddr string) (*big.Int, string, string, bool) {

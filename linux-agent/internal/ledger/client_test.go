@@ -73,7 +73,7 @@ func TestPostFallback(t *testing.T) {
 }
 
 func TestV21Paths(t *testing.T) {
-	if pathFor("spend") != "ledger/spend" || pathFor("xrevoke") != "bind/x/revoke" || pathFor("batch") != "operator/batch" || pathFor("bind") != "bind" || pathFor("emailconfirm") != "bind/email/confirm" {
+	if pathFor("spend") != "ledger/spend" || pathFor("xrevoke") != "bind/x/revoke" || pathFor("batch") != "operator/batch" || pathFor("bind") != "bind" || pathFor("emailconfirm") != "bind/email/confirm" || pathFor("gpuattest") != "gpu/attest" || pathFor("gpusolve") != "gpu/solve" {
 		t.Fatal("paths")
 	}
 	var got string

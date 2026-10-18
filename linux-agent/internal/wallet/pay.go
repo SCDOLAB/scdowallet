@@ -53,6 +53,12 @@ type Paid struct {
 	Basescan string
 }
 
+// SettleTimeout is how long a payment waits for the facilitator to settle.
+// The x402 net/http middleware defaults this to 30s. A Shard0 WSCDO settle can
+// take longer than that and still land on-chain, so both the payer HTTP client
+// and the paywall middleware use this longer deadline.
+const SettleTimeout = 120 * time.Second
+
 // Pay uses the x402 SDK to sign an EIP-3009 exact payment and retry with
 // PAYMENT-SIGNATURE. eip155:84532 (USDC) and eip155:5680 (WSCDO) are registered.
 // Limits run before the signature. Base mainnet stays off.
@@ -143,13 +149,13 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		return x402.PaymentResponseResult{}, nil
 	})
 
-	base := &http.Client{Timeout: 90 * time.Second}
+	base := &http.Client{Timeout: SettleTimeout}
 	if opt.HTTP != nil {
 		base.Timeout = opt.HTTP.Timeout
 		base.Transport = opt.HTTP.Transport
 	}
 	if base.Timeout == 0 {
-		base.Timeout = 90 * time.Second
+		base.Timeout = SettleTimeout
 	}
 	inner := base.Transport
 	if inner == nil {

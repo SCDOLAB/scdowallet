@@ -77,6 +77,50 @@ func TestEncryptedKeyHidesScalar(t *testing.T) {
 	}
 }
 
+func TestOpenFileAcceptsRawHexAndKeystore(t *testing.T) {
+	dir := t.TempDir()
+	s := Store{Dir: dir}
+	created, err := s.Create("ledger", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := s.Path("ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := OpenFile(path, nil)
+	if err != nil || got.Address() != created.Address() {
+		t.Fatalf("keystore %v %v", got, err)
+	}
+	scalar := created.Scalar()
+	defer ledger.Wipe(scalar)
+	hexPath := filepath.Join(dir, "sponsor.key")
+	body := []byte("0x" + hex.EncodeToString(scalar) + "\n")
+	if err := os.WriteFile(hexPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := OpenFile(hexPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Address() != created.Address() {
+		t.Fatal("raw hex address")
+	}
+	if err := os.WriteFile(hexPath, []byte(hex.EncodeToString(scalar)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = OpenFile(hexPath, nil)
+	if err != nil || raw.Address() != created.Address() {
+		t.Fatal("bare hex")
+	}
+	if err := os.Chmod(hexPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenFile(hexPath, nil); err == nil || strings.Contains(err.Error(), hex.EncodeToString(scalar)) {
+		t.Fatalf("mode or leak %v", err)
+	}
+}
+
 func TestSecondPurposeIsIsolated(t *testing.T) {
 	dir := t.TempDir()
 	s := Store{Dir: dir}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	x402 "github.com/x402-foundation/x402/go/v2"
 	x402http "github.com/x402-foundation/x402/go/v2/http"
@@ -167,10 +168,73 @@ func TestPaywallWSCDO(t *testing.T) {
 	}
 }
 
+func TestSettleAfterThirtySecondsIsBooked(t *testing.T) {
+	if SettleTimeout < 120*time.Second {
+		t.Fatal(SettleTimeout)
+	}
+	root := t.TempDir()
+	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	created, err := Create(context.Background(), CreateOptions{Root: root, Name: "bot", BotID: "bot", LedgerURLs: []string{stubLedger(t)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var booked bool
+	incomeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ledger/income" {
+			http.NotFound(w, r)
+			return
+		}
+		booked = true
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer incomeSrv.Close()
+	mock := &mockFacilitator{delay: 31 * time.Second}
+	h, err := Paywall(PaywallOptions{
+		Root: root, Name: "bot", Price: "0.01", Path: "/answer", Facilitator: mock,
+		LedgerURLs: []string{incomeSrv.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := types.PaymentPayload{
+		X402Version: 2,
+		Payload: map[string]any{
+			"signature": "0x" + strings.Repeat("ab", 65),
+			"authorization": map[string]any{
+				"from": "0x0000000000000000000000000000000000000001", "to": created.Wallet,
+				"value": "10000", "validAfter": "0", "validBefore": "4000000000",
+				"nonce": "0x" + strings.Repeat("11", 32),
+			},
+		},
+		Accepted: types.PaymentRequirements{
+			Scheme: "exact", Network: NetworkSepolia, Asset: SepoliaUSDC,
+			Amount: "10000", PayTo: created.Wallet, MaxTimeoutSeconds: 120,
+			Extra: map[string]any{"name": "USDC", "version": "2"},
+		},
+	}
+	blob, _ := json.Marshal(payload)
+	paid := httptest.NewRequest(http.MethodGet, "http://paywall.test/answer", nil)
+	paid.Header.Set("accept", "application/json")
+	paid.Header.Set("Payment-Signature", base64.StdEncoding.EncodeToString(blob))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, paid)
+	if rec.Code != http.StatusOK || !booked {
+		t.Fatalf("status %d booked %v body %s", rec.Code, booked, rec.Body.String())
+	}
+	receipts, err := os.ReadFile(root + "/bot/receipts.jsonl")
+	if err != nil || !strings.Contains(string(receipts), `"income":true`) {
+		t.Fatal(string(receipts), err)
+	}
+}
+
 type mockFacilitator struct {
 	onSettle func()
 	network  string
 	amount   string
+	delay    time.Duration
 }
 
 func (m *mockFacilitator) net() string {
@@ -203,7 +267,16 @@ func (m *mockFacilitator) Verify(context.Context, []byte, []byte) (*x402.VerifyR
 	return &x402.VerifyResponse{IsValid: true, Payer: "0x0000000000000000000000000000000000000001"}, nil
 }
 
-func (m *mockFacilitator) Settle(context.Context, []byte, []byte) (*x402.SettleResponse, error) {
+func (m *mockFacilitator) Settle(ctx context.Context, _ []byte, _ []byte) (*x402.SettleResponse, error) {
+	if m.delay > 0 {
+		timer := time.NewTimer(m.delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if m.onSettle != nil {
 		m.onSettle()
 	}

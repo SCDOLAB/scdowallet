@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -321,6 +322,86 @@ func TestSponsoredRegisterTransfersToTheAgent(t *testing.T) {
 	}
 	if !again.Already || again.AgentID != agentID || sent != 2 {
 		t.Fatalf("again %+v sent %d", again, sent)
+	}
+}
+
+func TestTransferredIdentityIsNotMintedAgain(t *testing.T) {
+	key, err := ledger.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := key.Address()
+	var sent int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(b, &req)
+		write := func(v any) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "result": v})
+		}
+		switch req.Method {
+		case "eth_chainId":
+			write("0x1630")
+		case "eth_getLogs":
+			write([]any{transferLog("28", "0x0000000000000000000000000000000000000002", address, "0x"+strings.Repeat("ab", 32))})
+		case "eth_call":
+			var call struct {
+				Data string `json:"data"`
+			}
+			_ = json.Unmarshal(req.Params[0], &call)
+			if strings.HasPrefix(call.Data, "0x6352211e") {
+				write("0x" + common.Bytes2Hex(common.LeftPadBytes(common.HexToAddress(address).Bytes(), 32)))
+				return
+			}
+			t.Fatalf("call %s", call.Data)
+		case "eth_sendRawTransaction":
+			sent++
+			t.Fatal("minted a second identity")
+		default:
+			t.Fatalf("unexpected %s", req.Method)
+		}
+	}))
+	defer srv.Close()
+	got, err := Register(context.Background(), Options{Key: key, Dir: t.TempDir(), Client: &rpc{URLs: []string{srv.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Already || got.AgentID != "28" || sent != 0 {
+		t.Fatalf("%+v sent %d", got, sent)
+	}
+}
+
+func TestLiveAgent28Owner(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	node, err := (&rpc{URLs: DefaultRPCs()}).dial(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := node.ownerOf(ctx, big.NewInt(28))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "0x6379C88ef7E28ebefC91fC53A91B2C7bcc101B7c"
+	if !strings.EqualFold(owner, want) {
+		t.Fatalf("ownerOf(28) = %s", owner)
+	}
+}
+
+func transferLog(id, from, to, tx string) map[string]any {
+	n := new(big.Int)
+	n.SetString(id, 10)
+	return map[string]any{
+		"topics": []string{
+			transferTopic.Hex(),
+			topicAddress(from),
+			topicAddress(to),
+			common.BigToHash(n).Hex(),
+		},
+		"transactionHash": tx,
 	}
 }
 
