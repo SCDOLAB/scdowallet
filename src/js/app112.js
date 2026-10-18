@@ -18,9 +18,15 @@
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
   function rigUi () { return !api || api.platform !== 'linux' }
-  // 3.0.8: first launch is 華語. A saved EN or CN from wallet:boot is kept. The operating-system language is not used.
-  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) { return String(v == null ? '' : v).trim().toUpperCase() === 'EN' ? 'EN' : 'CN' }
-  let LANG = normUi(CFG && CFG.lang)
+  // wallet:boot already resolved the language: a saved EN or CN is kept, and a first launch
+  // followed the operating-system locale (zh-* is 華語, otherwise English) and stored it.
+  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) {
+    const s = String(v == null ? '' : v).trim().toUpperCase().replace(/_/g, '-')
+    if (s === 'EN' || s.startsWith('EN-')) return 'EN'
+    if (s === 'CN' || s === 'TW' || s.startsWith('ZH')) return 'CN'
+    return null
+  }
+  let LANG = normUi(CFG && CFG.lang) || 'EN'
   function lang () { return LANG }
   function applyLangAttr () { try { document.documentElement.lang = LANG === 'CN' ? 'zh-Hant-TW' : 'en'; if (window.SCDOMining) window.SCDOMining.lang = LANG } catch (e) {} }
   applyLangAttr()
@@ -1606,7 +1612,12 @@
   })
 
   function renderSiteBar () {
-    const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
+    const bar = $('siteBar'); if (!bar) return
+    const langSwitch = `<span class="lang-switch" id="langSwitch"><button type="button" class="lang-opt${lang() === 'EN' ? ' on' : ''}" data-act="hdrLang" data-v="EN">English</button><button type="button" class="lang-opt${lang() === 'CN' ? ' on' : ''}" data-act="hdrLang" data-v="CN">華語</button></span>`
+    if (!window.SCDOSiteNav) {
+      if (renderSiteBar.last !== langSwitch) { renderSiteBar.last = langSwitch; SD.html(bar, langSwitch) }
+      return
+    }
     const cn = lang() !== 'EN'
     const groups = window.SCDOSiteNav.GROUPS.map(g => {
       if (rigUi() || !g.children) return g
@@ -1624,7 +1635,7 @@
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
-    const html = primary.map(group).join('') + more
+    const html = primary.map(group).join('') + more + langSwitch
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
   function renderSideNav () {

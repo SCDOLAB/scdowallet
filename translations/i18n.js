@@ -10,9 +10,9 @@ function i18n() {
     var scdoClient = new ScdoClient;
     var settings = JSON.parse(fs.readFileSync(scdoClient.configpath), 'utf8')
 
-    // 3.0.8: the saved language wins. The operating-system locale is not read.
-    // On a case-insensitive Mac disk, an English locale name used to open EN.json and force English.
-    var saved = settings && settings.lang ? String(settings.lang) : 'CN'
+    // A saved EN or CN wins. migrateConfig already stored the first-launch locale.
+    const { resolveLang } = require('./../src/js/uiLang')
+    var saved = resolveLang(settings && settings.lang, '')
     global.languageSetting = saved;
 
     loadedLanguage = saved;

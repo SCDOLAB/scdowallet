@@ -286,7 +286,7 @@ async function pollPayout () {
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
-// ---------------- built-in miners ----------------
+// ---------------- built-in ledger nodes ----------------
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.

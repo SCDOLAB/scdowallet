@@ -22,6 +22,7 @@ const utils = require("../js/utils");
 const keystore = require("./keystore");
 const BigNumber = require('bignumber.js');
 const endpoints = require('../config/endpoints');
+const { normLang, langFromLocale, osLocale } = require('../js/uiLang');
 
 // Live RPC defaults: https://apeccapital.org/rpc/N, then https://scdo.com.au/rpc/N.
 // Retired third-party hosts are rewritten onto the apeccapital.org primary.
@@ -29,7 +30,9 @@ function migrateConfig(configpath) {
   var cfg;
   try { cfg = JSON.parse(fs.readFileSync(configpath).toString()); } catch (e) { cfg = {}; }
   var changed = false;
-  if (!cfg.lang) { cfg.lang = "CN"; changed = true; }
+  var chosen = normLang(cfg.lang);
+  if (!chosen) { cfg.lang = langFromLocale(osLocale()); changed = true; }
+  else if (cfg.lang !== chosen) { cfg.lang = chosen; changed = true; }
   var migrated = endpoints.migrateWalletConfig(cfg);
   cfg = migrated.config;
   if (migrated.changed) changed = true;

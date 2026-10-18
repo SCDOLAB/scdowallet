@@ -1,4 +1,4 @@
-// GPU preflight for the built-in miner.
+// GPU preflight for the built-in ledger node.
 //
 // Win32_VideoController lists every display adapter. On a PC that also runs a
 // remote desktop (向日葵 / Oray IddDriver, Parsec, Microsoft Basic Display, …)

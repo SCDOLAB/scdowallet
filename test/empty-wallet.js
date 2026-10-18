@@ -39,6 +39,50 @@ assert.ok(!CN.homeLineShard0.includes('挖礦') && !/賬/.test(CN.homeLineShard0
 assert.ok(!EN.homeLineShard0.toLowerCase().includes('mining'))
 assert.ok(!CN.emptyWallet.includes('挖礦') && !CN.payoutExternal.includes('挖礦'))
 
+const KEEP = '免費記帳（挖礦）'
+const wordFiles = [
+  'src/js/i18n112.js', 'src/js/mining/types.js', 'src/js/mining/gpuPreflightCard.js',
+  'src/js/mining/miningSettingsPanel.js', 'src/js/shard0.js', 'src/main/miningService.js',
+  'src/js/menu.js', 'src/js/siteNavMap.js', 'src/js/boot.js', 'src/main/trayStatus.js',
+  'src/main/miningNotifier.js', 'src/js/app112.js'
+]
+const wordBlob = wordFiles.map(read).join('\n')
+assert.ok(!wordBlob.includes('built-in miner'))
+assert.ok(!wordBlob.includes('內置礦機') && !wordBlob.includes('内置矿机'))
+assert.ok(!wordBlob.includes('built-in bookkeeping program') && !wordBlob.includes('內置記帳程式'))
+assert.ok(wordBlob.includes('built-in ledger node'))
+assert.ok(wordBlob.includes('內置記帳節點'))
+assert.strictEqual(CN.navMine, '記帳')
+assert.strictEqual(CN.tabMine, '記帳')
+assert.strictEqual(EN.navMine, 'Bookkeeping')
+assert.strictEqual(EN.tabMine, 'Bookkeeping')
+assert.ok(!/\bMining\b/.test(EN.navMine + ' ' + EN.tabMine + ' ' + EN.homeMineTitle + ' ' + EN.homeLineShard0))
+function walkStrings (obj, out) {
+  if (typeof obj === 'string') out.push(obj)
+  else if (obj && typeof obj === 'object') for (const k of Object.keys(obj)) walkStrings(obj[k], out)
+  return out
+}
+assert.ok(!walkStrings(CN, []).join('\n').split(KEEP).join('').includes('挖礦'))
+for (const hit of wordBlob.match(/免費記帳[^\n'"]*/g) || []) assert.strictEqual(hit, KEEP)
+function protect (src) {
+  return src.split(KEEP).map(part => part
+    .replace(/built-in miner/g, 'built-in ledger node')
+    .replace(/內置礦機/g, '內置記帳節點')
+    .replace(/内置矿机/g, '內置記帳節點')
+    .replace(/挖礦中/g, '記帳中')).join(KEEP)
+}
+assert.strictEqual(protect(KEEP), KEEP)
+assert.strictEqual(protect('built-in miner ' + KEEP + ' 挖礦中 內置礦機'), 'built-in ledger node ' + KEEP + ' 記帳中 內置記帳節點')
+const mineBox = { window: {} }
+vm.runInNewContext(read('src/js/mining/types.js'), mineBox)
+const TW = mineBox.window.SCDOMining.TW
+assert.ok(Object.keys(TW).some(k => k.includes('built-in ledger node')))
+assert.ok(Object.values(TW).some(v => v.includes('內置記帳節點')))
+for (const [k, v] of Object.entries(TW)) {
+  assert.ok(!k.includes('built-in miner') && !v.includes('內置礦機') && !v.includes('内置矿机') && !v.includes('內置記帳程式'))
+  if (k.includes('免費記帳') || v.includes('免費記帳')) assert.ok(k.includes(KEEP) || v.includes(KEEP))
+}
+
 const app = read('src/js/app112.js')
 const langRow = app.slice(app.indexOf('const langNow'), app.indexOf('const resumeRow'))
 assert.ok(langRow.includes('>English</button>') && langRow.includes('>華語</button>'))

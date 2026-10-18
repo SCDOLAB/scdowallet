@@ -20,7 +20,7 @@
       reward: 'Reward address', manual: '— enter a 0x address —', start: 'Start bookkeeping', stop: 'Stop bookkeeping',
       phase: 'Status', blocks: 'Local / network block', peers: 'Peers', hashrate: 'Bookkeeping speed (H/s)', shares: 'Shares accepted / rejected',
       found: 'Blocks found', balance: 'Reward address balance', restarts: 'Bookkeeping node restarts', defender: 'Allow bookkeeping node in Windows Defender',
-      logs: 'Open log folder', showlog: 'Show log', macNo: 'The built-in GPU bookkeeping node is available in the Windows (NVIDIA) and Linux builds only; Rigel has no macOS version.', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).',
+      logs: 'Open log folder', showlog: 'Show log', macNo: 'The built-in ledger node is available in the Windows (NVIDIA) and Linux builds only; Rigel has no macOS version.', needAddr: 'Choose or enter a 0x reward address first (unlock a keyfile once to get its 0x address).',
       yes: 'Yes', no: 'No', defAsk: 'Windows Defender deletes every GPU bookkeeping node (rigel.exe) as a "potentially unwanted app". Add an exclusion for the wallet\'s bookkeeping node folder now? Windows will ask for administrator permission once.', defRetry: 'rigel.exe was removed by Windows Defender. Add an exclusion for the bookkeeping node folder (administrator prompt) and start again?'
     },
     CN: {
@@ -37,7 +37,7 @@
       reward: '出塊獎勵地址', manual: '— 手動輸入 0x 地址 —', start: '開始記帳', stop: '停止記帳',
       phase: '狀態', blocks: '本地 / 全網區塊', peers: '連線節點', hashrate: '記帳速度 (H/s)', shares: '份額 接受 / 拒絕',
       found: '記到的區塊', balance: '出塊獎勵地址餘額', restarts: '記帳節點重啟次數', defender: '在 Windows Defender 中允許記帳節點',
-      logs: '開啟日誌資料夾', showlog: '顯示日誌', macNo: '內建 GPU 記帳僅在 Windows（NVIDIA）和 Linux 版提供；Rigel 沒有 macOS 版本。', needAddr: '請先選擇或輸入 0x 出塊獎勵地址（帳戶檔案解鎖一次即可得到 0x 地址）。',
+      logs: '開啟日誌資料夾', showlog: '顯示日誌', macNo: '內置記帳節點僅在 Windows（NVIDIA）和 Linux 版提供；Rigel 沒有 macOS 版本。', needAddr: '請先選擇或輸入 0x 出塊獎勵地址（帳戶檔案解鎖一次即可得到 0x 地址）。',
       yes: '是', no: '否', defAsk: 'Windows Defender 會把所有 GPU 記帳節點（rigel.exe）當作“可能不需要的應用”刪除。現在為錢包的記帳資料夾新增排除項嗎？Windows 會請求一次管理員權限。', defRetry: 'rigel.exe 被 Windows Defender 刪除了。為記帳資料夾新增排除項（需要管理員權限）並重新開始嗎？'
     }
   }
