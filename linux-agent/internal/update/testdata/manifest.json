@@ -1,0 +1,16 @@
+{
+  "note": "Canonical form matches src/updater.js canonicalManifest (sort keys, drop signature, JSON.stringify). Test key only.",
+  "publicKeyB64": "KnUqw5IzXcs3ARM6QF0YZMsRvkE+NHD3He+dq0rYNZo=",
+  "canonical": "{\"arch\":\"amd64\",\"changelog\":{\"en\":\"Bookkeeping agent update\"},\"sha256\":\"abababababababababababababababababababababababababababababababab\",\"size\":12,\"url\":\"https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.2.0_linux_amd64.tar.gz\",\"version\":\"0.2.0\"}",
+  "manifest": {
+    "arch": "amd64",
+    "sha256": "abababababababababababababababababababababababababababababababab",
+    "size": 12,
+    "url": "https://scdo.com.au/downloads/wallet/linux/scdo-agent_0.2.0_linux_amd64.tar.gz",
+    "version": "0.2.0",
+    "changelog": {
+      "en": "Bookkeeping agent update"
+    },
+    "signature": "JO+Bvm9amt55Cbo5o+nPU2j170mVUS4fd3SWqsNwkJKHJAkpgApWP2z4IJiRLAwnMkv2htzEy62bGyqUUa+GAQ=="
+  }
+}
