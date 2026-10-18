@@ -3423,9 +3423,9 @@
     let mineCfg = { keepMining: !!st.keepMining }
     try { mineCfg = Object.assign(mineCfg, await api.invoke('mining:getConfig') || {}) } catch (e) {}
     const resumeOn = !!mineCfg.keepMining
-    const langNow = lang() === 'CN' ? '華語繁體' : 'English'
+    const langNow = lang() === 'CN' ? '華語' : 'English'
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">華語</button></div></div>`
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
     const sess = st.session || {}
     const loginOn = !!sess.loginLaunch

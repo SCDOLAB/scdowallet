@@ -110,6 +110,8 @@ assert.strictEqual(kept, 'https://scdo.com.au/wallet/news/?a=1&lang=zh#top')
 assert.strictEqual(Ui.withPanelLang('https://scdo.com.au/wallet/hub/?lang=en#x', 'EN'), 'https://scdo.com.au/wallet/hub/?lang=en#x')
 assert.strictEqual(Ui.withPanelLang('https://apeccapital.org/wallet/help/?lang=en#x', 'CN'), 'https://apeccapital.org/wallet/help/?lang=zh#x')
 assert.strictEqual(Ui.panelQueryLang('zh-TW'), 'zh')
+assert.strictEqual(Ui.panelQueryLang('zh-CN'), 'zh')
+assert.strictEqual(Ui.panelQueryLang('zh-Hant'), 'zh')
 assert.strictEqual(Ui.panelQueryLang('en-US'), 'en')
 const frame = { isMainFrame: false, url: 'https://evil.example/x', preventDefault () { frame.stopped = true } }
 events['will-frame-navigate'][0](frame)
