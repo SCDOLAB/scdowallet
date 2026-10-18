@@ -133,7 +133,7 @@ scdo-agent wallet unfreeze --bot rack-a
 
 The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This build does not pay Base mainnet.
 
-`wallet bind-email` POSTs `/bind/email/start` with `{agent, email, salt}`. The salt is the file `email.salt` and must match the `emailCommit` already sent on `/bind`. The salt is not logged. The live ledger currently answers `delivery: "todo_no_sender"` because it has no mail sender; the command reports that and does not treat it as a crash. `wallet confirm-email --code` POSTs a bot-signed `emailconfirm` envelope `{nonce, code}` to `/bind/email/confirm`. A sixth try is not sent.
+`wallet bind-email` POSTs `/bind/email/start` with `{agent, email, salt}`. The salt is the file `email.salt` and must match the `emailCommit` already sent on `/bind`. The salt is not logged. When the ledger answers `delivery: "todo_no_sender"`, the command reports that the commitment was accepted and no code was sent, because the ledger has no mail sender yet. `wallet confirm-email --code` POSTs a bot-signed `emailconfirm` envelope `{nonce, code}` to `/bind/email/confirm`. A sixth try is not sent.
 
 `wallet bind-x` POSTs `/bind/x/start`. When the ledger returns an https auth URL, the command prints it. Until an X app is configured the ledger returns 503, and the command reports `X binding not yet enabled on the ledger`. The `xbind` attestation is not sent.
 
@@ -328,7 +328,7 @@ scdo-agent wallet unfreeze --bot rack-a
 
 錢包需要 Base Sepolia 上的測試 USDC。燃料費由 facilitator 支付。這個版本不會在 Base 主網付款。
 
-`wallet bind-email` 把 `{agent, email, salt}` 送到 `/bind/email/start`。鹽來自 `email.salt`，必須對上先前 `/bind` 送出的 `emailCommit`。鹽不會寫進紀錄。目前帳本回 `delivery: "todo_no_sender"`，因為還沒有寄信程式；這個命令會說明這一點，不會當成當機。`wallet confirm-email --code` 送出機器人簽署的 `emailconfirm` 信封 `{nonce, code}` 到 `/bind/email/confirm`。第 6 次不會送出。
+`wallet bind-email` 把 `{agent, email, salt}` 送到 `/bind/email/start`。鹽來自 `email.salt`，必須對上先前 `/bind` 送出的 `emailCommit`。鹽不會寫進紀錄。帳本若回 `delivery: "todo_no_sender"`，命令會說明承諾已接受、驗證碼尚未寄出，因為帳本還沒有寄信程式。`wallet confirm-email --code` 送出機器人簽署的 `emailconfirm` 信封 `{nonce, code}` 到 `/bind/email/confirm`。第 6 次不會送出。
 
 `wallet bind-x` 送到 `/bind/x/start`。帳本若回傳 https 授權網址，命令會印出它。在 X 應用程式設定好之前，帳本回 503，命令回報 `X binding not yet enabled on the ledger`。不會送出 `xbind` 證明。
 
