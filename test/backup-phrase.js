@@ -37,7 +37,9 @@ function finish (sealedJson) {
   // The seal is hex, so a short word can appear inside the ciphertext.
   // The phrase contains spaces, and a word counts only as its own token.
   assert.ok(!sealedJson.includes(g.phrase))
-  g.words.forEach(w => assert.ok(!new RegExp('\\b' + w + '\\b').test(sealedJson), w))
+  // tag, salt, and path are both BIP39 words and seal object keys.
+  const body = sealedJson.replace(/"(?:v|path|created|salt|iv|tag|ct)"\s*:/g, '"k":')
+  g.words.forEach(w => assert.ok(!new RegExp('\\b' + w + '\\b').test(body), w))
   return mnemonic.open(sealedJson, 'Aa1!aaaa').then(opened => {
     assert.strictEqual(opened, g.phrase)
     assert.strictEqual(mnemonic.meta(sealedJson).created, day)

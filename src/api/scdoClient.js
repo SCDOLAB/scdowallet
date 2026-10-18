@@ -21,23 +21,20 @@ const editJsonFile = require("edit-json-file");
 const utils = require("../js/utils");
 const keystore = require("./keystore");
 const BigNumber = require('bignumber.js');
+const endpoints = require('../config/endpoints');
 
-// ---- 2026-09 upgrade: live RPC defaults (old defaults kept only for migration) ----
-const OLD_DEFAULT_CONNECT = ["", "http://74.208.207.184:8037", "http://74.208.207.184:8038", "http://74.208.207.184:8039", "http://74.208.207.184:8036"];
-const NEW_DEFAULT_CONNECT = ["https://scdoscan.io/rpc/0", "https://scdoscan.io/rpc/1", "https://scdoscan.io/rpc/2", "https://scdoscan.io/rpc/3", "https://scdoscan.io/rpc/4"];
+// Live RPC defaults: https://apeccapital.org/rpc/N, then https://scdo.com.au/rpc/N.
+// Retired third-party hosts are rewritten onto the apeccapital.org primary.
 function migrateConfig(configpath) {
   var cfg;
   try { cfg = JSON.parse(fs.readFileSync(configpath).toString()); } catch (e) { cfg = {}; }
   var changed = false;
   if (!cfg.lang) { cfg.lang = "CN"; changed = true; }
-  if (!Array.isArray(cfg.connect) || cfg.connect.length < 5) { cfg.connect = NEW_DEFAULT_CONNECT.slice(); changed = true; }
-  for (var i = 1; i <= 4; i++) {
-    if (!cfg.connect[i] || cfg.connect[i] === OLD_DEFAULT_CONNECT[i]) { cfg.connect[i] = NEW_DEFAULT_CONNECT[i]; changed = true; }
-  }
-  if (!cfg.connect[0]) { cfg.connect[0] = NEW_DEFAULT_CONNECT[0]; changed = true; }
+  var migrated = endpoints.migrateWalletConfig(cfg);
+  cfg = migrated.config;
+  if (migrated.changed) changed = true;
   if (!Array.isArray(cfg.monitor)) { cfg.monitor = []; changed = true; }
   if (typeof cfg.allowCrossShard !== 'boolean') { cfg.allowCrossShard = false; changed = true; }
-  if (cfg.configVersion !== 2) { cfg.configVersion = 2; changed = true; }
   if (changed) { fs.writeFileSync(configpath, JSON.stringify(cfg, null, 2)); }
   return cfg;
 }
@@ -88,22 +85,16 @@ function scdoClient() {
     var configJson = migrateConfig(this.configpath.toString());
     this.config = configJson;
     this.evmCachePath = os.homedir() + "/.ScdoWallet/evm.json";
-    // console.log(configJson.connect);
-    this.address = [0,
-      configJson.connect[1],
-      configJson.connect[2],
-      configJson.connect[3],
-      configJson.connect[4]
-    ];
-    
-    var shardCount = 4;
+    try { this.remoteConfig = JSON.parse(fs.readFileSync(os.homedir() + "/.ScdoWallet/remote-config.json", "utf8")); } catch (e) { this.remoteConfig = null; }
+    var rpcOpts = { connect: configJson.connect, connectFallback: configJson.connectFallback, remote: this.remoteConfig };
+    this.address = [0, 1, 2, 3, 4].map(function (shard) {
+      if (shard === 0) return 0;
+      var urls = endpoints.rpcCandidates(shard, rpcOpts);
+      return urls[0] || configJson.connect[shard];
+    });
+    configJson.connect[0] = endpoints.rpcCandidates(0, rpcOpts)[0] || configJson.connect[0];
 
-    // this.address = [0,
-    //   "http://117.50.97.136:18037",
-    //   "http://117.50.97.136:8038",
-    //   "http://107.150.102.94:8039",
-    //   "http://117.50.97.136:8036"
-    // ];
+    var shardCount = 4;
 
     this.client = [
       0,
@@ -112,6 +103,25 @@ function scdoClient() {
       new scdojs(this.address[3]).client,
       new scdojs(this.address[4]).client
     ]
+
+    this.shard0Rpc = function () { return this.config.connect[0]; };
+    this.ensureRpc = async function () {
+      var changed = false;
+      for (var shard = 0; shard <= 4; shard++) {
+        var urls = endpoints.rpcCandidates(shard, { connect: this.config.connect, connectFallback: this.config.connectFallback, remote: this.remoteConfig });
+        var method = shard === 0 ? "eth_blockNumber" : "scdo_getInfo";
+        var ok = await endpoints.firstReachable(urls, { method: method, timeoutMs: 2500 });
+        if (!ok || ok === (shard === 0 ? this.config.connect[0] : this.address[shard])) continue;
+        if (shard === 0) this.config.connect[0] = ok;
+        else {
+          this.address[shard] = ok;
+          this.config.connect[shard] = ok;
+          this.client[shard] = new scdojs(ok).client;
+        }
+        changed = true;
+      }
+      return changed;
+    };
 
     this.getOS = function () {
         var  osName="Unknown OS";
@@ -817,8 +827,6 @@ function scdoClient() {
     };
 
     this.callContract = function (shard, payload, to, callBack) {
-        // curl -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"scdo_call","params":["0x47a99059219055cf8277d5d7dff933446edb0012","0x6d4ce63c",-1],"id":1}' 117.50.97.136:8036
-        // let hash = $('#QueryHash').text()
 
             // var send = document.getElementById("contractPublicKey").value
             // var shard = this.getshardnum(send)

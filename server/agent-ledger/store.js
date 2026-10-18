@@ -20,12 +20,18 @@ class Store {
     const p = rec.env.payload
     const key = p.agent.toLowerCase()
     let a = this.agents.get(key)
-    if (!a) { a = { agent: p.agent, firstSeen: rec.receivedAt, seq: 0, registration: null, heartbeat: null, heals: [], counts: { heartbeat: 0, heal: 0 } }; this.agents.set(key, a) }
+    if (!a) { a = { agent: p.agent, firstSeen: rec.receivedAt, seq: 0, registration: null, heartbeat: null, heals: [], reports: [], counts: { heartbeat: 0, heal: 0, report: 0 } }; this.agents.set(key, a) }
     a.seq = Math.max(a.seq, p.seq)
     a.lastSeen = rec.receivedAt
     if (p.type === 'register') a.registration = { ts: p.ts, body: p.body, sig: rec.env.sig }
     else if (p.type === 'heartbeat') { a.heartbeat = { ts: p.ts, body: p.body, sig: rec.env.sig, seq: p.seq }; a.counts.heartbeat++ }
     else if (p.type === 'heal') { a.heals.push({ ts: p.ts, body: p.body, sig: rec.env.sig, seq: p.seq }); if (a.heals.length > 50) a.heals.shift(); a.counts.heal++ }
+    else if (p.type === 'report') {
+      if (!a.reports) a.reports = []
+      a.reports.push({ ts: p.ts, body: p.body, sig: rec.env.sig, seq: p.seq })
+      if (a.reports.length > 50) a.reports.shift()
+      a.counts.report = (a.counts.report || 0) + 1
+    }
   }
   append (env) {
     const rec = { receivedAt: Date.now(), env }

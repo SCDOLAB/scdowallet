@@ -36,20 +36,20 @@ function stopped () {
 // ---- empty / unavailable is a dash, never a sample number ----
 {
   const m = stopped()
-  assert.strictEqual(m.statusText, '挖礦狀態：已停止')
+  assert.strictEqual(m.statusText, '記帳狀態：已停止')
   assert.strictEqual(m.statusTone, 'off')
-  assert.strictEqual(m.speedText, '挖礦速度 —')
+  assert.strictEqual(m.speedText, '記帳速度 (H/s) —')
   assert.strictEqual(m.tempText, '顯卡溫度 —')
-  assert.strictEqual(m.todayText, '今天挖到 —')
-  assert.strictEqual(m.lastText, '最近一次收益：—')
-  assert.strictEqual(m.chainsText, '正在挖的鏈：—')
-  assert.strictEqual(m.buttonText, '開始挖礦')
+  assert.strictEqual(m.todayText, '今天記到 —')
+  assert.strictEqual(m.lastText, '最近一次記帳獎勵：—')
+  assert.strictEqual(m.chainsText, '正在記帳的鏈：—')
+  assert.strictEqual(m.buttonText, '開始記帳')
   assert.strictEqual(m.buttonDisabled, false)
   assert.strictEqual(m.buttonKind, 'start')
   const html = mine.cardHtml({ miners: {}, temps: [{ tempC: 55 }], earnLog: null, now: 0, phase: 'stopped' }, CN, esc)
-  assert.ok(html.includes('挖礦狀態：已停止'))
+  assert.ok(html.includes('記帳狀態：已停止'))
   assert.ok(html.includes('顯卡溫度'))
-  assert.ok(!html.includes('55'), 'a temperature reading is not shown when no graphics-card miner is running')
+  assert.ok(!html.includes('55'), 'a temperature reading is not shown when no graphics-card bookkeeping node is running')
   assert.ok(!html.includes('76'))
   assert.ok(!/Shard1 EVM/.test(html))
   assert.ok(!html.includes('主鏈'))
@@ -72,24 +72,24 @@ function stopped () {
     { t: t0, amount: 2, address: CLASSIC, confirmed: true }
   ] }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 55 }, { tempC: 40 }], earnLog: log, now, phase: 'mining' }, CN)
-  assert.strictEqual(m.statusText, '挖礦狀態：正在挖礦')
+  assert.strictEqual(m.statusText, '記帳狀態：正在記帳')
   assert.strictEqual(m.statusTone, 'on')
-  assert.strictEqual(m.speedText, '挖礦速度 每秒 1,320 次')
+  assert.strictEqual(m.speedText, '記帳速度 (H/s) 每秒 1,320 次')
   assert.strictEqual(m.tempText, '顯卡溫度 55°C（正常）')
   assert.strictEqual(m.tempBand, 'ok')
-  assert.strictEqual(m.todayText, '今天挖到 4 SCDO')
+  assert.strictEqual(m.todayText, '今天記到 4 SCDO')
   assert.strictEqual(m.lastClock, '14:05')
   assert.strictEqual(m.lastMinutes, 3)
-  assert.strictEqual(m.lastText, '最近一次收益：14:05（3 分鐘前）')
+  assert.strictEqual(m.lastText, '最近一次記帳獎勵：14:05（3 分鐘前）')
   assert.deepStrictEqual(m.chains, ['Shard0 EVM', 'Shard1 Classic', 'Shard3 Classic'])
-  assert.strictEqual(m.chainsText, '正在挖的鏈：Shard0 EVM、Shard1 Classic、Shard3 Classic')
+  assert.strictEqual(m.chainsText, '正在記帳的鏈：Shard0 EVM、Shard1 Classic、Shard3 Classic')
   assert.ok(!/Shard1 EVM|主鏈/.test(m.chainsText + m.statusText))
-  assert.strictEqual(m.buttonText, '停止挖礦')
+  assert.strictEqual(m.buttonText, '停止記帳')
   assert.strictEqual(m.buttonKind, 'stop')
   assert.strictEqual(mine.earnOf(log, now).todayScdo, 4)
   assert.strictEqual(mine.earnOf({ items: [{ t: t0, shard: 1, height: 21 }] }, now), null)
   const html = mine.cardHtml({ miners, temps: [{ tempC: 55 }], earnLog: log, now, phase: 'mining' }, CN, esc)
-  assert.ok(html.includes('挖礦狀態：正在挖礦'))
+  assert.ok(html.includes('記帳狀態：正在記帳'))
   assert.ok(html.includes('temp-ok'))
   assert.ok(html.includes('每秒 1,320 次'))
   assert.ok(html.includes('55°C（正常）'))
@@ -119,14 +119,14 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
 {
   const miners = { classicCpu: { running: true, mode: 'cpu', chain: 'classic', shard: 2, hashrate: 0, procs: ['zminer'] } }
   const known = mine.formatMineHome({ miners, temps: [{ tempC: 90 }], earnLog: { certain: true, items: [] }, now: Date.now(), phase: 'mining' }, CN)
-  assert.strictEqual(known.todayText, '今天挖到 0 SCDO')
-  assert.strictEqual(known.lastText, '最近一次收益：—')
+  assert.strictEqual(known.todayText, '今天記到 0 SCDO')
+  assert.strictEqual(known.lastText, '最近一次記帳獎勵：—')
   const guessed = mine.formatMineHome({ miners, earnLog: { items: [{ t: Date.now(), shard: 1, height: 9 }] }, now: Date.now(), phase: 'mining' }, CN)
-  assert.strictEqual(guessed.todayText, '今天挖到 —')
-  assert.strictEqual(guessed.lastText, '最近一次收益：—')
-  assert.strictEqual(known.speedText, '挖礦速度 —')
-  assert.strictEqual(known.tempText, '顯卡溫度 —', 'processor mining does not invent a graphics-card temperature')
-  assert.strictEqual(known.chainsText, '正在挖的鏈：—', 'a process with no speed is not listed')
+  assert.strictEqual(guessed.todayText, '今天記到 —')
+  assert.strictEqual(guessed.lastText, '最近一次記帳獎勵：—')
+  assert.strictEqual(known.speedText, '記帳速度 (H/s) —')
+  assert.strictEqual(known.tempText, '顯卡溫度 —', 'processor bookkeeping does not invent a graphics-card temperature')
+  assert.strictEqual(known.chainsText, '正在記帳的鏈：—', 'a process with no speed is not listed')
   assert.ok(!known.chains.includes('Shard2 Classic'))
   assert.ok(!known.chainsText.includes('EVM'))
 }
@@ -138,8 +138,8 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
     classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 0, hashrate: 10, procs: ['classic-node'] }
   }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 55 }], earnLog: null, phase: 'mining' }, CN)
-  assert.strictEqual(m.chainsText, '正在挖的鏈：—')
-  assert.strictEqual(m.speedText, '挖礦速度 —')
+  assert.strictEqual(m.chainsText, '正在記帳的鏈：—')
+  assert.strictEqual(m.speedText, '記帳速度 (H/s) —')
   assert.strictEqual(m.tempText, '顯卡溫度 55°C（正常）')
   assert.ok(!m.chains.join(' ').includes('Shard1 EVM'))
 }
@@ -148,20 +148,20 @@ assert.strictEqual(mine.tempBand(85), island.tempBand(85))
 {
   const miners = { shard0: { running: true, mode: 'mine', chain: 'shard0', hashrate: 10, procs: ['rigel'] } }
   const m = mine.formatMineHome({ miners, temps: [{ tempC: 85 }], earnLog: { items: [] }, now: 0, phase: 'mining' }, EN)
-  assert.strictEqual(m.statusText, 'Mining status: mining now')
+  assert.strictEqual(m.statusText, 'Bookkeeping status: bookkeeping now')
   assert.strictEqual(m.tempText, 'Graphics card temperature 85°C (too hot, paused)')
-  assert.strictEqual(m.chainsText, 'Chains being mined: Shard0 EVM')
+  assert.strictEqual(m.chainsText, 'Chains being recorded: Shard0 EVM')
   assert.ok(!/[\u4e00-\u9fff]/.test([m.statusText, m.speedText, m.tempText, m.todayText, m.lastText, m.chainsText, m.buttonText].join(' ')))
 }
 
 // In progress: the button changes and ignores the look of the miners.
 {
   const start = mine.formatMineHome({ miners: {}, phase: 'starting' }, CN)
-  assert.strictEqual(start.statusText, '挖礦狀態：正在啟動')
+  assert.strictEqual(start.statusText, '記帳狀態：正在啟動')
   assert.strictEqual(start.buttonText, '正在啟動…')
   assert.strictEqual(start.buttonDisabled, true)
   const stop = mine.formatMineHome({ miners: { shard0: { running: true, mode: 'mine', chain: 'shard0' } }, phase: 'stopping' }, CN)
-  assert.strictEqual(stop.statusText, '挖礦狀態：正在停止')
+  assert.strictEqual(stop.statusText, '記帳狀態：正在停止')
   assert.strictEqual(stop.buttonText, '正在停止…')
   assert.strictEqual(stop.buttonDisabled, true)
   const html = mine.cardHtml({ phase: 'starting' }, CN, esc)
@@ -221,17 +221,17 @@ assert.strictEqual(step('stopped', 'timeout'), 'stopped')
   assert.strictEqual(mine.planDeviceClick({ phase: 'mining', alive: true, chains: [] }).op, 'kill')
   assert.strictEqual(mine.START_DEADLINE_MS > 0, true)
   const hinted = mine.minePageHtml({ miners: {}, chains: { cpu: [], gpu: [1] }, needChain: { cpu: true } }, CN, esc)
-  assert.ok(hinted.includes('請先選擇要挖的鏈'))
+  assert.ok(hinted.includes('請先選擇要記帳的鏈'))
   assert.ok(hinted.includes('id="mineNeed-cpu"'))
   assert.ok(/id="minePick-cpu"[^>]*\sopen/.test(hinted))
   assert.ok(!/id="minePick-gpu"[^>]*\sopen/.test(hinted))
-  assert.ok(hinted.includes('開始挖礦'))
+  assert.ok(hinted.includes('開始記帳'))
   assert.ok(!hinted.includes('正在停止'))
   const hintedEn = mine.minePageHtml({ miners: {}, chains: { cpu: [], gpu: [1] }, needChain: { cpu: true } }, EN, esc)
-  assert.ok(hintedEn.includes('Choose a chain to mine first'))
+  assert.ok(hintedEn.includes('Choose a chain to do bookkeeping first'))
   assert.ok(/id="minePick-cpu"[^>]*\sopen/.test(hintedEn))
   assert.ok(!/[\u4e00-\u9fff]/.test(hintedEn.slice(hintedEn.indexOf('data-dev="cpu"'), hintedEn.indexOf('data-dev="gpu"'))))
-  assert.strictEqual(I.CN.shellNeedChain, '請先選擇要挖的鏈')
+  assert.strictEqual(I.CN.shellNeedChain, '請先選擇要記帳的鏈')
   assert.ok(read('src/js/app112.js').includes("plan.op === 'need-chain'"))
   const ghost = { running: true, mode: 'gpu', chain: 'classic', phase: 'syncing', code: 'CLASSIC_SYNCING', procs: [] }
   assert.strictEqual(mine.deviceProcessAlive({ classicGpu: ghost }, 'gpu'), false)
@@ -396,11 +396,11 @@ assert.deepStrictEqual(mine.jobsForHome({
     phase: 'mining'
   }, CN)
   assert.deepStrictEqual(wanted.chains, [])
-  assert.strictEqual(wanted.chainsText, '正在挖的鏈：—')
-  assert.strictEqual(wanted.statusText, '挖礦狀態：等待同步，同步完成後自動開始')
+  assert.strictEqual(wanted.chainsText, '正在記帳的鏈：—')
+  assert.strictEqual(wanted.statusText, '記帳狀態：等待同步，同步完成後自動開始')
   assert.strictEqual(wanted.statusTone, 'wait')
-  assert.strictEqual(wanted.speedText, '挖礦速度 —')
-  assert.strictEqual(wanted.buttonText, '停止挖礦')
+  assert.strictEqual(wanted.speedText, '記帳速度 (H/s) —')
+  assert.strictEqual(wanted.buttonText, '停止記帳')
   assert.strictEqual(wanted.buttonKind, 'stop')
   const alive = {
     running: true, mode: 'gpu', chain: 'classic', code: 'CLASSIC_GPU', shard: 1,
@@ -408,8 +408,8 @@ assert.deepStrictEqual(mine.jobsForHome({
   }
   const resumed = mine.formatMineHome({ miners: { classicGpu: alive }, phase: 'stopped' }, CN)
   assert.deepStrictEqual(resumed.chains, ['Shard1 Classic'])
-  assert.strictEqual(resumed.speedText, '挖礦速度 —')
-  assert.strictEqual(resumed.statusText, '挖礦狀態：正在挖礦')
+  assert.strictEqual(resumed.speedText, '記帳速度 (H/s) —')
+  assert.strictEqual(resumed.statusText, '記帳狀態：正在記帳')
   const syncing = mine.formatMineHome({
     miners: {
       shard0: {
@@ -419,9 +419,9 @@ assert.deepStrictEqual(mine.jobsForHome({
     }
   }, CN)
   assert.deepStrictEqual(syncing.chains, [])
-  assert.strictEqual(syncing.statusText, '挖礦狀態：等待同步（Shard0 EVM 同步進度 96%），同步完成後自動開始')
+  assert.strictEqual(syncing.statusText, '記帳狀態：等待同步（Shard0 EVM 同步進度 96%），同步完成後自動開始')
   assert.strictEqual(syncing.statusTone, 'wait')
-  assert.strictEqual(syncing.buttonText, '停止挖礦')
+  assert.strictEqual(syncing.buttonText, '停止記帳')
   assert.strictEqual(syncing.noteText, '')
   assert.ok(!/Shard0 EVM/.test(syncing.chains.join(' ')))
   const html = mine.cardHtml({
@@ -432,31 +432,31 @@ assert.deepStrictEqual(mine.jobsForHome({
   assert.ok(html.includes('class="mh-status wait"'))
   assert.ok(html.includes('同步進度 96%'))
   assert.ok(html.includes('同步完成後自動開始'))
-  assert.ok(html.includes('停止挖礦'))
-  assert.ok(!html.includes('挖礦狀態：已停止'))
-  assert.ok(!html.includes('正在挖的鏈：Shard0 EVM'))
+  assert.ok(html.includes('停止記帳'))
+  assert.ok(!html.includes('記帳狀態：已停止'))
+  assert.ok(!html.includes('正在記帳的鏈：Shard0 EVM'))
   const busy = mine.formatMineHome({ miners: {}, gpuBusy: true }, CN)
   assert.strictEqual(busy.noteText, '顯卡正被其他程式使用')
   assert.deepStrictEqual(busy.chains, [])
-  assert.strictEqual(busy.statusText, '挖礦狀態：已停止')
-  assert.strictEqual(busy.buttonText, '開始挖礦')
+  assert.strictEqual(busy.statusText, '記帳狀態：已停止')
+  assert.strictEqual(busy.buttonText, '開始記帳')
   const busyEn = mine.formatMineHome({ miners: {}, gpuBusy: true }, EN)
   assert.strictEqual(busyEn.noteText, 'The graphics card is being used by another program.')
   assert.ok(!/[\u4e00-\u9fff]/.test(busyEn.noteText))
   const noPct = mine.formatMineHome({
     miners: { shard0: { running: true, mode: 'mine', chain: 'shard0', code: 'SYNCING' } }
   }, CN)
-  assert.strictEqual(noPct.statusText, '挖礦狀態：等待同步（Shard0 EVM），同步完成後自動開始')
-  assert.strictEqual(noPct.buttonText, '停止挖礦')
+  assert.strictEqual(noPct.statusText, '記帳狀態：等待同步（Shard0 EVM），同步完成後自動開始')
+  assert.strictEqual(noPct.buttonText, '停止記帳')
   assert.ok(!noPct.statusText.includes('96'))
 }
 
 // Three states, and the status always matches the button.
 {
   const idle = mine.formatMineHome({ miners: {}, phase: 'stopped' }, CN)
-  assert.strictEqual(idle.statusText, '挖礦狀態：已停止')
+  assert.strictEqual(idle.statusText, '記帳狀態：已停止')
   assert.strictEqual(idle.statusTone, 'off')
-  assert.strictEqual(idle.buttonText, '開始挖礦')
+  assert.strictEqual(idle.buttonText, '開始記帳')
   assert.strictEqual(idle.buttonKind, 'start')
   const paused = mine.formatMineHome({
     miners: {
@@ -466,13 +466,13 @@ assert.deepStrictEqual(mine.jobsForHome({
       }
     }
   }, CN)
-  assert.strictEqual(paused.statusText, '挖礦狀態：等待同步（Shard1 Classic 同步進度 45%），同步完成後自動開始')
+  assert.strictEqual(paused.statusText, '記帳狀態：等待同步（Shard1 Classic 同步進度 45%），同步完成後自動開始')
   assert.strictEqual(paused.statusTone, 'wait')
-  assert.strictEqual(paused.buttonText, '停止挖礦')
+  assert.strictEqual(paused.buttonText, '停止記帳')
   assert.strictEqual(paused.buttonKind, 'stop')
   assert.deepStrictEqual(paused.chains, [])
-  assert.strictEqual(paused.todayText, '今天挖到 —')
-  assert.strictEqual(paused.lastText, '最近一次收益：—')
+  assert.strictEqual(paused.todayText, '今天記到 —')
+  assert.strictEqual(paused.lastText, '最近一次記帳獎勵：—')
   const pausedEn = mine.formatMineHome({
     miners: {
       classicGpu: {
@@ -481,20 +481,20 @@ assert.deepStrictEqual(mine.jobsForHome({
       }
     }
   }, EN)
-  assert.strictEqual(pausedEn.statusText, 'Mining status: waiting for sync (Shard1 Classic sync progress 45%). It starts on its own when sync finishes.')
-  assert.strictEqual(pausedEn.buttonText, 'Stop mining')
+  assert.strictEqual(pausedEn.statusText, 'Bookkeeping status: waiting for sync (Shard1 Classic sync progress 45%). It starts on its own when sync finishes.')
+  assert.strictEqual(pausedEn.buttonText, 'Stop bookkeeping')
   assert.ok(!/[\u4e00-\u9fff]/.test(pausedEn.statusText + pausedEn.buttonText))
   const live = mine.formatMineHome({
     miners: { classicGpu: { running: true, mode: 'gpu', chain: 'classic', shard: 1, code: 'CLASSIC_GPU', hashrate: 80, procs: ['classic-node'] } },
     phase: 'mining'
   }, CN)
-  assert.strictEqual(live.statusText, '挖礦狀態：正在挖礦')
-  assert.strictEqual(live.buttonText, '停止挖礦')
+  assert.strictEqual(live.statusText, '記帳狀態：正在記帳')
+  assert.strictEqual(live.buttonText, '停止記帳')
   assert.strictEqual(live.buttonKind, 'stop')
   for (const row of [idle, paused, live]) {
-    if (row.buttonText === '開始挖礦') assert.strictEqual(row.statusText, '挖礦狀態：已停止')
-    if (row.statusText === '挖礦狀態：已停止') assert.strictEqual(row.buttonText, '開始挖礦')
-    if (row.buttonText === '停止挖礦') assert.ok(row.statusText === '挖礦狀態：正在挖礦' || row.statusText.startsWith('挖礦狀態：等待同步'))
+    if (row.buttonText === '開始記帳') assert.strictEqual(row.statusText, '記帳狀態：已停止')
+    if (row.statusText === '記帳狀態：已停止') assert.strictEqual(row.buttonText, '開始記帳')
+    if (row.buttonText === '停止記帳') assert.ok(row.statusText === '記帳狀態：正在記帳' || row.statusText.startsWith('記帳狀態：等待同步'))
   }
   const addr = CLASSIC.toLowerCase()
   const now = new Date(2026, 9, 9, 12, 0, 0).getTime()
@@ -502,7 +502,7 @@ assert.deepStrictEqual(mine.jobsForHome({
   one[addr] = [{ t: now - 60000, dir: 'reward', status: 'done', asset: 'SCDO', amount: '2', from: '0S' + '0'.repeat(40), to: addr }]
   const certain = mine.confirmedEarnLog(one, now)
   assert.strictEqual(mine.earnOf(certain, now).todayScdo, 2)
-  assert.strictEqual(mine.formatMineHome({ miners: {}, earnLog: certain, now }, CN).todayText, '今天挖到 2 SCDO')
+  assert.strictEqual(mine.formatMineHome({ miners: {}, earnLog: certain, now }, CN).todayText, '今天記到 2 SCDO')
   const full = []
   for (let i = 0; i < mine.TX_PAGE; i++) full.push({ t: now - i * 1000, dir: 'in', status: 'done', asset: 'SCDO', amount: '1' })
   const packed = {}
@@ -541,7 +541,7 @@ assert.deepStrictEqual(mine.nodeSyncOf({ local: 100, network: 108 }), { synced: 
 assert.deepStrictEqual(mine.nodeSyncOf({}), { synced: false, pct: null })
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
-}).label, '顯卡經礦池挖（本機節點同步 52%）')
+}).label, '顯卡經記帳池記帳（本機節點同步 52%）')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: true, nodeSynced: false, syncPct: 52, poolOnline: true, zh: true
 }).action, 'pool')
@@ -553,7 +553,7 @@ assert.strictEqual(mine.chooseMinePath({
 }).action, 'mine')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: false, nodeSynced: true, syncPct: 100, poolOnline: false, zh: true
-}).label, '顯卡經礦池挖')
+}).label, '顯卡經記帳池記帳')
 assert.strictEqual(mine.chooseMinePath({
   shard: 1, explicitSolo: false, nodeSynced: false, zh: true
 }).action, 'pool')
@@ -562,7 +562,7 @@ assert.strictEqual(mine.chooseMinePath({
 }).gpuMiner, 'classic-node')
 assert.strictEqual(mine.chooseMinePath({
   shard: 2, nodeSynced: false, syncPct: 52, zh: false
-}).label, 'Graphics card mining through the pool')
+}).label, 'Graphics card bookkeeping through the pool')
 {
   const addr = (n) => n + 'S0' + n + 'a'.repeat(37)
   const built = mine.jobsForDevice({
@@ -579,7 +579,7 @@ assert.strictEqual(mine.chooseMinePath({
     zh: true
   })
   assert.strictEqual(built.jobs.length, 4)
-  assert.ok(built.jobs.every(j => j.gpuMiner === 'zminer-gpu' && j.action === 'pool' && j.mineLabel === '顯卡經礦池挖'))
+  assert.ok(built.jobs.every(j => j.gpuMiner === 'zminer-gpu' && j.action === 'pool' && j.mineLabel === '顯卡經記帳池記帳'))
   assert.deepStrictEqual(built.jobs.map(j => j.shard), [1, 2, 3, 4])
   assert.ok(built.notices.indexOf('shellOneClassic') < 0)
   assert.strictEqual(built.jobs[0].address, addr(1))
@@ -602,21 +602,21 @@ assert.strictEqual(mine.chooseMinePath({
     const job = soloWait.jobs.find(j => j.shard === shard)
     assert.strictEqual(job.gpuMiner, 'zminer-gpu')
     assert.strictEqual(job.action, 'pool')
-    assert.strictEqual(job.mineLabel, '顯卡經礦池挖（本機節點同步 52%）')
+    assert.strictEqual(job.mineLabel, '顯卡經記帳池記帳（本機節點同步 52%）')
     assert.strictEqual(job.nodeSynced, false)
     assert.strictEqual(job.miningMode, 'solo')
   }
   const syncedSolo = soloWait.jobs.find(j => j.shard === 4)
   assert.strictEqual(syncedSolo.gpuMiner, 'classic-node')
   assert.strictEqual(syncedSolo.action, 'mine')
-  assert.strictEqual(syncedSolo.mineLabel, '顯卡挖礦中')
+  assert.strictEqual(syncedSolo.mineLabel, '顯卡記帳中')
   const row = mine.minePageHtml({
     miners: {},
     chains: { cpu: [], gpu: [1] },
     addresses: { 1: addr(1) },
     mineRows: { 1: { action: 'pool', label: soloWait.jobs[0].mineLabel, syncPct: 52 } }
   }, CN, esc)
-  assert.ok(row.includes('Shard1 Classic · 顯卡經礦池挖（本機節點同步 52%）'))
+  assert.ok(row.includes('Shard1 Classic · 顯卡經記帳池記帳（本機節點同步 52%）'))
   assert.ok(soloWait.notices.indexOf('shellOneClassic') < 0)
   assert.strictEqual(soloWait.blocked.length, 0)
   const twoSynced = mine.jobsForDevice({
@@ -644,7 +644,7 @@ assert.strictEqual(mine.chooseMinePath({
     zh: true
   })
   assert.strictEqual(synced.jobs[0].action, 'mine')
-  assert.strictEqual(synced.jobs[0].mineLabel, '顯卡挖礦中')
+  assert.strictEqual(synced.jobs[0].mineLabel, '顯卡記帳中')
   assert.strictEqual(synced.jobs[0].gpuMiner, 'classic-node')
   const noCard = mine.jobsForDevice({
     device: 'gpu',
@@ -663,7 +663,7 @@ assert.strictEqual(mine.chooseMinePath({
     addresses: { 1: addr(1) },
     zh: true
   })
-  assert.strictEqual(cpu.jobs[0].mineLabel, '經礦池挖')
+  assert.strictEqual(cpu.jobs[0].mineLabel, '經記帳池記帳')
   assert.strictEqual(cpu.jobs[0].backend, 'cpu')
   const now = Date.now()
   const earnLog = {
@@ -696,9 +696,9 @@ assert.strictEqual(mine.chooseMinePath({
     addresses: { 1: addr(1) }
   }, CN, esc)
   assert.ok(ghostWait.includes('已停止'))
-  assert.ok(ghostWait.includes('開始挖礦'))
+  assert.ok(ghostWait.includes('開始記帳'))
   assert.ok(!ghostWait.includes('等待同步'))
-  assert.ok(!ghostWait.includes('停止挖礦'))
+  assert.ok(!ghostWait.includes('停止記帳'))
   const poolLine = mine.homeLine({
     miners: {
       classicGpu: {
@@ -719,7 +719,7 @@ assert.strictEqual(mine.chooseMinePath({
     }
   }, CN)
   assert.strictEqual(ghostLine, I.CN.homeLineIdle)
-  assert.ok(shown.includes('先用 CPU 經礦池挖'))
+  assert.ok(shown.includes('先用 CPU 經記帳池記帳'))
   assert.ok(shown.includes('data-act="mineCpuFirst"'))
   assert.ok(shown.includes('class="wait"'))
   assert.ok(!shown.includes('每秒 80'))
@@ -736,8 +736,8 @@ assert.strictEqual(mine.chooseMinePath({
     earnLog: earnLog,
     now: now
   }, CN, esc)
-  assert.ok(mining.includes('顯卡挖礦中'))
-  assert.ok(!mining.includes('先用 CPU 經礦池挖'))
+  assert.ok(mining.includes('顯卡記帳中'))
+  assert.ok(!mining.includes('先用 CPU 經記帳池記帳'))
   assert.ok(!mining.includes('90'))
   const quiet = mine.minePageHtml({
     miners: {
@@ -751,7 +751,7 @@ assert.strictEqual(mine.chooseMinePath({
     earnLog: earnLog,
     now: now
   }, CN, esc)
-  assert.ok(quiet.includes('顯卡經礦池挖'))
+  assert.ok(quiet.includes('顯卡經記帳池記帳'))
   assert.ok(quiet.includes('每秒 180,000'))
   assert.ok(quiet.includes('運算中'))
   assert.ok(!quiet.includes('2 SCDO'))
@@ -768,7 +768,7 @@ assert.strictEqual(mine.chooseMinePath({
     earnLog: earnLog,
     now: now
   }, CN, esc)
-  assert.ok(shared.includes('顯卡經礦池挖'))
+  assert.ok(shared.includes('顯卡經記帳池記帳'))
   assert.ok(shared.includes('每秒 180,000'))
   const fallback = mine.minePageHtml({
     miners: {},
@@ -777,7 +777,7 @@ assert.strictEqual(mine.chooseMinePath({
     caps: { gpu: { available: true } },
     addresses: { 1: addr(1) }
   }, CN, esc)
-  assert.ok(fallback.includes('這台電腦沒有可用的 NVIDIA 顯卡，已改用 CPU 經礦池挖'))
+  assert.ok(fallback.includes('這台電腦沒有可用的 NVIDIA 顯卡，已改用 CPU 經記帳池記帳'))
   assert.ok(fallback.includes('改用 CPU'))
   assert.ok(fallback.includes('data-act="mineCpuInstead"'))
 }

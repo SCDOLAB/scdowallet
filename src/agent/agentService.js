@@ -6,13 +6,19 @@ const https = require('https')
 const http = require('http')
 const { URL } = require('url')
 const identity = require('./identity')
+const { joinBodyFields } = require('../js/agentJoin')
 const { EventLog } = require('./eventLog')
 const heal = require('./healRules')
+const { parseClassicAddress, parseShard0Address } = require('../miner/zpow/address')
+const endpoints = require('../config/endpoints')
 
 const TICK_MS = 30 * 1000
 const HEARTBEAT_MS = 5 * 60 * 1000
-const DEFAULT_LEDGER = 'https://scdoscan.io/agent-ledger/api'
+const DEFAULT_LEDGER = endpoints.DEFAULT_LEDGER
+const FALLBACK_LEDGER = endpoints.FALLBACK_LEDGER
 const PUBLIC_FIELDS = ['hashrate', 'gpuTempC', 'peers', 'localBlock', 'networkBlock', 'code', 'running', 'procs', 'gpuName', 'syncing']
+const ATTEMPTS = 3
+const RETRY_DELAY_MS = 400
 
 function postJson (url, obj, timeoutMs) {
   return new Promise(resolve => {
@@ -31,26 +37,57 @@ function postJson (url, obj, timeoutMs) {
   })
 }
 
+function statusCode (snap) {
+  const raw = snap && snap.code != null ? String(snap.code).trim() : ''
+  return raw || 'ONLINE'
+}
+
 function heartbeatBody (snap, version) {
-  const b = { version: String(version || '') }
-  for (const k of PUBLIC_FIELDS) if (snap[k] !== undefined) b[k] = snap[k]
+  snap = snap || {}
+  const b = { version: String(version || ''), code: statusCode(snap) }
+  for (const k of PUBLIC_FIELDS) if (k !== 'code' && snap[k] !== undefined) b[k] = snap[k]
   if (Array.isArray(b.procs)) b.procs = b.procs.slice(0, 10).map(String)
   if (snap.problems) b.problems = snap.problems.map(p => p.code)
   return b
 }
 
+function validPayout (value) {
+  const s = String(value || '').trim()
+  const evm = parseShard0Address(s)
+  if (evm) return evm.address
+  const classic = parseClassicAddress(s)
+  return classic ? classic.address : ''
+}
+
+function shouldRetry (r) {
+  if (!r || r.ok) return false
+  if (r.error === 'bad url' || r.error === 'disabled') return false
+  const s = Number(r.status)
+  if (s === 400 || s === 409 || s === 413) return false
+  return true
+}
+
+function clip (v, n) { return String(v == null ? '' : v).replace(/0x[0-9a-fA-F]{64}/g, '0x[key]').slice(0, n) }
+
 class AgentService {
-  // host: { snapshot(): Promise<snap>, handlers: { 'free-port'(a), 'restart-miner'(a), ... }, enabled(): bool, version, platform, label }
+  // host: { snapshot(): Promise<snap>, handlers: { 'free-port'(a), 'restart-miner'(a), ... }, enabled(): bool, version, platform, label, payoutAddress }
   constructor (dir, host, opts) {
     opts = opts || {}
     this.host = host
     this.id = identity.loadOrCreate(dir)
     this.log = new EventLog(dir)
     this.memo = heal.newMemo()
-    this.ledger = opts.ledgerUrl || process.env.SCDO_AGENT_LEDGER || DEFAULT_LEDGER
+    this.ledgerPinned = !!(opts.ledgerUrl || (opts.env || process.env).SCDO_AGENT_LEDGER)
+    this.ledgers = endpoints.ledgerUrls({ ledgerUrl: opts.ledgerUrl, env: opts.env || process.env, remote: opts.remote })
+    if (!this.ledgers.length) this.ledgers = [DEFAULT_LEDGER, FALLBACK_LEDGER]
+    this.ledger = this.ledgers[0]
     this.post = opts.post || postJson
     this.now = opts.now || (() => Date.now())
+    this.attempts = opts.attempts || ATTEMPTS
+    this.retryDelayMs = opts.retryDelayMs != null ? opts.retryDelayMs : RETRY_DELAY_MS
+    this.sleep = opts.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)))
     this.registered = false
+    this.registeredPayout = ''
     this.lastBeat = 0
     this.lastSnap = null
     this.timer = null
@@ -58,23 +95,139 @@ class AgentService {
 
   reportingOn () { try { return this.host.enabled ? this.host.enabled() !== false : true } catch (e) { return true } }
 
+  setRemote (doc) {
+    if (this.ledgerPinned) return
+    const urls = endpoints.ledgerUrls({ remote: doc, env: {} })
+    if (urls.length) { this.ledgers = urls; this.ledger = urls[0] }
+  }
+
+  async payoutAddress () {
+    let v = ''
+    try {
+      const src = this.host.payoutAddress
+      v = typeof src === 'function' ? await src() : src
+    } catch (e) { v = '' }
+    return validPayout(v)
+  }
+
+  note (action, outcome, extra) {
+    const rec = Object.assign({ kind: 'ledger', action, outcome }, extra || {})
+    try { this.log.append(rec) } catch (e) {}
+    console.warn('agent ledger', action, outcome, rec.error || rec.ledger || '')
+  }
+
+  async postLedger (type, env) {
+    let last = { ok: false, error: 'no ledger' }
+    for (let i = 0; i < this.ledgers.length; i++) {
+      const base = this.ledgers[i]
+      try { last = await this.post(base.replace(/\/$/, '') + '/' + type, env) } catch (e) { last = { ok: false, error: e.message } }
+      if (last && last.ok) {
+        if (base !== this.ledger) this.note('fallback', 'ok', { ledger: base })
+        this.ledger = base
+        if (i > 0) this.ledgers = [base].concat(this.ledgers.filter(u => u !== base))
+        return last
+      }
+      this.note(type, 'failed', { error: clip((last && (last.error || last.status)) || 'failed', 200), ledger: base })
+    }
+    return last
+  }
+
   async send (type, body) {
     if (!this.reportingOn()) return { ok: false, error: 'disabled' }
     const env = this.id.sign(type, body, this.now())
-    return this.post(this.ledger + '/' + type, env)
+    return this.postLedger(type, env)
   }
 
+  async deliver (type, body) {
+    let last = { ok: false, error: 'not sent' }
+    for (let attempt = 1; attempt <= this.attempts; attempt++) {
+      try { last = await this.send(type, body) } catch (e) { last = { ok: false, error: e.message } }
+      if (last && last.ok) return last
+      if (!shouldRetry(last) || attempt === this.attempts) break
+      this.note(type, 'retry', { attempt, error: clip((last && (last.error || last.status)) || 'failed', 200) })
+      await this.sleep(this.retryDelayMs * attempt)
+    }
+    this.note(type, 'gave-up', { error: clip((last && (last.error || last.status)) || 'failed', 200) })
+    return last
+  }
+
+  async joinExtra () {
+    let v = {}
+    try {
+      const src = this.host.joinExtra
+      v = typeof src === 'function' ? await src() : (src || {})
+    } catch (e) { v = {} }
+    return v || {}
+  }
+
+  // Live register. Optional ref, src, device and usdcWallet are the join delta.
+  // A later register cannot change attribution: the server freezes the first ref/src.
   async register () {
-    const r = await this.send('register', { version: String(this.host.version || ''), platform: String(this.host.platform || ''), label: String(this.host.label || '').slice(0, 40), role: 'wallet-miner' })
-    if (r.ok) this.registered = true
+    const payout = await this.payoutAddress()
+    const body = { version: String(this.host.version || ''), platform: String(this.host.platform || ''), label: String(this.host.label || '').slice(0, 40), role: 'wallet-miner' }
+    if (payout) body.payout = payout
+    const extra = joinBodyFields(await this.joinExtra())
+    Object.assign(body, extra)
+    const r = await this.deliver('register', body)
+    if (r && r.ok) { this.registered = true; this.registeredPayout = payout }
     return r
+  }
+
+  // One POST /agent-ledger/api/invite/claim. No retry loop: the screen paints on HTTP 200.
+  async relayClaim (body) {
+    const base = String(this.ledger || '').replace(/\/$/, '')
+    if (!base) return { ok: false, status: 0 }
+    return this.post(base + '/invite/claim', body || {})
+  }
+
+  // POST /agent-ledger/api/refcode. No seq. 409 means register first, then retry once.
+  async refcode () {
+    if (!this.id.signRefcode) return { ok: false, error: 'no refcode signer' }
+    const env = this.id.signRefcode(this.now())
+    let last = await this.postLedger('refcode', env)
+    if (last && last.status === 409) {
+      await this.register()
+      const again = this.id.signRefcode(this.now())
+      last = await this.postLedger('refcode', again)
+    }
+    return last
+  }
+
+  async reportError (info) {
+    info = info || {}
+    const body = {
+      kind: info.kind === 'crash' ? 'crash' : 'error',
+      message: clip(info.message, 500),
+      stack: clip(info.stack, 1500),
+      version: String(this.host.version || ''),
+      platform: String(this.host.platform || '')
+    }
+    if (!this.registered && this.reportingOn()) await this.register()
+    return this.deliver('report', body)
+  }
+
+  fail (where, err) {
+    const error = clip(err && err.message || err || 'failed', 200)
+    try { this.log.append({ kind: 'agent', action: where, outcome: 'failed', error }) } catch (e) {}
+    console.warn('agent ' + where + ' failed', error)
   }
 
   async tick () {
     const now = this.now()
-    if (!this.registered && this.reportingOn()) await this.register().catch(() => {})
+    const light = !!(this.host && this.host.light && this.host.light())
+    if (this.reportingOn()) {
+      const payout = await this.payoutAddress()
+      if (!this.registered || (payout && payout !== this.registeredPayout)) await this.register()
+    }
+    if (light) {
+      if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
+        const r = await this.deliver('heartbeat', heartbeatBody({ code: 'ONLINE' }, this.host.version))
+        if (r && r.ok) this.lastBeat = now
+      }
+      return { actions: [], problems: [], light: true }
+    }
     let snap
-    try { snap = await this.host.snapshot() } catch (e) { snap = { error: e.message } }
+    try { snap = await this.host.snapshot() } catch (e) { snap = { error: e.message }; this.fail('snapshot', e) }
     const { actions, problems } = heal.evaluate(snap, this.memo, now)
     snap.problems = problems
     this.lastSnap = snap
@@ -83,14 +236,14 @@ class AgentService {
       let outcome = 'reported'
       const fn = this.host.handlers && this.host.handlers[a.type]
       if (a.type !== 'report' && fn) {
-        try { const r = await fn(a); outcome = r === false ? 'skipped' : 'done' } catch (e) { outcome = 'failed: ' + String(e && e.message || e).slice(0, 120) }
+        try { const r = await fn(a); outcome = r === false ? 'skipped' : 'done' } catch (e) { outcome = 'failed: ' + clip(e && e.message || e, 120) }
       } else if (a.type !== 'report') outcome = 'no-handler'
       const ev = this.log.append({ kind: 'heal', action: a.type, reason: a.reason, outcome, detail: a.pids ? { pids: a.pids } : (a.tempC != null ? { tempC: a.tempC } : undefined) })
       results.push(ev)
-      if (this.registered) await this.send('heal', { action: a.type, reason: String(a.reason || '').slice(0, 200), outcome, problems: problems.map(p => p.code) }).catch(() => {})
+      if (this.registered) await this.deliver('heal', { action: a.type, reason: String(a.reason || '').slice(0, 200), outcome, problems: problems.map(p => p.code) })
     }
     if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-      const r = await this.send('heartbeat', heartbeatBody(snap, this.host.version)).catch(() => ({ ok: false }))
+      const r = await this.deliver('heartbeat', heartbeatBody(snap, this.host.version))
       if (r && r.ok) this.lastBeat = now
     }
     return { actions: results, problems }
@@ -99,14 +252,16 @@ class AgentService {
   start () {
     if (this.timer) return
     this.log.append({ kind: 'agent', action: 'start', agentId: this.id.agentId })
-    this.timer = setInterval(() => { this.tick().catch(() => {}) }, TICK_MS)
+    const run = () => { this.tick().catch(e => this.fail('tick', e)) }
+    this.timer = setInterval(run, TICK_MS)
     if (this.timer.unref) this.timer.unref()
-    setTimeout(() => this.tick().catch(() => {}), 20 * 1000).unref?.()
+    const first = setTimeout(run, 20 * 1000)
+    if (first.unref) first.unref()
   }
 
   stop () { if (this.timer) clearInterval(this.timer); this.timer = null }
 
-  status () { return { agentId: this.id.agentId, ledger: this.ledger, registered: this.registered, reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
+  status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
 }
 
-module.exports = { AgentService, heartbeatBody, postJson, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, PUBLIC_FIELDS }
+module.exports = { AgentService, heartbeatBody, postJson, validPayout, shouldRetry, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, FALLBACK_LEDGER, PUBLIC_FIELDS, ATTEMPTS }

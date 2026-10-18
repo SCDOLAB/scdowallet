@@ -628,7 +628,7 @@ function toclip(text) {
 }
 
 function viewOnScdoscan(publickey) {
-    require("electron").shell.openExternal("https://scdoscan.io/#/address?address=" + publickey);
+    require("electron").shell.openExternal("https://scdo.com.au/#/address?address=" + publickey);
 }
 
 function startMining(publickey) {
@@ -637,7 +637,7 @@ function startMining(publickey) {
     }).catch((err)=>{
         console.log(err);
     });
-    document.getElementById("isMining").innerText="Stop Mining";
+    document.getElementById("isMining").innerText="Stop Bookkeeping";
 }
 
 function stopMining2(shard) {
@@ -646,7 +646,7 @@ function stopMining2(shard) {
     }).catch((err)=>{
         console.log(err);
     });
-    document.getElementById("isMining").innerText="Start Mining";
+    document.getElementById("isMining").innerText="Start Bookkeeping";
 }
 
 function stopMining(shard) {
@@ -655,19 +655,19 @@ function stopMining(shard) {
     }).catch((err)=>{
         console.log(err);
     });
-    document.getElementById("isMining").innerText="Start Mining";
+    document.getElementById("isMining").innerText="Start Bookkeeping";
 }
 
 function changeMingingStatus(publickey) {
     var shard = scdoClient.getShardNum(publickey);
     var mineStatus = document.getElementById("isMining").innerText;
-    if(mineStatus === "Start Mining") {
+    if(mineStatus === "Start Bookkeeping") {
         this.startMining(publickey);
         this.stopMining2(shard);
         this.startMining(publickey);
         this.stopMining2(shard);
         this.startMining(publickey);
-    } else if (mineStatus === "Stop Mining"){
+    } else if (mineStatus === "Stop Bookkeeping"){
         this.stopMining(shard);
         // this.startMining(publickey);
         // this.stopMining(shard);

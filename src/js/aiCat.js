@@ -68,15 +68,16 @@ function liveShardSet (ctx) {
 
 function startFail (code) {
   const map = {
-    NO_ZMINER: '找不到處理器挖礦程式。',
-    NO_CLASSIC_NODE: '找不到顯卡挖礦程式。',
-    NO_ZMINER_GPU: '找不到顯卡礦池程式。',
-    NO_CUDART: '顯卡挖礦程式缺少執行元件。',
+    NO_ZMINER: '找不到處理器記帳節點。',
+    NO_CLASSIC_NODE: '找不到顯卡記帳節點。',
+    NO_ZMINER_GPU: '找不到顯卡記帳池程式。',
+    NO_CUDART: '顯卡記帳節點缺少執行元件。',
     NO_NVIDIA: '這台電腦沒有可用的 NVIDIA 顯卡。',
-    ALREADY_RUNNING: '這個挖礦程式已經在跑。',
-    BAD_ADDRESS: '這個地址不能用來挖這條鏈。',
+    ALREADY_RUNNING: '這個記帳節點已經在跑。',
+    BAD_ADDRESS: '這個地址不能用來記帳這條鏈。',
     BAD_SHARD: '地址和這條鏈對不上。',
-    CANCELED: '你取消了 Shard0 EVM 的顯卡挖礦。'
+    CANCELED: '你取消了 Shard0 EVM 的顯卡記帳。',
+    LIGHT: '輕量模式不記帳。'
   }
   return map[code] || '沒有啟動。'
 }
@@ -85,7 +86,7 @@ function planMine (ctx) {
   ctx = ctx || {}
   const temp = num(ctx.tempC)
   if (temp != null && temp >= HEAT_C) {
-    return { say: '顯卡溫度 ' + temp + '°C，已經過熱。75°C 以下才安全，超過 85°C 會自動暫停，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
+    return { say: '顯卡溫度 ' + temp + '°C，已經過熱。75°C 以下才安全，超過 85°C 會自動暫停，所以已經停下顯卡記帳，保護顯卡。', actions: [{ type: 'stopGpu' }] }
   }
   const gpuOk = !!(ctx.gpu && ctx.gpu.available)
   const cpuOk = !!(ctx.cpu && ctx.cpu.available)
@@ -94,10 +95,10 @@ function planMine (ctx) {
   const shards = [1, 2, 3, 4].filter(n => by[n].length)
   const prefer = by[Number(ctx.preferShard)] ? Number(ctx.preferShard) : (shards[0] || 0)
   if (!gpuOk && !cpuOk && !(ctx.includeShard0 && nvidia)) {
-    return { say: '這台電腦目前沒有可用的顯示卡節點或處理器挖礦程式。', actions: [] }
+    return { say: '這台電腦目前沒有可用的顯示卡節點或處理器記帳節點。', actions: [] }
   }
   if (!shards.length && !ctx.includeShard0) {
-    return { say: '還沒有 Shard1 到 Shard4 的帳戶。請先建立或匯入，再開始挖礦。', actions: [] }
+    return { say: '還沒有 Shard1 到 Shard4 的帳戶。請先建立或匯入，再開始記帳。', actions: [] }
   }
   const jobs = []
   const bits = []
@@ -108,26 +109,26 @@ function planMine (ctx) {
     const cpuShard = otherLive.length ? otherLive[0] : gpuShard
     if (gpuOk) {
       jobs.push({ chain: 'classic', backend: 'gpu', shard: gpuShard, address: by[gpuShard][0].address })
-      bits.push('用顯卡在 Shard' + gpuShard + ' 挖礦')
+      bits.push('用顯卡在 Shard' + gpuShard + ' 記帳')
     }
     if (cpuOk) {
       const s = gpuOk ? cpuShard : gpuShard
       jobs.push({ chain: 'classic', backend: 'cpu', shard: s, address: by[s][0].address })
-      bits.push('用處理器在 Shard' + s + ' 挖礦')
+      bits.push('用處理器在 Shard' + s + ' 記帳')
     }
     const missing = [1, 2, 3, 4].filter(n => !by[n].length)
     if (missing.length) bits.push('Shard' + missing.join('、Shard') + ' 還沒有帳戶')
     const used = {}
     jobs.forEach(j => { if (j.chain === 'classic') used[j.shard] = 1 })
     const left = shards.filter(n => !used[n])
-    if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等現在這次挖完再換')
+    if (left.length) bits.push('Shard' + left.join('、Shard') + ' 等現在這次記帳完再換')
   }
   if (ctx.includeShard0) {
-    if (!ctx.shard0Address) bits.push('沒有 Shard0 EVM 地址，所以沒有一起挖 Shard0 EVM')
-    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起挖 Shard0 EVM')
+    if (!ctx.shard0Address) bits.push('沒有 Shard0 EVM 地址，所以沒有一起記帳 Shard0 EVM')
+    else if (!nvidia) bits.push('沒有 NVIDIA 顯卡，所以沒有一起記帳 Shard0 EVM')
     else {
       jobs.push({ chain: 'shard0', backend: 'gpu', address: ctx.shard0Address })
-      bits.push('另外用顯卡挖 Shard0 EVM')
+      bits.push('另外用顯卡記帳 Shard0 EVM')
     }
   }
   if (!jobs.length) return { say: bits.join('。') + '。', actions: [] }
@@ -145,9 +146,9 @@ function heatGuard (ctx) {
   const shard0Hot = ctx.shard0 && ctx.shard0.running && ctx.shard0.mode !== 'node'
   if (!classicHot && !shard0Hot) return null
   if (temp < HEAT_STOP_C) {
-    return { say: '顯卡溫度 ' + temp + '°C，偏熱。挖礦保護會先降低強度，超過 90°C 暫停，降溫後自動繼續。', actions: [] }
+    return { say: '顯卡溫度 ' + temp + '°C，偏熱。記帳保護會先降低強度，超過 90°C 暫停，降溫後自動繼續。', actions: [] }
   }
-  return { say: '顯卡溫度 ' + temp + '°C，已經過熱，降低強度和暫停都壓不下來，所以已經停下顯卡挖礦，保護顯卡。', actions: [{ type: 'stopGpu' }] }
+  return { say: '顯卡溫度 ' + temp + '°C，已經過熱，降低強度和暫停都壓不下來，所以已經停下顯卡記帳，保護顯卡。', actions: [{ type: 'stopGpu' }] }
 }
 
 function diagnose (ctx) {
@@ -177,7 +178,7 @@ function planHeal (ctx) {
   ctx = ctx || {}
   const temp = num(ctx.tempC)
   if (temp != null && temp >= HEAT_C) {
-    return heatGuard(ctx) || { say: '顯卡溫度 ' + temp + '°C，已經過熱。現在沒有用顯卡挖礦，所以沒有把挖礦停下來。', actions: [] }
+    return heatGuard(ctx) || { say: '顯卡溫度 ' + temp + '°C，已經過熱。現在沒有用顯卡記帳，所以沒有把記帳停下來。', actions: [] }
   }
   const found = diagnose(ctx)
   if (!found.length) return { say: '帳本下載、連上的節點和記憶體目前都正常。', actions: [] }
@@ -197,7 +198,7 @@ function planHeal (ctx) {
       const s0 = ctx.shard0
       if (gpu && gpu.running && gpu.wallet && gpu.mode !== 'cpu' && !jobs.some(j => j.chain === 'classic')) {
         jobs.push({ chain: 'classic', backend: 'gpu', shard: Number(gpu.shard), address: gpu.wallet })
-        bits.push('準備重新啟動顯卡挖礦')
+        bits.push('準備重新啟動顯卡記帳')
       } else if (s0 && s0.running && s0.wallet && !jobs.some(j => j.chain === 'shard0')) {
         jobs.push({ chain: 'shard0', mode: s0.mode === 'node' ? 'node' : 'mine', address: s0.wallet })
         bits.push('準備重新啟動 Shard0 EVM')
@@ -290,21 +291,21 @@ const OPEN_SAY = {
   create: '已開啟「建立新地址」視窗。同一個帳戶會有一個 Shard1–Shard4 的地址和一個 Shard0 EVM 地址。密碼請你自己輸入，小貓看不到。',
   import: '已開啟「匯入錢包」。可以選帳戶檔案，或用私鑰匯入。私鑰只在隱藏輸入視窗裡輸入。溫馨提醒：助記詞和私鑰只存在你自己的設備，貼在聊天裡小貓也看不到。',
   settings: '已開啟「設定」。',
-  reward: '已開啟「挖礦設定」。要改出塊獎勵地址，請先停止挖礦，再選新的地址。',
+  reward: '已開啟「記帳設定」。要改出塊獎勵地址，請先停止記帳，再選新的地址。',
   send: '已開啟轉帳表單。金額、收款人和哪條鏈都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
   remit: '已開啟匯款表單。金額、收款人和走哪條路線都會寫在確認視窗裡，要你自己核對後按確認。小貓不會簽名，也不會把錢送出。',
-  stop: '要停止全部挖礦嗎？請在確認視窗裡自己按「全部停止」。'
+  stop: '要停止全部記帳嗎？請在確認視窗裡自己按「全部停止」。'
 }
 function openPlan (form) { return { say: OPEN_SAY[form], actions: [{ type: 'open', form: form }] } }
 function planOpen (q, ctx) {
   if (/^(?:請|幫我)?(?:建立|新增|開)(?:一個)?新?的?(?:地址|帳戶)|^建立新地址|新地址$/.test(q)) return openPlan('create')
   if (/匯入(?:錢包|帳戶|私鑰|金鑰)|導入(?:錢包|帳戶)/.test(q)) return openPlan('import')
   if (/^(?:開啟|開)?設定$/.test(q)) return openPlan('settings')
-  if (/(?:出塊)?獎勵地址|收益地址|挖礦設定/.test(q)) return openPlan('reward')
+  if (/(?:出塊)?獎勵地址|收益地址|挖礦設定|記帳設定/.test(q)) return openPlan('reward')
   if (/^(?:我要)?轉帳$|^(?:我要)?傳送$/.test(q)) return openPlan('send')
   if (/^(?:我要)?匯款$/.test(q)) return openPlan('remit')
-  if (/^開始[／/]停止挖礦$/.test(q)) return ctx && ctx.mining ? openPlan('stop') : null
-  if (/停止(?:全部)?挖礦|^停挖$/.test(q)) return openPlan('stop')
+  if (/^開始[／/]停止(?:挖礦|記帳)$/.test(q)) return ctx && ctx.mining ? openPlan('stop') : null
+  if (/停止(?:全部)?(?:挖礦|記帳)|^停挖$|^停記帳$/.test(q)) return openPlan('stop')
   return null
 }
 
@@ -315,14 +316,14 @@ function sayContact () {
 }
 
 function wantsMine (q) {
-  return /一鍵挖礦|開始挖礦|幫我挖|啟動挖礦|開挖/.test(q)
+  return /一鍵挖礦|開始挖礦|幫我挖|啟動挖礦|開挖|一鍵記帳|開始記帳|幫我記帳|啟動記帳/.test(q)
 }
 
 function reply (text, ctx) {
   ctx = ctx || {}
   const q = clean(text)
   if (!q) {
-    return { say: '我是 AI小貓。我只在這台電腦上用規則幫忙，不會把資料送出去。我可以一鍵挖礦、在同步卡住時重新啟動節點、回答餘額、引導你備份帳戶檔案，也可以把「匯 100 給某人」填進表單。簽名和送出都要你自己按確認。', actions: [] }
+    return { say: '我是 AI小貓。我只在這台電腦上用規則幫忙，不會把資料送出去。我可以一鍵記帳、在同步卡住時重新啟動節點、回答餘額、引導你備份帳戶檔案，也可以把「匯 100 給某人」填進表單。簽名和送出都要你自己按確認。', actions: [] }
   }
   if (looksLikeSecret(q) || /種子|助記詞|私鑰|密碼是/.test(q) && /顯示|給我|告訴|貼|是多少|看一下/.test(q)) return refuseSecret()
   if (/顯示.*(?:種子|助記詞|私鑰)|(?:種子|助記詞|私鑰).*(?:顯示|給我|告訴我)/.test(q)) return refuseSecret()
@@ -334,12 +335,12 @@ function reply (text, ctx) {
   if (/備份|帳戶檔案|助記詞|種子/.test(q)) return planBackup()
   if (/餘額|有多少|多少錢|多少\s*SCDO|資產/.test(q)) return sayBalance(ctx)
   if (/修復|修同步|同步卡住|沒有同伴|沒有節點|連不上|記憶體/.test(q)) return planHeal(ctx)
-  if (wantsMine(q) || /^開始[／/]停止挖礦$/.test(q) || /也挖\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
+  if (wantsMine(q) || /^開始[／/]停止(?:挖礦|記帳)$/.test(q) || /也(?:挖|記帳)\s*(?:Shard\s*0|EVM|主鏈)|包含\s*(?:Shard\s*0|EVM|主鏈)/i.test(q)) {
     return planMine(Object.assign({}, ctx, { includeShard0: !!(ctx.includeShard0 || /Shard\s*0|EVM|主鏈|main chain/i.test(q)) }))
   }
   const site = planSite(q)
   if (site) return site
-  return { say: '我可以幫你：一鍵挖礦、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
+  return { say: '我可以幫你：一鍵記帳、自我修復、看餘額、備份帳戶檔案，或是把「匯 100 給某人」填進表單。我不會簽名，也不會把錢送出。', actions: [] }
 }
 
 function siteApi () {

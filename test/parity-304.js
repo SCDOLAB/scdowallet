@@ -91,7 +91,7 @@ eq(I.CN.d_txLag, '最新的交易可能會晚幾分鐘才出現')
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.d_txLag))
 assert.ok(read('src/js/dashboard.js').includes("id=\"txLag\">${esc(T('d_txLag'))}"), 'note under the Home history list')
 assert.ok(/visible\('new'\)\.filter\(x => x\.evm\)\.map\(x => loadActivity\(x\.evm\)\)/.test(app), 'every visible Shard0 EVM account gets its history')
-eq(I.CN.d_txReward, '收到挖礦獎勵 · {chain}'); eq(I.CN.d_txSelf, '轉給自己 · {chain}')
+eq(I.CN.d_txReward, '收到記帳獎勵 · {chain}'); eq(I.CN.d_txSelf, '轉給自己 · {chain}')
 
 // ---- 5. links: official channel, group, support email ----
 const main = read('main.js')

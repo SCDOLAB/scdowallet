@@ -35,7 +35,7 @@ Default pools (override with `SCDO_ZPOW_POOLS`, a JSON object keyed by shard):
 
 | Shard | Stratum | HTTP stats |
 | --- | --- | --- |
-| 1 (live) | 82.223.19.88:3341 | 8341 `/api/miner/<address>` |
+| 1 (live) | <pool-host>:3341 | 8341 `/api/miner/<address>` |
 | 2–4 (not live yet) | same host, 3342–3344 | 8342–8344 |
 
 ## GPU — pool by default, Classic node for solo
@@ -58,4 +58,4 @@ Place the files in `miner-bin/win32/classic/` or set `SCDO_CLASSIC_NODE` (and `S
 
 ## Another GPU binary
 
-Set `SCDO_ZPOW_GPU_BIN` to an exe and `SCDO_ZPOW_GPU_ARGS` to a JSON array of arguments. Placeholders: `{pool}`, `{user}`, `{threads}`, `{worker}`, `{shard}`. Optional `SCDO_ZPOW_GPU_SHA256`. The mining page shows **Custom GPU miner** when that exe exists. `{pool}` for shard 1 is `82.223.19.88:3341`.
+Set `SCDO_ZPOW_GPU_BIN` to an exe and `SCDO_ZPOW_GPU_ARGS` to a JSON array of arguments. Placeholders: `{pool}`, `{user}`, `{threads}`, `{worker}`, `{shard}`. Optional `SCDO_ZPOW_GPU_SHA256`. The mining page shows **Custom GPU miner** when that exe exists. `{pool}` for shard 1 is `<pool-host>:3341`.

@@ -1,12 +1,13 @@
 {
     "name": "ScdoWallet",
-    "version": "3.1.4",
+    "version": "3.1.9",
     "productName": "SCDO Wallet",
     "description": "Wallet for SCDO Shard0 (EVM) and Classic accounts",
     "main": "main.js",
     "scripts": {
         "start": "electron .",
         "test": "node test/run-all.js",
+        "dist:mac": "node scripts/build-info.js && node scripts/stage-zminer-mac.js && electron-builder --mac --arm64 --publish never",
         "dist:win": "node scripts/build-info.js && node scripts/stage-zminer.js && electron-builder --win --x64 --publish never",
         "dist:win:nsis": "node scripts/build-info.js && node scripts/stage-zminer.js && electron-builder --win nsis --x64 --publish never",
         "dist:mac": "electron-builder --mac --arm64",
@@ -15,6 +16,14 @@
     "build": {
         "appId": "io.scdoscan.scdowallet",
         "productName": "SCDO Wallet",
+        "protocols": [
+            {
+                "name": "SCDO Wallet",
+                "schemes": [
+                    "scdowallet"
+                ]
+            }
+        ],
         "copyright": "SCDO Laboratory",
         "npmRebuild": false,
         "buildDependenciesFromSource": false,
@@ -97,6 +106,12 @@
                     "arch": [
                         "arm64"
                     ]
+                },
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "arm64"
+                    ]
                 }
             ],
             "icon": "build/icon-1024.png",
@@ -112,6 +127,11 @@
                 {
                     "from": "miner-bin/scdo-shard0-genesis.json",
                     "to": "miner/scdo-shard0-genesis.json"
+                },
+                {
+                    "from": "miner-bin/darwin",
+                    "to": "miner/bin",
+                    "filter": ["zminer-darwin-amd64", "scdo-clminer"]
                 }
             ]
         },

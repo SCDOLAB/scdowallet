@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <!-- 2.0.1: no 'unsafe-inline' / 'unsafe-eval' scripts, no http:, Trusted Types enforced for every HTML sink -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://scdoscan.io/logos/; font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types scdo-parse scdo-html default">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://scdo.com.au/logos/; font-src 'self'; connect-src 'self' https://apeccapital.org; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types scdo-parse scdo-html default">
   <title>SCDO Wallet</title>
   <link href="./src/css/app112.css" rel="stylesheet" />
   <link href="./src/css/shell310.css" rel="stylesheet" />
@@ -66,6 +66,14 @@
   <script src="./src/js/uiLang.js"></script>
   <script src="./src/js/platformCopy.js"></script>
   <script src="./src/js/backupCard.js"></script>
-  <script src="./src/js/app112.js"></script>
+  <script src="./src/js/demoLinks.js"></script>
+<script src="./src/js/vendor/jsQR.js"></script>
+  <script src="./src/js/payInvoice/evm681.js"></script>
+  <script src="./src/js/payInvoice/parse.js"></script>
+  <script src="./src/js/payInvoice/screen.js"></script>
+  <script src="./src/js/agentJoin.js"></script>
+  <script src="./src/js/optimistic.js"></script>
+  <script src="./src/js/walletUi.js"></script>
+<script src="./src/js/app112.js"></script>
 </body>
 </html>

@@ -77,7 +77,7 @@ const ZMINER_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}'
 // zpowdet.dll and cudart64_12.dll must sit beside the exe. See doc/mining-modes.md.
 const ZMINER_GPU_ARGS = ['-pool', '{pool}', '-user', '{user}', '-worker', '{worker}', '-device', '0', '-batch', '8192']
 // Solo only. go-scdo node has no stratum host flag. --pool on this binary is a
-// local coinbase-list switch, not 82.223.19.88:3341. The payout is basic.coinbase.
+// local coinbase-list switch, not a Classic pool. The payout is basic.coinbase.
 const CLASSIC_NODE_ARGS = ['start', '-c', '{config}', '-m', 'start', '--threads', '{threads}', '--threadblocks', '{threadblocks}', '--blockthreads', '{blockthreads}']
 
 function relaxMinerPriority (proc, low) {

@@ -3,11 +3,11 @@
 //  - the channel is kept in the wallet's existing main-process settings file (miner-intent.json via main.js settingsStore),
 //    key "updateChannel"; default "stable"
 //  - the manifests are the wallet's real update manifests on scdoscan.io (same host, same Ed25519 key as 2.0.5/2.0.6):
-//      stable  https://scdoscan.io/downloads/wallet/latest.json        (unchanged; what every 2.0.x has always read)
-//      beta    https://scdoscan.io/downloads/wallet/beta/latest.json   (sibling folder; beta users also read stable and
+//      stable  https://scdo.com.au/downloads/wallet/latest.json        (unchanged; what every 2.0.x has always read)
+//      beta    https://scdo.com.au/downloads/wallet/beta/latest.json   (sibling folder; beta users also read stable and
 //                                                                       get whichever verified manifest is newer)
 //  - every installer on the download page has a sha256sum-format file next to it: <installer>.sha256
-//      https://scdoscan.io/downloads/wallet/SCDOWallet-<v>-win-x64-setup.exe.sha256   (beta builds: .../wallet/beta/...)
+//      https://scdo.com.au/downloads/wallet/SCDOWallet-<v>-win-x64-setup.exe.sha256   (beta builds: .../wallet/beta/...)
 //  - the channel only picks between these two built-in URLs; nothing else about the updater can be changed at run time,
 //    and every manifest still has to pass the same signature + field checks (src/updater.js)
 'use strict'
@@ -18,7 +18,7 @@ const crypto = require('crypto')
 const STORE_KEY = 'updateChannel'
 const DEFAULT_CHANNEL = 'stable'
 const CHANNELS = Object.freeze(['stable', 'beta'])
-const DOWNLOAD_BASE = 'https://scdoscan.io/downloads/wallet/'
+const DOWNLOAD_BASE = 'https://scdo.com.au/downloads/wallet/'
 const MANIFEST_URLS = Object.freeze({
   stable: DOWNLOAD_BASE + 'latest.json',
   beta: DOWNLOAD_BASE + 'beta/latest.json'
@@ -35,14 +35,23 @@ function setChannel (store, ch) {
   return { ok: true, channel: ch }
 }
 // manifests to read, in order. beta reads its own manifest first, then stable (the newer verified one wins).
-function manifestUrls (ch) { return ch === 'beta' ? [MANIFEST_URLS.beta, MANIFEST_URLS.stable] : [MANIFEST_URLS.stable] }
+// 3.1.5: macOS reads its own feed, so a Mac never gets offered the Windows installer.
+const MAC_DOWNLOAD_BASE = 'https://scdo.com.au/downloads/wallet/'
+const MAC_MANIFEST_URLS = Object.freeze({
+  stable: MAC_DOWNLOAD_BASE + 'mac/latest.json',
+  beta: MAC_DOWNLOAD_BASE + 'mac/beta/latest.json'
+})
+function manifestUrls (ch, platform) {
+  const u = (platform || process.platform) === 'darwin' ? MAC_MANIFEST_URLS : MANIFEST_URLS
+  return ch === 'beta' ? [u.beta, u.stable] : [u.stable]
+}
 
 const isPre = (v) => /-/.test(String(v || ''))
 function installerName (version, platform) {
   const v = path.basename(String(version))
   return platform === 'darwin' ? 'SCDOWallet-' + v + '-mac-arm64.dmg' : 'SCDOWallet-' + v + '-win-x64-setup.exe'
 }
-function installerUrl (version, platform) { return DOWNLOAD_BASE + (isPre(version) ? 'beta/' : '') + installerName(version, platform) }
+function installerUrl (version, platform) { return (platform === 'darwin' ? MAC_DOWNLOAD_BASE : DOWNLOAD_BASE) + (isPre(version) ? 'beta/' : '') + installerName(version, platform) }
 function sha256Url (version, platform) { return installerUrl(version, platform) + '.sha256' }
 // sha256sum format: "<64 hex>  <file name>" (one line per file; the line for our file wins, else the first hash)
 function parseSha256File (text, fileName) {
@@ -79,4 +88,4 @@ async function buildHashInfo (opts) {
   return out
 }
 
-module.exports = { STORE_KEY, DEFAULT_CHANNEL, CHANNELS, DOWNLOAD_BASE, MANIFEST_URLS, getChannel, setChannel, manifestUrls, installerName, installerUrl, sha256Url, parseSha256File, sha256Line, buildHashInfo }
+module.exports = { STORE_KEY, DEFAULT_CHANNEL, CHANNELS, DOWNLOAD_BASE, MANIFEST_URLS, MAC_MANIFEST_URLS, getChannel, setChannel, manifestUrls, installerName, installerUrl, sha256Url, parseSha256File, sha256Line, buildHashInfo }

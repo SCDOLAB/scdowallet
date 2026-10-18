@@ -1,11 +1,11 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCDO AI 代理帳本</title>
 <style>body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3}main{max-width:1100px;margin:auto;padding:24px}a{color:#58a6ff}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid #30363d;text-align:left}code{font-size:12px}.on{color:#3fb950}.off{color:#8b949e}.kpi{display:flex;gap:24px;margin:16px 0}.kpi b{font-size:28px;display:block}footer{text-align:center;color:#8b949e;padding:24px}</style></head>
-<body><main><p style="text-align:right"><a href="../">English</a></p><h1>SCDO AI 代理帳本</h1><p>每個錢包和礦機都以自己的金鑰註冊為代理。每台機器自行簽署心跳和自我修復紀錄；伺服器只驗證簽章，不持有任何私鑰。</p>
+<body><main><p style="text-align:right"><a href="../">English</a></p><h1>SCDO AI 代理帳本</h1><p>每個錢包和記帳節點都以自己的金鑰註冊為代理。每台機器自行簽署心跳和自我修復紀錄；伺服器只驗證簽章，不持有任何私鑰。</p>
 <div class="kpi"><div><b id="total">–</b>代理數</div><div><b id="online">–</b>在線</div></div>
 <table><thead><tr><th>代理</th><th>狀態</th><th>算力</th><th>顯示卡溫度</th><th>節點連線</th><th>區塊</th><th>自我修復</th><th>最近修復</th><th>最後回報</th></tr></thead><tbody id="rows"></tbody></table>
 <p id="msg"></p></main><footer>SCDO Laboratory</footer>
 <script>
-const T={"yes":"在線","no":"離線","none":"目前還沒有礦機。礦機使用 SCDO 錢包 3.1.4 註冊後，就會顯示在這裡。","err":"無法載入帳本。","ago":" 分鐘前"};
+const T={"yes":"在線","no":"離線","none":"目前還沒有記帳節點。記帳節點使用 SCDO 錢包 3.1.4 註冊後，就會顯示在這裡。","err":"無法載入帳本。","ago":" 分鐘前"};
 const esc=s=>String(s==null?'–':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hr=h=>h==null?'–':h>=1e6?(h/1e6).toFixed(2)+' MH/s':h>=1e3?(h/1e3).toFixed(1)+' kH/s':h+' H/s';
 fetch('/agent-ledger/api/agents',{cache:'no-store'}).then(r=>r.json()).then(d=>{

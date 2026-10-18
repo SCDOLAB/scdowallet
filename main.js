@@ -78,20 +78,34 @@ const versionCheck = checkRuntime((() => { try { return app.getVersion() } catch
 if (!versionCheck.ok) console.error(versionCheck.error + '; reporting ' + VERSION)
 const BUILD_COMMIT = (() => { try { const b = require('./build-info.json'); return /^[0-9a-f]{7,40}$/.test(String(b.commit || '')) ? String(b.commit) : '' } catch (e) { return '' } })() // 3.0.2: written by scripts/build-info.js before packing
 ipcMain.handle('app:info', () => ({ version: VERSION, displayVersion: VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
-ipcMain.handle('app:mem', () => ({ free: os.freemem(), total: os.totalmem() }))
+ipcMain.handle('app:mem', () => {
+  let free = os.freemem()
+  if (process.platform === 'darwin') { const a = require('./src/main/macMem').macAvailable(); if (a != null && a > free) free = a }
+  return { free, total: os.totalmem() }
+})
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
 // 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
-const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
+const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
 const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
+// 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
+const DEMO_LINKS = require('./src/js/demoLinks')
+const EXACT_ALLOW = [DEMO_LINKS.DEMO_WHEEL_URL, DEMO_LINKS.TELEGRAM_URL]
+// Pay invoice hand-off only. MetaMask and Coinbase dapp links, plus a parsed
+// ton: or ethereum: transfer. This does not register those schemes with the OS.
+const payInvoice = require('./src/js/payInvoice/parse')
 function openExternalSafe (url) {
+  const raw = String(url || '').trim()
+  if (payInvoice.isHandoffUri(raw) || (payInvoice.isWalletDeepLink(raw) && !/scdoscan\.io/i.test(raw))) {
+    try { shell.openExternal(raw); return true } catch (e) { return false }
+  }
   let u
-  try { u = new URL(String(url)) } catch (e) { return false }
+  try { u = new URL(raw) } catch (e) { return false }
   if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
-  if (!EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
+  if (!EXACT_ALLOW.includes(href) && !EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
   shell.openExternal(href)
   return true
 }
@@ -100,24 +114,31 @@ ipcMain.handle('shell:openExternal', (e, url) => openExternalSafe(url))
 const ScdoClient = require('./src/api/scdoClient')
 const createMenu = require('./src/js/menu.js').createMenu
 const walletService = require('./src/main/walletService')
+const Join = require('./src/js/agentJoin')
+const { createStore, createController } = require('./src/main/agentJoin')
+const joinStore = createStore(path.join(app.getPath('userData'), 'agent-join.json'))
+const joinCtl = createController({ store: joinStore, agent: () => opsAgent, env: process.env })
 const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
+const sessionMode = require('./src/main/sessionMode')
+let sessionLight = false
+let sessionOpenedAtLogin = false
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
 // 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 華語繁體, 'EN')
 function uiLang () { try { return walletService.currentLang() === 'EN' ? 'EN' : 'CN' } catch (e) { return 'CN' } }
 const MT = {
   CN: {
-    stopTitle: '停止挖礦 — SCDO Wallet', stopMsg: '確定要停止挖礦嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止挖礦'],
-    quitTitle: '結束 SCDO Wallet', quitMsg: '挖礦正在進行。確定要結束 SCDO Wallet 嗎？結束後挖礦會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
-    updated: '已更新', stopping: '正在停止挖礦 — SCDO Wallet',
-    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '挖礦和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
+    stopTitle: '停止記帳 — SCDO Wallet', stopMsg: '確定要停止記帳嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止記帳'],
+    quitTitle: '結束 SCDO Wallet', quitMsg: '記帳正在進行。確定要結束 SCDO Wallet 嗎？結束後記帳會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
+    updated: '已更新', stopping: '正在停止記帳 — SCDO Wallet',
+    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
   },
   EN: {
-    stopTitle: 'Stop mining — SCDO Wallet', stopMsg: 'Stop mining? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop mining'],
-    quitTitle: 'Quit SCDO Wallet', quitMsg: 'Mining is running. Quit SCDO Wallet? Mining will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
-    updated: 'updated', stopping: 'Stopping miner — SCDO Wallet',
-    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Mining and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
+    stopTitle: 'Stop bookkeeping — SCDO Wallet', stopMsg: 'Stop bookkeeping? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop bookkeeping'],
+    quitTitle: 'Quit SCDO Wallet', quitMsg: 'Bookkeeping is running. Quit SCDO Wallet? Bookkeeping will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
+    updated: 'updated', stopping: 'Stopping bookkeeping node — SCDO Wallet',
+    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
   }
 }
 function mt (k) { return (MT[uiLang()] || MT.CN)[k] }
@@ -223,16 +244,18 @@ ipcMain.handle('notify:set', (e, type, on) => getNotifier().setToggle(String(typ
 ipcMain.handle('pool:account', (e, addr) => miningService.poolAccount(addr))
 // payout notifications: while pool-mining on the official SCDO pool, read the pool account every 2 minutes
 const lastPayoutTx = {}
+let lastPayoutRead = null
 async function pollPayout () {
   try {
     const st = miner ? miner.status() : null
     if (!st || !miningNow() || st.mode !== 'pool' || !miningService.isOfficialPool(st.poolUrl) || !st.wallet) return
     const r = await miningService.poolAccount(st.wallet)
+    if (r && r.ok) lastPayoutRead = { at: Date.now(), address: st.wallet, balance: r.balance || null }
     if (!r || !r.ok || !r.known || !r.lastPayout) return
     const k = st.wallet.toLowerCase()
     if (lastPayoutTx[k] === undefined) { lastPayoutTx[k] = r.lastPayout.tx; return } // first read this session: remember only
     if (lastPayoutTx[k] !== r.lastPayout.tx) { lastPayoutTx[k] = r.lastPayout.tx; getNotifier().onPayout({ amount: r.lastPayout.amount, tx: r.lastPayout.tx }) }
-  } catch (e) {}
+  } catch (e) { console.warn('payout poll', e && e.message) }
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
@@ -240,7 +263,8 @@ setInterval(pollPayout, 2 * 60 * 1000)
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
-// Shard 1 pool is 82.223.19.88:3341. Shards 2–4 use 3342–3344.
+// 3.1.6: Shard1–4 Classic pools have no built-in host. Remote config (apeccapital.org/wallet/config.json,
+// zpowPools) or SCDO_ZPOW_POOLS names them; ports 3341–3344.
 // Shard0, Classic graphics card and Classic processor may all run together.
 const { MinerManager } = require('./src/miner/manager')
 const { ZpowManager, GpuFleet } = require('./src/miner/zpow/manager')
@@ -255,6 +279,7 @@ function zminerGpuDir () {
 let miner = null
 let zpowCpu = null
 let zpowGpu = null
+let remoteDoc = null
 function guardActive () {
   return (readIntent() || {}).guardSmooth !== false
 }
@@ -286,7 +311,8 @@ function zpowOptions () {
       return Math.max(1, Math.min(n, plan.threads))
     },
     onSpawn: (proc) => pinMiner(proc),
-    guardOwnsRestart: () => guardLoopOn()
+    guardOwnsRestart: () => guardLoopOn(),
+    remoteConfig: remoteDoc
   }
 }
 function classicNote () {
@@ -294,13 +320,13 @@ function classicNote () {
   const cn = uiLang() === 'CN'
   if (zpowCpu && zpowCpu.wantRunning) {
     const n = Number(zpowCpu.state && zpowCpu.state.shard)
-    parts.push((cn ? 'Classic 處理器礦池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
+    parts.push((cn ? 'Classic 處理器記帳池' : 'Classic processor pool') + (n >= 1 && n <= 4 ? ' Shard' + n : ''))
   }
   if (zpowGpu && zpowGpu.wantRunning) {
     const st = zpowGpu.status()
     const shards = (st.shards || []).map(s => Number(s.shard)).filter(n => n >= 1 && n <= 4)
     const solo = st.backend === 'classic-node'
-    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡礦池' : 'Classic graphics card pool')
+    const label = solo ? (cn ? 'Classic 顯示卡' : 'Classic graphics card') : (cn ? 'Classic 顯示卡記帳池' : 'Classic graphics card pool')
     parts.push(label + (shards.length ? ' Shard' + shards.join(' ') : ''))
   }
   return parts.join(' · ')
@@ -381,6 +407,7 @@ async function stopClassic (backend, opts) {
   if (!jobs.length) return
   await withinMs(() => Promise.all(jobs), 2000)
 }
+const MAC_SHARD0_POOL = 'ethproxy+tcp://139.84.196.31:3333'
 function getMiner () {
   if (!miner) {
     const res = app.isPackaged ? path.join(process.resourcesPath, 'miner') : path.join(__dirname, 'miner-bin')
@@ -419,7 +446,7 @@ function writeIntent (patch) {
     const fd = fs.openSync(tmp, 'w')
     try { fs.writeSync(fd, JSON.stringify(next, null, 2)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
     fs.renameSync(tmp, f)
-  } catch (e) { console.error('miner intent write failed', e) }
+  } catch (e) { console.error('bookkeeping node intent write failed', e) }
   return next
 }
 
@@ -476,6 +503,7 @@ async function stopMinerVisibly (parent) {
 
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   opts = opts || {}
+  if (sessionLight) return { ok: false, code: 'LIGHT' }
   if (guardActive()) { try { await guardHost.ready() } catch (err) {} }
   if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
@@ -508,9 +536,13 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     }
   }
   const cfg = readIntent() || {}
-  const mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  let mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
+  // 3.1.7: no Shard0 node ships for macOS, so the Mac graphics card always mines through a pool
+  // (the user's own pool when set, otherwise the SCDO pool in Melbourne).
+  const macPool = process.platform === 'darwin' && mode !== 'node'
+  if (macPool) mode = 'pool'
   const startOpts = { mode, payout: opts.payout }
-  if (mode === 'pool') startOpts.poolUrl = cfg.poolUrl
+  if (mode === 'pool') startOpts.poolUrl = macPool ? ((cfg.miningMode === 'pool' && MinerManager.validPoolUrl(cfg.poolUrl)) || MAC_SHARD0_POOL) : cfg.poolUrl
   await afterCleanup()
   try {
     await getMiner().start(wallet, startOpts)
@@ -537,9 +569,12 @@ ipcMain.handle('miner:intentMigrate', (e, ls) => {
 ipcMain.handle('miner:otherRigels', async () => { await afterCleanup(); try { return await getMiner().otherRigels() } catch (err) { return [] } })
 // everything the renderer needs to decide about auto-resume on launch
 ipcMain.handle('miner:resumeCheck', async () => {
+  const it = readIntent() || {}
+  if (sessionLight) {
+    return { autoResume: false, light: true, weakDevice: false, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk: false, otherRigels: [], running: false, resume: { cpu: false, classicGpu: false, shard0: false } }
+  }
   await afterCleanup()
   try { settleStaleRunFlags() } catch (e) {}
-  const it = readIntent() || {}
   const m = getMiner()
   let gpuOk = !app.isPackaged && !!process.env.SCDO_RIGEL_EXE // test hook (development runs only, 1.1.5b): a stand-in miner exe, no GPU check (same as MinerManager.start)
   if (!gpuOk && it.mode !== 'node') { try { gpuOk = !!(await m.gpu()).nvidia } catch (e) {} }
@@ -563,8 +598,8 @@ ipcMain.handle('miner:resumeCheck', async () => {
     writeIntent({ guardWeakNoted: true })
     const cn = uiLang() !== 'EN'
     const line = plan && plan.virtual
-      ? (cn ? '虛擬機中挖礦效率極低，建議關閉' : 'Mining inside a virtual machine is very slow. Leaving it off is recommended.')
-      : (cn ? '此裝置不適合挖礦' : 'This computer is a poor fit for mining.')
+      ? (cn ? '虛擬機中記帳效率極低，建議關閉' : 'Bookkeeping inside a virtual machine is very slow. Leaving it off is recommended.')
+      : (cn ? '此裝置不適合記帳' : 'This computer is a poor fit for bookkeeping.')
     try { if (tray) tray.balloon('SCDO Wallet', line) } catch (e) {}
   }
   const autoResume = !!((it.autoResume && it.keepMining) || once) && !weak
@@ -585,7 +620,7 @@ ipcMain.handle('miner:stop', async (e, src) => {
   writeIntent(mineResume.afterStop(readIntent() || {}, 'shard0')) // the user's Stop is on disk before anything else happens
   try { getNotifier().markUserStop() } catch (err) {}
   // 3.1.4: say who stopped it. The cat's GPU heat guard is not the user.
-  const stopWho = src === 'heat' ? 'stop requested by the GPU heat guard (AI cat, card still too hot after the miner guard)' : 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop mining button') + ')'
+  const stopWho = src === 'heat' ? 'stop requested by the GPU heat guard (AI cat, card still too hot after the bookkeeping node guard)' : 'stop requested by the user (' + (src === 'node' ? 'Stop node button' : 'Stop bookkeeping button') + ')'
   try { getMiner().log('wallet', stopWho) } catch (err) {}
   if (miner) await stopMinerVisibly(mainWindow)
   return { ok: true }
@@ -600,7 +635,9 @@ ipcMain.handle('miner:openLogs', () => shell.openPath(path.join(getMiner().o.dat
 ipcMain.handle('miner:caps', async () => {
   try {
     if (guardActive()) await guardHost.ready()
-    return getZpow('cpu').capabilities()
+    const caps = getZpow('cpu').capabilities()
+    if (process.platform === 'darwin') { try { const g = await getMiner().gpu(); caps.macGpu = { available: !!(g && g.nvidia), names: (g && g.mineNames) || [] } } catch (e) { caps.macGpu = { available: false, names: [] } } }
+    return caps
   } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } }
 })
 ipcMain.handle('miner:classicStatus', () => classicSnapshot())
@@ -608,7 +645,7 @@ function optsBackend (src) { return src && src.backend === 'gpu' ? 'gpu' : 'cpu'
 
 // ---------------- 2.0.1 mining batch 1 ----------------
 ipcMain.handle('mining:gpuPreflight', async () => { let g = null; try { g = await getMiner().gpu() } catch (e) {} return miningService.gpuPreflight(g) })
-ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature() } catch (err) { return { ok: false, gpus: [], error: err.message } } })
+ipcMain.handle('mining:gpuTemp', async () => { try { return await miningService.gpuTemperature({ apiPort: miner && miner.state && miner.state.ports && miner.state.ports.rigelApi }) } catch (err) { return { ok: false, gpus: [], error: err.message } } })
 ipcMain.handle('mining:networkStats', async () => {
   const st = miner ? miner.status() : null
   const lh = st && st.running && (st.mode === 'mine' || st.mode === 'pool') ? st.hashrate : 0
@@ -685,6 +722,7 @@ function ensureGuard () {
   guardRun = pcGuard.start({
     platform: process.platform,
     readIntent,
+    light: () => sessionLight,
     listMiners: () => {
       const out = []
       if (zpowCpu) out.push({ id: 'cpu', mgr: zpowCpu, kind: 'cpu' })
@@ -721,9 +759,13 @@ function createTray () {
       isMinerActive: () => minerActive(),
       getKeepMining: () => !!(readIntent() || {}).keepMining,
       onKeepMining: (on) => setKeepMining(on),
+      getSession: () => publicSession(),
+      onLogin: (on) => setLoginLaunch(on === true),
+      onLight: (on) => { setSessionLight(on === true) },
+      onPace: (patch) => setPace(patch),
       lang: uiLang(),
       onStop: async () => {
-        if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop mining: cancelled by the user') } catch (err) {} return }
+        if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop bookkeeping: cancelled by the user') } catch (err) {} return }
         writeIntent(mineResume.afterStop(readIntent() || {}, 'all')); try { getNotifier().markUserStop() } catch (err) {} try { getMiner().log('wallet', 'stop requested by the user (tray menu)') } catch (err) {}
         if (miner && miner.wantRunning) await stopMinerVisibly(mainWindow)
         try { await stopClassic(undefined, { endSession: true }) } catch (err) { console.error('classic stop failed', err) }
@@ -808,6 +850,8 @@ ipcMain.handle('keyfile:openBackups', () => { fs.mkdirSync(backupRoot(), { recur
 ipcMain.handle('menu:rebuild', () => { if (mainWindow) createMenu(mainWindow, uiLang()); return true })
 
 let mainWindow
+let walletPanelCtl = null
+let walletUiDoc = null
 
 // Our RPC proxies (scdoscan.io/rpc/N) send Access-Control-Allow-Origin twice ("*, *"), which
 // Chromium rejects; normalise the header for the wallet's own RPC traffic.
@@ -882,7 +926,11 @@ function createWindow () {
   mainWindow.webContents.on('will-frame-navigate', (e) => { if (!e.isMainFrame) e.preventDefault() })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' } })
   mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
-  mainWindow.webContents.once('did-finish-load', () => { if (tray) tray.reapply() })
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (tray) tray.reapply()
+    if (!pendingProtocol || !mainWindow || mainWindow.isDestroyed()) return
+    try { mainWindow.webContents.send('agentJoin:updated', pendingProtocol) } catch (e) {}
+  })
   // 2.0.6: the window's X (and Ctrl+W) only hides the wallet to the tray; mining and the node keep running.
   // Quitting is done from the tray menu (Quit, with a confirmation while mining), by an update, or by Windows shutdown.
   mainWindow.on('close', (e) => {
@@ -890,11 +938,76 @@ function createWindow () {
     e.preventDefault()
     if (!tray) { requestQuit({ confirm: true, reason: 'window close without tray' }); return }
     mainWindow.hide()
-    try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, mining/node unchanged') } catch (err) {}
+    try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, bookkeeping/node unchanged') } catch (err) {}
     if (!hintShown && process.platform === 'win32' && tray.balloon) { hintShown = true; tray.balloon(mt('trayHidden'), mt('trayHiddenMsg')) }
   })
   mainWindow.on('session-end', () => { quitting = true; try { getNotifier().markUserStop() } catch (e) {} }) // Windows log-off / shutdown (no 'mining stopped' notification)
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    try { if (walletPanelCtl) walletPanelCtl.destroy() } catch (e) {}
+    mainWindow = null
+  })
+}
+
+let pendingProtocol = null
+function protocolMessage (parsed) {
+  if (!parsed || !parsed.ok) return null
+  if (parsed.kind === 'agent-start') return { route: 'agent-start' }
+  if (parsed.kind === 'invite-create') return { route: 'invite-create' }
+  if (parsed.kind === 'invite-claim') return { route: 'invite-claim', secret: parsed.secret, contract: parsed.contract, chainId: parsed.chainId }
+  return { route: 'join', pendingRef: parsed.ref || '', src: parsed.src || '' }
+}
+function acceptProtocolUrl (raw) {
+  const parsed = Join.parseWalletUrl(raw)
+  if (!parsed.ok) return
+  if (!parsed.kind || parsed.kind === 'join') {
+    try { joinStore.remember(parsed) } catch (e) { console.warn('join url', e && e.message) }
+  }
+  const msg = protocolMessage(parsed)
+  if (!msg) return
+  pendingProtocol = msg
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:updated', msg)
+  } catch (e) {}
+}
+function takeJoinArgv (argv) {
+  for (const u of Join.urlsFromArgv(argv)) acceptProtocolUrl(u)
+}
+app.on('open-url', (e, url) => { e.preventDefault(); acceptProtocolUrl(url) })
+function publicWalletUi () {
+  const walletUi = require('./src/js/walletUi')
+  const doc = walletUiDoc || walletUi.current() || walletUi.defaults()
+  return { links: doc.links, cards: doc.cards, from: doc.from || 'default' }
+}
+function publishWalletUi (doc, from) {
+  walletUiDoc = Object.assign({}, doc, { from: from || (doc && doc.from) || 'default' })
+  try { require('./src/js/walletUi').setCurrent(walletUiDoc) } catch (e) {}
+  try { if (mainWindow && !mainWindow.isDestroyed()) createMenu(mainWindow, uiLang()) } catch (e) {}
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('panel:doc', publicWalletUi()) } catch (e) {}
+}
+function startWalletPanel () {
+  const { create } = require('./src/main/walletPanel')
+  const walletUi = require('./src/js/walletUi')
+  walletPanelCtl = create({
+    getWindow: function () { return mainWindow },
+    getLang: function () { return uiLang() },
+    onProtocol: function (url) { acceptProtocolUrl(url) }
+  })
+  if (mainWindow) walletPanelCtl.hookResize(mainWindow)
+  ipcMain.handle('panel:doc', () => publicWalletUi())
+  ipcMain.handle('panel:show', (e, req) => walletPanelCtl.show(req))
+  ipcMain.handle('panel:close', () => { walletPanelCtl.hide(); return true })
+  const { verifyMessage } = require('ethers')
+  walletUi.refresh({
+    verifyMessage: verifyMessage,
+    cacheFile: path.join(app.getPath('userData'), 'wallet-ui.json'),
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 4000) }
+  }).then(function (result) { publishWalletUi(result.doc, result.from) }).catch(function (e) { console.warn('wallet ui', e && e.message) })
+}
+function registerScdoProtocol () {
+  try {
+    if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient('scdowallet', process.execPath, [path.resolve(process.argv[1])])
+    else app.setAsDefaultProtocolClient('scdowallet')
+  } catch (e) { console.warn('scdowallet protocol', e && e.message) }
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -906,33 +1019,46 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', (e, argv) => {
     // 2.0.6: the installer / uninstaller helper asks a running wallet to quit gracefully (the X button only hides it now)
     if (Array.isArray(argv) && argv.includes('--scdo-quit')) { console.log('quit requested by the installer helper'); requestQuit({ confirm: false, reason: 'installer' }); return }
+    takeJoinArgv(argv)
     if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() }
   })
   app.whenReady().then(() => {
+    bootSession()
     try { guardHost.warm() } catch (e) {}
     try {
       powerMonitor.on('suspend', () => { try { powerHold.onSuspend(Date.now(), minerProcessAlive()) } catch (e) {} })
       powerMonitor.on('resume', () => { try { powerHold.onResume(Date.now()) } catch (e) {} })
     } catch (e) {}
     if (process.platform === 'win32') { try { app.setAppUserModelId('io.scdoscan.scdowallet') } catch (e) {} } // 2.0.7: Windows toast notifications (same id as the installer shortcut)
+    registerScdoProtocol()
+    takeJoinArgv(process.argv)
     fixCors()
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
     session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'clipboard-sanitized-write')
     app.on('web-contents-created', (e, wc) => {
+      let panelGuest = false
+      try { panelGuest = String((wc.session && wc.session.storagePath) || '').indexOf('wallet-panel') >= 0 } catch (err) {}
+      if (panelGuest) return
       wc.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' } })
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
     // 1.1.5: stop the wallet's own miner processes left over from an earlier session (never other Rigel/geth)
     startupCleanup = getMiner().cleanupStale().then(() => {
       try { settleStaleRunFlags() } catch (e) { console.error('stale run flags', e) }
-    }).catch(err => { console.error('miner cleanup failed', err); return [] })
+    }).catch(err => { console.error('bookkeeping node cleanup failed', err); return [] })
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
     createWindow()
+    applyLightRuntime()
     createMenu(mainWindow, uiLang())
     createTray()
     startOpsAgent()
+    try {
+      const { refresh } = require('./src/config/remoteConfig')
+      refresh({ cacheFile: path.join(app.getPath('userData'), 'remote-config.json') }).then(applyRemoteConfig).catch(e => console.warn('remote config', e && e.message))
+    } catch (e) { console.warn('remote config', e && e.message) }
+    try { startWalletPanel() } catch (e) { console.warn('wallet panel', e && e.message) }
     // 1.1.6: first update check 1 minute after launch, then every 6 hours
     scheduleAutoCheck()
   })
@@ -945,7 +1071,80 @@ let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
 let hintShown = false
-const startHidden = process.argv.includes('--scdo-hidden')
+let startHidden = process.argv.includes('--scdo-hidden')
+function bootSession () {
+  let was = false
+  try {
+    const settings = app.getLoginItemSettings ? app.getLoginItemSettings() : null
+    was = !!(settings && settings.wasOpenedAtLogin)
+  } catch (e) {}
+  sessionOpenedAtLogin = sessionMode.openedAtLogin({ argv: process.argv, wasOpenedAtLogin: was })
+  sessionLight = sessionMode.resolveLight({ intent: readIntent(), openedAtLogin: sessionOpenedAtLogin })
+  if (sessionOpenedAtLogin) startHidden = true
+  applyLoginLaunch()
+}
+function applyLoginLaunch () {
+  const on = (readIntent() || {}).loginLaunch === true
+  try { app.setLoginItemSettings(sessionMode.loginItemSettings(on)) } catch (e) {}
+}
+function publicSession () {
+  const it = readIntent() || {}
+  const prefs = sessionMode.normalizePrefs(it)
+  return {
+    loginLaunch: prefs.loginLaunch,
+    loginAsked: prefs.loginAsked,
+    offerLogin: sessionMode.offerLogin(it),
+    light: !!sessionLight,
+    lightChosen: prefs.lightChosen,
+    openedAtLogin: !!sessionOpenedAtLogin,
+    gpuLow: prefs.gpuIntensity === 'low',
+    idleOnly: prefs.idleOnly,
+    bookkeeping: minerActive()
+  }
+}
+function publishSession () {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('session:changed', publicSession())
+  } catch (e) {}
+  if (tray) { try { tray.rebuild() } catch (e) {} }
+}
+function applyLightRuntime () {
+  const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null
+  if (wc) {
+    try { wc.setFrameRate(sessionLight ? 1 : 60) } catch (e) {}
+    try { wc.setBackgroundThrottling(true) } catch (e) {}
+  }
+  publishSession()
+}
+function setLoginLaunch (on) {
+  const open = on === true
+  writeIntent({ loginLaunch: open, loginAsked: true })
+  applyLoginLaunch()
+  publishSession()
+  return publicSession()
+}
+function setPace (patch) {
+  patch = patch || {}
+  const next = {}
+  if (patch.gpuLow != null) next.gpuIntensity = patch.gpuLow === true ? 'low' : 'normal'
+  if (patch.idleOnly != null) next.idleOnly = patch.idleOnly === true
+  writeIntent(next)
+  publishSession()
+  return publicSession()
+}
+async function setSessionLight (on) {
+  const want = on === true
+  sessionLight = want
+  writeIntent({ lightMode: want, lightChosen: true })
+  if (want) {
+    try { writeIntent(mineResume.afterStop(readIntent() || {}, 'all')) } catch (e) {}
+    try { if (miner && miner.wantRunning) await miner.stop() } catch (e) {}
+    try { await stopClassic(undefined, { endSession: true }) } catch (e) {}
+  }
+  applyLightRuntime()
+  try { refreshTray() } catch (e) {}
+  return publicSession()
+}
 // 2.0.6: the one way to quit. confirm=true asks first while mining (Cancel is the default).
 async function clearPageRunFlags () {
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -1013,6 +1212,7 @@ function killMinerChildrenSync () {
 // Reporting can be turned off ("agentReporting": false in miner-intent.json); local self-heal still runs.
 let opsAgent = null
 async function agentSnapshot () {
+  if (sessionLight) return { code: 'ONLINE', running: false, wantMining: false, hashrate: 0, gpuTempC: null, peers: null }
   const m = getMiner()
   const st = m.status() || {}
   const it = readIntent() || {}
@@ -1031,13 +1231,143 @@ async function agentSnapshot () {
   let pr = {}
   if (st.hashrate == null || st.peers == null || st.localBlock == null || st.networkBlock == null) { try { pr = (m.agentProbe && await m.agentProbe()) || {} } catch (e) {} }
   const num = (a, b) => (a != null && Number.isFinite(Number(a))) ? Number(a) : ((b != null && Number.isFinite(Number(b))) ? Number(b) : null)
+  let lastRewardAt = null
+  let rewardsSeen = (Number(st.sharesAccepted) || 0) > 0 || (Number(st.blocksFound) || 0) > 0
+  try {
+    const g = guardRun && guardRun.snapshot && guardRun.snapshot()
+    const times = ((g && g.chains) || []).map(c => c && c.lastShareAt).filter(t => typeof t === 'number' && t > 0)
+    if (times.length) lastRewardAt = Math.max.apply(null, times)
+  } catch (e) {}
+  let poolMode = st.mode === 'pool' && wantMining
+  let poolConnected = null
+  if (poolMode) {
+    if (st.code === 'MINING') poolConnected = true
+    else if (st.code === 'MINING_STARTING' || st.code === 'ERROR') poolConnected = false
+  }
+  let payoutBalanceFresh = false
+  const notePool = (z) => {
+    if (!z || !z.running || z.backend === 'classic-node') return
+    poolMode = true
+    if (z.connected === false) poolConnected = false
+    else if (z.connected === true && poolConnected !== false) poolConnected = true
+    if ((Number(z.sharesAccepted) || 0) > 0 || (Number(z.blocksFound) || 0) > 0) rewardsSeen = true
+    if (z.poolStats && !z.poolError) payoutBalanceFresh = true
+  }
+  try { const snap = classicSnapshot(); notePool(snap.classicCpu); notePool(snap.classicGpu) } catch (e) {}
   return {
     wantMining, running: !!st.running || zRunning, code: st.code || null, hashrate: num(st.hashrate, pr.hashrate),
     peers: num(st.peers, pr.peers), localBlock: num(st.localBlock, pr.localBlock), networkBlock: num(st.networkBlock, pr.networkBlock),
     nodeRunning: !!(st.procs && st.procs.includes('geth')), paused: !!st.paused, procs: st.procs || [],
     otherRigels, gaveUp, quickExits: m.recentExits ? m.recentExits('rigel') : 0, gpuTempC,
-    armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000)
+    armedResume: armed && resumeChains.length > 0, resumeChains, uptimeMs: Math.round(process.uptime() * 1000),
+    miningStartedAt: st.startedAt || null, lastRewardAt, rewardsSeen, poolMode, poolConnected,
+    payoutWatched: poolMode, payoutBalanceAt: lastPayoutRead && lastPayoutRead.at || null, payoutBalanceFresh,
+    noRewardHours: remoteDoc && remoteDoc.noRewardHours, payoutStaleHours: remoteDoc && remoteDoc.payoutStaleHours
   }
+}
+function minerPayoutWallet () {
+  try {
+    const st = getMiner().status() || {}
+    if (st.wallet) return st.wallet
+  } catch (e) {}
+  try {
+    const c = classicSnapshot()
+    if (c.classicCpu && c.classicCpu.wallet) return c.classicCpu.wallet
+    const g = c.classicGpu
+    if (g && g.wallet) return g.wallet
+    if (g && Array.isArray(g.shards)) {
+      const s = g.shards.find(x => x && x.wallet)
+      if (s) return s.wallet
+    }
+  } catch (e) {}
+  return ''
+}
+function payoutAddressNow () {
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  const found = joinStore.currentPayout(minerPayoutWallet(), accounts, readIntent())
+  if (found.intentPatch && Object.keys(found.intentPatch).length) writeIntent(found.intentPatch)
+  return found.payout || ''
+}
+async function startMyAgent (typedRef) {
+  let created = null
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  if (!accounts.length) {
+    const password = Join.generatePassword()
+    try { created = await walletService.createAccount({ name: 'Agent', password: password, shard: '0' }) } catch (e) { created = { ok: false, error: 'create' } }
+    if (!created || !created.ok) return { ok: false, error: (created && created.error) || 'create' }
+    try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
+  }
+  joinStore.lock(typedRef)
+  const file = (created && created.file) || joinStore.publicView().payoutFile || ''
+  if (created && created.evm) joinStore.setPayout(created.evm, created.file, 'auto')
+  const applied = created && created.evm
+    ? { view: joinStore.publicView(), intentPatch: Join.bookkeepingPatch(readIntent(), created.evm) }
+    : joinStore.useSelection(accounts, file, readIntent())
+  if (applied.intentPatch && Object.keys(applied.intentPatch).length) writeIntent(applied.intentPatch)
+  registerAgentLater()
+  const phrase = created && created.phrase ? created.phrase : ''
+  if (created) created.phrase = ''
+  return {
+    ok: true,
+    starting: true,
+    file: (created && created.file) || file,
+    evm: (created && created.evm) || (applied.view && applied.view.payout) || '',
+    date: (created && created.date) || '',
+    phrase: phrase,
+    registered: false,
+    payout: applied.view.payout || ''
+  }
+}
+function registerAgentLater () {
+  if (!opsAgent) return
+  opsAgent.register().then(r => {
+    const registered = !!(r && r.ok)
+    if (registered) joinCtl.refcode().catch(() => {})
+    tellJoinSettled(registered)
+  }).catch(() => tellJoinSettled(false))
+}
+function tellJoinSettled (registered) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:settled', { registered: !!registered })
+  } catch (e) {}
+}
+let claimWatch = ''
+async function claimReceiptReady () {
+  const addr = String(claimWatch || '')
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false
+  const { ethers } = require('ethers')
+  const { Shard0 } = require('./src/api/evm')
+  const reg = new ethers.Contract('0x458F974CcC4F1DB16Fe9F57489b134D7013bAD0d', ['function referrerOf(address) view returns (address)'], new Shard0().provider)
+  const ref = await reg.referrerOf(addr)
+  return !!ref && ref !== ethers.ZeroAddress
+}
+function applyRemoteConfig (result) {
+  const doc = result && result.config
+  if (!doc) {
+    if (result && result.errors && result.errors.length) console.warn('remote config', result.errors.join('; '))
+    return
+  }
+  remoteDoc = doc
+  try { require('./src/config/endpoints').setCachedRemote(doc) } catch (e) {}
+  try { if (zpowCpu) zpowCpu.o.remoteConfig = doc } catch (e) {}
+  try { if (zpowGpu) zpowGpu.o.remoteConfig = doc } catch (e) {}
+  try { if (miner) miner.o.remoteConfig = doc } catch (e) {}
+  try { if (opsAgent) opsAgent.setRemote(doc) } catch (e) {}
+  try {
+    const dir = path.join(os.homedir(), '.ScdoWallet')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'remote-config.json'), JSON.stringify(doc))
+  } catch (e) { console.warn('remote config cache', e && e.message) }
+}
+function reportProcessError (kind, err) {
+  const message = (err && (err.message || String(err))) || ''
+  const stack = (err && err.stack) || ''
+  console.error('wallet ' + kind, message)
+  try {
+    if (opsAgent) opsAgent.reportError({ kind, message, stack }).catch(e => console.error('agent report failed', e && e.message))
+  } catch (e) { console.error('agent report failed', e && e.message) }
 }
 function startOpsAgent () {
   if (opsAgent) return
@@ -1045,7 +1375,10 @@ function startOpsAgent () {
     const { AgentService } = require('./src/agent/agentService')
     opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
       version: VERSION, platform: process.platform, label: '',
+      payoutAddress: payoutAddressNow,
+      joinExtra: () => joinStore.joinExtra(),
       enabled: () => (readIntent() || {}).agentReporting !== false,
+      light: () => sessionLight,
       snapshot: agentSnapshot,
       handlers: {
         'free-port': async (a) => {
@@ -1072,9 +1405,47 @@ function startOpsAgent () {
     opsAgent.start()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
+ipcMain.handle('session:get', () => publicSession())
+ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
+ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
+ipcMain.handle('session:setPace', (e, patch) => setPace(patch))
+ipcMain.handle('session:loginAnswer', (e, yes) => setLoginLaunch(yes === true))
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
+ipcMain.handle('agentJoin:get', () => joinCtl.snapshot(opsAgent ? opsAgent.status() : null))
+ipcMain.handle('agentJoin:start', (e, p) => startMyAgent(p && p.typedRef).catch(() => ({ ok: false, error: 'create' })))
+ipcMain.handle('agentJoin:setPayout', (e, p) => {
+  const addr = Join.validPayout(p && p.address)
+  if (!addr) return joinStore.publicView()
+  const view = joinStore.setPayout(addr, p && p.file, 'settings')
+  const patch = Join.bookkeepingPatch(readIntent(), view.payout)
+  patch.reward = view.payout
+  writeIntent(patch)
+  if (opsAgent) opsAgent.register().catch(() => {})
+  return view
+})
+ipcMain.handle('agentJoin:useSelection', (e, p) => {
+  let accounts = []
+  try { accounts = walletService.listAccounts() } catch (err) { accounts = [] }
+  const applied = joinStore.useSelection(accounts, p && p.file, readIntent())
+  if (applied.changed && opsAgent) opsAgent.register().catch(() => {})
+  if (applied.intentPatch && readIntent() && Object.keys(applied.intentPatch).length) writeIntent(applied.intentPatch)
+  return applied.view
+})
+ipcMain.handle('agentJoin:refcode', () => joinCtl.refcode().catch(() => ({ ok: false, error: 'refcode' })))
+ipcMain.handle('invite:claim', async (e, body) => {
+  body = body && typeof body === 'object' ? body : {}
+  claimWatch = String(body.newAddr || '')
+  if (!opsAgent || !opsAgent.relayClaim) return { ok: false, status: 0 }
+  try {
+    const res = await opsAgent.relayClaim(body)
+    return { ok: !!(res && res.status === 200), status: res && res.status ? res.status : 0 }
+  } catch (err) { return { ok: false, status: 0 } }
+})
+ipcMain.handle('invite:confirm', () => claimReceiptReady().then(ok => ({ ok: !!ok })).catch(() => ({ ok: false })))
 
+process.on('uncaughtException', err => reportProcessError('crash', err))
+process.on('unhandledRejection', err => reportProcessError('error', err))
 app.on('will-quit', () => { killMinerChildrenSync(); if (tray) tray.destroy() })
 process.on('exit', () => killMinerChildrenSync())
 
@@ -1086,6 +1457,7 @@ app.on('window-all-closed', function () {
 app.on('activate', function () {
   if (mainWindow === null) {
     createWindow()
+    applyLightRuntime()
     createMenu(mainWindow, uiLang())
   } else if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
 })

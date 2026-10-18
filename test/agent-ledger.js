@@ -119,7 +119,12 @@ const el = new EventLog(tmp()); el.append({ kind: 'heal', action: 'x' }); assert
 
 // heartbeat body: only public fields
 const hb = heartbeatBody({ hashrate: 1, peers: 2, wallet: '0xabc', otherRigels: [{ pid: 1, exe: 'C:\\x' }], problems: [{ code: 'NO_PEERS' }] }, '3.1.4')
-assert.deepStrictEqual(Object.keys(hb).sort(), ['hashrate', 'peers', 'problems', 'version'])
+assert.deepStrictEqual(Object.keys(hb).sort(), ['code', 'hashrate', 'peers', 'problems', 'version'])
+assert.strictEqual(hb.code, 'ONLINE')
+assert.strictEqual(heartbeatBody(null, '3.1.9').code, 'ONLINE')
+assert.strictEqual(heartbeatBody({}, '3.1.9').code, 'ONLINE')
+assert.strictEqual(heartbeatBody({ code: '  ' }, '3.1.9').code, 'ONLINE')
+assert.strictEqual(heartbeatBody({ code: 'MINING' }, '3.1.9').code, 'MINING')
 
 ;(async () => {
   // server in-process

@@ -31,9 +31,14 @@ const INVOKE = Object.freeze([
   // 2.0.12: 匯款 sign-in (decrypt + personal_sign + token stay in main)
   'remit:info', 'remit:login', 'remit:ledger', 'remit:logout',
   // 3.1.4: AI Agent Ledger (ops agent status + local heal log; the agent key never leaves main)
-  'agent:status', 'agent:setReporting'
+  'agent:status', 'agent:setReporting',
+  // 3.1.9: start-my-agent join (ref lock, payout, referral code). Keys stay in main.
+  'agentJoin:get', 'agentJoin:start', 'agentJoin:setPayout', 'agentJoin:useSelection', 'agentJoin:refcode',
+  'invite:claim', 'invite:confirm',
+  'panel:doc', 'panel:show', 'panel:close',
+  'session:get', 'session:setLogin', 'session:setLight', 'session:setPace', 'session:loginAnswer'
 ])
-const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume'])
+const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume', 'agentJoin:updated', 'agentJoin:settled', 'panel:doc', 'panel:layout', 'session:changed'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))

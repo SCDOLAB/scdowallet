@@ -10,7 +10,7 @@ const P = (c, m, ...a) => new Promise((res, rej) => c[m](...a, (r, e) => e ? rej
 
 ;(async () => {
   for (const s of [1, 2, 3, 4]) {
-    const c = new Scdo('https://scdoscan.io/rpc/' + s).client
+    const c = new Scdo('https://scdo.com.au/rpc/' + s).client
     const info = await P(c, 'getInfo')
     const bal = await P(c, 'getBalance', info.Coinbase, '', -1)
     const nonce = c.sendSync('getAccountNonce', info.Coinbase, '', -1)
@@ -19,7 +19,7 @@ const P = (c, m, ...a) => new Promise((res, rej) => c[m](...a, (r, e) => e ? rej
   }
   // old-chain signing: throwaway key on shard 1, submit to the node -> must fail on balance, not signature
   const kp = new Scdo().keyTool.generateKeys(1)
-  const c1 = new Scdo('https://scdoscan.io/rpc/1').client
+  const c1 = new Scdo('https://scdo.com.au/rpc/1').client
   const nonce = c1.sendSync('getAccountNonce', kp.publickey, '', -1)
   const tx = c1.generateTx(kp.privatekey, { Type: 0, From: kp.publickey, To: '1S01a64ed0a476b1b128e7b196a3ebb34662825231', Amount: 1, AccountNonce: nonce + 1, GasPrice: 10, GasLimit: 21000, Timestamp: 0, Payload: '' })
   // recover signer and compare with the old-shard address

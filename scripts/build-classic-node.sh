@@ -34,7 +34,7 @@ The wallet then runs, per selected shard:
 
   node.exe start -c nodeN.json -m start --threads 1 --threadblocks 100 --blockthreads 100
 
-Shard 1's CPU pool is 82.223.19.88:3341 (zminer). This script builds the GPU node only.
+Shard 1's CPU pool is <pool-host>:3341 (zminer). This script builds the GPU node only.
 It writes nodeN.json itself (coinbase = the Classic address, fresh P2P key).
 Do not point it at an existing node key.
 EOF

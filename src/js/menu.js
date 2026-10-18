@@ -4,6 +4,7 @@
 const { Menu, shell } = require('electron')
 const { menuLang } = require('./uiLang')
 const siteNav = require('./siteNavMap')
+const walletUi = require('./walletUi')
 const { VERSION } = require('../version')
 
 const LABELS = {
@@ -21,7 +22,7 @@ const LABELS = {
     backup: 'Back Up Accounts…',
     openBackups: 'Open the Backup Folder',
     manage: 'Manage Accounts (rename, hide, delete)…',
-    mineSettings: 'Mining settings (shard, graphics card or processor)…',
+    mineSettings: 'Bookkeeping settings (shard, graphics card or processor)…',
     remitItem: 'Send…',
     remitLogout: 'Sign Out of the Remittance Gateway',
     catShow: 'Show AI小貓',
@@ -34,13 +35,14 @@ const LABELS = {
     receive: 'Receive',
     remit: 'Send',
     accounts: 'Accounts',
-    mining: 'Mining',
+    mining: 'Bookkeeping',
     navSettings: 'Settings',
-    miningHome: 'Mining status',
+    miningHome: 'Bookkeeping status',
     settingsCat: 'Settings (language, notifications, updates)',
     settings: 'Language, notifications and updates…',
     help: 'Help',
-    learnMore: 'Learn More'
+    learnMore: 'Learn More',
+    panel: 'Wallet hub'
   },
   CN: {
     app: 'SCDO 錢包',
@@ -56,7 +58,7 @@ const LABELS = {
     backup: '備份帳戶…',
     openBackups: '開啟備份資料夾',
     manage: '管理帳戶（改名稱、隱藏、刪除）…',
-    mineSettings: '挖礦設定（分片、顯卡或處理器）…',
+    mineSettings: '記帳設定（分片、顯卡或處理器）…',
     remitItem: '匯款…',
     remitLogout: '登出匯款閘道',
     catShow: '顯示 AI小貓',
@@ -69,13 +71,14 @@ const LABELS = {
     receive: '收款',
     remit: '匯款',
     accounts: '帳戶',
-    mining: '運算服務',
+    mining: '記帳',
     navSettings: '設定',
-    miningHome: '挖礦狀態',
+    miningHome: '記帳狀態',
     settingsCat: '設定（語言・通知・更新）',
     settings: '語言、通知與更新…',
     help: '說明',
-    learnMore: '了解更多'
+    learnMore: '了解更多',
+    panel: '錢包總覽'
   }
 }
 
@@ -132,7 +135,14 @@ function buildTemplate (mainWindow, lang) {
       { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
     ]
   }
-  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group))
+  const doc = walletUi.current()
+  const panelMenu = {
+    label: L.panel,
+    submenu: (doc.cards || []).map(function (c) {
+      return { label: cn ? c.cn : c.en, click: act('panel:' + c.id) }
+    })
+  }
+  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group), [panelMenu])
 }
 
 function createMenu (mainWindow, lang) {

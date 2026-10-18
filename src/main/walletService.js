@@ -15,6 +15,7 @@ const mnemonic = require('../api/mnemonic')
 const { normalizeHalfWidth } = require('../js/halfWidth')
 const { guardAmount, toUnits } = require('../js/amount')
 const { normLang } = require('../js/uiLang')
+const { rpcCandidates } = require('../config/endpoints')
 
 const S0_CHAIN_ID = 5680
 const HOME = path.join(os.homedir(), '.ScdoWallet')
@@ -29,9 +30,21 @@ let client = null
 let s0 = null
 const reviews = new Map() // token -> { file, from, to, amount, asset, at }
 
-function c () { if (!client) client = new ScdoClient(); return client }
+function c () {
+  if (!client) {
+    client = new ScdoClient()
+    if (process.env.SCDO_RPC_PROBE !== '0') {
+      client.ensureRpc().then(changed => { if (changed) s0 = null }).catch(e => console.warn('rpc fallback', e && e.message))
+    }
+  }
+  return client
+}
 function shard0 () {
-  if (!s0) { const cfg = c().config || {}; s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpc: (cfg.connect && cfg.connect[0]) || 'https://scdoscan.io/rpc/0' })) }
+  if (!s0) {
+    const cfg = c().config || {}
+    const urls = rpcCandidates(0, { connect: cfg.connect, connectFallback: cfg.connectFallback, remote: client && client.remoteConfig })
+    s0 = new Shard0(Object.assign({}, cfg.shard0 || {}, { rpcs: urls }))
+  }
   return s0
 }
 function readJson (p, d) { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch (e) { return d } }
@@ -60,9 +73,12 @@ function s0txUpdate (hash, patch) { const l = s0txAll(); const r = l.find(x => x
 // 3.0.4: every chain (Shard0 EVM and Shard1–Shard4) reads https://api.scdoscan.io/api/address/{addr}/txs, which lists
 // incoming and outgoing transfers, block rewards and token transfers. Shard0 falls back to the etherscan-style txlist
 // when that endpoint fails. Amounts stay integer units (string) plus decimals; the window formats them.
-const EXPLORER_API = 'https://api.scdoscan.io/api'
+// 3.1.7: Shard0 (0x) history is served by our own indexer at scdo.com.au/api. The Shard1–4 (Classic) indexer is
+// still only on api.scdoscan.io until it moves to our servers.
+const EXPLORER_API = 'https://scdo.com.au/api'
+const CLASSIC_EXPLORER_API = 'https://api.scdoscan.io/api'
 const PAGE_ROWS = 50 // the indexer allows up to 100 per page and page * limit <= 10,000
-const ADDR_TXS = (a) => EXPLORER_API + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
+const ADDR_TXS = (a) => (/^0x[0-9a-fA-F]{40}$/.test(String(a)) ? EXPLORER_API : CLASSIC_EXPLORER_API) + '/address/' + encodeURIComponent(a) + '/txs?page=1&limit=' + PAGE_ROWS
 const REWARD_FROM = /^0S0{40}$/i
 async function fetchJson (url, ms) {
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), ms || 10000)
@@ -441,10 +457,13 @@ async function oldSend (p) {
 // ---------- accounts ----------
 async function create (p) {
   p = p || {}
-  const name = String(p.name || '').trim(); const pw = String(p.password || ''); const shard = String(p.shard || '1')
+  const name = String(p.name || '').trim(); const pw = String(p.password || ''); let shard = String(p.shard == null || p.shard === '' ? '0' : p.shard)
   if (name.length > 40 || /[\\/:*?"<>|\u0000-\u001f]/.test(name)) throw new Error('BAD_NAME')
   if (!/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw)) throw new Error('BAD_PASSWORD')
-  if (!/^[1-4]$/.test(shard)) throw new Error('BAD_SHARD')
+  if (!/^[0-4]$/.test(shard)) throw new Error('BAD_SHARD')
+  // 3.1.5: 0 = Shard0 EVM (default). Every account already gets its Shard0 (EVM) address from the
+  // same key; the Classic keyfile format still needs a Classic shard, so Shard0 accounts keep Classic shard 1.
+  if (shard === '0') shard = '1'
   const cl = c()
   let phrase = null
   let priv = String(p.priv || '').trim()
@@ -603,4 +622,4 @@ function register (ipcMain, getWin) {
 
 // 2.0.6: language for main-process dialogs / tray / window titles
 function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }

@@ -15,9 +15,9 @@
         h('div', { class: 'm1-row' }, h('b', { text: g.deviceName || M.L('Unknown graphics card') }), h('span', { class: 'tag', style: 'background:' + BG[st] + ';color:' + COL[st], text: M.L(LABEL[st]) })),
         h('div', { class: 'm1-kv' },
           h('span', { text: M.L('Vendor: ') + g.vendor }),
-          h('span', { class: 'explain', tabindex: '0', 'data-tip-name': M.L('Graphics memory '), 'data-tip-value': (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')), 'data-tip-explain': M.L('This is the memory on the graphics card. Mining needs at least 4 GB. A bigger number can handle mining more comfortably.'), text: (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')) }),
+          h('span', { class: 'explain', tabindex: '0', 'data-tip-name': M.L('Graphics memory '), 'data-tip-value': (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')), 'data-tip-explain': M.L('This is the memory on the graphics card. Bookkeeping needs at least 4 GB. A bigger number can handle bookkeeping more comfortably.'), text: (g.vramGB ? M.L('Graphics memory ') + g.vramGB + ' GB' + (g.vramApprox ? M.L(' (approximate)') : '') : M.L('Graphics memory has not been read yet')) }),
           h('span', { text: M.L('Driver: ') + (g.driverVersion || M.L('not detected')) }),
-          h('span', { text: g.cuda ? M.L('This graphics card can be used for mining') : M.L('This graphics card cannot be used for mining') })),
+          h('span', { text: g.cuda ? M.L('This graphics card can be used for bookkeeping') : M.L('This graphics card cannot be used for bookkeeping') })),
         h('ul', { class: 'm1-reasons' }, (g.reasons || []).map(r => h('li', { text: M.reason(r) })))))
     }
     card.appendChild(h('div', { class: 'lbl', text: M.L('Checked ') + new Date(pre.checkedAt || Date.now()).toLocaleString(M.locale()) + M.L('. Needs an NVIDIA graphics card, the latest NVIDIA graphics driver, and 4 GB of graphics memory.') }))
@@ -25,8 +25,8 @@
   }
   // Mac: static notice, GPU mining is not offered (spec: Mac static hint card)
   M.macNotSupportedCard = function () {
-    return h('div', { class: 'nogpu', id: 'macNoGpu' }, h('b', { text: M.L('Graphics-card mining is not supported on Mac') }),
-      h('div', { style: 'margin-top:6px;font-size:17px', text: M.L('Macs do not have the graphics driver this kind of graphics-card mining needs, and the built-in miner (Rigel) has no macOS version, so graphics-card mining is not offered on this computer. Accounts, transfers and the network stats below work normally.') }))
+    return h('div', { class: 'nogpu', id: 'macNoGpu' }, h('b', { text: M.L('Graphics-card bookkeeping is not supported on Mac') }),
+      h('div', { style: 'margin-top:6px;font-size:17px', text: M.L('Macs do not have the graphics driver this kind of graphics-card bookkeeping needs, and the built-in bookkeeping node (Rigel) has no macOS version, so graphics-card bookkeeping is not offered on this computer. Accounts, transfers and the network stats below work normally.') }))
   }
   M.GpuPreflightCard = { render }
 })(window.SCDOMining)
