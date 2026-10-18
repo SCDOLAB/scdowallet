@@ -140,3 +140,5 @@ html.mac-native .sw { transform: none; width: 32px; height: 19px; border-radius:
 html.mac-native .sw::after { left: 1.5px; top: 1.5px; width: 16px; height: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
 html.mac-native .sw.on { background: var(--mn-accent); } html.mac-native .sw.on::after { left: 14.5px; }
 html.mac-native .setsec h3 { font-size: 13px; font-weight: 600; color: var(--mn-text2); text-transform: none; }
+html.mac-native .back-home-row .back-home, html.mac-native .link.back-home { color: var(--mn-accent); font-size: 13px; font-weight: 500; }
+html.mac-native .shell-set .toggle { margin-top: 10px; }
