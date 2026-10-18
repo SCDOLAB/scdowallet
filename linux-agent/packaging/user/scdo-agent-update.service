@@ -1,0 +1,10 @@
+[Unit]
+Description=SCDO bookkeeping agent updater
+Documentation=https://scdo.com.au/agent-ledger/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/scdo-agent --data-dir %h/.local/share/scdo-agent upgrade-now
+Environment=SCDO_AGENT_MODE=user

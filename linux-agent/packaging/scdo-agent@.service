@@ -1,0 +1,28 @@
+[Unit]
+Description=SCDO bookkeeping agent (%i)
+Documentation=https://scdo.com.au/agent-ledger/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=scdo-agent
+Group=scdo-agent
+ExecStart=/usr/bin/scdo-agent run --name %i
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+ReadWritePaths=/var/lib/scdo-agent
+StateDirectory=scdo-agent
+# Optional passphrase for an encrypted key. Leave unset for a service-user key file.
+# Environment=SCDO_AGENT_PASSPHRASE_FILE=/etc/scdo-agent/%i.pass
+
+[Install]
+WantedBy=multi-user.target
