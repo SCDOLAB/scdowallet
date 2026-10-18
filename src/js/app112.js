@@ -5057,7 +5057,7 @@
     setTab('home')
     render()
     refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
-    offerLoginChoice()
+    api.invoke('session:armLogin').then((s) => { st.session = s || st.session; applySessionUi() }).catch(() => {})
   }
   async function runClaim (body) {
     if (body) st.claimBody = body

@@ -555,6 +555,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
       const runPatch = backend === 'cpu' ? { runningCpu: true } : { runningClassicGpu: true }
       if (cfgNow.keepMining) runPatch.autoResume = true
       writeIntent(runPatch)
+      armLoginLaunch()
       refreshTray()
       return { ok: true }
     } catch (err) {
@@ -575,6 +576,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     await getMiner().start(wallet, startOpts)
     // 2.0.1: autoResume (start again on the next launch) only when the user turned on "Keep mining"
     writeIntent(Object.assign({ autoResume: !!cfg.keepMining, runningShard0: mode !== 'node', mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
+    if (mode !== 'node') armLoginLaunch()
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
@@ -735,6 +737,7 @@ ipcMain.handle('mining:poolStatus', async () => {
 })
 function setKeepMining (on) {
   writeIntent({ keepMining: on, autoResume: on && !!(miner && miner.wantRunning) })
+  if (on) armLoginLaunch()
   if (tray) tray.rebuild()
   if (miner) miner.emit('status', miner.status())
   return { ok: true, keepMining: on }
@@ -1165,6 +1168,7 @@ function sendTrayHint () {
   try { mainWindow.webContents.send('agent:trayHint', { show: true }) } catch (e) {}
 }
 function noteHiddenToTray () {
+  keepAgentHeartbeat()
   if (!hintShown) {
     hintShown = true
     trayHintPending = true
@@ -1203,7 +1207,7 @@ function confirmAgentQuit () {
     return true
   })
 }
-let startHidden = process.argv.includes('--scdo-hidden')
+let startHidden = process.argv.includes('--scdo-hidden') || process.argv.includes('--hidden')
 function bootSession () {
   let was = false
   try {
@@ -1211,9 +1215,20 @@ function bootSession () {
     was = !!(settings && settings.wasOpenedAtLogin)
   } catch (e) {}
   sessionOpenedAtLogin = sessionMode.openedAtLogin({ argv: process.argv, wasOpenedAtLogin: was })
-  sessionLight = sessionMode.resolveLight({ intent: readIntent(), openedAtLogin: sessionOpenedAtLogin })
-  if (sessionOpenedAtLogin) startHidden = true
-  applyLoginLaunch()
+  const intent = readIntent()
+  sessionLight = sessionMode.resolveLight({ intent: intent, openedAtLogin: sessionOpenedAtLogin })
+  if (sessionOpenedAtLogin || sessionMode.hiddenLaunch(process.argv)) startHidden = true
+  if (sessionMode.shouldArmLogin(intent) && sessionMode.rigWantsLogin(intent, agentStartedForLogin())) armLoginLaunch()
+  else applyLoginLaunch()
+}
+function agentStartedForLogin () {
+  try {
+    const view = joinStore.publicView()
+    return !!(view && view.locked)
+  } catch (e) { return false }
+}
+function keepAgentHeartbeat () {
+  try { if (opsAgent && opsAgent.nudge) opsAgent.nudge() } catch (e) {}
 }
 function applyLoginLaunch () {
   const on = (readIntent() || {}).loginLaunch === true
@@ -1250,7 +1265,14 @@ function applyLightRuntime () {
 }
 function setLoginLaunch (on) {
   const open = on === true
-  writeIntent({ loginLaunch: open, loginAsked: true })
+  writeIntent({ loginLaunch: open, loginAsked: true, loginOff: !open })
+  applyLoginLaunch()
+  publishSession()
+  return publicSession()
+}
+function armLoginLaunch () {
+  if (!sessionMode.shouldArmLogin(readIntent())) return publicSession()
+  writeIntent(sessionMode.armLoginPatch())
   applyLoginLaunch()
   publishSession()
   return publicSession()
@@ -1436,6 +1458,7 @@ async function startMyAgent (typedRef) {
   }
   joinStore.lock(typedRef)
   agentLive = true
+  try { armLoginLaunch() } catch (e) {}
   try { refreshTray() } catch (e) {}
   const file = (created && created.file) || joinStore.publicView().payoutFile || ''
   if (created && created.evm) joinStore.setPayout(created.evm, created.file, 'auto')
@@ -1545,6 +1568,7 @@ function startOpsAgent () {
       return rawRegister().then(r => { try { refreshTray() } catch (err) {} return r })
     }
     opsAgent.start()
+    keepAgentHeartbeat()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
 ipcMain.handle('session:get', () => publicSession())
@@ -1552,6 +1576,7 @@ ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
 ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
 ipcMain.handle('session:setPace', (e, patch) => setPace(patch))
 ipcMain.handle('session:loginAnswer', (e, yes) => setLoginLaunch(yes === true))
+ipcMain.handle('session:armLogin', () => armLoginLaunch())
 ipcMain.handle('session:trayHintDismiss', () => { trayHintDismissed = true; trayHintPending = false; return { ok: true } })
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })

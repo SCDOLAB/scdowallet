@@ -259,6 +259,12 @@ class AgentService {
     if (first.unref) first.unref()
   }
 
+  // The window can be hidden. The heartbeat timer lives in this process, not in the page.
+  nudge () {
+    this.start()
+    return this.tick().catch(e => this.fail('tick', e))
+  }
+
   stop () { if (this.timer) clearInterval(this.timer); this.timer = null }
 
   status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }

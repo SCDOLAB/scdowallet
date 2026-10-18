@@ -31,7 +31,7 @@ assert.strictEqual(CN.quitAgentMsg, '結束後 Agent 會離線，獎勵也會暫
 assert.strictEqual(CN.quitAgentQuit, '結束')
 assert.strictEqual(CN.quitAgentStay, '繼續執行')
 assert.strictEqual(CN.quitAgentDontAsk, '不要再問')
-assert.strictEqual(EN.loginToggle, 'Launch at login')
+assert.strictEqual(EN.loginToggle, 'Launch at login (start minimised in tray)')
 const fresh = EN.agentStayOpen + EN.agentOnlineLine + EN.agentOfflineLine + EN.trayStayNotice + EN.quitAgentMsg + CN.agentStayOpen + CN.trayStayNotice + CN.quitAgentMsg
 assert.ok(!/mining|GPU|CPU|算力/.test(fresh))
 
@@ -61,6 +61,6 @@ assert.ok(app.includes('trayHintHtml()'))
 assert.ok(app.includes("api.on('agent:trayHint'"))
 assert.ok(preload.includes("'session:trayHintDismiss'") && preload.includes("'agent:trayHint'"))
 assert.ok(tray.includes('presenceItem') && tray.includes('agentOnlineLine') && tray.includes('agentOfflineLine'))
-assert.ok(tray.includes('Start when I log in'))
+assert.ok(tray.includes('Launch at login (start minimised in tray)'))
 
 console.log('agent-presence: ok')
