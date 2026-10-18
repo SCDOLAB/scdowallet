@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SCDO bookkeeping agent update
+Documentation=https://scdo.com.au/agent-ledger/
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
