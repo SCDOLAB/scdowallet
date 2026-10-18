@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,12 +30,24 @@ func TestPaywall402RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var incomeBody []byte
+	incomeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		incomeBody, _ = io.ReadAll(r.Body)
+		if r.URL.Path != "/ledger/income" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"duplicate":false}`))
+	}))
+	defer incomeSrv.Close()
 	var settled bool
 	mock := &mockFacilitator{
 		onSettle: func() { settled = true },
 	}
 	h, err := Paywall(PaywallOptions{
 		Root: root, Name: "bot", Price: "0.01", Path: "/answer", Facilitator: mock,
+		LedgerURLs: []string{incomeSrv.URL},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +76,14 @@ func TestPaywall402RoundTrip(t *testing.T) {
 	}
 	payload := types.PaymentPayload{
 		X402Version: 2,
-		Payload:     map[string]any{"signature": "0x" + strings.Repeat("ab", 65)},
+		Payload: map[string]any{
+			"signature": "0x" + strings.Repeat("ab", 65),
+			"authorization": map[string]any{
+				"from": "0x0000000000000000000000000000000000000001", "to": created.Wallet,
+				"value": "10000", "validAfter": "0", "validBefore": "4000000000",
+				"nonce": "0x" + strings.Repeat("11", 32),
+			},
+		},
 		Accepted: types.PaymentRequirements{
 			Scheme:            "exact",
 			Network:           NetworkSepolia,
@@ -84,8 +104,21 @@ func TestPaywall402RoundTrip(t *testing.T) {
 		t.Fatalf("status %d settled %v body %s", rec.Code, settled, rec.Body.String())
 	}
 	receipts, err := os.ReadFile(root + "/bot/receipts.jsonl")
-	if err != nil || !strings.Contains(string(receipts), "0x"+strings.Repeat("cd", 32)) {
+	if err != nil || !strings.Contains(string(receipts), "0x"+strings.Repeat("cd", 32)) || !strings.Contains(string(receipts), `"income":true`) {
 		t.Fatal(string(receipts), err)
+	}
+	text = string(incomeBody)
+	if !strings.Contains(text, `"paymentPayload"`) || !strings.Contains(text, `"authorization"`) || !strings.Contains(text, `"settlement"`) {
+		t.Fatal("income body dropped the x402 payload")
+	}
+	if !strings.Contains(text, "0x"+strings.Repeat("cd", 32)) || !strings.Contains(text, created.Agent) {
+		t.Fatal("income body")
+	}
+	if strings.Contains(text, `"eip155:8453"`) {
+		t.Fatal("mainnet income")
+	}
+	if !strings.Contains(text, `"x402Version":2`) {
+		t.Fatal("x402 version")
 	}
 }
 
