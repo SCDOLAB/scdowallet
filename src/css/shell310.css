@@ -18,6 +18,9 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; min-width: 0; margin: 0 auto; padding: 26px 30px 140px; }
 .shell-h { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -0.4px; color: #1c1c1e; }
 .site-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 26px 0; min-width: 0; }
+.lang-switch { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.lang-opt { border: 1px solid #1d7a34; background: #fff; color: #1d7a34; border-radius: 999px; font-size: 14px; font-weight: 800; padding: 6px 12px; }
+.lang-opt.on { background: #1d7a34; color: #fff; }
 
 .bal-hero { border-radius: 24px; padding: 28px 32px 32px; color: #1c1c1e;
   background: linear-gradient(135deg, rgba(232,248,238,.92) 0%, rgba(206,240,220,.92) 55%, rgba(196,236,214,.92) 100%);
@@ -29,6 +32,14 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 
 .shell-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .home-lead { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -0.3px; color: #1c1c1e; }
+.empty-wallet { background: #fff; border: 1px solid #e5e5ea; border-radius: 24px; padding: 28px 32px; margin: 0 0 16px; }
+.empty-wallet .empty-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ext-payout { background: #fff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 16px 20px; margin: 12px 0 0; }
+.ext-payout .lbl { font-size: 13px; font-weight: 800; color: #3d4160; }
+.ext-payout .mono { margin-top: 6px; font-size: 16px; word-break: break-all; }
+.ext-payout .ext-bal { margin-top: 8px; font-size: 28px; font-weight: 800; }
+.ext-payout .ext-bal.dash { color: #8e8e93; }
+.ext-payout .ext-note { margin: 8px 0 0; font-size: 14px; color: #3d4160; }
 .home-backup-banner { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
 .home-backup-banner:hover { background: #ffefb0; }
 .home-backup-legacy { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 8px 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }

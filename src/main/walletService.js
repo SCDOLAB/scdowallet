@@ -14,7 +14,7 @@ const { Shard0 } = require('../api/evm')
 const mnemonic = require('../api/mnemonic')
 const { normalizeHalfWidth } = require('../js/halfWidth')
 const { guardAmount, toUnits } = require('../js/amount')
-const { normLang } = require('../js/uiLang')
+const { normLang, resolveLang, langFromLocale, osLocale } = require('../js/uiLang')
 const { rpcCandidates } = require('../config/endpoints')
 
 const S0_CHAIN_ID = 5680
@@ -555,11 +555,12 @@ function saveUi (ui) {
   return true
 }
 
-// 3.0.8: UI language. Only 'EN' and 'CN' (= 華語繁體 / Traditional Chinese) are stored.
-// 'CN' stays the stored value so older wallets that share viewconfig_1.1.json keep reading it.
-// An unset language is CN. A saved EN or CN is kept. The operating-system language is not used.
+// Only 'EN' and 'CN' (= 華語) are stored. A saved EN or CN is kept.
+// An unset language follows the operating-system locale (zh-* is 華語, otherwise English)
+// and is written back so the next launch remembers it.
 function setLang (v) {
   const l = normLang(v)
+  if (l !== 'EN' && l !== 'CN') return { ok: false, error: 'bad language' }
   const cl = c()
   let cfg = {}
   try { cfg = JSON.parse(fs.readFileSync(cl.configpath, 'utf8')) || {} } catch (e) { cfg = Object.assign({}, cl.config || {}) }
@@ -572,10 +573,10 @@ function setLang (v) {
 function boot () {
   const cl = c()
   const cfg = cl.config || {}
-  // 3.0.8: a saved EN or CN is kept. An unset language is 華語. The Chinese UI is
-  // Traditional Chinese only; an old saved "CN" (or any zh / TW value) maps to the Traditional strings.
+  const lang = resolveLang(cfg.lang, osLocale())
+  if (cfg.lang !== lang) { try { setLang(lang) } catch (e) {} }
   return {
-    config: { lang: normLang(cfg.lang), connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
+    config: { lang: lang, connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
     shard0: { chainId: shard0().cfg.chainId, explorer: shard0().cfg.explorer, tokens: shard0().cfg.tokens.map(t => ({ symbol: t.symbol, name: t.name || '', address: t.address, decimals: t.decimals, logo: t.logo || '' })) },
     ui: readJson(UI_PATH, {}),
     accounts: accounts(),
@@ -621,7 +622,7 @@ function register (ipcMain, getWin) {
 }
 
 // 2.0.6: language for main-process dialogs / tray / window titles
-function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
+function currentLang () { try { return resolveLang((c().config || {}).lang, osLocale()) } catch (e) { return langFromLocale(osLocale()) } }
 // InviteRegistry and other allow-listed contract calls. The caller picks the calldata.
 // Private keys stay in this process for the one signature.
 async function sendContract (p) {

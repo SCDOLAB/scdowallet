@@ -286,7 +286,7 @@ async function pollPayout () {
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
-// ---------------- built-in miners ----------------
+// ---------------- built-in ledger nodes ----------------
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
@@ -873,7 +873,11 @@ ipcMain.handle('keyfile:backupDelete', (e, name) => {
   try { b = backupKeyfile(name) } catch (err) { return { ok: false, stage: 'backup', error: err.message } }
   try { fs.unlinkSync(b.src) } catch (err) { return { ok: false, stage: 'delete', error: err.message, backup: b.dst } }
   try { require('./src/api/mnemonic').removeSeal(path.join(os.homedir(), '.ScdoWallet', 'mnemonic'), name) } catch (err) {}
-  return { ok: true, backup: b.dst, sha256: b.sha256 }
+  // The keyfile above is the only key this delete removes. evm.json loses that account's entry
+  // after a backup; other accounts and their key files stay where they are.
+  let evm = { ok: true, removed: false, backup: '' }
+  try { evm = require('./src/api/evmCache').forgetAccount(path.join(os.homedir(), '.ScdoWallet', 'evm.json'), name) } catch (err) { evm = { ok: false, removed: false, backup: '', error: err && err.message } }
+  return { ok: true, backup: b.dst, sha256: b.sha256, evm: evm }
 })
 ipcMain.handle('keyfile:backupOnly', (e, name) => {
   try { const b = backupKeyfile(name); return { ok: true, backup: b.dst } } catch (err) { return { ok: false, error: err.message } }

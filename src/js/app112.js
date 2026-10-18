@@ -18,9 +18,15 @@
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
   function rigUi () { return !api || api.platform !== 'linux' }
-  // 3.0.8: first launch is 華語. A saved EN or CN from wallet:boot is kept. The operating-system language is not used.
-  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) { return String(v == null ? '' : v).trim().toUpperCase() === 'EN' ? 'EN' : 'CN' }
-  let LANG = normUi(CFG && CFG.lang)
+  // wallet:boot already resolved the language: a saved EN or CN is kept, and a first launch
+  // followed the operating-system locale (zh-* is 華語, otherwise English) and stored it.
+  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) {
+    const s = String(v == null ? '' : v).trim().toUpperCase().replace(/_/g, '-')
+    if (s === 'EN' || s.startsWith('EN-')) return 'EN'
+    if (s === 'CN' || s === 'TW' || s.startsWith('ZH')) return 'CN'
+    return null
+  }
+  let LANG = normUi(CFG && CFG.lang) || 'EN'
   function lang () { return LANG }
   function applyLangAttr () { try { document.documentElement.lang = LANG === 'CN' ? 'zh-Hant-TW' : 'en'; if (window.SCDOMining) window.SCDOMining.lang = LANG } catch (e) {} }
   applyLangAttr()
@@ -282,7 +288,7 @@
     const vis = visible('new')
     let a = vis.find(x => x.filename === st.sel)
     if (!a) { a = vis.find(x => x.evm) || vis[0] || null; st.sel = a ? a.filename : ''; localStorage.setItem('selAcc112', st.sel) }
-    return a
+    return a || null
   }
   function accByFile (f) { return st.accounts.find(a => a.filename === f) }
 
@@ -302,6 +308,7 @@
       // 3.0.4: Home lists every visible Shard0 EVM account's history (indexer, at most once a minute); the selected one every time
       const sa = selected()
       if (Date.now() - (st.s0ActAt || 0) > 60000) { st.s0ActAt = Date.now(); await Promise.all(visible('new').filter(x => x.evm).map(x => loadActivity(x.evm))) } else if (sa && sa.evm) await loadActivity(sa.evm)
+      await refreshExternalPayout()
     } finally { refreshingS0 = false; renderLive() }
   }
   function balFromIpc (b) {
@@ -366,7 +373,8 @@
       const list = headerAccounts()
       return list.find(x => x.filename === st.sel) || list[0] || null
     }
-    return selected()
+    const picked = selected()
+    return picked || null
   }
   // Card buttons open Mining or 匯款 with this keyfile already chosen. No account menu.
   // Mining still shows Shard0 GPU and Classic Shard1–4 GPU and CPU; the click does not start a miner.
@@ -539,7 +547,7 @@
     const vals = []
     const s0 = s0Total(visible('new').filter(a => a.evm))
     vals.push(s0.known ? s0.wei : null)
-    for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length ? (t.known ? t.v * 10n ** 10n : null) : 0n) }
+    for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length && t.known ? t.v * 10n ** 10n : null) }
     const text = vals.map(v => v == null ? '\u2014' : AMT.fmtUnits(v, 18))
     return { text }
   }
@@ -845,9 +853,54 @@
     const note = noteKind === 'min' ? `<div class="live-note" id="uiMinNote">${esc(T('uiMinNote'))}</div>` : noteKind === 'rec' ? `<div class="live-note" id="uiRecNote">${esc(T('uiRecNote'))}</div>` : ''
     return U.bannerHtml(doc, { lang: langKey, esc: esc }) + note + U.homeCardsHtml(doc, { lang: langKey, esc: esc })
   }
+  function payoutInput () {
+    let reward = ''
+    let node = ''
+    try { reward = localStorage.getItem('minerReward') || '' } catch (e) {}
+    try { node = localStorage.getItem('nodePayout') || '' } catch (e) {}
+    const s0 = (st.miners && st.miners.shard0) || st.miner || {}
+    return {
+      accounts: st.accounts || [],
+      minerReward: reward,
+      minerWallet: (s0 && s0.wallet) || '',
+      nodePayout: node,
+      agentPayout: (st.agent && st.agent.payout) || ''
+    }
+  }
+  function externalPayoutView () {
+    const EH = window.SCDOEmptyHome
+    if (!EH) return null
+    const found = EH.externalPayout(payoutInput())
+    if (!found) return null
+    const bal = st.extBal && String(st.extBal.address || '').toLowerCase() === found.address.toLowerCase() ? st.extBal : null
+    return { address: found.address, units: bal ? bal.units : null }
+  }
+  function externalCardHtml () {
+    const EH = window.SCDOEmptyHome
+    const view = externalPayoutView()
+    if (!EH || !view) return ''
+    return EH.payoutHtml(T, esc, view, (u) => AMT.fmtUnits(u, 18))
+  }
+  async function refreshExternalPayout () {
+    const EH = window.SCDOEmptyHome
+    if (!EH) return
+    const found = EH.externalPayout(payoutInput())
+    if (!found) { st.extBal = null; return }
+    try {
+      const b = balFromIpc(await api.invoke('s0:balances', found.address))
+      st.extBal = { address: found.address, units: b.nativeWei }
+    } catch (e) {
+      st.extBal = { address: found.address, units: null }
+    }
+  }
   function pageHome () {
     const J = window.SCDOAgentJoin
-    if (!st.accounts.length && J) return offlineNoticeHtml() + J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide, hideRig: !rigUi() }) + panelCardsHtml() + liveHomeHtml()
+    if (!st.accounts.length) {
+      const EH = window.SCDOEmptyHome
+      const empty = EH ? EH.html(T, esc, { payout: externalPayoutView(), fmt: (u) => AMT.fmtUnits(u, 18) }) : ''
+      const first = J ? J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide, hideRig: !rigUi() }) : ''
+      return offlineNoticeHtml() + empty + first + panelCardsHtml() + liveHomeHtml()
+    }
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
@@ -865,6 +918,7 @@
       ${claim}
       ${card}
       <p class="home-lead">${esc(T('homeLead'))}</p>
+      ${externalCardHtml()}
       ${mineState}
       ${heights}
       <div class="shell-actions">
@@ -882,6 +936,7 @@
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
+    if (!st.accounts.length) { f.hidden = true; renderFooter.last = ''; return }
     const show = st.tab !== 'mineSet'
     f.hidden = !show
     if (!show || !window.SCDOChainHome) return
@@ -898,6 +953,16 @@
         const wantOff = st.net.s0Ok === false
         const haveOff = !!$('offlineNotice')
         if (wantOff !== haveOff) { render(); return }
+      }
+      const ext = $('extPayout')
+      const view = externalPayoutView()
+      if (!!ext !== !!view) { render(); return }
+      if (ext && view && window.SCDOEmptyHome) {
+        const addrEl = $('extPayoutAddr')
+        const balEl = $('extPayoutBal')
+        const text = window.SCDOEmptyHome.balanceText(view.units, (u) => AMT.fmtUnits(u, 18))
+        if (addrEl && addrEl.textContent !== view.address) addrEl.textContent = view.address
+        if (balEl && balEl.textContent !== text) balEl.textContent = text
       }
       const line = $('homeMineState')
       if (line) {
@@ -1454,7 +1519,8 @@
   function remitAccount () {
     const exact = st.accounts.find(x => x.filename === st.sel)
     if (exact) return exact
-    return selected()
+    const picked = selected()
+    return picked || null
   }
   function remitOwnsSession () {
     const a = remitAccount()
@@ -1496,7 +1562,8 @@
     return String((r && r.error) || T('failed'))
   }
   async function remitLogin (filename) {
-    const a = accByFile(filename) || selected()
+    const picked = selected()
+    const a = accByFile(filename) || picked
     if (!a) return
     const inp = $('remitPw')
     const pw = inp ? inp.value : ''
@@ -1545,7 +1612,12 @@
   })
 
   function renderSiteBar () {
-    const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
+    const bar = $('siteBar'); if (!bar) return
+    const langSwitch = `<span class="lang-switch" id="langSwitch"><button type="button" class="lang-opt${lang() === 'EN' ? ' on' : ''}" data-act="hdrLang" data-v="EN">English</button><button type="button" class="lang-opt${lang() === 'CN' ? ' on' : ''}" data-act="hdrLang" data-v="CN">華語</button></span>`
+    if (!window.SCDOSiteNav) {
+      if (renderSiteBar.last !== langSwitch) { renderSiteBar.last = langSwitch; SD.html(bar, langSwitch) }
+      return
+    }
     const cn = lang() !== 'EN'
     const groups = window.SCDOSiteNav.GROUPS.map(g => {
       if (rigUi() || !g.children) return g
@@ -1563,7 +1635,7 @@
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
-    const html = primary.map(group).join('') + more
+    const html = primary.map(group).join('') + more + langSwitch
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
   function renderSideNav () {
@@ -5047,7 +5119,8 @@
   })
   function syncRewardPayout (addr) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(String(addr || ''))) return
-    api.invoke('agentJoin:setPayout', { address: addr, file: (selected() && selected().filename) || '' }).then(() => refreshAgent()).catch(() => {})
+    const picked = selected()
+    api.invoke('agentJoin:setPayout', { address: addr, file: (picked && picked.filename) || '' }).then(() => refreshAgent()).catch(() => {})
   }
   async function refreshAgent () {
     const starting = !!(st.agent && st.agent.starting)
@@ -5069,7 +5142,8 @@
   }
   async function prepareAgent () {
     if (st.accounts.length) {
-      const file = st.sel || ((selected() || {}).filename) || ''
+      const picked = selected()
+      const file = st.sel || (picked && picked.filename) || ''
       try { await api.invoke('agentJoin:useSelection', { file: file }) } catch (e) {}
     }
     await refreshAgent()
@@ -5111,7 +5185,8 @@
     api.invoke('session:armLogin').then((s) => { st.session = s || st.session; applySessionUi() }).catch(() => {})
   }
   function inviteAccountFile () {
-    return (selected() && selected().filename) || st.sel || ''
+    const picked = selected()
+    return (picked && picked.filename) || st.sel || ''
   }
   async function submitInviteCreate () {
     const password = ($('invitePass') && $('invitePass').value) || ''

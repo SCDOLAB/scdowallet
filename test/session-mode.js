@@ -37,7 +37,8 @@ assert.deepStrictEqual(off.args, [])
 assert.strictEqual(on.openAsHidden, true)
 assert.strictEqual(off.openAsHidden, false)
 
-assert.strictEqual(mode.shouldArmLogin({}), true)
+assert.strictEqual(mode.shouldArmLogin({}), false) // 3.1.10: opt-in only
+assert.strictEqual(mode.shouldArmLogin({ keepMining: true, autoResume: true, runningShard0: true }), false)
 assert.strictEqual(mode.shouldArmLogin({ loginLaunch: true }), false)
 assert.strictEqual(mode.shouldArmLogin({ loginOff: true }), false)
 assert.deepStrictEqual(mode.armLoginPatch(), { loginLaunch: true, loginAsked: true, loginOff: false })
