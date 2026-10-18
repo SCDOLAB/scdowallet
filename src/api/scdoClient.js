@@ -548,6 +548,10 @@ function scdoClient() {
         var c = this.readEvmCache();
         return c[fileName] ? c[fileName].evm : null;
     };
+    // Drop one deleted account from evm.json. Backs the file up first. Does not delete key files.
+    this.forgetEvmAddress = function (fileName, opts) {
+        return require("./evmCache").forgetAccount(this.evmCachePath, fileName, opts);
+    };
     // 2.0.6: shard-independent address part; reads the pre-2.0.6 field name 'key' too
     this.addrTailOf = function (fileName) {
         var e = this.readEvmCache()[fileName];

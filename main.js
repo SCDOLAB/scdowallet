@@ -873,7 +873,11 @@ ipcMain.handle('keyfile:backupDelete', (e, name) => {
   try { b = backupKeyfile(name) } catch (err) { return { ok: false, stage: 'backup', error: err.message } }
   try { fs.unlinkSync(b.src) } catch (err) { return { ok: false, stage: 'delete', error: err.message, backup: b.dst } }
   try { require('./src/api/mnemonic').removeSeal(path.join(os.homedir(), '.ScdoWallet', 'mnemonic'), name) } catch (err) {}
-  return { ok: true, backup: b.dst, sha256: b.sha256 }
+  // The keyfile above is the only key this delete removes. evm.json loses that account's entry
+  // after a backup; other accounts and their key files stay where they are.
+  let evm = { ok: true, removed: false, backup: '' }
+  try { evm = require('./src/api/evmCache').forgetAccount(path.join(os.homedir(), '.ScdoWallet', 'evm.json'), name) } catch (err) { evm = { ok: false, removed: false, backup: '', error: err && err.message } }
+  return { ok: true, backup: b.dst, sha256: b.sha256, evm: evm }
 })
 ipcMain.handle('keyfile:backupOnly', (e, name) => {
   try { const b = backupKeyfile(name); return { ok: true, backup: b.dst } } catch (err) { return { ok: false, error: err.message } }

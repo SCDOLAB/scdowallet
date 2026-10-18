@@ -114,7 +114,7 @@ assert.ok(agentSrc.includes('gave-up') && agentSrc.includes("deliver('report'"))
 assert.ok(read('index.html').includes("connect-src 'self' https://apeccapital.org"))
 assert.ok(read('main.js').includes('apeccapital\\.org'))
 assert.ok(read('src/updater.js').includes("'https://apeccapital.org'"))
-assert.strictEqual(require('../package.json').version, '3.1.9')
+assert.strictEqual(require('../package.json').version, '3.1.10')
 assert.ok(read('server/agent-ledger/server.js').includes('report'))
 
 ;(async () => {
