@@ -17,10 +17,11 @@ import (
 
 // CreateOptions binds a bot wallet on Base Sepolia.
 type CreateOptions struct {
-	Root       string
-	Name       string
-	BotID      string
-	Email      string
+	Root  string
+	Name  string
+	BotID string
+	Email string
+	// MaxAtomic and Daily are decimal USDC ("1", "0.10"), not atomic units.
 	MaxAtomic  string
 	Daily      string
 	Payees     []string
@@ -72,11 +73,22 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	doc.BotID = opt.BotID
 	doc.Network = NetworkSepolia
 	doc.Address = walletKey.Address()
+	// --max and --daily are decimal USDC, the same units as wallet limit.
+	// Storing the raw flag would leave a cap of 0 or 1 atomic unit, and the
+	// first payment would be refused until wallet limit rewrote the file.
 	if strings.TrimSpace(opt.MaxAtomic) != "" {
-		doc.MaxAtomic = strings.TrimSpace(opt.MaxAtomic)
+		atomic, err := ParseUSDC(opt.MaxAtomic)
+		if err != nil {
+			return Created{}, err
+		}
+		doc.MaxAtomic = atomic
 	}
 	if strings.TrimSpace(opt.Daily) != "" {
-		doc.DailyAtomic = strings.TrimSpace(opt.Daily)
+		atomic, err := ParseUSDC(opt.Daily)
+		if err != nil {
+			return Created{}, err
+		}
+		doc.DailyAtomic = atomic
 	}
 	if len(opt.Payees) > 0 {
 		doc.Payees = opt.Payees

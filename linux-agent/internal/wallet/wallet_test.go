@@ -32,6 +32,45 @@ func stubLedger(t *testing.T) string {
 	return srv.URL
 }
 
+func TestCreateStoresDecimalCaps(t *testing.T) {
+	root := t.TempDir()
+	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(context.Background(), CreateOptions{
+		Root: root, Name: "bot", BotID: "bot", MaxAtomic: "nope", Daily: "5", LedgerURLs: []string{stubLedger(t)},
+	}); err == nil {
+		t.Fatal("a non-decimal --max was accepted")
+	}
+	if _, err := Create(context.Background(), CreateOptions{
+		Root: root, Name: "bot", BotID: "bot", MaxAtomic: "1.00", Daily: "5", LedgerURLs: []string{stubLedger(t)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := Export(root, "bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.MaxAtomic != "1000000" || doc.DailyAtomic != "5000000" {
+		t.Fatalf("caps max %q daily %q", doc.MaxAtomic, doc.DailyAtomic)
+	}
+	if FormatUSDC(doc.MaxAtomic) != "1.000000" || FormatUSDC(doc.DailyAtomic) != "5.000000" {
+		t.Fatalf("display %s %s", FormatUSDC(doc.MaxAtomic), FormatUSDC(doc.DailyAtomic))
+	}
+	pay := Decision{
+		Network: NetworkSepolia, Asset: SepoliaUSDC,
+		PayTo: "0xE3837fE309618AE075DbeF0A20735c0615a308E6", Amount: "10000",
+		Resource: "https://example.com/paid", Now: time.Unix(1_800_000_000, 0),
+	}
+	if err := Allow(doc, pay); err != nil {
+		t.Fatal(err)
+	}
+	pay.Amount = "1000001"
+	if err := Allow(doc, pay); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
+}
+
 func TestBindPayAndRefuseMainnet(t *testing.T) {
 	var bindBody map[string]any
 	var spendBody map[string]any

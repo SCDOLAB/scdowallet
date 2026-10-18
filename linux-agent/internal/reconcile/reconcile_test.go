@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 )
 
 type sys struct {
@@ -50,7 +52,7 @@ func (p probe) Run(name string, args ...string) ([]byte, error) {
 func TestBindingsAreIdempotent(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+	if _, err := agent.Create(root, "alice", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
@@ -64,18 +66,14 @@ func TestBindingsAreIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := readFile(t, filepath.Join(root, "alice", "keys", "ledger.key"))
-	wallet := readFile(t, filepath.Join(root, "alice", "keys", "wallet.key"))
 	if err := Run(context.Background(), opt); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(key, readFile(t, filepath.Join(root, "alice", "keys", "ledger.key"))) {
 		t.Fatal("ledger key rewritten")
 	}
-	if !bytes.Equal(wallet, readFile(t, filepath.Join(root, "alice", "keys", "wallet.key"))) {
-		t.Fatal("wallet key rewritten")
-	}
-	if len(host.enabled) != 1 || host.enabled[0] != "alice" {
-		t.Fatalf("enable calls %v", host.enabled)
+	if len(host.enabled) != 0 {
+		t.Fatalf("upgrade started an agent: %v", host.enabled)
 	}
 	toml = "[[account]]\nhandle = \"alice2\"\nuser_id = \"42\"\nagent = \"alice\"\n"
 	if err := os.WriteFile(filepath.Join(cfg, "x-accounts.toml"), []byte(toml), 0o644); err != nil {
@@ -90,6 +88,41 @@ func TestBindingsAreIdempotent(t *testing.T) {
 	meta := string(readFile(t, filepath.Join(root, "alice", "meta.json")))
 	if !strings.Contains(meta, "alice2") {
 		t.Fatal(meta)
+	}
+}
+
+func TestUpgradeDoesNotCreateAgents(t *testing.T) {
+	root := t.TempDir()
+	cfg := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
+	if err := os.WriteFile(filepath.Join(cfg, "x-accounts.toml"), []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCard := probe{
+		have: map[string]bool{"nvidia-smi": true},
+		out:  map[string]string{"nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits": "0, NVIDIA GeForce 940MX, 2048\n"},
+	}
+	host := &sys{}
+	var logs []string
+	opt := Options{DataRoot: root, ConfigDir: cfg, Probe: withCard, System: host, Log: func(s string) { logs = append(logs, s) }}
+	if err := Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "gpu0")); !os.IsNotExist(err) {
+		t.Fatal("gpu0 was created")
+	}
+	if _, err := os.Stat(filepath.Join(root, "alice")); !os.IsNotExist(err) {
+		t.Fatal("x-account agent was created")
+	}
+	if len(host.enabled) != 0 {
+		t.Fatalf("started %v", host.enabled)
+	}
+	text := strings.Join(logs, "\n")
+	if !strings.Contains(text, "gpu0") || !strings.Contains(text, "does not create agents") || !strings.Contains(text, "alice") {
+		t.Fatal(text)
 	}
 }
 
@@ -110,6 +143,9 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
+	if _, err := agent.Create(root, "gpu0", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "old", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
 	withCard := probe{
 		have: map[string]bool{"nvidia-smi": true},
 		out:  map[string]string{"nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits": "0, NVIDIA GeForce 940MX, 2048\n"},
@@ -118,6 +154,9 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 	opt := Options{DataRoot: root, ConfigDir: cfg, Probe: withCard, System: host, LedgerURLs: []string{srv.URL}}
 	if err := Run(context.Background(), opt); err != nil {
 		t.Fatal(err)
+	}
+	if len(host.enabled) != 0 {
+		t.Fatalf("existing adapter was started by upgrade: %v", host.enabled)
 	}
 	key := readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))
 	if !strings.Contains(string(readFile(t, filepath.Join(root, "gpu0", "meta.json"))), "940MX") {
@@ -130,9 +169,6 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 	}
 	if !bytes.Equal(key, readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))) {
 		t.Fatal("key removed or changed")
-	}
-	if _, err := os.Stat(filepath.Join(root, "gpu0", "keys", "wallet.key")); err != nil {
-		t.Fatal(err)
 	}
 	if len(host.stopped) != 1 || host.stopped[0] != "gpu0" {
 		t.Fatalf("stopped %v", host.stopped)

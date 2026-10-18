@@ -22,8 +22,11 @@ func TestOperatorBatchSendsBindHashes(t *testing.T) {
 		var env map[string]any
 		_ = json.Unmarshal(raw, &env)
 		got, _ = env["payload"].(map[string]any)
+		body, _ := got["body"].(map[string]any)
+		echo, _ := body["merkleRoot"].(string)
 		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		out, _ := json.Marshal(map[string]any{"ok": true, "merkleRoot": echo})
+		_, _ = w.Write(out)
 	}))
 	defer srv.Close()
 
@@ -65,5 +68,8 @@ func TestOperatorBatchSendsBindHashes(t *testing.T) {
 	rootHash, err := ledger.MerkleRoot([]string{doc.BindHash})
 	if err != nil || body["merkleRoot"] != rootHash || body["merkleRoot"] != doc.BindHash {
 		t.Fatalf("root %v hash %s err %v", body["merkleRoot"], doc.BindHash, err)
+	}
+	if res.MerkleRoot != rootHash || !strings.Contains(res.Receipt, rootHash) {
+		t.Fatalf("printed root %s receipt %s", res.MerkleRoot, res.Receipt)
 	}
 }

@@ -89,7 +89,7 @@ Set `SCDO_AGENT_LEDGER` or `--ledger` to pin a single base (used for a local led
 /var/lib/scdo-agent/<name>/keys/ledger.key identity (mode 0600)
 ```
 
-`keys/` is mode `0700`. The keystore is one file per purpose. `keys/wallet.key` is a second key. Creating an agent from the adapter list or from `x-accounts.toml` writes that file when it is missing, and never replaces an existing one. The ledger identity stays in `ledger.key`.
+`keys/` is mode `0700`. The keystore is one file per purpose. `keys/wallet.key` is a second key. `wallet create` writes that file when it is missing, and never replaces an existing one. The ledger identity stays in `ledger.key`.
 
 Without `--passphrase-file`, the key file is unencrypted and readable only by the `scdo-agent` service user. That is the unattended systemd setup. With `--passphrase-file` (or `SCDO_AGENT_PASSPHRASE_FILE`), the file is encrypted with scrypt and AES-256-GCM. Point the unit at that file with a drop-in; do not put the passphrase on the command line.
 
@@ -127,7 +127,7 @@ scdo-agent wallet unfreeze --bot rack-a
 
 `--bot` is the agent name when `--name` is omitted. `create` POSTs `/bind` with the wallet address, an EIP-191 wallet proof signed by that wallet, and `emailCommit`. The commitment is `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`. The 32-byte salt is `email.salt` in the agent directory, mode `0600`. The normalised address is kept in `email.txt`, mode `0600`, so `bind-email` can send it. Neither file is printed.
 
-`pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `limit` and `pay --max` are decimal USDC. Defaults are 1 USDC per payment and 5 USDC across a rolling 24 hours. An empty payee list allows any Base Sepolia payee. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
+`pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `create --max`, `create --daily`, `limit`, and `pay --max` are decimal USDC, stored as 6-decimal atomic units. `1` is `1000000`. Defaults are 1 USDC per payment and 5 USDC across a rolling 24 hours. An empty payee list allows any Base Sepolia payee. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
 
 `serve-paywall` is a receiver for one path. It uses the official SDK middleware and `https://x402.org/facilitator`. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response) for `eip155:84532`. The ledger books that credit as tUSDC.
 
@@ -139,7 +139,7 @@ The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This b
 
 `wallet bind-x` POSTs `/bind/x/start`. When the ledger returns an https auth URL, the command prints it. Until an X app is configured the ledger returns 503, and the command reports `X binding not yet enabled on the ledger`. The `xbind` attestation is not sent.
 
-`operator batch --name OPERATOR --bot BOT` signs `/operator/batch`. Each bot must already be bound with `operator` set to that agent's address. The merkle root is those bind hashes in the given order: each pair is sorted, hashed, and an odd hash is carried up. One bot's root is its bind hash.
+`operator batch --name OPERATOR --bot BOT` signs `/operator/batch` and prints the `merkleRoot` and the ledger receipt. Each bot must already be bound with `operator` set to that agent's address. The merkle root is those bind hashes in the given order: each pair is sorted, hashed, and an odd hash is carried up. One bot's root is its bind hash.
 
 `wallet limit` updates the local policy and the local `limitsCommit`. The next `wallet create` sends that hash. The server stores the hash and does not enforce the caps. Base mainnet stays off.
 
@@ -196,17 +196,16 @@ A feed that cannot be reached leaves the installed binary as it is.
 
 On update and on boot, the agent lists graphics adapters with `nvidia-smi`, then `rocm-smi`, then `lspci`. If `nvidia-smi` is installed but the command fails, the next probe is used.
 
-Each adapter gets its own instance `scdo-agent@gpuN`, its own identity, and its own `keys/wallet.key`. The ledger record carries the model name and the memory size. No workload is started on the adapter.
+`upgrade-now` does not create agents. An adapter with no agent prints a hint. Create that agent yourself, then enable it:
 
-When an adapter is no longer listed, that instance is stopped and an offline report is sent. The directory and the keys stay on disk. A probe that cannot run at all leaves existing adapter instances running.
-
-New instances need a payout address. Set it in `/etc/scdo-agent/config.toml`:
-
-```
-payout = "0x<address>"
+```sh
+scdo-agent init --name gpu0 --payout 0x<address>
+sudo systemctl enable --now scdo-agent@gpu0.service
 ```
 
-If that file is absent, the payout of the first existing agent is used.
+An existing `gpuN` agent gets its model name and memory size refreshed in `meta.json`. No workload is started on the adapter, and `upgrade-now` does not start a new unit.
+
+When an existing adapter is no longer listed, that instance is stopped and an offline report is sent. The directory and the keys stay on disk. A probe that cannot run at all leaves existing adapter instances running.
 
 ## X account file
 
@@ -219,7 +218,7 @@ user_id = "123"
 agent = "example"
 ```
 
-A new row creates that agent. Running the command again does not replace an existing key. The same row only refreshes the handle and user id stored in `meta.json`. OAuth binding is not part of this build.
+A new row does not create an agent. `upgrade-now` prints a hint. Create the agent with `init --name` and `--payout`, then run `upgrade-now` again. An existing row only refreshes the handle and user id stored in `meta.json` and does not replace the key. OAuth binding is not part of this build.
 
 ## Rig hook
 
@@ -296,7 +295,7 @@ scdo-agent logs --name rack-a
 
 ### 金鑰
 
-`meta.json` 只有地址、收款地址與角色。`state.json` 是序號。`keys/ledger.key` 是身份。`keys/` 權限 `0700`。金鑰庫一個用途一個檔案。`keys/wallet.key` 是第二把金鑰。從顯示卡清單或 `x-accounts.toml` 建立代理時，若這個檔案不存在就會寫入，已存在的檔案不會被替換。帳本身份仍在 `ledger.key`。
+`meta.json` 只有地址、收款地址與角色。`state.json` 是序號。`keys/ledger.key` 是身份。`keys/` 權限 `0700`。金鑰庫一個用途一個檔案。`keys/wallet.key` 是第二把金鑰。`wallet create` 在這個檔案不存在時寫入，已存在的檔案不會被替換。帳本身份仍在 `ledger.key`。
 
 未加 `--passphrase-file` 時，金鑰不加密，只有服務使用者 `scdo-agent` 能讀，適合無人值守。加上 `--passphrase-file`（或 `SCDO_AGENT_PASSPHRASE_FILE`）後，以 scrypt 與 AES-256-GCM 加密。不要把通行詞放在命令列上。
 
@@ -326,7 +325,7 @@ scdo-agent wallet unfreeze --bot rack-a
 
 未加 `--name` 時，`--bot` 就是代理名稱。`create` 會把錢包地址、該錢包的 EIP-191 證明，以及 `emailCommit` 送到 `/bind`。承諾是 `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`。32 位元組的鹽在代理目錄的 `email.salt`，權限 `0600`。正規化後的信箱存在 `email.txt`，權限 `0600`，供 `bind-email` 送出。這兩個檔案都不會印出。
 
-`pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`limit` 與 `pay --max` 的金額是十進位 USDC。預設單筆 1 USDC，滾動 24 小時 5 USDC。收款清單是空的時候，允許任何 Base Sepolia 收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
+`pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`create --max`、`create --daily`、`limit` 與 `pay --max` 的金額是十進位 USDC，存成 6 位小數的最小單位。`1` 是 `1000000`。預設單筆 1 USDC，滾動 24 小時 5 USDC。收款清單是空的時候，允許任何 Base Sepolia 收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
 
 `serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層與 `https://x402.org/facilitator`。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`（`eip155:84532`）。帳本把這筆貸方記成 tUSDC。
 
@@ -338,7 +337,7 @@ scdo-agent wallet unfreeze --bot rack-a
 
 `wallet bind-x` 送到 `/bind/x/start`。帳本若回傳 https 授權網址，命令會印出它。在 X 應用程式設定好之前，帳本回 503，命令回報 `X binding not yet enabled on the ledger`。不會送出 `xbind` 證明。
 
-`operator batch --name 操作者 --bot 機器人` 簽署 `/operator/batch`。每個機器人綁定時的 `operator` 必須是這個代理的地址。Merkle 根是這些綁定雜湊，順序與參數相同：每一對先排序再雜湊，落單的雜湊原樣往上。只有一個機器人時，根就是它的綁定雜湊。
+`operator batch --name 操作者 --bot 機器人` 簽署 `/operator/batch`，並印出 `merkleRoot` 與帳本回執。每個機器人綁定時的 `operator` 必須是這個代理的地址。根是這些綁定雜湊，順序與參數相同：每一對先排序再雜湊，落單的雜湊原樣往上。只有一個機器人時，根就是它的綁定雜湊。
 
 `wallet limit` 更新本機政策與本機 `limitsCommit`。下一次 `wallet create` 會送出這個雜湊。伺服器只保存雜湊，不執行上限。Base 主網保持關閉。
 
@@ -395,17 +394,16 @@ scdo-agent upgrade-now
 
 更新時與開機時，會依序用 `nvidia-smi`、`rocm-smi`、`lspci` 列出顯示卡。若 `nvidia-smi` 已安裝但命令失敗，就改用下一個探測。
 
-每張顯示卡有自己的實例 `scdo-agent@gpuN`、自己的身份，以及自己的 `keys/wallet.key`。帳本紀錄帶有型號與記憶體大小。不會在顯示卡上啟動工作。
+`upgrade-now` 不會建立代理。沒有代理的顯示卡只會印出提示。請自行建立，再啟用：
 
-當某張顯示卡不再出現在清單上，該實例會停止，並送出離線回報。目錄與金鑰留在磁碟上。探測完全無法執行時，既有的顯示卡實例會繼續運行。
-
-新實例需要收款地址。寫在 `/etc/scdo-agent/config.toml`：
-
-```
-payout = "0x<地址>"
+```sh
+scdo-agent init --name gpu0 --payout 0x<地址>
+sudo systemctl enable --now scdo-agent@gpu0.service
 ```
 
-若沒有這個檔案，就沿用第一個既有代理的收款地址。
+既有的 `gpuN` 代理會在 `meta.json` 更新型號與記憶體大小。不會在顯示卡上啟動工作，`upgrade-now` 也不會啟動新的單元。
+
+既有的顯示卡若不再出現在清單上，該實例會停止，並送出離線回報。目錄與金鑰留在磁碟上。探測完全無法執行時，既有的顯示卡實例會繼續運行。
 
 ### X 帳號檔
 
@@ -418,7 +416,7 @@ user_id = "123"
 agent = "example"
 ```
 
-新的一列會建立該代理。再次執行不會替換既有金鑰。同一列只會更新 `meta.json` 裡的代號與使用者編號。這個版本不含 OAuth 綁定。
+新的一列不會建立代理。`upgrade-now` 只會印出提示。請用 `init --name` 與 `--payout` 建立代理，再執行一次 `upgrade-now`。既有的一列只會更新 `meta.json` 裡的代號與使用者編號，不會替換金鑰。這個版本不含 OAuth 綁定。
 
 ### 機台掛鉤
 
