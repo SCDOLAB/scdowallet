@@ -862,6 +862,7 @@
     return {
       accounts: st.accounts || [],
       minerReward: reward,
+      intentReward: st.intentReward || '',
       minerWallet: (s0 && s0.wallet) || '',
       nodePayout: node,
       agentPayout: (st.agent && st.agent.payout) || ''
@@ -884,6 +885,7 @@
   async function refreshExternalPayout () {
     const EH = window.SCDOEmptyHome
     if (!EH) return
+    try { const it = await api.invoke('miner:intent'); st.intentReward = it && /^0x[0-9a-fA-F]{40}$/.test(String(it.reward || '')) ? it.reward : '' } catch (e) {}
     const found = EH.externalPayout(payoutInput())
     if (!found) { st.extBal = null; return }
     try {

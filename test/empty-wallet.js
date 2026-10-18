@@ -107,6 +107,10 @@ assert.strictEqual(empty.externalPayout({ minerWallet: PAY, minerReward: 'nope',
 assert.strictEqual(empty.externalPayout({ minerReward: PAY, accounts: [{ evm: PAY }] }), null)
 assert.strictEqual(empty.externalPayout({ agentPayout: OTHER, minerReward: PAY, accounts: [{ evm: PAY }] }).address, OTHER)
 assert.strictEqual(empty.externalPayout({ accounts: [] }), null)
+// minerReward empty: fall back to the miner settings file payout; a set minerReward wins.
+assert.strictEqual(empty.externalPayout({ minerReward: '', intentReward: PAY, accounts: [] }).address, PAY)
+assert.strictEqual(empty.externalPayout({ minerReward: OTHER, intentReward: PAY, accounts: [] }).address, OTHER)
+assert.strictEqual(empty.externalPayout({ intentReward: PAY, accounts: [{ evm: PAY }] }), null)
 assert.strictEqual(empty.balanceText(null, () => '0'), '\u2014')
 assert.strictEqual(empty.balanceText(WEI595, (u) => fmtUnits(u, 18)), '595 SCDO')
 

@@ -14,9 +14,12 @@
       const evm = norm(a && a.evm).toLowerCase()
       if (ADDR.test(evm)) owned[evm] = true
     }
+    // 3.1.10+: a fresh profile has no minerReward in browser storage; fall back to
+    // the payout saved in the miner settings file (miner-intent.json "reward").
+    const pick = { minerReward: norm(input.minerReward) || norm(input.intentReward) }
     const keys = ['minerReward', 'minerWallet', 'nodePayout', 'agentPayout']
     for (const k of keys) {
-      const addr = norm(input[k])
+      const addr = k in pick ? pick[k] : norm(input[k])
       if (!ADDR.test(addr)) continue
       if (owned[addr.toLowerCase()]) continue
       return { address: addr }
