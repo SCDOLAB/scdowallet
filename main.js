@@ -50,10 +50,18 @@ app.on('child-process-gone', (e, d) => {
 // 2.0.1: every ipcMain.handle only answers the wallet's own page (file:// index.html in the main window).
 // (2.0.0's 'compileContract' handler, used only by the unused legacy contract page, was removed.)
 const APP_INDEX_URL = require('url').pathToFileURL(path.join(__dirname, 'index.html')).href
+function trustedUiUrl (url) {
+  const bare = String(url || '').split('#')[0]
+  if (bare === APP_INDEX_URL) return true
+  try {
+    const extra = require('./src/main/uiHost').activeUrl()
+    return !!extra && bare === extra
+  } catch (e) { return false }
+}
 function trustedSender (e) {
   try {
     const f = e.senderFrame
-    return !!(mainWindow && !mainWindow.isDestroyed() && e.sender === mainWindow.webContents && f && f === e.sender.mainFrame && f.url.split('#')[0] === APP_INDEX_URL)
+    return !!(mainWindow && !mainWindow.isDestroyed() && e.sender === mainWindow.webContents && f && f === e.sender.mainFrame && trustedUiUrl(f.url))
   } catch (err) { return false }
 }
 const ipcHandleRaw = ipcMain.handle.bind(ipcMain)
@@ -898,7 +906,7 @@ function createWindow () {
       spellcheck: false
     }
   })
-  mainWindow.loadFile('index.html')
+  try { require('./src/main/uiHost').load(mainWindow) } catch (e) { mainWindow.loadFile('index.html') }
   const t0 = Date.now()
   let shown = false
   const showMain = (why) => {
@@ -917,10 +925,28 @@ function createWindow () {
     }
   }, 3000)
   mainWindow.on('page-title-updated', (e) => e.preventDefault()) // 2.0.6: the title is set here (version, "updated")
-  mainWindow.webContents.on('render-process-gone', (e, d) => { console.error('renderer gone: ' + d.reason + ' exitCode=' + d.exitCode); setTimeout(() => { try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } catch (err) {} }, 1000) })
+  mainWindow.webContents.on('render-process-gone', (e, d) => {
+    console.error('renderer gone: ' + d.reason + ' exitCode=' + d.exitCode)
+    let rolled = false
+    try { rolled = require('./src/main/uiHost').noteCrash(d && d.reason) } catch (err) {}
+    setTimeout(() => {
+      try {
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (rolled) require('./src/main/uiHost').load(mainWindow)
+        else mainWindow.reload()
+      } catch (err) {}
+    }, 1000)
+  })
+  mainWindow.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return
+    try {
+      const host = require('./src/main/uiHost')
+      if (host.noteLoadFail(url)) host.load(mainWindow)
+    } catch (err) {}
+  })
   mainWindow.webContents.on('unresponsive', () => console.error('renderer unresponsive'))
   // the page may never navigate away from index.html; external links go to the allowlisted system browser
-  const guardNav = (e, url) => { if (String(url).split('#')[0] !== APP_INDEX_URL) { e.preventDefault(); openExternalSafe(url) } }
+  const guardNav = (e, url) => { if (!trustedUiUrl(url)) { e.preventDefault(); openExternalSafe(url) } }
   mainWindow.webContents.on('will-navigate', guardNav)
   mainWindow.webContents.on('will-redirect', guardNav)
   mainWindow.webContents.on('will-frame-navigate', (e) => { if (!e.isMainFrame) e.preventDefault() })
@@ -976,7 +1002,17 @@ app.on('open-url', (e, url) => { e.preventDefault(); acceptProtocolUrl(url) })
 function publicWalletUi () {
   const walletUi = require('./src/js/walletUi')
   const doc = walletUiDoc || walletUi.current() || walletUi.defaults()
-  return { links: doc.links, cards: doc.cards, from: doc.from || 'default' }
+  return {
+    links: doc.links,
+    cards: doc.cards,
+    strings: doc.strings || { en: {}, 'zh-Hant': {} },
+    homeCards: doc.homeCards || [],
+    banner: doc.banner || null,
+    flags: doc.flags || {},
+    minVersion: doc.minVersion || '',
+    recommendedVersion: doc.recommendedVersion || '',
+    from: doc.from || 'default'
+  }
 }
 function publishWalletUi (doc, from) {
   walletUiDoc = Object.assign({}, doc, { from: from || (doc && doc.from) || 'default' })
@@ -986,7 +1022,6 @@ function publishWalletUi (doc, from) {
 }
 function startWalletPanel () {
   const { create } = require('./src/main/walletPanel')
-  const walletUi = require('./src/js/walletUi')
   walletPanelCtl = create({
     getWindow: function () { return mainWindow },
     getLang: function () { return uiLang() },
@@ -996,12 +1031,24 @@ function startWalletPanel () {
   ipcMain.handle('panel:doc', () => publicWalletUi())
   ipcMain.handle('panel:show', (e, req) => walletPanelCtl.show(req))
   ipcMain.handle('panel:close', () => { walletPanelCtl.hide(); return true })
-  const { verifyMessage } = require('ethers')
+  refreshLiveUi()
+  const liveTimer = setInterval(refreshLiveUi, 30 * 60 * 1000)
+  if (liveTimer.unref) liveTimer.unref()
+}
+function refreshLiveUi () {
+  const walletUi = require('./src/js/walletUi')
+  const uiBundle = require('./src/main/uiBundle')
   walletUi.refresh({
-    verifyMessage: verifyMessage,
     cacheFile: path.join(app.getPath('userData'), 'wallet-ui.json'),
-    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 4000) }
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 8000) }
   }).then(function (result) { publishWalletUi(result.doc, result.from) }).catch(function (e) { console.warn('wallet ui', e && e.message) })
+  uiBundle.refresh({
+    userData: app.getPath('userData'),
+    shellVersion: VERSION,
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 8000) }
+  }).then(function (result) {
+    if (result && result.state) require('./src/main/uiHost').adopt(result.state)
+  }).catch(function (e) { console.warn('ui bundle', e && e.message) })
 }
 function registerScdoProtocol () {
   try {
@@ -1049,6 +1096,9 @@ if (!app.requestSingleInstanceLock()) {
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
+    try {
+      require('./src/main/uiHost').init({ userData: app.getPath('userData'), appIndex: path.join(__dirname, 'index.html') })
+    } catch (e) { console.warn('ui host', e && e.message) }
     createWindow()
     applyLightRuntime()
     createMenu(mainWindow, uiLang())

@@ -7,12 +7,37 @@ const { Tray, Menu, nativeImage, BrowserWindow, screen } = require('electron')
 const { tooltipError, minersRunning } = require('../js/minerStartError')
 const { TRAY_COPY } = require('../miner/guardPlan')
 
+function humaneRate (h) {
+  const n = Number(h)
+  if (!Number.isFinite(n) || n <= 0) return '0 H/s'
+  const trim = (x) => x.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+  if (n >= 1e9) return trim(n / 1e9) + ' GH/s'
+  if (n >= 1e6) return trim(n / 1e6) + ' MH/s'
+  if (n >= 1e3) return trim(n / 1e3) + ' kH/s'
+  return Math.round(n).toLocaleString('en-US') + ' H/s'
+}
 function fmtHash (h, lang) {
-  const raw = Number(h)
-  const n = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
-  const num = n.toLocaleString('en-US')
-  if (lang === 'CN') return '記帳速度 (H/s) 每秒 ' + num + ' 次'
-  return 'Bookkeeping speed (H/s) ' + num + ' tries per second'
+  const rate = humaneRate(h)
+  if (lang === 'CN') return '記帳速度 ' + rate
+  return 'Bookkeeping speed ' + rate
+}
+// macOS uses a monochrome template glyph (never a solid colour square).
+// Windows uses the coloured logo .ico, with a small corner dot for state.
+function trayIconFile (platform, st) {
+  const colour = st && st.guard && st.guard.colour
+  const running = !!(st && (st.running || (st.classicNote && st.phase !== 'error')))
+  if (platform === 'darwin') {
+    if (colour === 'blue' || colour === 'yellow' || colour === 'red') return 'tray/trayTemplate-dot.png'
+    if (colour === 'green' || running) return 'tray/trayTemplate-on.png'
+    return 'tray/trayTemplate.png'
+  }
+  if (platform === 'win32') {
+    if (colour === 'red') return 'tray/tray-error.ico'
+    if (colour === 'blue' || colour === 'yellow') return 'tray/tray-pause.ico'
+    if (colour === 'green' || running) return 'tray/tray-on.ico'
+    return 'tray/tray.ico'
+  }
+  return 'icon-32.png'
 }
 
 // state of the badge for a miner status object
@@ -119,7 +144,9 @@ class TrayStatus {
     this.badges = { green: this.img('overlay-green.png'), grey: this.img('overlay-grey.png'), red: this.img('overlay-red.png') }
     this.last = null
     this.lastBadge = null
-    this.tray = new Tray(process.platform === 'win32' ? path.join(o.assetsDir, 'tray.ico') : this.img('icon-32.png'))
+    this.iconFile = trayIconFile(process.platform, null)
+    const initial = process.platform === 'win32' ? path.join(o.assetsDir, this.iconFile) : this.prepareIcon(this.img(this.iconFile))
+    this.tray = new Tray(initial)
     this.lang = o.lang === 'EN' ? 'EN' : 'CN'
     this.tray.setToolTip(tooltipText(o.version, null, this.lang))
     this.tray.on('click', () => this.openPanel())
@@ -128,6 +155,20 @@ class TrayStatus {
     this.rebuild()
   }
 
+  prepareIcon (img) {
+    if (process.platform === 'darwin' && img && img.setTemplateImage) img.setTemplateImage(true)
+    return img
+  }
+  applyTrayIcon (st) {
+    if (!this.tray || this.tray.isDestroyed()) return
+    const file = trayIconFile(process.platform, st)
+    this.iconFile = file
+    if (process.platform === 'win32') this.tray.setImage(path.join(this.o.assetsDir, file))
+    else {
+      const img = this.prepareIcon(this.img(file))
+      if (img) this.tray.setImage(img)
+    }
+  }
   colourIcon (colour) {
     if (!this.icons) {
       const solid = (r, g, b) => {
@@ -239,11 +280,11 @@ class TrayStatus {
     const b = badgeState(st)
     if (st && st.guard && st.guard.colour && st.guard.colour !== this.guardColour) {
       this.guardColour = st.guard.colour
-      const icon = this.colourIcon(st.guard.colour)
-      if (icon) this.tray.setImage(icon)
       const line = guardLine(st, this.lang)
       if (line) this.balloon('SCDO Wallet', line)
     }
+    const iconFile = trayIconFile(process.platform, st)
+    if (iconFile !== this.iconFile) this.applyTrayIcon(st)
     const w = this.o.getWindow()
     const overlay = b === 'yellow' ? 'green' : b === 'blue' ? 'blue' : b
     if (process.platform === 'win32' && w && !w.isDestroyed() && overlay !== this.lastBadge) {
@@ -262,4 +303,4 @@ class TrayStatus {
   destroy () { try { if (this.tray && !this.tray.isDestroyed()) this.tray.destroy() } catch (e) {} this.tray = null }
 }
 
-module.exports = { TrayStatus, badgeState, tooltipText, fmtHash }
+module.exports = { TrayStatus, badgeState, tooltipText, fmtHash, trayIconFile }

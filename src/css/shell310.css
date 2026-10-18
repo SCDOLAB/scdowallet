@@ -306,6 +306,11 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 .payinv .qrwrap { width: 240px; height: 240px; margin: 12px auto; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 #payInvoiceBtn { margin: 0 0 16px; }
 
+.offline-notice, .live-banner, .live-note { background: #fff4cc; border: 1px solid #e0b000; border-radius: 12px; padding: 10px 14px; font-weight: 700; margin: 0 0 12px; }
+.live-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.live-card { border: 1px solid #e5e5ea; border-radius: 16px; background: #fff; padding: 14px; }
+.live-card h2 { margin: 0 0 6px; font-size: 18px; }
+.live-card p { margin: 0 0 10px; }
 .panel-section { margin: 8px 0 16px; }
 .panel-head { border: 0; background: transparent; color: #1c1c1e; font-size: 18px; font-weight: 800; padding: 0 0 8px; }
 .panel-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

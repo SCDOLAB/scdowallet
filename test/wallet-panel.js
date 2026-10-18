@@ -6,7 +6,8 @@ const os = require('os')
 const path = require('path')
 const vm = require('vm')
 const Module = require('module')
-const { Wallet, verifyMessage } = require('ethers')
+const crypto = require('crypto')
+const { signDoc } = require('../src/config/uiSign')
 const Ui = require('../src/js/walletUi')
 const Panel = require('../src/main/walletPanel')
 
@@ -29,8 +30,8 @@ assert.deepStrictEqual(Ui.samePaths('https://apeccapital.org'), {
   help: 'https://apeccapital.org/wallet/help/'
 })
 assert.deepStrictEqual(Ui.UI_URLS, [
-  'https://scdo.com.au/wallet/wallet-ui.json',
-  'https://apeccapital.org/wallet/wallet-ui.json'
+  'https://apeccapital.org/wallet/wallet-ui.json',
+  'https://scdo.com.au/wallet/wallet-ui.json'
 ])
 assert.deepStrictEqual(Ui.HOSTS, ['scdo.com.au', 'apeccapital.org'])
 
@@ -135,57 +136,52 @@ const plain = { getAttribute () { return '' }, parentNode: null }
 box.fn({ target: plain, preventDefault () { plain.stopped = true }, stopImmediatePropagation () {} })
 assert.strictEqual(href, '')
 
-async function sign (doc, wallet) {
-  const body = Object.assign({}, doc)
-  body.sig = await wallet.signMessage(Ui.signMessage(body))
-  return body
-}
+const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519')
+const pubB64 = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64')
+const otherKey = crypto.generateKeyPairSync('ed25519').publicKey
+const otherB64 = Buffer.from(otherKey.export({ format: 'jwk' }).x, 'base64url').toString('base64')
+function sign (doc) { return signDoc(doc, privateKey) }
 
 async function main () {
-  const wallet = Wallet.createRandom()
-  const other = Wallet.createRandom()
-  const moved = await sign({ v: 1, links: { hub: 'https://scdo.com.au/wallet/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] }, wallet)
-  const accepted = Ui.acceptSigned(moved, { signer: wallet.address, verifyMessage })
+  const moved = sign({ v: 1, links: { hub: 'https://scdo.com.au/wallet/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] })
+  const accepted = Ui.acceptSigned(moved, { publicKey: pubB64 })
   assert.ok(accepted)
   assert.strictEqual(accepted.links.hub, 'https://scdo.com.au/wallet/')
   assert.strictEqual(accepted.links.news, 'https://scdo.com.au/wallet/news/')
   assert.strictEqual(accepted.links.pool, 'https://scdo.com.au/wallet/pool/')
-  assert.strictEqual(Ui.acceptSigned(moved, { signer: other.address, verifyMessage }), null)
-  assert.strictEqual(Ui.acceptSigned('<!DOCTYPE html><html></html>', { signer: wallet.address, verifyMessage }), null)
-  assert.strictEqual(Ui.acceptSigned({ v: 1, links: { hub: HUB }, cards: [], sig: 'nope' }, { signer: wallet.address, verifyMessage }), null)
-  const evil = await sign({ v: 1, links: { hub: 'https://evil.example/wallet/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] }, wallet)
-  assert.strictEqual(Ui.acceptSigned(evil, { signer: wallet.address, verifyMessage }), null)
-  const mirror = await sign({ v: 1, links: Ui.samePaths('https://apeccapital.org'), cards: Ui.defaults().cards }, wallet)
-  const mirrored = Ui.acceptSigned(mirror, { signer: wallet.address, verifyMessage })
+  assert.strictEqual(Ui.acceptSigned(moved, { publicKey: otherB64 }), null)
+  assert.strictEqual(Ui.acceptSigned('<!DOCTYPE html><html></html>', { publicKey: pubB64 }), null)
+  assert.strictEqual(Ui.acceptSigned({ v: 1, links: { hub: HUB }, cards: [], sig: 'nope' }, { publicKey: pubB64 }), null)
+  const evil = sign({ v: 1, links: { hub: 'https://evil.example/wallet/' }, cards: [{ id: 'hub', en: 'Wallet hub', cn: '錢包總覽' }] })
+  assert.strictEqual(Ui.acceptSigned(evil, { publicKey: pubB64 }), null)
+  const mirror = sign({ v: 1, links: Ui.samePaths('https://apeccapital.org'), cards: Ui.defaults().cards })
+  const mirrored = Ui.acceptSigned(mirror, { publicKey: pubB64 })
   assert.strictEqual(mirrored.links.hub, 'https://apeccapital.org/wallet/hub/')
   assert.strictEqual(mirrored.links.help, 'https://apeccapital.org/wallet/help/')
 
   let fetched = 0
-  const quiet = await Ui.refresh({ fetchImpl () { fetched++; return '' } })
+  const quiet = await Ui.refresh({ publicKey: pubB64, fetchImpl () { fetched++; return '' } })
   assert.strictEqual(quiet.from, 'default')
   assert.strictEqual(quiet.doc.links.hub, HUB)
-  assert.strictEqual(fetched, 0)
-  assert.ok(quiet.errors.some(e => e.indexOf('signer') >= 0))
+  assert.strictEqual(fetched, Ui.UI_URLS.length)
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-ui-'))
   const cache = path.join(dir, 'wallet-ui.json')
   const live = await Ui.refresh({
-    signer: wallet.address,
-    verifyMessage,
-    urls: ['https://scdo.com.au/wallet/wallet-ui.json', 'https://apeccapital.org/wallet/wallet-ui.json'],
+    publicKey: pubB64,
+    urls: Ui.UI_URLS,
     cacheFile: cache,
     fetchImpl (url) {
-      if (url.indexOf('scdo.com.au') >= 0) return '<html>wallet</html>'
+      if (url.indexOf('apeccapital.org') >= 0) return '<html>wallet</html>'
       return mirror
     }
   })
-  assert.strictEqual(live.from, 'https://apeccapital.org/wallet/wallet-ui.json')
+  assert.strictEqual(live.from, 'https://scdo.com.au/wallet/wallet-ui.json')
   assert.strictEqual(live.doc.links.hub, 'https://apeccapital.org/wallet/hub/')
   const cached = JSON.parse(fs.readFileSync(cache, 'utf8'))
   assert.ok(cached.sig)
   const againDoc = await Ui.refresh({
-    signer: wallet.address,
-    verifyMessage,
+    publicKey: pubB64,
     urls: ['https://down.example/wallet-ui.json'],
     cacheFile: cache,
     fetchImpl () { throw new Error('offline') }

@@ -132,7 +132,7 @@ function buildTemplate (mainWindow, lang) {
       { label: L.copy, accelerator: 'CmdOrCtrl+C', role: 'copy' },
       { label: L.paste, accelerator: 'CmdOrCtrl+V', role: 'paste' },
       { label: L.selectAll, accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
-      { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
+      { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) { try { require('../main/uiHost').reload(mainWindow) } catch (e) { mainWindow.reload() } } } }
     ]
   }
   const doc = walletUi.current()

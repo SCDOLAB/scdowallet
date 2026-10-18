@@ -42,9 +42,25 @@
     const pick = (pack) => (window.SCDOPlatformCopy ? window.SCDOPlatformCopy.copyText(pack, k, plat) : (pack || {})[k])
     let s = pick(window.I18N112[lang()] || {})
     if (s == null) s = pick(window.I18N112.EN)
+    const over = uiOverride(k)
+    if (over != null) s = over
     if (s == null) s = k
     if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
     return s
+  }
+  function uiOverride (k) {
+    let doc = null
+    try { doc = st && st.walletUi } catch (e) { return null }
+    if (!doc || !doc.strings) return null
+    const loc = lang() === 'EN' ? 'en' : 'zh-Hant'
+    const pack = doc.strings[loc] || {}
+    const v = pack[k]
+    if (typeof v !== 'string' || /[<>]/.test(v)) return null
+    const en = window.I18N112 && window.I18N112.EN
+    const cn = window.I18N112 && window.I18N112.CN
+    const known = (en && typeof en[k] === 'string') || (cn && typeof cn[k] === 'string')
+    if (!known) return null
+    return v
   }
   // punctuation that follows the UI language (full-width in Chinese, ASCII in English)
   const PU = { c: () => lang() === 'CN' ? '：' : ': ', l: () => lang() === 'CN' ? '（' : ' (', r: () => lang() === 'CN' ? '）' : ')', bar: () => lang() === 'CN' ? ' ｜ ' : ' | ', com: () => lang() === 'CN' ? '，' : ', ' }
@@ -234,7 +250,7 @@
     oldErr: {},
     phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
     agent: {}, rewardLineHide: false, backupAskHide: false,
-    walletUi: null, panelId: 'hub', panelShown: false,
+    walletUi: null, panelId: 'hub', panelUrl: '', panelShown: false,
     session: {}, loginPrompt: false
   }
   let phraseHold = null
@@ -805,14 +821,32 @@
     if (!U) return ''
     return U.cardsHtml(st.walletUi || U.defaults(), { title: T('panelSection'), lang: lang() === 'EN' ? 'en' : 'cn', esc: esc })
   }
+  function offlineNoticeHtml () {
+    if (st.net.s0Ok !== false) return ''
+    return `<div class="offline-notice" id="offlineNotice" role="status">${esc(T('offlineNotice'))}</div>`
+  }
+  function liveHomeHtml () {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults()) || null
+    if (!U || !doc) return ''
+    const langKey = lang() === 'EN' ? 'en' : 'zh-Hant'
+    let ver = ''
+    try { ver = APPVER || '' } catch (e) { ver = '' }
+    const noteKind = ver ? U.versionNote(doc, ver) : ''
+    const note = noteKind === 'min' ? `<div class="live-note" id="uiMinNote">${esc(T('uiMinNote'))}</div>` : noteKind === 'rec' ? `<div class="live-note" id="uiRecNote">${esc(T('uiRecNote'))}</div>` : ''
+    return U.bannerHtml(doc, { lang: langKey, esc: esc }) + note + U.homeCardsHtml(doc, { lang: langKey, esc: esc })
+  }
   function pageHome () {
     const J = window.SCDOAgentJoin
-    if (!st.accounts.length && J) return J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide }) + panelCardsHtml()
+    if (!st.accounts.length && J) return offlineNoticeHtml() + J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide }) + panelCardsHtml() + liveHomeHtml()
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
     const qr = link ? `<div class="qrwrap"><div id="homeInviteQr" data-addr="${esc(link)}"></div></div>` : ''
+    const giftBtn = (window.SCDOWalletUi ? window.SCDOWalletUi.flagOn(st.walletUi || window.SCDOWalletUi.defaults(), 'inviteGift') : true)
+      ? `<button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button>` : ''
     return `<div class="page shell-home" id="homePage">
+      ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
       ${claim}
@@ -829,7 +863,8 @@
       ${homeBuyHtml()}
       ${homeDemoHtml()}
       ${panelCardsHtml()}
-      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button><button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button></div></details>
+      ${liveHomeHtml()}
+      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button>${giftBtn}</div></details>
     </div>`
   }
   function renderFooter () {
@@ -846,6 +881,11 @@
     renderFooter()
     if ($('md')) return
     if (st.tab === 'home') {
+      if (!$('md')) {
+        const wantOff = st.net.s0Ok === false
+        const haveOff = !!$('offlineNotice')
+        if (wantOff !== haveOff) { render(); return }
+      }
       const line = $('homeMineState')
       if (line) {
         const text = homeMineLine()
@@ -907,6 +947,7 @@
     const key = doc.links && doc.links[id] ? id : 'hub'
     if (!doc.links || !doc.links[key]) return
     if ($('md')) SD.clear($('modalRoot'))
+    st.panelUrl = ''
     st.panelId = key
     st.tab = 'panel'
     st.scrollTo = 'top'
@@ -918,7 +959,29 @@
     const r = frame.getBoundingClientRect()
     if (r.width < 20 || r.height < 20) return
     st.panelShown = true
-    api.invoke('panel:show', { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }).catch(() => {})
+    const req = { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }
+    if (st.panelUrl) req.url = st.panelUrl
+    api.invoke('panel:show', req).catch(() => {})
+  }
+  function runLiveCard (id) {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults())
+    const card = doc && (doc.homeCards || []).find(c => c && c.id === id)
+    const action = card && card.action
+    if (!action) return
+    if (action.type === 'open-page') { openPanel(action.page); return }
+    if (action.type === 'open-url') {
+      if (!U || U.classifyNavigation(action.url).action !== 'allow') return
+      st.panelUrl = action.url
+      st.panelId = 'hub'
+      st.tab = 'panel'
+      st.scrollTo = 'top'
+      render()
+      return
+    }
+    if (action.type === 'start-agent') { openAgentStart(); return }
+    if (action.type === 'invite') { openInviteCreate(); return }
+    if (action.type === 'claim') { openInviteClaim(); return }
   }
   function openAgentStart () {
     setTab('home')
@@ -1069,7 +1132,9 @@
     try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
   function pageRemit () {
-    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button><div id="remitHost"></div></div>`
+    const payBtn = (window.SCDOWalletUi ? window.SCDOWalletUi.flagOn(st.walletUi || window.SCDOWalletUi.defaults(), 'payInvoice') : true)
+      ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
+    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1>${payBtn}<div id="remitHost"></div></div>`
   }
   function pageSettings () {
     return `<div class="page shell-set" id="setPage"><h1 class="shell-h">${esc(T('navSettings'))}</h1><div id="setHost"></div></div>`
@@ -4224,6 +4289,7 @@
       case 'agentUseWallet': startMyAgent(); break
       case 'claimRetry': runClaim(); break
       case 'inviteCreate': openInviteCreate(); break
+      case 'liveCard': runLiveCard(v); break
       case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
       case 'phraseBannerDismiss': st.backupAskHide = true; render(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break

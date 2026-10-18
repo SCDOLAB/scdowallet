@@ -198,7 +198,8 @@ function create (opts) {
     if (!win || win.isDestroyed()) return { ok: false }
     const doc = walletUi.current()
     const id = String(req && req.id || 'hub')
-    const url = (doc.links && (doc.links[id] || doc.links.hub)) || ''
+    const direct = req && req.url ? walletUi.classifyNavigation(req.url) : null
+    const url = direct && direct.action === 'allow' ? direct.href : ((doc.links && (doc.links[id] || doc.links.hub)) || '')
     const decision = walletUi.classifyNavigation(url)
     if (decision.action !== 'allow') return { ok: false }
     const href = walletUi.withPanelLang(decision.href, langNow())

@@ -1,6 +1,7 @@
-// In-app panel pages. links.hub is the panel home.
-// The built-in home is https://scdo.com.au/wallet/hub/ until a signed wallet-ui.json says otherwise.
-// A remote document is used only when its EIP-191 signature recovers to the pinned signer.
+// In-app panel pages and the signed live UI document.
+// links.hub is the panel home. The built-in home is https://scdo.com.au/wallet/hub/
+// until a signed wallet-ui.json says otherwise.
+// A remote document is used only when its Ed25519 sig matches the update-feed public key.
 'use strict'
 ;(function () {
   const HOSTS = ['scdo.com.au', 'apeccapital.org']
@@ -15,12 +16,12 @@
     help: '/wallet/help/'
   }
   const UI_URLS = [
-    ORIGIN + '/wallet/wallet-ui.json',
-    'https://apeccapital.org/wallet/wallet-ui.json'
+    'https://apeccapital.org/wallet/wallet-ui.json',
+    ORIGIN + '/wallet/wallet-ui.json'
   ]
-  // Empty until the lab publishes the signer. Every remote document is ignored until then.
-  const UI_SIGNER = ''
-  const SIGN_PREFIX = 'SCDO Wallet UI v1\n'
+  const REFRESH_MS = 30 * 60 * 1000
+  const VER_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/
+  const ACTIONS = { 'open-url': 1, 'open-page': 1, 'start-agent': 1, invite: 1, claim: 1 }
 
   function defaults () {
     const links = { hub: DEFAULT_HUB }
@@ -34,7 +35,17 @@
       { id: 'help', en: 'Help', cn: '說明' }
     ]
     Object.keys(PAGE_PATHS).forEach(function (id) { links[id] = ORIGIN + PAGE_PATHS[id] })
-    return { v: 1, links: links, cards: cards }
+    return {
+      v: 1,
+      links: links,
+      cards: cards,
+      strings: { en: {}, 'zh-Hant': {} },
+      homeCards: [],
+      banner: null,
+      flags: {},
+      minVersion: '',
+      recommendedVersion: ''
+    }
   }
 
   function samePaths (origin) {
@@ -83,16 +94,135 @@
     return s
   }
 
-  function canonical (doc) {
-    const links = {}
-    Object.keys(doc && doc.links || {}).sort().forEach(function (k) { links[k] = String(doc.links[k]) })
-    const cards = (doc && doc.cards || []).map(function (c) {
-      return { id: String(c && c.id || ''), en: String(c && c.en || ''), cn: String(c && c.cn || '') }
-    })
-    return JSON.stringify({ v: 1, links: links, cards: cards })
+  function cleanText (value, max) {
+    if (typeof value !== 'string') return ''
+    const s = value.replace(/[\u0000-\u001f]/g, '').trim()
+    if (!s || s.length > max || /[<>]/.test(s)) return ''
+    return s
   }
 
-  function signMessage (doc) { return SIGN_PREFIX + canonical(doc) }
+  function parseVer (s) {
+    const m = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.]+))?$/.exec(String(s || '').trim())
+    if (!m) return null
+    return { major: +m[1], minor: m[2] ? +m[2] : 0, patch: m[3] ? +m[3] : 0, pre: m[4] || '' }
+  }
+  function compareVer (a, b) {
+    const pa = parseVer(a)
+    const pb = parseVer(b)
+    if (!pa || !pb) return 0
+    if (pa.major !== pb.major) return pa.major > pb.major ? 1 : -1
+    if (pa.minor !== pb.minor) return pa.minor > pb.minor ? 1 : -1
+    if (pa.patch !== pb.patch) return pa.patch > pb.patch ? 1 : -1
+    if (pa.pre === pb.pre) return 0
+    if (!pa.pre) return 1
+    if (!pb.pre) return -1
+    return pa.pre < pb.pre ? -1 : 1
+  }
+
+  function takeStrings (raw) {
+    const out = { en: {}, 'zh-Hant': {} }
+    if (raw == null) return out
+    if (typeof raw !== 'object' || Array.isArray(raw)) return null
+    const locs = ['en', 'zh-Hant']
+    for (let i = 0; i < locs.length; i++) {
+      const loc = locs[i]
+      const pack = raw[loc]
+      if (pack == null) continue
+      if (typeof pack !== 'object' || Array.isArray(pack)) return null
+      const keys = Object.keys(pack)
+      for (let k = 0; k < keys.length; k++) {
+        const key = keys[k]
+        if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) continue
+        const value = pack[key]
+        if (typeof value !== 'string') continue
+        const text = cleanText(value, 400)
+        if (!text) continue
+        out[loc][key] = text
+      }
+    }
+    return out
+  }
+
+  function takeAction (action, links) {
+    if (!action || typeof action !== 'object' || Array.isArray(action)) return null
+    const type = action.type
+    if (!ACTIONS[type]) return null
+    if (type === 'open-url') {
+      const decision = classifyNavigation(action.url)
+      if (decision.action !== 'allow') return null
+      return { type: 'open-url', url: decision.href }
+    }
+    if (type === 'open-page') {
+      const page = String(action.page || '')
+      if (!/^[a-z][a-z0-9-]{0,31}$/.test(page) || !links[page]) return null
+      return { type: 'open-page', page: page }
+    }
+    if (action.url || action.page) return null
+    return { type: type }
+  }
+
+  function takeHomeCards (list, links) {
+    if (list == null) return []
+    if (!Array.isArray(list)) return null
+    if (list.length > 12) return null
+    const out = []
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i]
+      if (!c || typeof c !== 'object') return null
+      const id = String(c.id || '')
+      if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) return null
+      const title = {
+        en: cleanText(c.title && c.title.en, 80),
+        'zh-Hant': cleanText(c.title && c.title['zh-Hant'], 80)
+      }
+      if (!title.en || !title['zh-Hant']) return null
+      const body = {
+        en: cleanText(c.body && c.body.en, 280),
+        'zh-Hant': cleanText(c.body && c.body['zh-Hant'], 280)
+      }
+      const cta = {
+        en: cleanText(c.cta && c.cta.en, 40) || title.en,
+        'zh-Hant': cleanText(c.cta && c.cta['zh-Hant'], 40) || title['zh-Hant']
+      }
+      const icon = c.icon == null || c.icon === '' ? '' : String(c.icon)
+      if (icon && !/^[a-z0-9-]{1,24}$/.test(icon)) return null
+      const action = takeAction(c.action, links)
+      if (!action) return null
+      out.push({ id: id, title: title, body: body, icon: icon, cta: cta, action: action })
+    }
+    return out
+  }
+
+  function takeBanner (banner) {
+    if (banner == null) return null
+    if (typeof banner !== 'object' || Array.isArray(banner)) return false
+    const id = String(banner.id || '')
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,40}$/.test(id)) return false
+    const en = cleanText(banner.en, 280)
+    const zh = cleanText(banner['zh-Hant'], 280)
+    if (!en || !zh) return false
+    return { id: id, en: en, 'zh-Hant': zh }
+  }
+
+  function takeFlags (flags) {
+    if (flags == null) return {}
+    if (typeof flags !== 'object' || Array.isArray(flags)) return null
+    const out = {}
+    const keys = Object.keys(flags)
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i]
+      if (!/^[a-z][A-Za-z0-9]{0,31}$/.test(key)) return null
+      if (typeof flags[key] !== 'boolean') return null
+      out[key] = flags[key]
+    }
+    return out
+  }
+
+  function takeVer (value) {
+    if (value == null || value === '') return ''
+    if (typeof value !== 'string' || !VER_RE.test(value)) return null
+    return value
+  }
 
   function materialize (signed) {
     const base = defaults()
@@ -121,13 +251,36 @@
       }
     }
     if (classifyNavigation(links.hub).action !== 'allow') return null
-    return { v: 1, links: links, cards: cards }
+    const strings = takeStrings(signed.strings)
+    const homeCards = takeHomeCards(signed.homeCards, links)
+    const banner = takeBanner(signed.banner)
+    const flags = takeFlags(signed.flags)
+    const minVersion = takeVer(signed.minVersion)
+    const recommendedVersion = takeVer(signed.recommendedVersion)
+    if (!strings || !homeCards || banner === false || !flags || minVersion == null || recommendedVersion == null) return null
+    return {
+      v: 1,
+      links: links,
+      cards: cards,
+      strings: strings,
+      homeCards: homeCards,
+      banner: banner,
+      flags: flags,
+      minVersion: minVersion,
+      recommendedVersion: recommendedVersion
+    }
+  }
+
+  function verifyDoc (doc, opts) {
+    opts = opts || {}
+    let uiSign = null
+    try { uiSign = require('../config/uiSign') } catch (e) { uiSign = null }
+    if (!uiSign || typeof uiSign.verifySigned !== 'function') return false
+    return uiSign.verifySigned(doc, { publicKey: opts.publicKey }).ok === true
   }
 
   function acceptSigned (raw, opts) {
     opts = opts || {}
-    const signer = String(opts.signer || '').trim()
-    if (!signer || typeof opts.verifyMessage !== 'function') return null
     let doc = raw
     if (typeof raw === 'string') {
       const text = raw.trim()
@@ -135,11 +288,7 @@
       try { doc = JSON.parse(text) } catch (e) { return null }
     }
     if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null
-    const sig = String(doc.sig || '')
-    if (!/^0x[0-9a-fA-F]{130}$/.test(sig) && !/^0x[0-9a-fA-F]+$/.test(sig)) return null
-    let recovered = ''
-    try { recovered = opts.verifyMessage(signMessage(doc), sig) } catch (e) { return null }
-    if (String(recovered || '').toLowerCase() !== signer.toLowerCase()) return null
+    if (!verifyDoc(doc, opts)) return null
     return materialize(doc)
   }
 
@@ -147,6 +296,19 @@
   function current () { return active }
   function setCurrent (doc) {
     if (doc && doc.links && doc.links.hub && doc.cards) active = doc
+  }
+
+  function flagOn (doc, name) {
+    const flags = doc && doc.flags
+    if (!flags || !Object.prototype.hasOwnProperty.call(flags, name)) return true
+    return flags[name] !== false
+  }
+
+  function versionNote (doc, shell) {
+    if (!doc) return ''
+    if (doc.minVersion && compareVer(shell, doc.minVersion) < 0) return 'min'
+    if (doc.recommendedVersion && compareVer(shell, doc.recommendedVersion) < 0) return 'rec'
+    return ''
   }
 
   function cardsHtml (doc, opts) {
@@ -162,20 +324,46 @@
     return '<section class="panel-section" id="panelCards"><button type="button" class="panel-head" data-act="panelOpen" data-v="hub">' + esc(title) + '</button><div class="panel-cards">' + buttons + '</div></section>'
   }
 
+  function homeCardsHtml (doc, opts) {
+    opts = opts || {}
+    const esc = opts.esc || function (s) { return String(s == null ? '' : s) }
+    const loc = opts.lang === 'en' ? 'en' : 'zh-Hant'
+    const list = (doc && doc.homeCards) || []
+    if (!list.length) return ''
+    const cards = list.map(function (c) {
+      const title = (c.title && c.title[loc]) || ''
+      const body = (c.body && c.body[loc]) || ''
+      const cta = (c.cta && c.cta[loc]) || title
+      const icon = c.icon ? ' live-ico-' + c.icon : ''
+      return '<article class="live-card' + icon + '"><h2>' + esc(title) + '</h2><p>' + esc(body) + '</p><button type="button" class="shell-act" data-act="liveCard" data-v="' + esc(c.id) + '">' + esc(cta) + '</button></article>'
+    }).join('')
+    return '<section class="live-cards" id="liveCards">' + cards + '</section>'
+  }
+
+  function bannerHtml (doc, opts) {
+    opts = opts || {}
+    const esc = opts.esc || function (s) { return String(s == null ? '' : s) }
+    const banner = doc && doc.banner
+    if (!banner) return ''
+    const loc = opts.lang === 'en' ? 'en' : 'zh-Hant'
+    const text = banner[loc] || ''
+    if (!text) return ''
+    return '<div class="live-banner" id="liveBanner" role="status">' + esc(text) + '</div>'
+  }
+
   async function refresh (opts) {
     opts = opts || {}
     const urls = opts.urls || UI_URLS
     const fetchImpl = opts.fetchImpl
     const errors = []
-    const signer = opts.signer != null ? opts.signer : UI_SIGNER
     let doc = null
     let from = 'default'
     let rawAccepted = ''
-    if (typeof fetchImpl === 'function' && signer) {
+    if (typeof fetchImpl === 'function') {
       for (let i = 0; i < urls.length; i++) {
         try {
           const body = await fetchImpl(urls[i])
-          const accepted = acceptSigned(body, { signer: signer, verifyMessage: opts.verifyMessage })
+          const accepted = acceptSigned(body, { publicKey: opts.publicKey })
           if (accepted) {
             doc = accepted
             from = urls[i]
@@ -185,11 +373,11 @@
           errors.push(urls[i] + ': rejected')
         } catch (e) { errors.push(urls[i] + ': ' + ((e && e.message) || e)) }
       }
-    } else if (!signer) errors.push('signer: empty')
-    if (!doc && opts.cacheFile && signer) {
+    }
+    if (!doc && opts.cacheFile) {
       try {
         const fs = opts.fs || require('fs')
-        const cached = acceptSigned(JSON.parse(fs.readFileSync(opts.cacheFile, 'utf8')), { signer: signer, verifyMessage: opts.verifyMessage })
+        const cached = acceptSigned(JSON.parse(fs.readFileSync(opts.cacheFile, 'utf8')), { publicKey: opts.publicKey })
         if (cached) { doc = cached; from = 'cache' }
       } catch (e) { errors.push('cache: ' + ((e && e.message) || e)) }
     }
@@ -211,19 +399,21 @@
     DEFAULT_HUB: DEFAULT_HUB,
     PAGE_PATHS: PAGE_PATHS,
     UI_URLS: UI_URLS,
-    UI_SIGNER: UI_SIGNER,
+    REFRESH_MS: REFRESH_MS,
     defaults: defaults,
     samePaths: samePaths,
     panelQueryLang: panelQueryLang,
     withPanelLang: withPanelLang,
     classifyNavigation: classifyNavigation,
-    canonical: canonical,
-    signMessage: signMessage,
     acceptSigned: acceptSigned,
     materialize: materialize,
     current: current,
     setCurrent: setCurrent,
+    flagOn: flagOn,
+    versionNote: versionNote,
     cardsHtml: cardsHtml,
+    homeCardsHtml: homeCardsHtml,
+    bannerHtml: bannerHtml,
     refresh: refresh
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
