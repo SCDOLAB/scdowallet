@@ -76,7 +76,8 @@ function startFail (code) {
     ALREADY_RUNNING: '這個記帳節點已經在跑。',
     BAD_ADDRESS: '這個地址不能用來記帳這條鏈。',
     BAD_SHARD: '地址和這條鏈對不上。',
-    CANCELED: '你取消了 Shard0 EVM 的顯卡記帳。'
+    CANCELED: '你取消了 Shard0 EVM 的顯卡記帳。',
+    LIGHT: '輕量模式不記帳。'
   }
   return map[code] || '沒有啟動。'
 }

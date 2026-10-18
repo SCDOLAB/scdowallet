@@ -37,9 +37,15 @@ function postJson (url, obj, timeoutMs) {
   })
 }
 
+function statusCode (snap) {
+  const raw = snap && snap.code != null ? String(snap.code).trim() : ''
+  return raw || 'ONLINE'
+}
+
 function heartbeatBody (snap, version) {
-  const b = { version: String(version || '') }
-  for (const k of PUBLIC_FIELDS) if (snap[k] !== undefined) b[k] = snap[k]
+  snap = snap || {}
+  const b = { version: String(version || ''), code: statusCode(snap) }
+  for (const k of PUBLIC_FIELDS) if (k !== 'code' && snap[k] !== undefined) b[k] = snap[k]
   if (Array.isArray(b.procs)) b.procs = b.procs.slice(0, 10).map(String)
   if (snap.problems) b.problems = snap.problems.map(p => p.code)
   return b
@@ -167,6 +173,13 @@ class AgentService {
     return r
   }
 
+  // One POST /agent-ledger/api/invite/claim. No retry loop: the screen paints on HTTP 200.
+  async relayClaim (body) {
+    const base = String(this.ledger || '').replace(/\/$/, '')
+    if (!base) return { ok: false, status: 0 }
+    return this.post(base + '/invite/claim', body || {})
+  }
+
   // POST /agent-ledger/api/refcode. No seq. 409 means register first, then retry once.
   async refcode () {
     if (!this.id.signRefcode) return { ok: false, error: 'no refcode signer' }
@@ -201,9 +214,17 @@ class AgentService {
 
   async tick () {
     const now = this.now()
+    const light = !!(this.host && this.host.light && this.host.light())
     if (this.reportingOn()) {
       const payout = await this.payoutAddress()
       if (!this.registered || (payout && payout !== this.registeredPayout)) await this.register()
+    }
+    if (light) {
+      if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
+        const r = await this.deliver('heartbeat', heartbeatBody({ code: 'ONLINE' }, this.host.version))
+        if (r && r.ok) this.lastBeat = now
+      }
+      return { actions: [], problems: [], light: true }
     }
     let snap
     try { snap = await this.host.snapshot() } catch (e) { snap = { error: e.message }; this.fail('snapshot', e) }

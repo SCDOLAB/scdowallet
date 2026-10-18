@@ -68,6 +68,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .first-run-actions { grid-template-columns: 1fr; max-width: 420px; }
 .first-run .field { margin: 14px 0 4px; max-width: 420px; }
 .first-run .field .lbl { margin-bottom: 6px; font-weight: 700; color: #3d4160; }
+.agent-claim { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 16px; font-weight: 800; }
 .agent-card { background: #fff; border-radius: 24px; padding: 22px 24px; margin: 16px 0; border: 1px solid #e5e5ea; }
 .agent-card h2 { margin: 0 0 8px; font-size: 22px; }
 .agent-card h3 { margin: 14px 0 6px; font-size: 16px; }
@@ -305,6 +306,21 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 .payinv .qrwrap { width: 240px; height: 240px; margin: 12px auto; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 #payInvoiceBtn { margin: 0 0 16px; }
 
+.panel-section { margin: 8px 0 16px; }
+.panel-head { border: 0; background: transparent; color: #1c1c1e; font-size: 18px; font-weight: 800; padding: 0 0 8px; }
+.panel-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.panel-card { border: 1px solid #e5e5ea; border-radius: 16px; background: #fff; color: #1d7a34; font-size: 16px; font-weight: 800; padding: 14px 12px; text-align: left; }
+.panel-card:hover, .panel-head:hover { background: #E8F5E9; }
+.panel-head:hover { border-radius: 12px; }
+.shell-panel { max-width: none; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; }
+.panel-bar { display: flex; align-items: center; gap: 12px; }
+.panel-bar .shell-h { font-size: 22px; margin: 0; }
+.panel-frame { flex: 1; min-height: 420px; margin-top: 8px; border-radius: 16px; background: #fff; }
+#app.shell main:has(.shell-panel) { display: flex; flex-direction: column; overflow: hidden; }
+#app.shell main:has(.shell-panel) .shell-panel { flex: 1; }
+
+html.light-mode, html.light-mode * { animation: none !important; transition: none !important; }
+
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }
@@ -313,6 +329,7 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
   .nav-item { flex-direction: column; justify-content: center; font-size: 12px; padding: 10px 2px; text-align: center; }
   .bal-n b { font-size: 42px; }
   .shell-actions { grid-template-columns: 1fr; }
+  .panel-cards { grid-template-columns: 1fr 1fr; }
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
   .shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { padding: 16px 12px 120px; }
 }

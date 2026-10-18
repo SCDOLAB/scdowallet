@@ -118,6 +118,42 @@
     st.keepMining = on
     settingsModal()
   }
+  function applySessionUi () {
+    const light = !!(st.session && st.session.light)
+    try { document.documentElement.classList.toggle('light-mode', light) } catch (e) {}
+    try { catAnimSync() } catch (e) {}
+    armPolls()
+  }
+  async function setLoginUi (el) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { st.session = await api.invoke('session:setLogin', on) || st.session } catch (e) {}
+    applySessionUi()
+    settingsModal()
+  }
+  async function setLightUi (el) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { st.session = await api.invoke('session:setLight', on) || st.session } catch (e) {}
+    applySessionUi()
+    settingsModal()
+  }
+  async function setPaceUi (el, key) {
+    const sw = el && el.querySelector ? el.querySelector('.sw') : null
+    const on = !(sw && sw.classList.contains('on'))
+    try { st.session = await api.invoke('session:setPace', { [key]: on }) || st.session } catch (e) {}
+    settingsModal()
+  }
+  function answerLogin (yes) {
+    api.invoke('session:loginAnswer', yes === true).then((s) => { st.session = s || st.session; applySessionUi() }).catch(() => {})
+  }
+  function offerLoginChoice () {
+    const s = st.session || {}
+    if (!s.offerLogin || s.loginLaunch) return
+    st.loginPrompt = true
+    modal(`<div class="mh"><h2 id="loginAsk">${esc(T('loginAsk'))}</h2><button type="button" class="btn ghost small" data-act="loginLater" aria-label="${esc(T('loginLater'))}">✕</button></div>
+      <div class="foot"><button type="button" class="btn ghost" data-act="loginLater" id="loginLater">${esc(T('loginLater'))}</button><button type="button" class="btn pri" data-act="loginYes" id="loginYes">${esc(T('loginYes'))}</button></div>`, { width: 560, noFocus: true })
+  }
   async function setGuardUi (el, key) {
     const sw = el && el.querySelector ? el.querySelector('.sw') : null
     const on = !(sw && sw.classList.contains('on'))
@@ -197,9 +233,12 @@
     poolStatus: null,
     oldErr: {},
     phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
-    agent: {}, rewardLineHide: false, backupAskHide: false
+    agent: {}, rewardLineHide: false, backupAskHide: false,
+    walletUi: null, panelId: 'hub', panelShown: false,
+    session: {}, loginPrompt: false
   }
   let phraseHold = null
+  let pollTimers = []
   const shard0 = () => ({
     cfg: S0CFG,
     explorerTx: (h) => S0CFG.explorer + '/#/tx?txhash=' + encodeURIComponent(h),
@@ -761,15 +800,22 @@
     if (!L) return ''
     return `<div class="shell-actions home-demo" id="homeDemo"><button type="button" class="shell-act" data-act="openDemo" data-v="wheel">${esc(T('homeDemoWheel'))}</button><button type="button" class="shell-act" data-act="openDemo" data-v="tg">${esc(T('homeDemoTg'))}</button></div>`
   }
+  function panelCardsHtml () {
+    const U = window.SCDOWalletUi
+    if (!U) return ''
+    return U.cardsHtml(st.walletUi || U.defaults(), { title: T('panelSection'), lang: lang() === 'EN' ? 'en' : 'cn', esc: esc })
+  }
   function pageHome () {
     const J = window.SCDOAgentJoin
-    if (!st.accounts.length && J) return J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide })
+    if (!st.accounts.length && J) return J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide }) + panelCardsHtml()
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
+    const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
     const qr = link ? `<div class="qrwrap"><div id="homeInviteQr" data-addr="${esc(link)}"></div></div>` : ''
     return `<div class="page shell-home" id="homePage">
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
+      ${claim}
       ${card}
       <p class="home-lead">${esc(T('homeLead'))}</p>
       <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
@@ -782,7 +828,8 @@
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       ${homeDemoHtml()}
-      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button></div></details>
+      ${panelCardsHtml()}
+      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button><button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button></div></details>
     </div>`
   }
   function renderFooter () {
@@ -836,6 +883,59 @@
         }
       }
     } else if (st.tab === 'recv') paintRecvQr()
+  }
+  function pageInviteGift () {
+    const J = window.SCDOAgentJoin
+    if (!J) return ''
+    return J.inviteGiftHtml(T, esc, { gift: st.inviteGift == null ? 1 : st.inviteGift })
+  }
+  function pageInviteClaim () {
+    const J = window.SCDOAgentJoin
+    if (!J) return ''
+    return J.inviteClaimHtml(T, esc)
+  }
+  function pagePanel () {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults()) || { cards: [] }
+    const card = (doc.cards || []).find(c => c.id === st.panelId) || { en: 'Wallet hub', cn: '錢包總覽' }
+    const title = lang() === 'EN' ? card.en : card.cn
+    return `<div class="page shell-panel" id="panelPage"><div class="panel-bar"><button type="button" class="link back-home" data-act="panelClose" id="panelClose">${esc(T('goHome'))}</button><h1 class="shell-h" id="panelTitle">${esc(title)}</h1></div><div id="panelFrame" class="panel-frame"></div></div>`
+  }
+  function openPanel (id) {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults()) || { links: {} }
+    const key = doc.links && doc.links[id] ? id : 'hub'
+    if (!doc.links || !doc.links[key]) return
+    if ($('md')) SD.clear($('modalRoot'))
+    st.panelId = key
+    st.tab = 'panel'
+    st.scrollTo = 'top'
+    render()
+  }
+  function syncPanelFrame () {
+    const frame = $('panelFrame')
+    if (!frame || typeof frame.getBoundingClientRect !== 'function') return
+    const r = frame.getBoundingClientRect()
+    if (r.width < 20 || r.height < 20) return
+    st.panelShown = true
+    api.invoke('panel:show', { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }).catch(() => {})
+  }
+  function openAgentStart () {
+    setTab('home')
+    render()
+  }
+  function openInviteCreate () {
+    st.inviteGift = st.inviteGift == null ? 1 : st.inviteGift
+    st.tab = 'inviteGift'
+    st.scrollTo = 'top'
+    render()
+  }
+  function openInviteClaim (msg) {
+    if (!msg || !msg.secret) return
+    st.inviteClaim = { secret: msg.secret, contract: msg.contract || '', chainId: msg.chainId }
+    st.tab = 'inviteClaim'
+    st.scrollTo = 'top'
+    render()
   }
   function backHome () {
     return `<div class="back-home-row"><button type="button" class="link back-home" data-act="goHome" id="backHome">${esc(T('goHome'))}</button></div>`
@@ -1399,7 +1499,7 @@
     renderHeader()
     const main = $('main')
     const y = main ? main.scrollTop : 0
-    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings }
+    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
     const wiz = $('payWiz')
     const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
     if (main && !keepPay) SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
@@ -1416,6 +1516,8 @@
     else if (to) main.scrollTop = Math.max(0, to.offsetTop - main.offsetTop - 8)
     else main.scrollTop = y
     if (st.tab === 'home') paintInviteQr()
+    if (st.tab === 'panel') syncPanelFrame()
+    else if (st.panelShown) { st.panelShown = false; api.invoke('panel:close').catch(() => {}) }
     document.title = (lang() === 'CN' ? 'SCDO 錢包 ' : 'SCDO Wallet ') + APPVER
   }
   function mountMining () {
@@ -2024,9 +2126,13 @@
     const first = $('md').querySelector('input:not([type=checkbox]):not([disabled])'); if (first && !opts.noFocus) setTimeout(() => first.focus(), 30)
   }
   function closeModal () {
+    const login = !!st.loginPrompt
+    st.loginPrompt = false
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
     st.payReview = null
-    SD.clear($('modalRoot')); render()
+    SD.clear($('modalRoot'))
+    if (login) { answerLogin(false); return }
+    render()
   }
   // 3.0.2: every transfer, remittance and signature stops here first. A second
   // window on top of the form says the amount, the recipient and which chain in
@@ -3250,6 +3356,11 @@
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
     const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
+    const sess = st.session || {}
+    const loginOn = !!sess.loginLaunch
+    const lightOn = !!sess.light
+    const paceRows = lightOn ? '' : `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>`
+    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div><button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>${paceRows}</div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
     const lowOn = mineCfg.lowPriority !== false
@@ -3283,6 +3394,7 @@
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
       ${langRow}
       ${resumeRow}
+      ${sessionRow}
       ${shellFold('setAdvanced', T('advanced'), advancedInner)}`
     const setHost = $('setHost')
     if (wantPage) { if (setHost) SD.html(setHost, setHtml) }
@@ -4022,7 +4134,8 @@
     if (act !== 'accMenu' && act !== 'accChip') closeDd()
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }; if (v === 'old' || v === 'acc' || v === 'home') refreshOld(); if (v === 'new' || v === 'acc' || v === 'home') refreshS0(); break
-      case 'goHome': if ($('md')) SD.clear($('modalRoot')); setTab('home'); render(); refreshOld(); refreshS0(); break
+      case 'goHome': case 'panelClose': if ($('md')) SD.clear($('modalRoot')); setTab('home'); render(); refreshOld(); refreshS0(); break
+      case 'panelOpen': openPanel(v); break
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
@@ -4072,6 +4185,12 @@
       case 'shareRef': shareReferral(v); break
       case 'setMineMode': setMineMode(v); break
       case 'keepMining': setKeepMiningUi(el); break
+      case 'loginLaunch': setLoginUi(el); break
+      case 'lightMode': setLightUi(el); break
+      case 'paceGpu': setPaceUi(el, 'gpuLow'); break
+      case 'paceIdle': setPaceUi(el, 'idleOnly'); break
+      case 'loginYes': st.loginPrompt = false; SD.clear($('modalRoot')); answerLogin(true); break
+      case 'loginLater': st.loginPrompt = false; SD.clear($('modalRoot')); answerLogin(false); break
       case 'guardSmooth': setGuardUi(el, 'guardSmooth'); break
       case 'mineOnBattery': setGuardUi(el, 'mineOnBattery'); break
       case 'lowPriority': setGuardUi(el, 'lowPriority'); break
@@ -4103,6 +4222,8 @@
       case 'create': createModal(); break
       case 'startAgent':
       case 'agentUseWallet': startMyAgent(); break
+      case 'claimRetry': runClaim(); break
+      case 'inviteCreate': openInviteCreate(); break
       case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
       case 'phraseBannerDismiss': st.backupAskHide = true; render(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
@@ -4214,6 +4335,13 @@
   })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
+    if (t.id === 'inviteGiftAmt' && window.SCDOAgentJoin) {
+      const n = window.SCDOAgentJoin.giftAmount(t.value)
+      st.inviteGift = n
+      const line = $('inviteGiftOwn')
+      if (line) line.textContent = T('inviteGiftOwn', { n: n })
+      return
+    }
     if (t.id === 'recvPick') {
       const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
@@ -4256,6 +4384,7 @@
       if (popOpen) closeIslePop(true)
       if (legendOpen) dismissIsleLegend()
       if (popOpen || legendOpen) return
+      if (st.tab === 'panel') { st.tab = 'home'; render(); return }
       if (window.__closeAssetList && window.__closeAssetList()) return
       if ($('dd')) closeDd(); else if ($('md')) closeModal(); else if (st.catOpen) { st.catOpen = false; renderCat() }
     }
@@ -4322,6 +4451,7 @@
       case 'clearMineRunning': clearMineRunningFlags(); break
       default:
         if (typeof a === 'string' && a.indexOf('buy:') === 0) openAccountSite(a.slice(4))
+        else if (typeof a === 'string' && a.indexOf('panel:') === 0) openPanel(a.slice(6))
         break
     }
   }
@@ -4467,7 +4597,7 @@
     }
     catWireDrag(box ? btn : null)
     catPlaceApply()
-    const run = !!(box && btn && !btn.hidden && !document.hidden && !CAT_ANIM.reduce && CAT_ANIM.frames.length > 1)
+    const run = !!(box && btn && !btn.hidden && !document.hidden && !CAT_ANIM.reduce && !(st.session && st.session.light) && CAT_ANIM.frames.length > 1)
     if (run && !CAT_ANIM.timer) CAT_ANIM.timer = setInterval(() => { if (!document.hidden) catAnimNext() }, CAT_ANIM.hold)
     if (!run && CAT_ANIM.timer) { clearInterval(CAT_ANIM.timer); CAT_ANIM.timer = 0 }
   }
@@ -4773,17 +4903,38 @@
   api.on('miner:status', (m) => onMinerStatus(m))
   api.on('miner:classic', (m) => onMinerStatus(m))
   api.on('agentJoin:updated', (msg) => {
+    msg = msg || {}
+    if (msg.route === 'agent-start') { openAgentStart(); return }
+    if (msg.route === 'invite-create') { openInviteCreate(); return }
+    if (msg.route === 'invite-claim') { openInviteClaim(msg); return }
     st.agent = st.agent || {}
-    if (msg && msg.pendingRef && !(st.agent && st.agent.locked)) st.agent.pendingRef = msg.pendingRef
+    if (msg.pendingRef && !(st.agent && st.agent.locked)) st.agent.pendingRef = msg.pendingRef
     const input = $('joinRef')
-    if (input && msg && msg.pendingRef && !input.value) input.value = msg.pendingRef
+    if (input && msg.pendingRef && !input.value) input.value = msg.pendingRef
+  })
+  api.on('panel:doc', (doc) => {
+    if (!doc || !doc.links || !doc.links.hub) return
+    st.walletUi = doc
+    if (st.tab === 'home' || st.tab === 'panel') render()
+  })
+  api.on('panel:layout', () => { if (st.tab === 'panel') syncPanelFrame() })
+  api.on('session:changed', (s) => {
+    st.session = s || {}
+    applySessionUi()
+    if ($('setSession')) settingsModal()
+  })
+  api.on('agentJoin:settled', () => {
+    if (st.agent) st.agent.starting = false
+    refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
   })
   function syncRewardPayout (addr) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(String(addr || ''))) return
     api.invoke('agentJoin:setPayout', { address: addr, file: (selected() && selected().filename) || '' }).then(() => refreshAgent()).catch(() => {})
   }
   async function refreshAgent () {
+    const starting = !!(st.agent && st.agent.starting)
     try { st.agent = await api.invoke('agentJoin:get') || {} } catch (e) { st.agent = st.agent || {} }
+    if (starting) { st.agent.starting = true; st.agent.status = 'starting' }
     const p = st.agent && st.agent.payout
     if (p && /^0x[0-9a-fA-F]{40}$/.test(p)) {
       try {
@@ -4822,11 +4973,40 @@
       try { localStorage.setItem('selAcc112', r.file) } catch (e) {}
     }
     await reloadAccounts()
-    await refreshAgent()
+    st.agent = Object.assign({}, st.agent || {}, { status: 'starting', starting: true, payout: r.payout || r.evm || '' })
     setTab('home')
     render()
+    refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
+    offerLoginChoice()
+  }
+  async function runClaim (body) {
+    if (body) st.claimBody = body
+    const Opt = window.SCDOOptimistic
+    if (!Opt) return
+    let res = null
+    try { res = await api.invoke('invite:claim', st.claimBody || {}) } catch (e) { res = { status: 0 } }
+    st.claimView = Opt.claimFromHttp(res)
+    if (st.tab === 'home') render()
+    if (!st.claimView || st.claimView.phase !== 'confirming') return
+    const view = st.claimView
+    Opt.confirmInBackground(view, async () => {
+      try { const c = await api.invoke('invite:confirm'); return !!(c && c.ok) } catch (e) { return false }
+    }).then(next => { st.claimView = next; if (st.tab === 'home') render() })
+  }
+  function armPolls () {
+    for (const t of pollTimers) clearInterval(t)
+    const light = !!(st.session && st.session.light)
+    const f = light ? 4 : 1
+    pollTimers = [
+      setInterval(refreshS0, 15000 * f),
+      setInterval(refreshOld, 30000 * f),
+      setInterval(refreshPools, 60000 * f)
+    ]
+    if (!light) pollTimers.push(setInterval(refreshGpuTemp, 15000))
   }
   async function boot () {
+    try { st.session = await api.invoke('session:get') || {} } catch (e) { st.session = st.session || {} }
+    applySessionUi()
     let info = null
     try { info = await api.invoke('app:info'); if (info && info.version) APPVER = info.version; if (info && info.commit) APPCOMMIT = info.commit } catch (e) {}
     try { storeMiner(await api.invoke('miner:status')) } catch (e) {}
@@ -4834,6 +5014,11 @@
     st.miner = viewMiner()
     loadAccounts()
     render()
+    api.invoke('panel:doc').then((doc) => {
+      if (!doc || !doc.links || !doc.links.hub) return
+      st.walletUi = doc
+      if (st.tab === 'home') render()
+    }).catch(() => {})
     if (window.__scdoBootDone) window.__scdoBootDone() // 2.0.6: the loading screen goes away once the real page is drawn
     // 2.0.6: right after an update, say so (titled dialog) and show the mining state
     if (info && info.updated) {
@@ -4844,8 +5029,9 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld(); refreshGpuTemp(); refreshPools(); renderCat()
-    setInterval(refreshS0, 15000); setInterval(refreshOld, 30000); setInterval(refreshGpuTemp, 15000); setInterval(refreshPools, 60000)
+    refreshS0(); refreshOld(); refreshPools(); renderCat()
+    if (!(st.session && st.session.light)) refreshGpuTemp()
+    armPolls()
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}
     try {
       const it = await api.invoke('miner:intent')

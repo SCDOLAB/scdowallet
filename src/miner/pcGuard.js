@@ -207,6 +207,7 @@ function start (deps) {
     if (ticking) return
     ticking = true
     try {
+      if (deps.light && deps.light()) return
       const intent = (deps.readIntent && deps.readIntent()) || {}
       const enabled = intent.guardSmooth !== false
       const mineOnBattery = !!intent.mineOnBattery
@@ -291,6 +292,8 @@ function start (deps) {
           unsuitable: !!(plan && plan.unsuitable),
           planSig: plan && !plan.pending ? (plan.threads + ':' + ((plan.affinity || []).join(','))) : '',
           manualPauseUntil: Number(intent.guardPauseUntil) || 0,
+          idleOnly: !!intent.idleOnly,
+          gpuLow: intent.gpuIntensity === 'low',
           suspended: !!hold.suspended,
           wakeHold: !!hold.wakeHold,
           childDiedInSleep: !!hold.childDiedInSleep,

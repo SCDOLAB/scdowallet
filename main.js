@@ -120,6 +120,9 @@ const joinStore = createStore(path.join(app.getPath('userData'), 'agent-join.jso
 const joinCtl = createController({ store: joinStore, agent: () => opsAgent, env: process.env })
 const miningService = require('./src/main/miningService')
 const { TrayStatus } = require('./src/main/trayStatus')
+const sessionMode = require('./src/main/sessionMode')
+let sessionLight = false
+let sessionOpenedAtLogin = false
 walletService.register(ipcMain, () => mainWindow)
 require('./src/main/remitService').register(ipcMain, walletService.decryptForRemit) // 2.0.12 匯款 sign-in
 // 2.0.6: main-process dialogs, window titles and the tray follow the wallet language ('CN' = 華語繁體, 'EN')
@@ -500,6 +503,7 @@ async function stopMinerVisibly (parent) {
 
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   opts = opts || {}
+  if (sessionLight) return { ok: false, code: 'LIGHT' }
   if (guardActive()) { try { await guardHost.ready() } catch (err) {} }
   if (opts.chain === 'classic' || opts.backend === 'cpu' || opts.backend === 'gpu') {
     const backend = opts.backend === 'gpu' ? 'gpu' : 'cpu'
@@ -565,9 +569,12 @@ ipcMain.handle('miner:intentMigrate', (e, ls) => {
 ipcMain.handle('miner:otherRigels', async () => { await afterCleanup(); try { return await getMiner().otherRigels() } catch (err) { return [] } })
 // everything the renderer needs to decide about auto-resume on launch
 ipcMain.handle('miner:resumeCheck', async () => {
+  const it = readIntent() || {}
+  if (sessionLight) {
+    return { autoResume: false, light: true, weakDevice: false, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk: false, otherRigels: [], running: false, resume: { cpu: false, classicGpu: false, shard0: false } }
+  }
   await afterCleanup()
   try { settleStaleRunFlags() } catch (e) {}
-  const it = readIntent() || {}
   const m = getMiner()
   let gpuOk = !app.isPackaged && !!process.env.SCDO_RIGEL_EXE // test hook (development runs only, 1.1.5b): a stand-in miner exe, no GPU check (same as MinerManager.start)
   if (!gpuOk && it.mode !== 'node') { try { gpuOk = !!(await m.gpu()).nvidia } catch (e) {} }
@@ -715,6 +722,7 @@ function ensureGuard () {
   guardRun = pcGuard.start({
     platform: process.platform,
     readIntent,
+    light: () => sessionLight,
     listMiners: () => {
       const out = []
       if (zpowCpu) out.push({ id: 'cpu', mgr: zpowCpu, kind: 'cpu' })
@@ -751,6 +759,10 @@ function createTray () {
       isMinerActive: () => minerActive(),
       getKeepMining: () => !!(readIntent() || {}).keepMining,
       onKeepMining: (on) => setKeepMining(on),
+      getSession: () => publicSession(),
+      onLogin: (on) => setLoginLaunch(on === true),
+      onLight: (on) => { setSessionLight(on === true) },
+      onPace: (patch) => setPace(patch),
       lang: uiLang(),
       onStop: async () => {
         if (miningNow() && !(await confirmStopMining())) { try { getMiner().log('wallet', 'tray Stop bookkeeping: cancelled by the user') } catch (err) {} return }
@@ -838,6 +850,8 @@ ipcMain.handle('keyfile:openBackups', () => { fs.mkdirSync(backupRoot(), { recur
 ipcMain.handle('menu:rebuild', () => { if (mainWindow) createMenu(mainWindow, uiLang()); return true })
 
 let mainWindow
+let walletPanelCtl = null
+let walletUiDoc = null
 
 // Our RPC proxies (scdoscan.io/rpc/N) send Access-Control-Allow-Origin twice ("*, *"), which
 // Chromium rejects; normalise the header for the wallet's own RPC traffic.
@@ -912,7 +926,11 @@ function createWindow () {
   mainWindow.webContents.on('will-frame-navigate', (e) => { if (!e.isMainFrame) e.preventDefault() })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' } })
   mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
-  mainWindow.webContents.once('did-finish-load', () => { if (tray) tray.reapply() })
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (tray) tray.reapply()
+    if (!pendingProtocol || !mainWindow || mainWindow.isDestroyed()) return
+    try { mainWindow.webContents.send('agentJoin:updated', pendingProtocol) } catch (e) {}
+  })
   // 2.0.6: the window's X (and Ctrl+W) only hides the wallet to the tray; mining and the node keep running.
   // Quitting is done from the tray menu (Quit, with a confirmation while mining), by an update, or by Windows shutdown.
   mainWindow.on('close', (e) => {
@@ -924,21 +942,67 @@ function createWindow () {
     if (!hintShown && process.platform === 'win32' && tray.balloon) { hintShown = true; tray.balloon(mt('trayHidden'), mt('trayHiddenMsg')) }
   })
   mainWindow.on('session-end', () => { quitting = true; try { getNotifier().markUserStop() } catch (e) {} }) // Windows log-off / shutdown (no 'mining stopped' notification)
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    try { if (walletPanelCtl) walletPanelCtl.destroy() } catch (e) {}
+    mainWindow = null
+  })
 }
 
+let pendingProtocol = null
+function protocolMessage (parsed) {
+  if (!parsed || !parsed.ok) return null
+  if (parsed.kind === 'agent-start') return { route: 'agent-start' }
+  if (parsed.kind === 'invite-create') return { route: 'invite-create' }
+  if (parsed.kind === 'invite-claim') return { route: 'invite-claim', secret: parsed.secret, contract: parsed.contract, chainId: parsed.chainId }
+  return { route: 'join', pendingRef: parsed.ref || '', src: parsed.src || '' }
+}
 function acceptProtocolUrl (raw) {
-  const parsed = Join.parseJoinUrl(raw)
+  const parsed = Join.parseWalletUrl(raw)
   if (!parsed.ok) return
-  try { joinStore.remember(parsed) } catch (e) { console.warn('join url', e && e.message) }
+  if (!parsed.kind || parsed.kind === 'join') {
+    try { joinStore.remember(parsed) } catch (e) { console.warn('join url', e && e.message) }
+  }
+  const msg = protocolMessage(parsed)
+  if (!msg) return
+  pendingProtocol = msg
   try {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:updated', { pendingRef: parsed.ref || '', src: parsed.src || '' })
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:updated', msg)
   } catch (e) {}
 }
 function takeJoinArgv (argv) {
   for (const u of Join.urlsFromArgv(argv)) acceptProtocolUrl(u)
 }
 app.on('open-url', (e, url) => { e.preventDefault(); acceptProtocolUrl(url) })
+function publicWalletUi () {
+  const walletUi = require('./src/js/walletUi')
+  const doc = walletUiDoc || walletUi.current() || walletUi.defaults()
+  return { links: doc.links, cards: doc.cards, from: doc.from || 'default' }
+}
+function publishWalletUi (doc, from) {
+  walletUiDoc = Object.assign({}, doc, { from: from || (doc && doc.from) || 'default' })
+  try { require('./src/js/walletUi').setCurrent(walletUiDoc) } catch (e) {}
+  try { if (mainWindow && !mainWindow.isDestroyed()) createMenu(mainWindow, uiLang()) } catch (e) {}
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('panel:doc', publicWalletUi()) } catch (e) {}
+}
+function startWalletPanel () {
+  const { create } = require('./src/main/walletPanel')
+  const walletUi = require('./src/js/walletUi')
+  walletPanelCtl = create({
+    getWindow: function () { return mainWindow },
+    getLang: function () { return uiLang() },
+    onProtocol: function (url) { acceptProtocolUrl(url) }
+  })
+  if (mainWindow) walletPanelCtl.hookResize(mainWindow)
+  ipcMain.handle('panel:doc', () => publicWalletUi())
+  ipcMain.handle('panel:show', (e, req) => walletPanelCtl.show(req))
+  ipcMain.handle('panel:close', () => { walletPanelCtl.hide(); return true })
+  const { verifyMessage } = require('ethers')
+  walletUi.refresh({
+    verifyMessage: verifyMessage,
+    cacheFile: path.join(app.getPath('userData'), 'wallet-ui.json'),
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 4000) }
+  }).then(function (result) { publishWalletUi(result.doc, result.from) }).catch(function (e) { console.warn('wallet ui', e && e.message) })
+}
 function registerScdoProtocol () {
   try {
     if (process.defaultApp && process.argv.length >= 2) app.setAsDefaultProtocolClient('scdowallet', process.execPath, [path.resolve(process.argv[1])])
@@ -959,6 +1023,7 @@ if (!app.requestSingleInstanceLock()) {
     if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() }
   })
   app.whenReady().then(() => {
+    bootSession()
     try { guardHost.warm() } catch (e) {}
     try {
       powerMonitor.on('suspend', () => { try { powerHold.onSuspend(Date.now(), minerProcessAlive()) } catch (e) {} })
@@ -971,6 +1036,9 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
     session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'clipboard-sanitized-write')
     app.on('web-contents-created', (e, wc) => {
+      let panelGuest = false
+      try { panelGuest = String((wc.session && wc.session.storagePath) || '').indexOf('wallet-panel') >= 0 } catch (err) {}
+      if (panelGuest) return
       wc.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' } })
       wc.on('will-attach-webview', (ev) => ev.preventDefault())
     })
@@ -982,6 +1050,7 @@ if (!app.requestSingleInstanceLock()) {
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
     createWindow()
+    applyLightRuntime()
     createMenu(mainWindow, uiLang())
     createTray()
     startOpsAgent()
@@ -989,6 +1058,7 @@ if (!app.requestSingleInstanceLock()) {
       const { refresh } = require('./src/config/remoteConfig')
       refresh({ cacheFile: path.join(app.getPath('userData'), 'remote-config.json') }).then(applyRemoteConfig).catch(e => console.warn('remote config', e && e.message))
     } catch (e) { console.warn('remote config', e && e.message) }
+    try { startWalletPanel() } catch (e) { console.warn('wallet panel', e && e.message) }
     // 1.1.6: first update check 1 minute after launch, then every 6 hours
     scheduleAutoCheck()
   })
@@ -1001,7 +1071,80 @@ let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
 let hintShown = false
-const startHidden = process.argv.includes('--scdo-hidden')
+let startHidden = process.argv.includes('--scdo-hidden')
+function bootSession () {
+  let was = false
+  try {
+    const settings = app.getLoginItemSettings ? app.getLoginItemSettings() : null
+    was = !!(settings && settings.wasOpenedAtLogin)
+  } catch (e) {}
+  sessionOpenedAtLogin = sessionMode.openedAtLogin({ argv: process.argv, wasOpenedAtLogin: was })
+  sessionLight = sessionMode.resolveLight({ intent: readIntent(), openedAtLogin: sessionOpenedAtLogin })
+  if (sessionOpenedAtLogin) startHidden = true
+  applyLoginLaunch()
+}
+function applyLoginLaunch () {
+  const on = (readIntent() || {}).loginLaunch === true
+  try { app.setLoginItemSettings(sessionMode.loginItemSettings(on)) } catch (e) {}
+}
+function publicSession () {
+  const it = readIntent() || {}
+  const prefs = sessionMode.normalizePrefs(it)
+  return {
+    loginLaunch: prefs.loginLaunch,
+    loginAsked: prefs.loginAsked,
+    offerLogin: sessionMode.offerLogin(it),
+    light: !!sessionLight,
+    lightChosen: prefs.lightChosen,
+    openedAtLogin: !!sessionOpenedAtLogin,
+    gpuLow: prefs.gpuIntensity === 'low',
+    idleOnly: prefs.idleOnly,
+    bookkeeping: minerActive()
+  }
+}
+function publishSession () {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('session:changed', publicSession())
+  } catch (e) {}
+  if (tray) { try { tray.rebuild() } catch (e) {} }
+}
+function applyLightRuntime () {
+  const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null
+  if (wc) {
+    try { wc.setFrameRate(sessionLight ? 1 : 60) } catch (e) {}
+    try { wc.setBackgroundThrottling(true) } catch (e) {}
+  }
+  publishSession()
+}
+function setLoginLaunch (on) {
+  const open = on === true
+  writeIntent({ loginLaunch: open, loginAsked: true })
+  applyLoginLaunch()
+  publishSession()
+  return publicSession()
+}
+function setPace (patch) {
+  patch = patch || {}
+  const next = {}
+  if (patch.gpuLow != null) next.gpuIntensity = patch.gpuLow === true ? 'low' : 'normal'
+  if (patch.idleOnly != null) next.idleOnly = patch.idleOnly === true
+  writeIntent(next)
+  publishSession()
+  return publicSession()
+}
+async function setSessionLight (on) {
+  const want = on === true
+  sessionLight = want
+  writeIntent({ lightMode: want, lightChosen: true })
+  if (want) {
+    try { writeIntent(mineResume.afterStop(readIntent() || {}, 'all')) } catch (e) {}
+    try { if (miner && miner.wantRunning) await miner.stop() } catch (e) {}
+    try { await stopClassic(undefined, { endSession: true }) } catch (e) {}
+  }
+  applyLightRuntime()
+  try { refreshTray() } catch (e) {}
+  return publicSession()
+}
 // 2.0.6: the one way to quit. confirm=true asks first while mining (Cancel is the default).
 async function clearPageRunFlags () {
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -1069,6 +1212,7 @@ function killMinerChildrenSync () {
 // Reporting can be turned off ("agentReporting": false in miner-intent.json); local self-heal still runs.
 let opsAgent = null
 async function agentSnapshot () {
+  if (sessionLight) return { code: 'ONLINE', running: false, wantMining: false, hashrate: 0, gpuTempC: null, peers: null }
   const m = getMiner()
   const st = m.status() || {}
   const it = readIntent() || {}
@@ -1162,25 +1306,42 @@ async function startMyAgent (typedRef) {
     ? { view: joinStore.publicView(), intentPatch: Join.bookkeepingPatch(readIntent(), created.evm) }
     : joinStore.useSelection(accounts, file, readIntent())
   if (applied.intentPatch && Object.keys(applied.intentPatch).length) writeIntent(applied.intentPatch)
-  let registered = false
-  try {
-    if (opsAgent) {
-      const r = await opsAgent.register()
-      registered = !!(r && r.ok)
-      if (registered) { try { await joinCtl.refcode() } catch (e) {} }
-    }
-  } catch (e) { registered = false }
+  registerAgentLater()
   const phrase = created && created.phrase ? created.phrase : ''
   if (created) created.phrase = ''
   return {
     ok: true,
+    starting: true,
     file: (created && created.file) || file,
     evm: (created && created.evm) || (applied.view && applied.view.payout) || '',
     date: (created && created.date) || '',
     phrase: phrase,
-    registered: registered,
+    registered: false,
     payout: applied.view.payout || ''
   }
+}
+function registerAgentLater () {
+  if (!opsAgent) return
+  opsAgent.register().then(r => {
+    const registered = !!(r && r.ok)
+    if (registered) joinCtl.refcode().catch(() => {})
+    tellJoinSettled(registered)
+  }).catch(() => tellJoinSettled(false))
+}
+function tellJoinSettled (registered) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:settled', { registered: !!registered })
+  } catch (e) {}
+}
+let claimWatch = ''
+async function claimReceiptReady () {
+  const addr = String(claimWatch || '')
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false
+  const { ethers } = require('ethers')
+  const { Shard0 } = require('./src/api/evm')
+  const reg = new ethers.Contract('0x458F974CcC4F1DB16Fe9F57489b134D7013bAD0d', ['function referrerOf(address) view returns (address)'], new Shard0().provider)
+  const ref = await reg.referrerOf(addr)
+  return !!ref && ref !== ethers.ZeroAddress
 }
 function applyRemoteConfig (result) {
   const doc = result && result.config
@@ -1217,6 +1378,7 @@ function startOpsAgent () {
       payoutAddress: payoutAddressNow,
       joinExtra: () => joinStore.joinExtra(),
       enabled: () => (readIntent() || {}).agentReporting !== false,
+      light: () => sessionLight,
       snapshot: agentSnapshot,
       handlers: {
         'free-port': async (a) => {
@@ -1243,6 +1405,11 @@ function startOpsAgent () {
     opsAgent.start()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
+ipcMain.handle('session:get', () => publicSession())
+ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
+ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
+ipcMain.handle('session:setPace', (e, patch) => setPace(patch))
+ipcMain.handle('session:loginAnswer', (e, yes) => setLoginLaunch(yes === true))
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
 ipcMain.handle('agentJoin:get', () => joinCtl.snapshot(opsAgent ? opsAgent.status() : null))
@@ -1266,6 +1433,16 @@ ipcMain.handle('agentJoin:useSelection', (e, p) => {
   return applied.view
 })
 ipcMain.handle('agentJoin:refcode', () => joinCtl.refcode().catch(() => ({ ok: false, error: 'refcode' })))
+ipcMain.handle('invite:claim', async (e, body) => {
+  body = body && typeof body === 'object' ? body : {}
+  claimWatch = String(body.newAddr || '')
+  if (!opsAgent || !opsAgent.relayClaim) return { ok: false, status: 0 }
+  try {
+    const res = await opsAgent.relayClaim(body)
+    return { ok: !!(res && res.status === 200), status: res && res.status ? res.status : 0 }
+  } catch (err) { return { ok: false, status: 0 } }
+})
+ipcMain.handle('invite:confirm', () => claimReceiptReady().then(ok => ({ ok: !!ok })).catch(() => ({ ok: false })))
 
 process.on('uncaughtException', err => reportProcessError('crash', err))
 process.on('unhandledRejection', err => reportProcessError('error', err))
@@ -1280,6 +1457,7 @@ app.on('window-all-closed', function () {
 app.on('activate', function () {
   if (mainWindow === null) {
     createWindow()
+    applyLightRuntime()
     createMenu(mainWindow, uiLang())
   } else if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
 })

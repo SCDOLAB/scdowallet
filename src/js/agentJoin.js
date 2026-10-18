@@ -13,7 +13,9 @@
     joinPage: 'https://scdo.com.au/join',
     // Cleaned the same way as https://scdo.com.au/join : ref and src.
     tokenRe: /^[A-Za-z0-9_.-]{1,64}$/,
-    addressRe: /^0x[0-9a-fA-F]{40}$/
+    addressRe: /^0x[0-9a-fA-F]{40}$/,
+    registry: '0x458F974CcC4F1DB16Fe9F57489b134D7013bAD0d',
+    chainId: 5680
   }
 
   function cleanToken (value) {
@@ -44,6 +46,65 @@
       refRejected: !!(refRaw && !ref),
       srcRejected: !!(srcRaw && !src)
     }
+  }
+
+  function cleanSecret (value) {
+    const s = String(value == null ? '' : value).trim()
+    if (/^[0-9a-fA-F]{64}$/.test(s)) return s.toLowerCase()
+    if (/^0x[0-9a-fA-F]{64}$/.test(s)) return s.slice(2).toLowerCase()
+    if (/^[A-Za-z0-9_-]{43}$/.test(s)) return s
+    return ''
+  }
+
+  // scdowallet://agent/start, invite/create, invite?s=&c=&n=5680, and join?ref=&src=.
+  // A rejected invite link does not echo the secret.
+  function parseWalletUrl (input) {
+    const raw = String(input || '').trim()
+    let u
+    try { u = new URL(raw) } catch (e) { return { ok: false, reason: 'url' } }
+    if (String(u.protocol || '').toLowerCase() !== 'scdowallet:') return { ok: false, reason: 'scheme' }
+    const host = String(u.hostname || '').toLowerCase()
+    const path = String(u.pathname || '').replace(/\/+$/, '').toLowerCase()
+    if (host === 'join' && (!path || path === '/')) {
+      const join = parseJoinUrl(raw)
+      return Object.assign({ kind: 'join' }, join)
+    }
+    if (host === 'agent' && path === '/start') return { ok: true, kind: 'agent-start' }
+    if (host === 'invite' && path === '/create') return { ok: true, kind: 'invite-create' }
+    if (host === 'invite' && (!path || path === '/')) {
+      const secret = cleanSecret(u.searchParams.get('s'))
+      const contract = String(u.searchParams.get('c') || '').trim()
+      const chain = String(u.searchParams.get('n') || '').trim()
+      if (chain !== String(JOIN.chainId)) return { ok: false, kind: 'invite-claim', reason: 'chain' }
+      if (!JOIN.addressRe.test(contract) || contract.toLowerCase() !== JOIN.registry.toLowerCase()) {
+        return { ok: false, kind: 'invite-claim', reason: 'contract' }
+      }
+      if (!secret) return { ok: false, kind: 'invite-claim', reason: 'secret' }
+      return { ok: true, kind: 'invite-claim', secret: secret, contract: JOIN.registry, chainId: JOIN.chainId }
+    }
+    return { ok: false, reason: 'host' }
+  }
+
+  function giftAmount (value) {
+    const n = Math.floor(Number(value))
+    if (!Number.isFinite(n) || n < 1) return 1
+    if (n > 1000) return 1000
+    return n
+  }
+
+  function inviteGiftHtml (t, esc, opts) {
+    opts = opts || {}
+    const n = giftAmount(opts.gift == null ? 1 : opts.gift)
+    return '<div class="page shell-home" id="inviteGift"><h1 class="shell-h">' + esc(t('inviteGiftTitle')) + '</h1>' +
+      '<p class="home-lead" id="inviteGiftOwn">' + esc(t('inviteGiftOwn', { n: n })) + '</p>' +
+      '<div class="field"><div class="lbl">' + esc(t('inviteGiftAsk')) + '</div>' +
+      '<input class="inp" id="inviteGiftAmt" inputmode="numeric" maxlength="4" value="' + n + '" autocomplete="off"></div></div>'
+  }
+
+  function inviteClaimHtml (t, esc) {
+    return '<div class="page shell-home" id="inviteClaim"><h1 class="shell-h">' + esc(t('inviteClaimTitle')) + '</h1>' +
+      '<p class="home-lead" id="inviteClaimBody">' + esc(t('inviteClaimBody')) + '</p>' +
+      '<p class="home-state">' + esc(t('inviteClaimConsent')) + '</p></div>'
   }
 
   function urlsFromArgv (argv) {
@@ -233,6 +294,7 @@
   }
 
   function statusLabel (status, t) {
+    if (status === 'starting') return t('agentStarting')
     if (status === 'registered') return t('agentRegistered')
     if (status === 'offline') return t('agentOffline')
     return t('agentPending')
@@ -289,27 +351,20 @@
     const locked = lockAttribution(deps.state, deps.typedRef)
     const choice = choosePayout(accounts, created ? created.file : deps.selectedFile, deps.currentPayout || '')
     const book = bookkeepingPatch(deps.intent, choice.payout)
-    let registered = false
-    let regError = ''
-    try {
-      const r = await deps.register({
-        payout: choice.payout,
-        ref: locked.ref,
-        src: locked.src,
-        device: deps.device
-      })
-      registered = !!(r && r.ok)
-      if (!registered) regError = String((r && (r.error || r.status)) || 'register')
-    } catch (e) { regError = 'register' }
+    const payload = { payout: choice.payout, ref: locked.ref, src: locked.src, device: deps.device }
+    if (typeof deps.register === 'function') {
+      // One extra tick so the caller can paint before register starts.
+      Promise.resolve().then(function () {}).then(function () { return deps.register(payload) }).catch(function () {})
+    }
     return {
       ok: true,
+      starting: true,
       wallet: accounts[0],
       created: created,
       locked: locked,
       choice: choice,
       book: book,
-      registered: registered,
-      error: regError,
+      registered: false,
       phrase: created && created.phrase ? created.phrase : ''
     }
   }
@@ -320,6 +375,11 @@
     validRef: validRef,
     validSrc: validSrc,
     parseJoinUrl: parseJoinUrl,
+    parseWalletUrl: parseWalletUrl,
+    cleanSecret: cleanSecret,
+    giftAmount: giftAmount,
+    inviteGiftHtml: inviteGiftHtml,
+    inviteClaimHtml: inviteClaimHtml,
     urlsFromArgv: urlsFromArgv,
     lockAttribution: lockAttribution,
     rememberJoin: rememberJoin,

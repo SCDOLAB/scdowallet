@@ -92,6 +92,10 @@
       CN: '連不上記帳池或節點，請檢查網路後再試一次。',
       EN: 'Could not reach the pool or the node. Check the network and try again.'
     },
+    LIGHT: {
+      CN: '輕量模式不記帳。到設定裡關掉輕量模式再開始。',
+      EN: 'Light mode keeps bookkeeping off. Turn Light mode off to start.'
+    },
     UNKNOWN: {
       CN: '記帳節點沒有啟動成功，請再試一次；如果一直失敗，可以在「記帳」頁的「日誌」按「匯出記帳日誌」，把檔案傳給客服。',
       EN: 'The bookkeeping node did not start. Try again. If it keeps failing, open the Bookkeeping page, press "Export bookkeeping logs (sanitized)" under Logs, and send the file to support.'
@@ -121,6 +125,7 @@
     BAD_DATADIR: { CN: '資料夾位置不對', EN: 'data folder is in the wrong place' },
     BAD_KEY: { CN: '網路金鑰有問題', EN: 'network key has a problem' },
     NETWORK: { CN: '連不上記帳池或節點', EN: 'could not reach the pool or node' },
+    LIGHT: { CN: '輕量模式', EN: 'Light mode' },
     UNKNOWN: { CN: '沒有啟動成功', EN: 'did not start' }
   }
 

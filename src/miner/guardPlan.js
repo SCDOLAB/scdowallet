@@ -65,7 +65,8 @@ const PAUSE_TEXT = {
   '磁碟': '磁碟空間不足，已暫停記帳',
   '手動': '已暫停一段時間',
   '異常': '記帳遇到麻煩，已停止重試。請將錢包加入防毒軟體的允許清單。',
-  '不適合': '此裝置不適合記帳'
+  '不適合': '此裝置不適合記帳',
+  '使用中': '我在用電腦，已暫停記帳'
 }
 
 function classifyCores (groups) {
@@ -314,6 +315,7 @@ function pauseReasonFor (state, sample, now) {
   const pct = sample.batteryPct
   if (sample.onBattery && pct != null && pct >= 0 && pct < BATTERY_STOP) return '電池'
   if (sample.onBattery && !state.mineOnBattery) return '電池'
+  if (sample.idleOnly && sample.inputAgeMs != null && sample.inputAgeMs <= INPUT_RECENT_MS) return '使用中'
   if (!state.enabled) return ''
   if (sample.diskLow) return '磁碟'
   if (sample.fullscreen && !sample.remoteSession) return '全螢幕'
@@ -444,6 +446,10 @@ function stepGuard (state, sample, now) {
     }
   } else if (sample.gpuTempC != null && s.intensity !== 'normal') {
     s.intensity = 'normal'
+  }
+  if (sample.gpuLow) {
+    if (s.intensity !== 'low') s.lastAction = '已降低顯卡出力'
+    s.intensity = 'low'
   }
 
   const inputRecent = sample.inputAgeMs != null && sample.inputAgeMs <= INPUT_RECENT_MS

@@ -4,6 +4,7 @@
 const { Menu, shell } = require('electron')
 const { menuLang } = require('./uiLang')
 const siteNav = require('./siteNavMap')
+const walletUi = require('./walletUi')
 const { VERSION } = require('../version')
 
 const LABELS = {
@@ -40,7 +41,8 @@ const LABELS = {
     settingsCat: 'Settings (language, notifications, updates)',
     settings: 'Language, notifications and updates…',
     help: 'Help',
-    learnMore: 'Learn More'
+    learnMore: 'Learn More',
+    panel: 'Wallet hub'
   },
   CN: {
     app: 'SCDO 錢包',
@@ -75,7 +77,8 @@ const LABELS = {
     settingsCat: '設定（語言・通知・更新）',
     settings: '語言、通知與更新…',
     help: '說明',
-    learnMore: '了解更多'
+    learnMore: '了解更多',
+    panel: '錢包總覽'
   }
 }
 
@@ -132,7 +135,14 @@ function buildTemplate (mainWindow, lang) {
       { label: L.refresh, accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } }
     ]
   }
-  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group))
+  const doc = walletUi.current()
+  const panelMenu = {
+    label: L.panel,
+    submenu: (doc.cards || []).map(function (c) {
+      return { label: cn ? c.cn : c.en, click: act('panel:' + c.id) }
+    })
+  }
+  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group), [panelMenu])
 }
 
 function createMenu (mainWindow, lang) {
