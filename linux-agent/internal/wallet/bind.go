@@ -167,6 +167,16 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
+	hash, err := ledger.EnvelopeHash(env)
+	if err != nil {
+		return Created{}, err
+	}
+	if res.Body != nil {
+		if got, _ := res.Body["bindHash"].(string); got != "" && !strings.EqualFold(got, hash) {
+			return Created{}, fmt.Errorf("bind hash")
+		}
+	}
+	doc.BindHash = strings.ToLower(hash)
 	if err := saveDoc(lay.Dir, doc); err != nil {
 		return Created{}, err
 	}
