@@ -300,6 +300,15 @@
     return t('agentPending')
   }
 
+  // Green while this process has a started agent. Grey before that. A quiet ledger does not turn it grey.
+  function agentPresence (model) {
+    model = model || {}
+    if (model.noWallet) return 'offline'
+    const status = model.status || 'pending'
+    if (status === 'starting' || status === 'registered' || model.started) return 'online'
+    return 'offline'
+  }
+
   function agentCardHtml (t, esc, model) {
     model = model || {}
     const status = model.status || 'pending'
@@ -307,6 +316,8 @@
     const reserve = model.x402Reserve ? model.x402Reserve : 'pending'
     const book = model.bookkeeping || ''
     const entries = model.entries || []
+    const presence = agentPresence(model)
+    const presenceKey = presence === 'online' ? 'agentOnlineLine' : 'agentOfflineLine'
     const line = model.noWallet && !model.rewardLineHidden
       ? '<div class="agent-reward-line" id="agentRewardLine"><button type="button" class="agent-reward-tap" data-act="agentUseWallet">' + esc(t('agentNoReward')) + '</button><button type="button" class="home-backup-x" data-act="agentRewardDismiss" aria-label="' + esc(t('dismiss')) + '">\u2715</button></div>'
       : ''
@@ -315,6 +326,7 @@
       : '<p class="home-state">' + esc(t('agentEntriesEmpty')) + '</p>'
     const bookBtn = model.noWallet ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
     return '<section class="agent-card" id="agentCard"><h2>' + esc(t('agentCardTitle')) + '</h2>' + line +
+      '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(t(presenceKey)) + '</p>' +
       '<p class="agent-row"><span>' + esc(t('agentStatus')) + '</span> <b id="agentStatus">' + esc(statusLabel(status, t)) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentScdoAddr')) + '</span> <b class="mono" id="agentScdo">' + esc(addr) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="mono" id="agentX402">' + esc(reserve) + '</b></p>' +
@@ -328,6 +340,7 @@
     const readonly = pending ? ' readonly' : ''
     return '<div class="page shell-home first-run" id="firstRun"><h1 class="shell-h">' + esc(t('startAgent')) + '</h1>' +
       '<p class="home-lead" id="agentRewards">' + esc(t('agentRewards')) + '</p>' +
+      '<p class="agent-stay" id="agentStayOpen">' + esc(t('agentStayOpen')) + '</p>' +
       '<div class="field"><div class="lbl">' + esc(t('inviteCodeAsk')) + '</div>' +
       '<input class="inp" id="joinRef" maxlength="64" value="' + esc(pending) + '" autocomplete="off" spellcheck="false"' + readonly + '></div>' +
       '<div class="shell-actions first-run-actions">' +
@@ -390,6 +403,7 @@
     x402Reserve: x402Reserve,
     ledgerEntries: ledgerEntries,
     cardStatus: cardStatus,
+    agentPresence: agentPresence,
     showBackupCard: showBackupCard,
     claimBlocked: claimBlocked,
     joinBodyFields: joinBodyFields,

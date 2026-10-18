@@ -249,7 +249,7 @@
     poolStatus: null,
     oldErr: {},
     phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
-    agent: {}, rewardLineHide: false, backupAskHide: false,
+    agent: {}, rewardLineHide: false, backupAskHide: false, trayHint: false,
     walletUi: null, panelId: 'hub', panelUrl: '', panelShown: false,
     session: {}, loginPrompt: false
   }
@@ -735,10 +735,12 @@
   function agentModel () {
     const a = st.accounts && st.accounts.length ? selected() : null
     const ag = st.agent || {}
+    const started = !!(ag.starting || ag.registered || ag.locked || ag.status === 'starting' || ag.status === 'registered' || (ag.status === 'offline' && (ag.registered || ag.agentId || ag.locked)))
     return {
       noWallet: !st.accounts.length,
       rewardLineHidden: !!st.rewardLineHide,
       status: ag.status || 'pending',
+      started: started,
       scdoAddress: a ? (a.pubkey || a.evm || ag.payout || '') : '',
       x402Reserve: ag.x402Reserve || '',
       bookkeeping: homeMineLine(),
@@ -824,6 +826,10 @@
   function offlineNoticeHtml () {
     if (st.net.s0Ok !== false) return ''
     return `<div class="offline-notice" id="offlineNotice" role="status">${esc(T('offlineNotice'))}</div>`
+  }
+  function trayHintHtml () {
+    if (!st.trayHint) return ''
+    return `<div class="tray-hint" id="trayHint" role="status"><span>${esc(T('trayStayNotice'))}</span><button type="button" class="home-backup-x" data-act="trayHintDismiss" aria-label="${esc(T('dismiss'))}">\u2715</button></div>`
   }
   function liveHomeHtml () {
     const U = window.SCDOWalletUi
@@ -1567,7 +1573,7 @@
     const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
     const wiz = $('payWiz')
     const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
-    if (main && !keepPay) SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
     if (st.tab === 'remit' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
     if (st.tab === 'recv') paintRecvQr()
     if (st.tab === 'settings') settingsModal()
@@ -4291,6 +4297,7 @@
       case 'inviteCreate': openInviteCreate(); break
       case 'liveCard': runLiveCard(v); break
       case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
+      case 'trayHintDismiss': st.trayHint = false; api.invoke('session:trayHintDismiss').catch(() => {}); render(); break
       case 'phraseBannerDismiss': st.backupAskHide = true; render(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
       case 'phraseLater': laterLeave(); break
@@ -4968,6 +4975,13 @@
   let APPCOMMIT = ''
   api.on('miner:status', (m) => onMinerStatus(m))
   api.on('miner:classic', (m) => onMinerStatus(m))
+  api.on('agent:trayHint', () => {
+    if (st.trayHint) return
+    st.trayHint = true
+    const wiz = $('payWiz')
+    const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
+    if (!keepPay) render()
+  })
   api.on('agentJoin:updated', (msg) => {
     msg = msg || {}
     if (msg.route === 'agent-start') { openAgentStart(); return }

@@ -93,6 +93,9 @@ assert.ok(!fs.readFileSync(path.join(root, 'src/js/agentJoin.js'), 'utf8').inclu
 const labels = {
   startAgent: 'Start my agent', importShort: 'Import', inviteCodeAsk: 'Have an invite code?',
   agentRewards: 'Rewards unlock after your agent has been active',
+  agentStayOpen: 'Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.',
+  agentOnlineLine: 'Online · keep app running',
+  agentOfflineLine: 'Offline · open the app to resume',
   agentNoReward: 'Your agent has no reward address - tap to use this wallet',
   agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Pending', agentOffline: 'Offline',
   agentScdoAddr: 'SCDO address', agentX402: 'x402 Base USDC reserve address', agentBook: 'Bookkeeping',
@@ -104,6 +107,9 @@ const first = Join.firstRunHtml(t, (s) => s, {})
 assert.ok(first.includes('Start my agent'))
 assert.ok(first.includes('Have an invite code?'))
 assert.ok(first.includes('Rewards unlock after your agent has been active'))
+assert.ok(first.includes('Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.'))
+assert.ok(first.includes('id="agentStayOpen"'))
+assert.ok(first.includes('Offline · open the app to resume'))
 assert.ok(first.includes('Your agent has no reward address - tap to use this wallet'))
 assert.ok(first.includes('id="startAgentBtn"'))
 assert.ok(first.includes('data-act="import"'))
@@ -114,11 +120,22 @@ const card = Join.agentCardHtml(t, (s) => s, {
   entries: [{ text: 'task:join · done' }]
 })
 assert.ok(card.includes('Registered'))
+assert.ok(card.includes('Online · keep app running'))
+assert.ok(card.includes('agent-presence online'))
 assert.ok(card.includes('1S01abc'))
 assert.ok(card.includes('>pending<'))
 assert.ok(card.includes('Start bookkeeping'))
 assert.ok(card.includes('data-act="isleStart"'))
 assert.ok(card.includes('task:join · done'))
+assert.strictEqual(Join.agentPresence({ status: 'registered' }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'starting' }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'offline', started: true }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'offline' }), 'offline')
+assert.strictEqual(Join.agentPresence({ status: 'pending' }), 'offline')
+assert.strictEqual(Join.agentPresence({ noWallet: true, status: 'registered', started: true }), 'offline')
+const idle = Join.agentCardHtml(t, (s) => s, { status: 'pending' })
+assert.ok(idle.includes('agent-presence offline'))
+assert.ok(idle.includes('Offline · open the app to resume'))
 
 ;(async () => {
   const ran = await Join.runStart({

@@ -52,7 +52,7 @@ Publish at:
 }
 ```
 
-`strings` overrides existing i18n keys. `en` is English. `zh-Hant` is both 華語 variants. Only string values are kept. Unknown keys are ignored when the page draws. Values that contain `<` or `>` are dropped.
+`strings` overrides existing i18n keys. `en` is English. `zh-Hant` is both 華語 variants. Only string values are kept. Unknown keys are ignored when the page draws. Values that contain `<` or `>` are dropped. The stay-online lines use `agentStayOpen`, `agentOnlineLine`, `agentOfflineLine`, `trayStayNotice`, `quitAgentMsg`, `quitAgentQuit`, `quitAgentStay`, and `quitAgentDontAsk`. The settings label `loginToggle` is the Launch at login switch.
 
 `homeCards` actions are `open-url` (`url` on the allowlist), `open-page` (`page` must be a key in `links`), `start-agent`, `invite`, and `claim`. A bad action or a bad URL rejects the whole file.
 

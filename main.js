@@ -140,16 +140,35 @@ const MT = {
     stopTitle: '停止記帳 — SCDO Wallet', stopMsg: '確定要停止記帳嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止記帳'],
     quitTitle: '結束 SCDO Wallet', quitMsg: '記帳正在進行。確定要結束 SCDO Wallet 嗎？結束後記帳會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
     updated: '已更新', stopping: '正在停止記帳 — SCDO Wallet',
-    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
+    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。',
+    trayStayNotice: 'SCDO Wallet 仍在系統匣執行，Agent 才會保持在線。要停止請從系統匣選單結束。',
+    quitAgentMsg: '結束後 Agent 會離線，獎勵也會暫停。',
+    quitAgentQuit: '結束', quitAgentStay: '繼續執行', quitAgentDontAsk: '不要再問'
   },
   EN: {
     stopTitle: 'Stop bookkeeping — SCDO Wallet', stopMsg: 'Stop bookkeeping? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop bookkeeping'],
     quitTitle: 'Quit SCDO Wallet', quitMsg: 'Bookkeeping is running. Quit SCDO Wallet? Bookkeeping will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
     updated: 'updated', stopping: 'Stopping bookkeeping node — SCDO Wallet',
-    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
+    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.',
+    trayStayNotice: 'SCDO Wallet is still running in the tray so your agent stays online. Quit from the tray menu to stop.',
+    quitAgentMsg: 'Quitting takes your agent offline and pauses rewards.',
+    quitAgentQuit: 'Quit', quitAgentStay: 'Keep running', quitAgentDontAsk: "Don't ask again"
   }
 }
 function mt (k) { return (MT[uiLang()] || MT.CN)[k] }
+// Signed wallet-ui.json can replace these keys. Unknown or HTML values stay on the built-in line.
+function uiString (key, fallback) {
+  const loc = uiLang() === 'EN' ? 'en' : 'zh-Hant'
+  let v = null
+  try {
+    const ui = require('./src/js/walletUi')
+    const doc = walletUiDoc || ui.current()
+    const pack = doc && doc.strings && doc.strings[loc]
+    v = pack && pack[key]
+  } catch (e) { v = null }
+  if (typeof v === 'string' && v && !/[<>]/.test(v)) return v
+  return fallback
+}
 // 2.0.6: Stop-mining confirmation (Mining tab button and tray item). Cancel is the default and the Esc answer.
 async function confirmStopMining () {
   const opts = { type: 'question', title: mt('stopTitle'), message: mt('stopMsg'), buttons: mt('stopBtns'), defaultId: 0, cancelId: 0, noLink: true }
@@ -768,6 +787,8 @@ function createTray () {
       getKeepMining: () => !!(readIntent() || {}).keepMining,
       onKeepMining: (on) => setKeepMining(on),
       getSession: () => publicSession(),
+      getAgentOnline: () => agentProcessOnline(),
+      string: (key, fallback) => uiString(key, fallback),
       onLogin: (on) => setLoginLaunch(on === true),
       onLight: (on) => { setSessionLight(on === true) },
       onPace: (patch) => setPace(patch),
@@ -954,18 +975,20 @@ function createWindow () {
   mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
   mainWindow.webContents.on('did-finish-load', () => {
     if (tray) tray.reapply()
+    sendTrayHint()
     if (!pendingProtocol || !mainWindow || mainWindow.isDestroyed()) return
     try { mainWindow.webContents.send('agentJoin:updated', pendingProtocol) } catch (e) {}
   })
   // 2.0.6: the window's X (and Ctrl+W) only hides the wallet to the tray; mining and the node keep running.
   // Quitting is done from the tray menu (Quit, with a confirmation while mining), by an update, or by Windows shutdown.
+  mainWindow.on('show', () => sendTrayHint())
   mainWindow.on('close', (e) => {
     if (quitting || readyToQuit) return
     e.preventDefault()
     if (!tray) { requestQuit({ confirm: true, reason: 'window close without tray' }); return }
     mainWindow.hide()
     try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, bookkeeping/node unchanged') } catch (err) {}
-    if (!hintShown && process.platform === 'win32' && tray.balloon) { hintShown = true; tray.balloon(mt('trayHidden'), mt('trayHiddenMsg')) }
+    noteHiddenToTray()
   })
   mainWindow.on('session-end', () => { quitting = true; try { getNotifier().markUserStop() } catch (e) {} }) // Windows log-off / shutdown (no 'mining stopped' notification)
   mainWindow.on('closed', () => {
@@ -1121,6 +1144,65 @@ let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
 let hintShown = false
+let trayHintPending = false
+let trayHintDismissed = false
+let agentLive = false
+function agentProcessOnline () {
+  try {
+    const st = opsAgent && opsAgent.status && opsAgent.status()
+    if (st && st.registered) return true
+  } catch (e) {}
+  if (agentLive) return true
+  try {
+    const view = joinStore.publicView()
+    if (view && view.locked) return true
+  } catch (e) {}
+  return false
+}
+function sendTrayHint () {
+  if (!trayHintPending || trayHintDismissed) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try { mainWindow.webContents.send('agent:trayHint', { show: true }) } catch (e) {}
+}
+function noteHiddenToTray () {
+  if (!hintShown) {
+    hintShown = true
+    trayHintPending = true
+    const body = uiString('trayStayNotice', mt('trayStayNotice'))
+    let noted = false
+    try {
+      if (Notification.isSupported()) {
+        const n = new Notification({ title: 'SCDO Wallet', body: body, silent: true })
+        n.on('click', () => { try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus() } } catch (err) {} })
+        n.show()
+        noted = true
+      }
+    } catch (e) {}
+    if (!noted && tray && tray.balloon) tray.balloon('SCDO Wallet', body)
+  }
+}
+function confirmAgentQuit () {
+  if ((readIntent() || {}).agentQuitQuiet === true) return Promise.resolve(true)
+  const w = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  if (w && !w.isVisible()) { try { w.show(); w.focus() } catch (e) {} }
+  const opts = {
+    type: 'question',
+    title: mt('quitTitle'),
+    message: uiString('quitAgentMsg', mt('quitAgentMsg')),
+    buttons: [uiString('quitAgentQuit', mt('quitAgentQuit')), uiString('quitAgentStay', mt('quitAgentStay'))],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    checkboxLabel: uiString('quitAgentDontAsk', mt('quitAgentDontAsk')),
+    checkboxChecked: false
+  }
+  const box = w && !w.isDestroyed() ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts)
+  return box.then(r => {
+    if (!r || r.response !== 0) return false
+    if (r.checkboxChecked) writeIntent({ agentQuitQuiet: true })
+    return true
+  })
+}
 let startHidden = process.argv.includes('--scdo-hidden')
 function bootSession () {
   let was = false
@@ -1202,7 +1284,10 @@ async function clearPageRunFlags () {
 }
 async function requestQuit ({ confirm, reason } = {}) {
   if (quitPromise) return quitPromise
-  if (confirm && miningNow()) {
+  if (confirm && agentProcessOnline()) {
+    const ok = await confirmAgentQuit()
+    if (!ok) { try { getMiner().log('wallet', 'quit cancelled by the user (' + reason + ')') } catch (e) {} return }
+  } else if (confirm && miningNow()) {
     const opts = { type: 'question', title: mt('quitTitle'), message: mt('quitMsg'), buttons: mt('quitBtns'), defaultId: 0, cancelId: 0, noLink: true }
     const w = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
     const r = w ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
@@ -1350,6 +1435,8 @@ async function startMyAgent (typedRef) {
     try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
   }
   joinStore.lock(typedRef)
+  agentLive = true
+  try { refreshTray() } catch (e) {}
   const file = (created && created.file) || joinStore.publicView().payoutFile || ''
   if (created && created.evm) joinStore.setPayout(created.evm, created.file, 'auto')
   const applied = created && created.evm
@@ -1375,6 +1462,7 @@ function registerAgentLater () {
   opsAgent.register().then(r => {
     const registered = !!(r && r.ok)
     if (registered) joinCtl.refcode().catch(() => {})
+    try { refreshTray() } catch (e) {}
     tellJoinSettled(registered)
   }).catch(() => tellJoinSettled(false))
 }
@@ -1452,6 +1540,10 @@ function startOpsAgent () {
         unthrottle: async () => { refreshTray(); return true }
       }
     })
+    const rawRegister = opsAgent.register.bind(opsAgent)
+    opsAgent.register = function () {
+      return rawRegister().then(r => { try { refreshTray() } catch (err) {} return r })
+    }
     opsAgent.start()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
@@ -1460,6 +1552,7 @@ ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
 ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
 ipcMain.handle('session:setPace', (e, patch) => setPace(patch))
 ipcMain.handle('session:loginAnswer', (e, yes) => setLoginLaunch(yes === true))
+ipcMain.handle('session:trayHintDismiss', () => { trayHintDismissed = true; trayHintPending = false; return { ok: true } })
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
 ipcMain.handle('agentJoin:get', () => joinCtl.snapshot(opsAgent ? opsAgent.status() : null))

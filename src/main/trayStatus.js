@@ -51,8 +51,8 @@ function badgeState (st) {
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 華語繁體)
 const TL = {
-  EN: { show: 'Show SCDO Wallet', notMining: 'Not bookkeeping', minerError: 'Bookkeeping node error', nodeOnly: 'Node only (not bookkeeping)', nodeOnlyShort: 'Node only', mining: 'Bookkeeping: ', starting: 'Bookkeeping node starting…', stop: 'Stop bookkeeping', keep: 'Keep bookkeeping (restart the bookkeeping node if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume bookkeeping', modeLight: 'Mode: Light', modeFull: 'Mode: Full', login: 'Start when I log in', light: 'Light mode', paceGpu: 'Lower graphics card effort', paceIdle: 'Pause while I am using this computer' },
-  CN: { show: '顯示 SCDO Wallet', notMining: '未在記帳', minerError: '記帳節點出錯', nodeOnly: '只執行節點（未記帳）', nodeOnlyShort: '只執行節點', mining: '記帳中：', starting: '記帳節點啟動中…', stop: '停止記帳', keep: '持續記帳（記帳節點退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復記帳', modeLight: '模式：輕量', modeFull: '模式：完整', login: '登入時啟動', light: '輕量模式', paceGpu: '降低顯卡出力', paceIdle: '我在用電腦時暫停記帳' }
+  EN: { show: 'Show SCDO Wallet', notMining: 'Not bookkeeping', minerError: 'Bookkeeping node error', nodeOnly: 'Node only (not bookkeeping)', nodeOnlyShort: 'Node only', mining: 'Bookkeeping: ', starting: 'Bookkeeping node starting…', stop: 'Stop bookkeeping', keep: 'Keep bookkeeping (restart the bookkeeping node if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume bookkeeping', modeLight: 'Mode: Light', modeFull: 'Mode: Full', login: 'Start when I log in', light: 'Light mode', paceGpu: 'Lower graphics card effort', paceIdle: 'Pause while I am using this computer', agentOnline: 'Online · keep app running', agentOffline: 'Offline · open the app to resume' },
+  CN: { show: '顯示 SCDO Wallet', notMining: '未在記帳', minerError: '記帳節點出錯', nodeOnly: '只執行節點（未記帳）', nodeOnlyShort: '只執行節點', mining: '記帳中：', starting: '記帳節點啟動中…', stop: '停止記帳', keep: '持續記帳（記帳節點退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復記帳', modeLight: '模式：輕量', modeFull: '模式：完整', login: '登入時啟動', light: '輕量模式', paceGpu: '降低顯卡出力', paceIdle: '我在用電腦時暫停記帳', agentOnline: '在線 · 請保持程式執行', agentOffline: '離線 · 打開程式即可恢復' }
 }
 // The tray paints guard.colour from the snapshot. It does not write the state machine.
 function guardLine (st, lang) {
@@ -235,6 +235,25 @@ class TrayStatus {
   }
 
   L () { return TL[this.lang] || TL.CN }
+  copy (key, fallback) {
+    try {
+      if (typeof this.o.string === 'function') {
+        const v = this.o.string(key, fallback)
+        if (typeof v === 'string' && v) return v
+      }
+    } catch (e) {}
+    return fallback
+  }
+  agentOnline () { try { return !!(this.o.getAgentOnline && this.o.getAgentOnline()) } catch (e) { return false } }
+  presenceItem () {
+    const online = this.agentOnline()
+    const L = this.L()
+    const label = online ? this.copy('agentOnlineLine', L.agentOnline) : this.copy('agentOfflineLine', L.agentOffline)
+    const item = { label: label, enabled: false }
+    const icon = online ? this.badges.green : this.badges.grey
+    try { if (icon && !icon.isEmpty()) item.icon = icon } catch (e) {}
+    return item
+  }
   session () { try { return (this.o.getSession && this.o.getSession()) || {} } catch (e) { return {} } }
   setLang (l) { const n = l === 'EN' ? 'EN' : 'CN'; if (n === this.lang) return; this.lang = n; this.sig = null; this.update(this.last); this.rebuild() }
   // 2.0.6: one-time Windows notification when the window is hidden to the tray
@@ -251,6 +270,7 @@ class TrayStatus {
     const light = !!sess.light
     const items = [
       { label: L.show, click: () => this.showWindow() },
+      this.presenceItem(),
       { label, enabled: false },
       { label: light ? L.modeLight : L.modeFull, enabled: false },
       { type: 'separator' },
@@ -294,7 +314,7 @@ class TrayStatus {
       if (badge) w.setOverlayIcon(badge, caption)
     }
     const sessNow = this.session()
-    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5), sessNow.light ? 1 : 0, sessNow.loginLaunch ? 1 : 0, sessNow.gpuLow ? 1 : 0, sessNow.idleOnly ? 1 : 0].join('|')
+    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5), sessNow.light ? 1 : 0, sessNow.loginLaunch ? 1 : 0, sessNow.gpuLow ? 1 : 0, sessNow.idleOnly ? 1 : 0, this.agentOnline() ? 1 : 0].join('|')
     if (sig !== this.sig) { this.sig = sig; this.rebuild() }
   }
 

@@ -66,6 +66,8 @@ assert.strictEqual(box.window.I18N112.EN.loginAsk, 'Start SCDO Wallet when I log
 assert.strictEqual(box.window.I18N112.EN.loginYes, 'Yes')
 assert.strictEqual(box.window.I18N112.EN.loginLater, 'Not now')
 assert.strictEqual(box.window.I18N112.CN.loginAsk, '登入時要啟動 SCDO Wallet 嗎？')
+assert.strictEqual(box.window.I18N112.EN.loginToggle, 'Launch at login')
+assert.strictEqual(box.window.I18N112.CN.loginToggle, '登入時啟動')
 assert.strictEqual(box.window.I18N112.EN.lightToggle, 'Light mode')
 assert.strictEqual(box.window.I18N112.EN.modeLight, 'Mode: Light')
 assert.strictEqual(box.window.I18N112.CN.modeLight, '模式：輕量')
@@ -93,6 +95,7 @@ assert.strictEqual(plan.plannedThreads(low.state), 4)
 
 const tray = fs.readFileSync(path.join(root, 'src/main/trayStatus.js'), 'utf8')
 assert.ok(tray.includes('Mode: Light') && tray.includes('模式：輕量') && tray.includes('Start when I log in'))
+assert.ok(tray.includes('Online · keep app running') && tray.includes('在線 · 請保持程式執行'))
 assert.ok(tray.includes("mode !== 'light' && mode !== 'full'"))
 
 ;(async () => {
