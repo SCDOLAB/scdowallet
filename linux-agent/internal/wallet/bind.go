@@ -93,6 +93,9 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 		if err != nil {
 			return Created{}, err
 		}
+		if err := saveEmail(lay.Dir, opt.Email); err != nil {
+			return Created{}, err
+		}
 		doc.EmailCommit = commit
 	}
 	platform := opt.Platform

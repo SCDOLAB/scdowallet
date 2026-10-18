@@ -119,15 +119,20 @@ wallet:
   scdo-agent wallet unfreeze --bot ID
   scdo-agent wallet export --bot ID [--out FILE]
       [--export-passphrase-file PATH] [--raw --i-understand-raw-key]
+  scdo-agent wallet bind-email --bot ID [--email ADDR]
+  scdo-agent wallet confirm-email --bot ID --code 123456
+  scdo-agent wallet bind-x --bot ID
   scdo-agent pay URL --bot ID [--max USDC] [--dry-run]
   scdo-agent serve-paywall --bot ID --price USDC [--path /answer] [--port 8410]
 
   --bot is the agent name when --name is omitted. An email is stored only as a
-  salted commitment. The salt stays in the agent directory.
+  salted commitment. The salt stays in the agent directory and is sent only to
+  /bind/email/start, never printed.
   Payments use the open-source x402 SDK. Only Base Sepolia USDC is enabled.
   Limits are checked before signing. A policy refusal exits with status 3.
   An empty payee or domain list allows any Base Sepolia payee or host.
-  serve-paywall uses https://x402.org/facilitator.
+  serve-paywall uses https://x402.org/facilitator and books each settled
+  payment with /ledger/income.
   export writes an encrypted Web3 keystore. A raw key is printed only on a
   terminal, and only with --raw and --i-understand-raw-key.
   Your keys stay on your machine. SCDO never holds them.
@@ -194,7 +199,15 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"paywallReady":       "Paywall for %s at %s USDC on %s port %d. Facilitator: https://x402.org/facilitator",
 	"exportWrote":        "Keystore: %s",
 	"connectBots":        "Grok / AI bots: give each bot its own wallet and books",
-	"connectX":           "Give your X account an agent wallet (coming soon)",
+	"connectX":           "Bind an X account with wallet bind-x when the ledger enables it.",
+	"emailNoSender":      "The ledger accepted this email, but it has no mail sender yet (delivery: todo_no_sender). No code was sent.",
+	"emailStarted":       "Email verification started.",
+	"emailVerified":      "Email verified on the ledger.",
+	"emailTries":         "Email code was not accepted (%d of 5).",
+	"emailStopped":       "Email confirmation stopped after 5 tries.",
+	"needCode":           "A 6-digit code is required: --code 123456",
+	"xNotEnabled":        "X binding not yet enabled on the ledger",
+	"xURL":               "Open this URL to bind the X account: %s",
 	"walletReady":        "Wallet %s is bound for bot %s.",
 	"walletNetwork":      "Network: %s",
 	"walletLedger":       "Ledger: %s",
@@ -278,14 +291,18 @@ wallet：
   scdo-agent wallet unfreeze --bot 編號
   scdo-agent wallet export --bot 編號 [--out 檔案]
       [--export-passphrase-file 路徑] [--raw --i-understand-raw-key]
+  scdo-agent wallet bind-email --bot 編號 [--email 信箱]
+  scdo-agent wallet confirm-email --bot 編號 --code 123456
+  scdo-agent wallet bind-x --bot 編號
   scdo-agent pay 網址 --bot 編號 [--max USDC] [--dry-run]
   scdo-agent serve-paywall --bot 編號 --price USDC [--path /answer] [--port 8410]
 
-  未加 --name 時，--bot 就是代理名稱。電子郵件只存成加鹽的承諾，鹽留在代理目錄。
+  未加 --name 時，--bot 就是代理名稱。電子郵件只存成加鹽的承諾。鹽留在代理目錄，
+  只在 /bind/email/start 送出，不會印出。
   付款使用開源的 x402 SDK。只啟用 Base Sepolia 的 USDC。
   簽章前會先檢查限額。政策拒絕時結束代碼為 3。
   收款地址或網域清單是空的時候，允許任何 Base Sepolia 收款地址或主機。
-  serve-paywall 使用 https://x402.org/facilitator。
+  serve-paywall 使用 https://x402.org/facilitator，並把每筆已結算的付款送到 /ledger/income。
   export 寫出加密的 Web3 金鑰庫。原始金鑰只在終端機上印出，而且必須加上
   --raw 與 --i-understand-raw-key。
   金鑰只存在你的機器上，SCDO 不保管。
@@ -351,7 +368,15 @@ erc8004：
 	"paywallReady":       "%s 的收款牆，價格 %s USDC，路徑 %s，連接埠 %d。facilitator：https://x402.org/facilitator",
 	"exportWrote":        "金鑰庫：%s",
 	"connectBots":        "Grok / AI 機器人：每個機器人一個錢包、一本帳",
-	"connectX":           "為你的 X 帳號開一個代理錢包（即將推出）",
+	"connectX":           "帳本開放後，用 wallet bind-x 綁定 X 帳號。",
+	"emailNoSender":      "帳本已接受這個電子郵件，但還沒有寄信程式（delivery: todo_no_sender）。驗證碼尚未寄出。",
+	"emailStarted":       "電子郵件驗證已開始。",
+	"emailVerified":      "帳本已把這個電子郵件標成已驗證。",
+	"emailTries":         "驗證碼未被接受（第 %d 次，最多 5 次）。",
+	"emailStopped":       "電子郵件確認已在 5 次嘗試後停止。",
+	"needCode":           "必須提供 6 位驗證碼：--code 123456",
+	"xNotEnabled":        "X binding not yet enabled on the ledger",
+	"xURL":               "開啟這個網址以綁定 X 帳號：%s",
 	"walletReady":        "錢包 %s 已綁定到機器人 %s。",
 	"walletNetwork":      "網路：%s",
 	"walletLedger":       "帳本：%s",

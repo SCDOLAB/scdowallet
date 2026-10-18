@@ -241,9 +241,60 @@ func pathFor(typ string) string {
 		return "bind/x/revoke"
 	case "batch":
 		return "operator/batch"
+	case "emailconfirm":
+		return "bind/email/confirm"
 	default:
 		return typ
 	}
+}
+
+// PostRaw posts an unsigned JSON document. payload may hold a secret; the caller wipes it.
+// 400, 409, 413, and 503 stop the fallback walk.
+func (c *Client) PostRaw(ctx context.Context, path string, payload []byte) (Result, error) {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	var last Result
+	var lastErr error
+	for i, base := range c.URLs {
+		res, err := c.postRawOne(ctx, base, path, payload)
+		if err == nil && res.OK {
+			if i > 0 {
+				c.promote(base)
+			}
+			return res, nil
+		}
+		last, lastErr = res, err
+		if res.Status == http.StatusBadRequest || res.Status == http.StatusConflict || res.Status == http.StatusRequestEntityTooLarge || res.Status == http.StatusServiceUnavailable {
+			break
+		}
+	}
+	if lastErr == nil && last.Error != "" {
+		lastErr = fmt.Errorf("%s", last.Error)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no ledger")
+	}
+	return last, lastErr
+}
+
+func (c *Client) postRawOne(ctx context.Context, base, path string, payload []byte) (Result, error) {
+	endpoint := strings.TrimRight(base, "/") + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return Result{Ledger: base}, err
+	}
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("content-length", fmt.Sprintf("%d", len(payload)))
+	if c.Agent != "" {
+		req.Header.Set("user-agent", c.Agent)
+	}
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return Result{Ledger: base}, err
+	}
+	defer resp.Body.Close()
+	return decode(base, resp)
 }
 
 // Get reads a JSON document under the ledger base, trying each URL.

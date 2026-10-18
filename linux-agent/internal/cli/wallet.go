@@ -41,6 +41,12 @@ func cmdWallet(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 		return walletKill(b, root, rest, stdout, stderr, sub == "kill" || sub == "freeze")
 	case "record":
 		return walletRecord(b, root, rest, stdout, stderr)
+	case "bind-email":
+		return walletBindEmail(b, root, rest, stdout, stderr)
+	case "confirm-email":
+		return walletConfirmEmail(b, root, rest, stdout, stderr)
+	case "bind-x":
+		return walletBindX(b, root, rest, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2
@@ -60,6 +66,7 @@ func cmdServePaywall(b i18n.Bundle, root string, args []string, stdout, stderr i
 	path := fs.String("path", "/answer", "")
 	port := fs.Int("port", 8410, "")
 	passFile := fs.String("passphrase-file", "", "")
+	ledgerURL := fs.String("ledger", "", "")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2
@@ -79,12 +86,17 @@ func cmdServePaywall(b i18n.Bundle, root string, args []string, stdout, stderr i
 		return 1
 	}
 	defer ledger.Wipe(pass)
+	urls, err := ledger.ResolveURLs(*ledgerURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	fmt.Fprintf(stdout, b.T("paywallReady")+"\n", dirName, *price, *path, *port)
 	err = wallet.ServePaywall(ctx, wallet.PaywallOptions{
 		Root: root, Name: dirName, Price: *price, Path: *path,
-		Addr: fmt.Sprintf(":%d", *port), Passphrase: pass,
+		Addr: fmt.Sprintf(":%d", *port), Passphrase: pass, LedgerURLs: urls, Log: stdout,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -475,6 +487,154 @@ func walletKill(b i18n.Bundle, root string, args []string, stdout, stderr io.Wri
 	} else {
 		fmt.Fprintln(stdout, b.T("walletUnkilled"))
 	}
+	return 0
+}
+
+func walletBindEmail(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("wallet bind-email", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bot := fs.String("bot", "", "")
+	name := fs.String("name", "", "")
+	email := fs.String("email", "", "")
+	ledgerURL := fs.String("ledger", "", "")
+	passFile := fs.String("passphrase-file", "", "")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(stderr, b.T("needBot"))
+		return 2
+	}
+	dirName, err := agentDir(*bot, *name)
+	if err != nil {
+		fmt.Fprintln(stderr, b.T("needBot"))
+		return 2
+	}
+	pass, err := passphrase(*passFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	defer ledger.Wipe(pass)
+	urls, err := ledger.ResolveURLs(*ledgerURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	started, err := wallet.BindEmail(ctx, wallet.EmailOptions{
+		Root: root, Name: dirName, Email: *email, Passphrase: pass, LedgerURLs: urls,
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	if started.NoSender {
+		fmt.Fprintln(stdout, b.T("emailNoSender"))
+	} else {
+		fmt.Fprintln(stdout, b.T("emailStarted"))
+	}
+	if started.Ledger != "" {
+		fmt.Fprintf(stdout, b.T("walletLedger")+"\n", started.Ledger)
+	}
+	return 0
+}
+
+func walletConfirmEmail(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("wallet confirm-email", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bot := fs.String("bot", "", "")
+	name := fs.String("name", "", "")
+	code := fs.String("code", "", "")
+	nonce := fs.String("nonce", "", "")
+	ledgerURL := fs.String("ledger", "", "")
+	passFile := fs.String("passphrase-file", "", "")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(stderr, b.T("needCode"))
+		return 2
+	}
+	dirName, err := agentDir(*bot, *name)
+	if err != nil {
+		fmt.Fprintln(stderr, b.T("needBot"))
+		return 2
+	}
+	if strings.TrimSpace(*code) == "" {
+		fmt.Fprintln(stderr, b.T("needCode"))
+		return 2
+	}
+	pass, err := passphrase(*passFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	defer ledger.Wipe(pass)
+	urls, err := ledger.ResolveURLs(*ledgerURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	confirmed, err := wallet.ConfirmEmail(ctx, wallet.EmailOptions{
+		Root: root, Name: dirName, Code: *code, Nonce: *nonce, Passphrase: pass, LedgerURLs: urls,
+	})
+	if errors.Is(err, wallet.ErrEmailTries) {
+		fmt.Fprintln(stderr, b.T("emailStopped"))
+		return 1
+	}
+	if err != nil {
+		if confirmed.Attempts > 0 {
+			fmt.Fprintf(stderr, b.T("emailTries")+"\n", confirmed.Attempts)
+		}
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	fmt.Fprintln(stdout, b.T("emailVerified"))
+	if confirmed.Ledger != "" {
+		fmt.Fprintf(stdout, b.T("walletLedger")+"\n", confirmed.Ledger)
+	}
+	return 0
+}
+
+func walletBindX(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("wallet bind-x", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bot := fs.String("bot", "", "")
+	name := fs.String("name", "", "")
+	ledgerURL := fs.String("ledger", "", "")
+	passFile := fs.String("passphrase-file", "", "")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(stderr, b.T("needBot"))
+		return 2
+	}
+	dirName, err := agentDir(*bot, *name)
+	if err != nil {
+		fmt.Fprintln(stderr, b.T("needBot"))
+		return 2
+	}
+	pass, err := passphrase(*passFile)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	defer ledger.Wipe(pass)
+	urls, err := ledger.ResolveURLs(*ledgerURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	started, err := wallet.BindX(ctx, wallet.EmailOptions{
+		Root: root, Name: dirName, Passphrase: pass, LedgerURLs: urls,
+	})
+	if errors.Is(err, wallet.ErrXNotEnabled) {
+		fmt.Fprintln(stderr, b.T("xNotEnabled"))
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	fmt.Fprintf(stdout, b.T("xURL")+"\n", started.AuthURL)
 	return 0
 }
 
