@@ -74,6 +74,7 @@ Commands:
   pay       Pay an HTTP 402 with Base Sepolia USDC
   serve-paywall  Receive a payment through the testnet facilitator
   erc8004   Register this agent on the Shard0 ERC-8004 identity registry
+  operator  Confirm bots that named this operator
   version   Print the version
   help      Show this help
 
@@ -161,6 +162,13 @@ erc8004:
   Automatic registration on start stays off unless /etc/scdo-agent/config.toml
   contains erc8004 = true.
 
+operator:
+  scdo-agent operator batch --name OPERATOR --bot BOT [--bot BOT]
+
+  OPERATOR is the local agent whose address those bots named on bind.
+  The command signs /operator/batch. The merkle root is the bind hash of
+  each bot, in the order given. One bot's hash is the root by itself.
+
 Data directory: /var/lib/scdo-agent/<name>/
 One systemd instance per agent: scdo-agent@<name>.service.
 `,
@@ -236,6 +244,8 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"erc8004Tx":          "Transaction: %s",
 	"erc8004Ready":       "ERC-8004 identity %s is registered.",
 	"erc8004Already":     "ERC-8004 identity %s is already registered.",
+	"needBatch":          "Set --name for the operator and --bot for each bot.",
+	"batchReady":         "Operator batch sent for %d bot(s).",
 	"needRoot":           "upgrade-now needs root for a system install. Use --user after install.sh --user, or --dry-run to check the feed without replacing the binary.",
 	"otherMode":          "Agent %s is already active in the other install mode. It was not started.",
 	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",
@@ -268,6 +278,7 @@ var zh = map[string]string{
   pay       對 HTTP 402 支付 Base Sepolia USDC
   serve-paywall  以測試網 facilitator 收取付款
   erc8004   在 Shard0 的 ERC-8004 身份登記冊登記這個代理
+  operator  確認已把這個操作者寫進綁定的機器人
   version   顯示版本
   help      顯示這份說明
 
@@ -348,6 +359,13 @@ erc8004：
   這個地址若已經有身份，就不會再送出交易。
   除非 /etc/scdo-agent/config.toml 寫了 erc8004 = true，否則啟動時不會自動登記。
 
+operator：
+  scdo-agent operator batch --name 操作者 --bot 機器人 [--bot 機器人]
+
+  操作者是本機上的代理，這些機器人在綁定時寫了它的地址。
+  這個命令簽署 /operator/batch。Merkle 根是每個機器人的綁定雜湊，順序與參數相同。
+  只有一個機器人時，根就是那個雜湊。
+
 資料目錄：/var/lib/scdo-agent/<名稱>/
 每台代理一個 systemd 實例：scdo-agent@<名稱>.service。
 `,
@@ -423,6 +441,8 @@ erc8004：
 	"erc8004Tx":          "交易：%s",
 	"erc8004Ready":       "ERC-8004 身份 %s 已登記。",
 	"erc8004Already":     "ERC-8004 身份 %s 已經登記。",
+	"needBatch":          "請用 --name 指定操作者，並用 --bot 指定每個機器人。",
+	"batchReady":         "已送出 %d 個機器人的操作者批次。",
 	"needRoot":           "系統安裝的 upgrade-now 需要 root。若已用 install.sh --user，請加 --user。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
 	"otherMode":          "代理 %s 已在另一種安裝模式中啟用，因此沒有啟動。",
 	"nextEnableUser":     "  systemctl --user enable --now scdo-agent@%s.service",
