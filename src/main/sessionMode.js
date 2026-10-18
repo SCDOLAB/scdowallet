@@ -81,7 +81,12 @@ function hiddenLaunch (argv) {
   return Array.isArray(argv) && (argv.indexOf('--hidden') >= 0 || argv.indexOf('--scdo-hidden') >= 0)
 }
 
+// Linux ships without a miner. The agent stays on the heartbeat path.
+function linuxLight (platform) {
+  return platform === 'linux'
+}
+
 module.exports = {
   normalizePrefs, resolveLight, offerLogin, shouldArmLogin, armLoginPatch,
-  rigWantsLogin, keepBookkeeping, loginItemSettings, openedAtLogin, hiddenLaunch
+  rigWantsLogin, keepBookkeeping, loginItemSettings, openedAtLogin, hiddenLaunch, linuxLight
 }

@@ -1217,7 +1217,7 @@ function bootSession () {
   } catch (e) {}
   sessionOpenedAtLogin = sessionMode.openedAtLogin({ argv: process.argv, wasOpenedAtLogin: was })
   const intent = readIntent()
-  sessionLight = sessionMode.resolveLight({ intent: intent, openedAtLogin: sessionOpenedAtLogin })
+  sessionLight = sessionMode.linuxLight(process.platform) || sessionMode.resolveLight({ intent: intent, openedAtLogin: sessionOpenedAtLogin })
   if (sessionOpenedAtLogin || sessionMode.hiddenLaunch(process.argv)) startHidden = true
   if (sessionMode.shouldArmLogin(intent) && sessionMode.rigWantsLogin(intent, agentStartedForLogin())) armLoginLaunch()
   else applyLoginLaunch()
@@ -1288,6 +1288,11 @@ function setPace (patch) {
   return publicSession()
 }
 async function setSessionLight (on) {
+  if (sessionMode.linuxLight(process.platform)) {
+    sessionLight = true
+    applyLightRuntime()
+    return publicSession()
+  }
   const want = on === true
   sessionLight = want
   writeIntent({ lightMode: want, lightChosen: true })

@@ -82,9 +82,10 @@ const LABELS = {
   }
 }
 
-function buildTemplate (mainWindow, lang) {
+function buildTemplate (mainWindow, lang, platform) {
   const L = LABELS[menuLang(lang)]
   const cn = menuLang(lang) !== 'EN'
+  const hideRig = platform === 'linux'
   const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
   // Remittance stays on the allowlisted menu:action channel. The page opens the tab in openRemittance().
   function openRemittance () { act('remit')() }
@@ -93,6 +94,7 @@ function buildTemplate (mainWindow, lang) {
     if (shell && shell.openExternal) shell.openExternal(target)
   }
   function leaf (it) {
+    if (hideRig && (it.action === 'mineHome' || it.action === 'mineSettings')) return null
     if (it.action === 'home') return { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
     if (it.action === 'recv') return { label: L.receive, accelerator: 'CmdOrCtrl+2', click: act('recv') }
     if (it.action === 'remit') return { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
@@ -111,8 +113,14 @@ function buildTemplate (mainWindow, lang) {
       const aboutThis = { label: cn ? '關於這個錢包' : 'About this wallet', click: act('about') }
       return { label: label, click: act('about'), submenu: [aboutThis].concat(g.children.map(leaf)) }
     }
-    if (g.children && g.children.length) return { label: label, submenu: g.children.map(leaf) }
-    return { label: label, submenu: [leaf(g)] }
+    if (g.children && g.children.length) {
+      const kids = g.children.map(leaf).filter(Boolean)
+      if (!kids.length) return null
+      return { label: label, submenu: kids }
+    }
+    const one = leaf(g)
+    if (!one) return null
+    return { label: label, submenu: [one] }
   }
   const appMenu = {
     label: L.app,
@@ -142,11 +150,11 @@ function buildTemplate (mainWindow, lang) {
       return { label: cn ? c.cn : c.en, click: act('panel:' + c.id) }
     })
   }
-  return [appMenu, editMenu].concat(siteNav.GROUPS.map(group), [panelMenu])
-}
+return [appMenu, editMenu].concat(siteNav.GROUPS.map(group).filter(Boolean), [panelMenu])
+  }
 
 function createMenu (mainWindow, lang) {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate(mainWindow, menuLang(lang))))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildTemplate(mainWindow, menuLang(lang), process.platform)))
 }
 
 module.exports.createMenu = createMenu

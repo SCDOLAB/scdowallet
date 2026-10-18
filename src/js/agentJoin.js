@@ -369,13 +369,14 @@
     const list = entries.length
       ? '<ul class="agent-entries">' + entries.map(e => '<li>' + esc(e.text) + '</li>').join('') + '</ul>'
       : '<p class="home-state">' + esc(t('agentEntriesEmpty')) + '</p>'
-    const bookBtn = model.noWallet ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
+    const bookBtn = model.noWallet || model.hideRig ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
+    const bookRow = model.hideRig ? '' : '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>'
     return '<section class="agent-card" id="agentCard"><h2>' + esc(t('agentCardTitle')) + '</h2>' + line +
       '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(t(presenceKey)) + '</p>' +
       '<p class="agent-row"><span>' + esc(t('agentStatus')) + '</span> <b id="agentStatus">' + esc(statusLabel(status, t)) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentScdoAddr')) + '</span> <b class="mono" id="agentScdo">' + esc(addr) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="mono" id="agentX402">' + esc(reserve) + '</b></p>' +
-      '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>' +
+      bookRow +
       bookBtn + '<h3>' + esc(t('agentEntries')) + '</h3>' + list + '</section>'
   }
 
@@ -394,7 +395,7 @@
       '<div class="shell-actions first-run-actions">' +
       '<button type="button" class="shell-act" id="startAgentBtn" data-act="startAgent">' + esc(t('startAgent')) + '</button>' +
       '<button type="button" class="shell-act sec" data-act="import">' + esc(t('importShort')) + '</button></div>' +
-      agentCardHtml(t, esc, { noWallet: true, rewardLineHidden: !!opts.rewardLineHidden, status: 'pending', bookkeeping: t('homeLineIdle'), entries: [] }) +
+      agentCardHtml(t, esc, { noWallet: true, rewardLineHidden: !!opts.rewardLineHidden, hideRig: !!opts.hideRig, status: 'pending', bookkeeping: t('homeLineIdle'), entries: [] }) +
       '</div>'
   }
 

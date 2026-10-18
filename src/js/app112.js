@@ -17,6 +17,7 @@
 
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
+  function rigUi () { return !api || api.platform !== 'linux' }
   // 3.0.8: first launch is 華語. A saved EN or CN from wallet:boot is kept. The operating-system language is not used.
   const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) { return String(v == null ? '' : v).trim().toUpperCase() === 'EN' ? 'EN' : 'CN' }
   let LANG = normUi(CFG && CFG.lang)
@@ -340,6 +341,7 @@
   // 'old' / 'new' (old tab names, deep links) open the Accounts tab at that section and pick that chain.
   // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
+    if (!rigUi() && (v === 'mine' || v === 'mineSet')) v = 'home'
     if (v === 'remit') { st.tab = 'remit'; st.scrollTo = 'top' }
     else if (v === 'recv') { st.tab = 'recv'; st.scrollTo = 'top' }
     else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
@@ -744,6 +746,7 @@
       scdoAddress: a ? (a.pubkey || a.evm || ag.payout || '') : '',
       x402Reserve: ag.x402Reserve || '',
       bookkeeping: homeMineLine(),
+      hideRig: !rigUi(),
       entries: ag.entries || []
     }
   }
@@ -844,7 +847,7 @@
   }
   function pageHome () {
     const J = window.SCDOAgentJoin
-    if (!st.accounts.length && J) return offlineNoticeHtml() + J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide }) + panelCardsHtml() + liveHomeHtml()
+    if (!st.accounts.length && J) return offlineNoticeHtml() + J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide, hideRig: !rigUi() }) + panelCardsHtml() + liveHomeHtml()
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
@@ -852,6 +855,9 @@
     const giftDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
     const giftBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(giftDoc, ['invite', 'inviteGift']))
       ? `<button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button>` : ''
+    const mineState = rigUi() ? '<p class="home-state" id="homeMineState">' + esc(homeMineLine()) + '</p>' : ''
+    const heights = rigUi() ? '<details class="home-heights" id="homeHeights">' + shellFoldSummary(T('homeHeights')) + '<p class="home-height-line" id="homeHeightLine">' + esc(homeHeightLine()) + '</p></details>' : ''
+    const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
     return `<div class="page shell-home" id="homePage">
       ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
@@ -859,12 +865,12 @@
       ${claim}
       ${card}
       <p class="home-lead">${esc(T('homeLead'))}</p>
-      <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
-      <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
+      ${mineState}
+      ${heights}
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
-        <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
+        ${mineBtn}
       </div>
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
@@ -1185,7 +1191,8 @@
     return ''
   }
   function cardFeatureOps (a, chain) {
-    return `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button><button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
+    const mine = rigUi() ? `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button>` : ''
+    return mine + `<button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
   }
   function rewardOptions () {
     const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
@@ -1539,8 +1546,15 @@
   function renderSiteBar () {
     const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
     const cn = lang() !== 'EN'
-    const primary = window.SCDOSiteNav.GROUPS.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
-    const rest = window.SCDOSiteNav.GROUPS.filter(g => primary.indexOf(g) < 0)
+    const groups = window.SCDOSiteNav.GROUPS.map(g => {
+      if (rigUi() || !g.children) return g
+      const children = g.children.filter(c => c.action !== 'mineHome' && c.action !== 'mineSettings')
+      if (children.length === g.children.length) return g
+      if (!children.length) return null
+      return Object.assign({}, g, { children: children })
+    }).filter(Boolean)
+    const primary = groups.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
+    const rest = groups.filter(g => primary.indexOf(g) < 0)
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
       if (!g.children || !g.children.length) return btn(g)
@@ -1554,7 +1568,7 @@
   function renderSideNav () {
     const nav = $('sideNav'); if (!nav) return
     const cur = st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab)
-    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit'], ['mine', 'navMine'], ['settings', 'navSettings']]
+    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit']].concat(rigUi() ? [['mine', 'navMine']] : []).concat([['settings', 'navSettings']])
     const ico = {
       home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
       recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
@@ -3429,19 +3443,20 @@
     const langNow = lang() === 'CN' ? '華語' : 'English'
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
         <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">華語</button></div></div>`
-    const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
+    const resumeRow = rigUi() ? `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>` : ''
     const sess = st.session || {}
     const loginOn = !!sess.loginLaunch
     const lightOn = !!sess.light
-    const paceRows = lightOn ? '' : `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>`
-    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div><button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>${paceRows}</div>`
+    const paceRows = rigUi() && !lightOn ? `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>` : ''
+    const lightBtn = rigUi() ? `<button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>` : ''
+    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div>${lightBtn}${paceRows}</div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
     const lowOn = mineCfg.lowPriority !== false
     let showGuardIntro = true
     try { showGuardIntro = !localStorage.getItem('scdoGuardIntro'); if (showGuardIntro) localStorage.setItem('scdoGuardIntro', '1') } catch (e) {}
     const guardIntro = showGuardIntro ? `<div class="lbl" id="guardFirst">${esc(T('guardFirst'))}</div>` : ''
-    const advancedInner = `<div class="set-open" id="setGuard">${guardIntro}<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div><button class="btn ghost" data-act="guardReset" id="guardReset">${esc(T('guardReset'))}</button></div>
+    const advancedInner = (rigUi() ? '<div class="set-open" id="setGuard">' + guardIntro + '<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ' + (guardOn ? 'on' : '') + '"></span>' + esc(T('guardSmooth')) + '</button><div class="lbl">' + esc(T('guardSmoothHint')) + '</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ' + (batOn ? 'on' : '') + '"></span>' + esc(T('guardBattery')) + '</button><div class="lbl">' + esc(T('guardBatteryHint')) + '</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ' + (lowOn ? 'on' : '') + '"></span>' + esc(T('guardLow')) + '</button><div class="lbl">' + esc(T('guardLowHint')) + '</div><button class="btn ghost" data-act="guardReset" id="guardReset">' + esc(T('guardReset')) + '</button></div>' : '') + `
       ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
@@ -3454,7 +3469,7 @@
       <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
       <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
       <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>
-      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
+      ${rigUi() && notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
       ${shellFold('setUpdate', T('updTitle') + ' · ' + APPVER, `<div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
         <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
@@ -4213,6 +4228,7 @@
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
+        if (!rigUi()) break
         if (miningBusy() || st.actStarting) break
         st.actStarting = true
         renderActBar()
@@ -4499,11 +4515,13 @@
     goPage('settings')
   }
   function goPage (v) {
+    if (!rigUi() && (v === 'mine' || v === 'mineSet')) v = 'home'
     if ($('md')) SD.clear($('modalRoot'))
     setTab(v); render()
     if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() } else { refreshOld(); refreshS0() }
   }
   function goMineHome () {
+    if (!rigUi()) { goPage('home'); return }
     if ($('md')) SD.clear($('modalRoot'))
     setTab('mine')
     render()
@@ -4511,6 +4529,7 @@
     ensureCaps()
   }
   async function menuStartMining () {
+    if (!rigUi()) return
     if (miningBusy() || st.actStarting) { toast(currentMinePill().t, 5000); return }
     st.actStarting = true
     try { await askCat('開始記帳', { quiet: true, toast: true }) } finally { st.actStarting = false }

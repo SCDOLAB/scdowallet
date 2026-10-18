@@ -265,9 +265,21 @@ class TrayStatus {
     if (!this.tray || this.tray.isDestroyed()) return
     const st = this.last
     const L = this.L()
-    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     const sess = this.session()
     const light = !!sess.light
+    if (process.platform === 'linux') {
+      const items = [
+        { label: L.show, click: () => this.showWindow() },
+        this.presenceItem(),
+        { type: 'separator' },
+        { label: this.copy('loginToggle', L.login), type: 'checkbox', checked: !!sess.loginLaunch, click: (item) => { if (this.o.onLogin) this.o.onLogin(!!(item && item.checked)) } },
+        { type: 'separator' },
+        { label: L.quit, click: () => this.o.onQuit() }
+      ]
+      this.tray.setContextMenu(Menu.buildFromTemplate(items))
+      return
+    }
+    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     const items = [
       { label: L.show, click: () => this.showWindow() },
       this.presenceItem(),
@@ -323,16 +335,20 @@ class TrayStatus {
   destroy () { try { if (this.tray && !this.tray.isDestroyed()) this.tray.destroy() } catch (e) {} this.tray = null }
 }
 
-function menuLines (lang, st, sess) {
+function menuLines (lang, st, sess, platform) {
   const L = TL[lang === 'EN' ? 'EN' : 'CN']
   const online = !!(sess && sess.agentOnline)
+  const presence = online ? L.agentOnline : L.agentOffline
+  if (platform === 'linux') {
+    return { icon: trayIconFile('linux', st), lines: [L.show, presence, L.login, L.quit] }
+  }
   const running = !!(st && st.running && st.code === 'MINING')
   const speed = running ? L.mining + fmtHash(st.hashrate, lang === 'EN' ? 'EN' : 'CN') : (st && st.phase === 'error' ? L.minerError : L.notMining)
   return {
     icon: trayIconFile('darwin', st),
     lines: [
       L.show,
-      online ? L.agentOnline : L.agentOffline,
+      presence,
       speed,
       sess && sess.light ? L.modeLight : L.modeFull,
       L.login,
