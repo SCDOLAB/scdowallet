@@ -106,6 +106,12 @@ fi
 go mod download
 go mod verify
 
+# Host tar writes different ustar headers on Ubuntu 22.04 and 24.04. The
+# pinned toolchain writes the archive so those headers stay fixed.
+CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+  -ldflags "-s -w -buildid= -B none" \
+  -o "$GOTMPDIR/mktar" ./scripts/mktar
+
 # nfpm is a packager, not a module of this repo. An empty GOFLAGS avoids
 # -mod=readonly rejecting the versioned install. The agent build below keeps it.
 GOFLAGS= go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.35.3
@@ -135,9 +141,9 @@ for arch in amd64 arm64; do
   cp third_party/x402/LICENSE "dist/stage-$arch/x402-LICENSE"
   cp third_party/x402/NOTICE "dist/stage-$arch/x402-NOTICE"
   chmod 0644 "dist/stage-$arch/README.md" "dist/stage-$arch/x402-LICENSE" "dist/stage-$arch/x402-NOTICE"
-  tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner --format=ustar \
-    -C "dist/stage-$arch" -cf - scdo-agent systemd systemd-user README.md x402-LICENSE x402-NOTICE \
-    | gzip -n > "dist/scdo-agent_${VER}_linux_${arch}.tar.gz"
+  "$GOTMPDIR/mktar" -epoch "$SOURCE_DATE_EPOCH" -C "dist/stage-$arch" \
+    -o "dist/scdo-agent_${VER}_linux_${arch}.tar.gz" \
+    scdo-agent systemd systemd-user README.md x402-LICENSE x402-NOTICE
 
   cat > "dist/nfpm-$arch.yaml" <<EOF
 name: scdo-agent
