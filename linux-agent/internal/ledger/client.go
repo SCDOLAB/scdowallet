@@ -155,7 +155,7 @@ func (c *Client) promote(base string) {
 }
 
 func (c *Client) postOne(ctx context.Context, base, typ string, payload []byte) (Result, error) {
-	endpoint := strings.TrimRight(base, "/") + "/" + typ
+	endpoint := strings.TrimRight(base, "/") + "/" + pathFor(typ)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return Result{Ledger: base}, err
@@ -230,6 +230,89 @@ func (c *Client) lookupOne(ctx context.Context, base, address string) (Summary, 
 		return Summary{}, res.Status, err
 	}
 	return sum, res.Status, nil
+}
+
+// pathFor is the URL path under the ledger API base for a signed type.
+func pathFor(typ string) string {
+	switch typ {
+	case "spend":
+		return "ledger/spend"
+	case "xrevoke":
+		return "bind/x/revoke"
+	case "batch":
+		return "operator/batch"
+	default:
+		return typ
+	}
+}
+
+// Get reads a JSON document under the ledger base, trying each URL.
+func (c *Client) Get(ctx context.Context, pathQuery string) (Result, error) {
+	if !strings.HasPrefix(pathQuery, "/") {
+		pathQuery = "/" + pathQuery
+	}
+	var last Result
+	var lastErr error
+	for _, base := range c.URLs {
+		res, err := c.getOne(ctx, base, pathQuery)
+		if err == nil && res.OK {
+			return res, nil
+		}
+		last, lastErr = res, err
+		if res.Status == http.StatusBadRequest || res.Status == http.StatusNotFound || res.Status == http.StatusConflict {
+			break
+		}
+	}
+	if lastErr == nil && last.Error != "" {
+		lastErr = fmt.Errorf("%s", last.Error)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no ledger")
+	}
+	return last, lastErr
+}
+
+func (c *Client) getOne(ctx context.Context, base, pathQuery string) (Result, error) {
+	endpoint := strings.TrimRight(base, "/") + pathQuery
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return Result{Ledger: base}, err
+	}
+	req.Header.Set("accept", "application/json")
+	if c.Agent != "" {
+		req.Header.Set("user-agent", c.Agent)
+	}
+	resp, err := c.http().Do(req)
+	if err != nil {
+		return Result{Ledger: base}, err
+	}
+	defer resp.Body.Close()
+	return decode(base, resp)
+}
+
+// Agents reads GET /agents?platform=&operator=.
+func (c *Client) Agents(ctx context.Context, platform, operator string) (Result, error) {
+	q := url.Values{}
+	if strings.TrimSpace(platform) != "" {
+		q.Set("platform", platform)
+	}
+	if strings.TrimSpace(operator) != "" {
+		addr, err := ChecksumAddress(operator)
+		if err != nil {
+			return Result{}, err
+		}
+		q.Set("operator", addr)
+	}
+	return c.Get(ctx, "/agents?"+q.Encode())
+}
+
+// OperatorAgents reads GET /operators/<addr>/agents.
+func (c *Client) OperatorAgents(ctx context.Context, operator string) (Result, error) {
+	addr, err := ChecksumAddress(operator)
+	if err != nil {
+		return Result{}, err
+	}
+	return c.Get(ctx, "/operators/"+url.PathEscape(addr)+"/agents")
 }
 
 func decode(base string, resp *http.Response) (Result, error) {

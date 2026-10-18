@@ -20,6 +20,12 @@ var types = map[string]struct{}{
 	"heartbeat": {},
 	"heal":      {},
 	"report":    {},
+	"bind":      {},
+	"xrevoke":   {},
+	"freeze":    {},
+	"unfreeze":  {},
+	"spend":     {},
+	"batch":     {},
 }
 
 // Envelope is the POST body: { payload, sig }.
@@ -190,9 +196,30 @@ func messageOf(p Payload) (string, error) {
 	return Prefix + c, nil
 }
 
+// SignPersonal is an EIP-191 personal_sign over message.
+func (k *Key) SignPersonal(message string) (string, error) {
+	if k == nil || k.priv == nil {
+		return "", fmt.Errorf("no agent key")
+	}
+	return personalSign(k.priv, message)
+}
+
+// SignDigest signs a 32-byte digest. EIP-712 uses this on the typed-data hash.
+// The recovery byte matches ethers (27 or 28).
+func (k *Key) SignDigest(hash []byte) (string, error) {
+	if k == nil || k.priv == nil || len(hash) != 32 {
+		return "", fmt.Errorf("digest")
+	}
+	compact := ecdsa.SignCompact(k.priv, hash, false)
+	return compactHex(compact)
+}
+
 func personalSign(priv *secp256k1.PrivateKey, message string) (string, error) {
-	hash := textHash([]byte(message))
-	compact := ecdsa.SignCompact(priv, hash, false)
+	compact := ecdsa.SignCompact(priv, textHash([]byte(message)), false)
+	return compactHex(compact)
+}
+
+func compactHex(compact []byte) (string, error) {
 	if len(compact) != 65 {
 		return "", fmt.Errorf("bad signature length")
 	}
@@ -202,6 +229,39 @@ func personalSign(priv *secp256k1.PrivateKey, message string) (string, error) {
 	copy(out[32:64], compact[33:65])
 	out[64] = compact[0]
 	return "0x" + hex.EncodeToString(out), nil
+}
+
+// WalletProofMessage is the EIP-191 text a wallet signs.
+// botID nil is JSON null, which register.usdcWalletProof requires.
+func WalletProofMessage(agent string, botID *string, network, nonce string) (string, error) {
+	var bot any
+	if botID != nil {
+		bot = *botID
+	}
+	c, err := Canonical(map[string]any{
+		"type":    "wallet-proof",
+		"agent":   agent,
+		"botId":   bot,
+		"network": network,
+		"nonce":   nonce,
+	})
+	if err != nil {
+		return "", err
+	}
+	return Prefix + c, nil
+}
+
+// WalletProof signs WalletProofMessage with the wallet key.
+func WalletProof(k *Key, agent string, botID *string, network, nonce string) (string, string, error) {
+	msg, err := WalletProofMessage(agent, botID, network, nonce)
+	if err != nil {
+		return "", "", err
+	}
+	sig, err := k.SignPersonal(msg)
+	if err != nil {
+		return "", "", err
+	}
+	return msg, sig, nil
 }
 
 func textHash(data []byte) []byte {

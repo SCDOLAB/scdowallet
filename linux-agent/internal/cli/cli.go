@@ -50,6 +50,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "version", "-v", "--version":
 		fmt.Fprintf(stdout, b.T("version")+"\n", buildinfo.Version)
+		fmt.Fprintln(stdout, b.T("about"))
 		return 0
 	case "init":
 		return cmdInit(b, dataDir(*dataFlag), rest, stdout, stderr)
@@ -63,6 +64,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdLogs(b, rest, stdout, stderr)
 	case "upgrade-now":
 		return cmdUpgrade(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "wallet":
+		return cmdWallet(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2

@@ -29,7 +29,9 @@ for arch in amd64 arm64; do
     cp "packaging/$unit" "dist/stage-$arch/systemd/$unit"
   done
   cp README.md "dist/stage-$arch/README.md"
-  tar -C "dist/stage-$arch" -czf "dist/scdo-agent_${VER}_linux_${arch}.tar.gz" scdo-agent systemd README.md
+  cp third_party/x402/LICENSE "dist/stage-$arch/x402-LICENSE"
+  cp third_party/x402/NOTICE "dist/stage-$arch/x402-NOTICE"
+  tar -C "dist/stage-$arch" -czf "dist/scdo-agent_${VER}_linux_${arch}.tar.gz" scdo-agent systemd README.md x402-LICENSE x402-NOTICE
 
   cat > "dist/nfpm-$arch.yaml" <<EOF
 name: scdo-agent
@@ -61,6 +63,14 @@ contents:
       mode: 0644
   - src: packaging/scdo-agent-boot.service
     dst: /lib/systemd/system/scdo-agent-boot.service
+    file_info:
+      mode: 0644
+  - src: third_party/x402/LICENSE
+    dst: /usr/share/doc/scdo-agent/x402-LICENSE
+    file_info:
+      mode: 0644
+  - src: third_party/x402/NOTICE
+    dst: /usr/share/doc/scdo-agent/x402-NOTICE
     file_info:
       mode: 0644
 scripts:

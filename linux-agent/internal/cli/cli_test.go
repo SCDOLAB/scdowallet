@@ -143,6 +143,17 @@ func addrFrom(s string) string {
 	return ""
 }
 
+func TestVersionCreditsX402(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Main([]string{"version"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, "0.3.0") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+		t.Fatal(text)
+	}
+}
+
 func TestUpgradeNowNeedsRoot(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root")

@@ -71,3 +71,29 @@ func TestPostFallback(t *testing.T) {
 		t.Fatalf("hits %v", hits)
 	}
 }
+
+func TestV21Paths(t *testing.T) {
+	if pathFor("spend") != "ledger/spend" || pathFor("xrevoke") != "bind/x/revoke" || pathFor("batch") != "operator/batch" || pathFor("bind") != "bind" {
+		t.Fatal("paths")
+	}
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.RequestURI()
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := &Client{URLs: []string{srv.URL}}
+	if _, err := c.OperatorAgents(context.Background(), "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"); err != nil {
+		t.Fatal(err)
+	}
+	if got != "/operators/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266/agents" {
+		t.Fatal(got)
+	}
+	if _, err := c.Agents(context.Background(), "linux", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "platform=linux") || !strings.Contains(got, "operator=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266") {
+		t.Fatal(got)
+	}
+}

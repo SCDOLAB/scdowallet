@@ -2,7 +2,7 @@
 
 Headless bookkeeping agent for the [SCDO Agent Ledger](https://scdo.com.au/agent-ledger/). One static binary, `scdo-agent`, runs as a systemd service. It creates a secp256k1 identity per name, registers that identity, and sends a heartbeat every five minutes.
 
-This is a ledger record only. It does not start a node process and it does not move funds.
+The service keeps a ledger record. It does not start a node process. Base Sepolia USDC payments are a separate `wallet` command.
 
 The desktop wallet is unchanged. This tree is additive.
 
@@ -90,6 +90,28 @@ The passphrase file should be mode `0600` and owned by `scdo-agent`.
 
 Removing the Debian package does not delete `/var/lib/scdo-agent`.
 
+## Bot wallet
+
+Each agent can bind a second key, `keys/wallet.key`, as a bot wallet on Base Sepolia (`eip155:84532`). Base mainnet (`eip155:8453`) is not registered.
+
+Payment signing and the `PAYMENT-SIGNATURE` header come from the open-source x402 SDK at <https://github.com/coinbase/x402> (Apache-2.0, Copyright 2026 x402 Foundation). The licence and notice are kept in `third_party/x402/` and installed as `/usr/share/doc/scdo-agent/x402-LICENSE` and `/usr/share/doc/scdo-agent/x402-NOTICE`. `scdo-agent --version` prints the same credit.
+
+On top of that SDK, this agent adds the per-payment cap, the daily cap, the payee allowlist, the kill switch, and the ledger freeze.
+
+```sh
+scdo-agent wallet create --name rack-a --bot m1-bot
+scdo-agent wallet pay --name rack-a https://x402.payai.network/api/base-sepolia/paid-content
+scdo-agent wallet export --name rack-a
+scdo-agent wallet allow --name rack-a --payee 0xE3837fE309618AE075DbeF0A20735c0615a308E6
+scdo-agent wallet kill --name rack-a
+scdo-agent wallet unkill --name rack-a
+scdo-agent wallet record --name rack-a
+```
+
+`create` POSTs `/bind` with the wallet address and an EIP-191 wallet proof signed by that wallet. `pay` lets the SDK sign the exact EIP-3009 authorization and retry the HTTP 402, then POSTs `/ledger/spend`. `--max` and `--daily` are atomic units with 6 decimals. The defaults are `1000000` (1 USDC) per payment and `5000000` per UTC day. An empty payee list allows any Base Sepolia payee. `kill` stops signing and POSTs `/freeze`.
+
+The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This build does not pay Base mainnet.
+
 ## Update
 
 `upgrade-now` is the stable entry point. It needs root, except for `--dry-run`.
@@ -155,7 +177,7 @@ English is the default. 華語 is `--lang zh`, or any `LANG` / `LC_ALL` value th
 
 ## Build
 
-Go 1.22 or newer. `CGO_ENABLED=0` produces a static binary.
+Go 1.24 or newer. `CGO_ENABLED=0` produces a static binary.
 
 ```sh
 cd linux-agent
@@ -169,7 +191,7 @@ sh scripts/package.sh
 
 無介面的記帳代理，供 [SCDO 代理帳本](https://scdo.com.au/agent-ledger/) 使用。單一靜態執行檔 `scdo-agent`，以 systemd 服務執行。每個名稱有自己的 secp256k1 身份，向帳本登記，並每五分鐘送出一次心跳。
 
-它只維護帳本紀錄，不啟動節點行程，也不移動資金。桌面錢包的行為沒有改動。
+服務只維護帳本紀錄，不啟動節點行程。Base Sepolia 的 USDC 付款是另一個 `wallet` 命令。桌面錢包的行為沒有改動。
 
 ### 安裝
 
@@ -208,6 +230,28 @@ scdo-agent logs --name rack-a
 未加 `--passphrase-file` 時，金鑰不加密，只有服務使用者 `scdo-agent` 能讀，適合無人值守。加上 `--passphrase-file`（或 `SCDO_AGENT_PASSPHRASE_FILE`）後，以 scrypt 與 AES-256-GCM 加密。不要把通行詞放在命令列上。
 
 移除 Debian 套件不會刪除 `/var/lib/scdo-agent`。
+
+### 機器人錢包
+
+每個代理可以用第二把金鑰 `keys/wallet.key`，綁定成 Base Sepolia（`eip155:84532`）上的機器人錢包。Base 主網（`eip155:8453`）不會登記。
+
+付款簽章與 `PAYMENT-SIGNATURE` 標頭來自開源的 x402 SDK：<https://github.com/coinbase/x402>（Apache-2.0，Copyright 2026 x402 Foundation）。授權條款與 NOTICE 放在 `third_party/x402/`，安裝後位於 `/usr/share/doc/scdo-agent/x402-LICENSE` 與 `/usr/share/doc/scdo-agent/x402-NOTICE`。`scdo-agent --version` 會印出同一段致謝。
+
+在這個 SDK 之上，本代理加上單筆上限、每日上限、收款地址清單、停止開關，以及帳本凍結。
+
+```sh
+scdo-agent wallet create --name rack-a --bot m1-bot
+scdo-agent wallet pay --name rack-a https://x402.payai.network/api/base-sepolia/paid-content
+scdo-agent wallet export --name rack-a
+scdo-agent wallet allow --name rack-a --payee 0xE3837fE309618AE075DbeF0A20735c0615a308E6
+scdo-agent wallet kill --name rack-a
+scdo-agent wallet unkill --name rack-a
+scdo-agent wallet record --name rack-a
+```
+
+`create` 會把錢包地址與該錢包的 EIP-191 證明送到 `/bind`。`pay` 由 SDK 簽署 exact EIP-3009 授權並重試 HTTP 402，然後送到 `/ledger/spend`。`--max` 與 `--daily` 的單位是 6 位小數的最小單位。預設單筆 `1000000`（1 USDC），每個 UTC 日 `5000000`。收款清單是空的時候，允許任何 Base Sepolia 收款地址。`kill` 會停止簽章並送到 `/freeze`。
+
+錢包需要 Base Sepolia 上的測試 USDC。燃料費由 facilitator 支付。這個版本不會在 Base 主網付款。
 
 ### 更新
 

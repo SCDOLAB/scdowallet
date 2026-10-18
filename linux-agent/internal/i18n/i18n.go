@@ -70,6 +70,7 @@ Commands:
   list      List agent identities on this machine
   logs      Show how to read the service log
   upgrade-now  Check the signed feed, swap the binary, and reconcile adapters
+  wallet    Create a bot wallet, pay on Base Sepolia, or stop payments
   version   Print the version
   help      Show this help
 
@@ -105,6 +106,21 @@ upgrade-now:
   A failed health check restores the previous binary. Key files are copied
   into the backup and are not deleted.
 
+wallet:
+  scdo-agent wallet create --name NAME --bot ID [--max ATOMIC] [--daily ATOMIC]
+      [--payee 0xADDR] [--passphrase-file PATH] [--ledger URL]
+  scdo-agent wallet pay --name NAME URL [--ledger URL] [--passphrase-file PATH]
+  scdo-agent wallet export --name NAME
+  scdo-agent wallet allow --name NAME --payee 0xADDR
+  scdo-agent wallet kill --name NAME
+  scdo-agent wallet unkill --name NAME
+  scdo-agent wallet record --name NAME
+
+  Payments use the open-source x402 SDK. Only Base Sepolia USDC is enabled.
+  --max is the per-payment cap and --daily is the daily cap, in atomic units
+  (6 decimals). An empty payee list allows any Base Sepolia payee. kill stops
+  signing and freezes the ledger record.
+
 Data directory: /var/lib/scdo-agent/<name>/
 One systemd instance per agent: scdo-agent@<name>.service.
 `,
@@ -136,6 +152,16 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"badPayout":          "A payout address is required: --payout 0x...",
 	"needName":           "A name is required: --name <name>",
 	"passFile":           "Set --passphrase-file or SCDO_AGENT_PASSPHRASE_FILE to unlock the key.",
+	"about":              "x402 payments use https://github.com/coinbase/x402 (Apache-2.0, Copyright 2026 x402 Foundation).",
+	"needBot":            "A bot id is required: --bot <id>",
+	"needURL":            "A URL is required.",
+	"walletReady":        "Wallet %s is bound for bot %s.",
+	"walletNetwork":      "Network: %s",
+	"walletLedger":       "Ledger: %s",
+	"walletBot":          "Bot wallet: %s",
+	"walletTx":           "Transaction: https://sepolia.basescan.org/tx/%s",
+	"walletKilled":       "Payments are stopped and the ledger record is frozen.",
+	"walletUnkilled":     "Payments are allowed and the ledger record is unfrozen.",
 	"needRoot":           "upgrade-now needs root. Use --dry-run to check the feed without replacing the binary.",
 	"upgradeBusy":        "An upgrade is already running.",
 	"upgradeUnreachable": "The release feed could not be reached. The installed binary was left in place.",
@@ -161,6 +187,7 @@ var zh = map[string]string{
   list      列出這台機器上的代理
   logs      顯示如何查看服務紀錄
   upgrade-now  檢查簽章後的發布檔，替換執行檔，並核對顯示卡與帳號對應
+  wallet    建立機器人錢包、在 Base Sepolia 付款，或停止付款
   version   顯示版本
   help      顯示這份說明
 
@@ -193,6 +220,20 @@ upgrade-now：
   除了 --dry-run 之外需要 root。--dry-run 只檢查簽章後的發布檔。
   健康檢查失敗時會還原先前的執行檔。金鑰會複製進備份，不會被刪除。
 
+wallet：
+  scdo-agent wallet create --name 名稱 --bot 編號 [--max 最小單位] [--daily 最小單位]
+      [--payee 0x地址] [--passphrase-file 路徑] [--ledger URL]
+  scdo-agent wallet pay --name 名稱 URL [--ledger URL] [--passphrase-file 路徑]
+  scdo-agent wallet export --name 名稱
+  scdo-agent wallet allow --name 名稱 --payee 0x地址
+  scdo-agent wallet kill --name 名稱
+  scdo-agent wallet unkill --name 名稱
+  scdo-agent wallet record --name 名稱
+
+  付款使用開源的 x402 SDK。只啟用 Base Sepolia 的 USDC。
+  --max 是單筆上限，--daily 是每日上限，單位是最小單位（6 位小數）。
+  收款清單是空的時候，允許任何 Base Sepolia 收款地址。kill 會停止簽章並凍結帳本紀錄。
+
 資料目錄：/var/lib/scdo-agent/<名稱>/
 每台代理一個 systemd 實例：scdo-agent@<名稱>.service。
 `,
@@ -224,6 +265,16 @@ upgrade-now：
 	"badPayout":          "必須提供收款地址：--payout 0x...",
 	"needName":           "必須提供名稱：--name <名稱>",
 	"passFile":           "請設定 --passphrase-file 或 SCDO_AGENT_PASSPHRASE_FILE 以解開金鑰。",
+	"about":              "x402 付款使用 https://github.com/coinbase/x402（Apache-2.0，Copyright 2026 x402 Foundation）。",
+	"needBot":            "必須提供機器人編號：--bot <編號>",
+	"needURL":            "必須提供網址。",
+	"walletReady":        "錢包 %s 已綁定到機器人 %s。",
+	"walletNetwork":      "網路：%s",
+	"walletLedger":       "帳本：%s",
+	"walletBot":          "機器人錢包：%s",
+	"walletTx":           "交易：https://sepolia.basescan.org/tx/%s",
+	"walletKilled":       "付款已停止，帳本紀錄已凍結。",
+	"walletUnkilled":     "付款已恢復，帳本紀錄已解除凍結。",
 	"needRoot":           "upgrade-now 需要 root。若只要檢查發布檔、不替換執行檔，請加 --dry-run。",
 	"upgradeBusy":        "已有一個更新正在執行。",
 	"upgradeUnreachable": "無法連上發布檔。已安裝的執行檔保持不變。",

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,11 +48,11 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ver), `Version = "0.2.0"`) {
+	if !strings.Contains(string(ver), `Version = "0.3.0"`) {
 		t.Fatal("version")
 	}
 	inst, _ := os.ReadFile("packaging/install.sh")
-	if !strings.Contains(string(inst), `VERSION="0.2.0"`) {
+	if !strings.Contains(string(inst), `VERSION="0.3.0"`) {
 		t.Fatal("install.sh version")
 	}
 	for _, needle := range []string{
@@ -70,5 +71,36 @@ func TestPackagingCopy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %s", f, out)
 		}
+	}
+	if !strings.Contains(all, "https://github.com/coinbase/x402") || !strings.Contains(all, "Apache-2.0") || !strings.Contains(all, "Copyright 2026 x402 Foundation") {
+		t.Fatal("x402 credit missing")
+	}
+	if !strings.Contains(all, "third_party/x402/LICENSE") || !strings.Contains(all, "x402-NOTICE") {
+		t.Fatal("package does not ship the x402 licence")
+	}
+	for _, f := range []string{"third_party/x402/LICENSE", "third_party/x402/NOTICE"} {
+		b, err := os.ReadFile(f)
+		if err != nil || len(b) < 40 {
+			t.Fatal(f)
+		}
+	}
+	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		if strings.HasPrefix(path, "third_party/") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), "TransferWithAuthorization") {
+			t.Fatalf("local EIP-3009 type in %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -124,6 +124,37 @@ func jsonMap(m map[string]any) map[string]any {
 	return out
 }
 
+func TestWalletProofMatchesLedger(t *testing.T) {
+	const agent = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+	msg, err := WalletProofMessage(agent, nil, "eip155:8453", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "SCDO Agent Ledger v1\n" + `{"agent":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","botId":null,"network":"eip155:8453","nonce":"n1","type":"wallet-proof"}`
+	if msg != want {
+		t.Fatalf("null botId\n got %q\nwant %q", msg, want)
+	}
+	key, err := KeyFromHex("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sig, err := WalletProof(key, agent, nil, "eip155:8453", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig != "0xeb3afdc38f3cb798edef9638e6bd4b2add7021bc87b96d7e0593ac50866cc9e814b458ba995dc5bec7a59b83e18f117f29fe78c3de394a5866a4b332bf7a949f1c" {
+		t.Fatal(sig)
+	}
+	bot := "m1-bot"
+	_, sig, err = WalletProof(key, agent, &bot, "eip155:84532", "n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig != "0x2be35a051c21d422e6a9b867c1b45faaebaf69d35d53d191b945a85c5ba04cde3dfd08f5286a722970a287692951eeb2b68a51d5c2e2a8c54f845ab205e9b6161c" {
+		t.Fatal(sig)
+	}
+}
+
 func jsonVal(v any) any {
 	switch t := v.(type) {
 	case float64:
