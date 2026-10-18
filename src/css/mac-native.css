@@ -1,0 +1,194 @@
+/* Mac native look (html.mac-native, set by boot.js on macOS only). Windows and Linux are unchanged.
+   Follows macOS conventions: system font (SF Pro / PingFang TC), 13–15 px text, translucent source-list sidebar,
+   hairline separators, 6–12 px radii, flat controls, segmented language switch. Layout and behaviour are untouched. */
+html.mac-native {
+  --mn-accent: #1f7a3a; --mn-accent-hover: #196631; --mn-accent-soft: rgba(31,122,58,.12);
+  --mn-text: #1d1d1f; --mn-text2: #6e6e73; --mn-text3: #86868b;
+  --mn-bg: #f5f5f7; --mn-surface: #ffffff; --mn-line: rgba(0,0,0,.1); --mn-line2: rgba(0,0,0,.06);
+  --mn-ctl: #ffffff; --mn-ctl-line: rgba(0,0,0,.16); --mn-radius: 10px; --mn-font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+html.mac-native body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang TC", "PingFang HK", sans-serif;
+  font-size: 14px; line-height: 1.45; color: var(--mn-text); -webkit-font-smoothing: antialiased; background: transparent; }
+html.mac-native body:has(#app.shell), html.mac-native #app.shell { background: transparent; color: var(--mn-text); }
+html.mac-native .mono, html.mac-native code, html.mac-native pre { font-family: var(--mn-font-mono); }
+html.mac-native .lbl { font-size: 13px; color: var(--mn-text2); }
+html.mac-native .muted { color: var(--mn-text3); }
+
+/* content column: opaque, the sidebar shows the window's vibrancy */
+html.mac-native .shell-col { background: var(--mn-bg); }
+html.mac-native #app.shell main { background: var(--mn-bg); }
+html.mac-native .shell-home, html.mac-native .shell-recv, html.mac-native .shell-remit, html.mac-native .shell-mine-page, html.mac-native .shell-set { max-width: 920px; padding: 20px 28px 120px; }
+html.mac-native .shell-h { font-size: 26px; font-weight: 700; letter-spacing: -.3px; margin: 0 0 14px; }
+html.mac-native .home-lead { font-size: 22px; font-weight: 600; letter-spacing: -.2px; }
+html.mac-native h2 { font-size: 17px; font-weight: 600; } html.mac-native h3 { font-size: 14px; font-weight: 600; }
+
+/* sidebar = source list */
+html.mac-native .side-nav { width: 212px; padding: 12px 10px; gap: 2px; background: rgba(236,236,240,.62); border-right: .5px solid var(--mn-line); }
+html.mac-native .nav-item { gap: 8px; min-height: 30px; height: auto; padding: 5px 10px; line-height: 1.25; border-radius: 6px; font-size: 13.5px; font-weight: 500; color: var(--mn-text); }
+html.mac-native .nav-item::before { content: ''; flex: none; width: 17px; height: 17px; background: var(--mn-accent); -webkit-mask: var(--mn-ico) center / contain no-repeat; }
+html.mac-native .nav-item[data-v="home"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3.5%2010.5%2012%203.5l8.5%207%22/%3E%3Cpath%20d%3D%22M5.5%209v10.5h5v-6h3v6h5V9%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item[data-v="recv"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%228.5%22/%3E%3Cpath%20d%3D%22M12%207.5v8.5M8.2%2012.5%2012%2016.3l3.8-3.8%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item[data-v="remit"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20.5%203.5%2010%2014%22/%3E%3Cpath%20d%3D%22M20.5%203.5%2014%2020.5l-4-6.5-6.5-4z%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item[data-v="mine"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203%2020%207.5v9L12%2021l-8-4.5v-9z%22/%3E%3Cpath%20d%3D%22M4%207.5%2012%2012l8-4.5M12%2012v9%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item[data-v="connect"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M10%2014a4%204%200%200%200%205.7%200l3-3a4%204%200%200%200-5.7-5.7l-1%201%22/%3E%3Cpath%20d%3D%22M14%2010a4%204%200%200%200-5.7%200l-3%203a4%204%200%200%200%205.7%205.7l1-1%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item[data-v="settings"] { --mn-ico: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%223%22/%3E%3Cpath%20d%3D%22M12%202.8v2.4M12%2018.8v2.4M2.8%2012h2.4M18.8%2012h2.4M5.5%205.5l1.7%201.7M16.8%2016.8l1.7%201.7M5.5%2018.5l1.7-1.7M16.8%207.2l1.7-1.7%22/%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%226.3%22/%3E%3C/svg%3E"); }
+html.mac-native .nav-item:hover { background: rgba(0,0,0,.05); color: var(--mn-text); }
+html.mac-native .nav-item.on, html.mac-native .nav-item.on:hover { background: rgba(0,0,0,.09); color: var(--mn-text); font-weight: 600; }
+
+/* toolbar row (site links + language) */
+html.mac-native .site-bar { gap: 4px; padding: 10px 20px 10px; background: var(--mn-bg); border-bottom: .5px solid var(--mn-line); }
+html.mac-native .site-bar .site-link, html.mac-native .site-bar .site-fold > summary { height: 26px; padding: 0 10px; border-radius: 6px; background: transparent; color: var(--mn-text); font-size: 13px; font-weight: 500; }
+html.mac-native .site-bar .site-link:hover, html.mac-native .site-bar .site-fold > summary:hover { background: rgba(0,0,0,.06); }
+html.mac-native .site-bar .site-fold { border: 0; background: transparent; box-shadow: none; margin: 0; }
+html.mac-native .site-bar .fold-shut, html.mac-native .site-bar .fold-open { font-size: 9px; color: var(--mn-text3); margin-right: 2px; }
+html.mac-native .lang-switch { gap: 0; padding: 2px; border-radius: 7px; background: rgba(0,0,0,.07); }
+html.mac-native .lang-opt { border: 0; background: transparent; color: var(--mn-text); border-radius: 5px; font-size: 12px; font-weight: 500; padding: 3px 12px; }
+html.mac-native .lang-opt.on { background: #fff; color: var(--mn-text); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.06); }
+html.mac-native .langtg button, html.mac-native .seg button { border: .5px solid var(--mn-ctl-line); border-radius: 6px; padding: 4px 12px; font-size: 13px; font-weight: 500; background: var(--mn-ctl); color: var(--mn-text); }
+html.mac-native .langtg button.on, html.mac-native .seg button.on { background: var(--mn-accent); border-color: var(--mn-accent); color: #fff; }
+
+/* grouped surfaces */
+html.mac-native .card, html.mac-native .shell-fold, html.mac-native .empty-wallet, html.mac-native .ext-payout, html.mac-native .agent-card {
+  background: var(--mn-surface); border: .5px solid var(--mn-line); border-radius: var(--mn-radius); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+html.mac-native .agent-card, html.mac-native .empty-wallet { padding: 16px 20px; margin: 12px 0; }
+html.mac-native .agent-card h2 { font-size: 17px; }
+html.mac-native .shell-fold > summary { font-size: 14px; font-weight: 600; padding: 10px 14px; }
+html.mac-native .bal-hero { background: var(--mn-surface); border: .5px solid var(--mn-line); border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.04); padding: 20px 24px; }
+html.mac-native .bal-k { font-size: 13px; font-weight: 500; color: var(--mn-text2); }
+html.mac-native .bal-n b { font-size: 40px; font-weight: 600; letter-spacing: -.5px; }
+html.mac-native .bal-n span { font-size: 17px; color: var(--mn-text2); font-weight: 500; }
+html.mac-native .ext-payout .ext-bal { font-size: 22px; font-weight: 600; }
+html.mac-native .home-chain-fold > summary { font-size: 14px; font-weight: 500; padding: 9px 4px; border-bottom: .5px solid var(--mn-line); }
+html.mac-native .home-state { font-size: 13px; color: var(--mn-text2); }
+html.mac-native .infobox { background: var(--mn-accent-soft); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--mn-text); }
+html.mac-native .warnbox { border: .5px solid rgba(215,0,21,.3); border-radius: 8px; background: rgba(255,59,48,.07); font-size: 13px; padding: 10px 14px; }
+html.mac-native .nogpu { border: .5px solid rgba(255,149,0,.4); border-radius: 8px; background: rgba(255,149,0,.08); font-size: 14px; padding: 12px 16px; line-height: 1.5; }
+html.mac-native .home-backup-banner, html.mac-native .home-backup-legacy { border: .5px solid rgba(255,159,10,.45); background: rgba(255,204,0,.12); border-radius: 8px; font-weight: 500; }
+
+/* controls: flat, NSButton-like */
+html.mac-native .btn { height: 28px; padding: 0 14px; border-radius: 6px; font-size: 13px; font-weight: 500; box-shadow: none; }
+html.mac-native .btn.big { height: 34px; padding: 0 18px; font-size: 14px; border-radius: 8px; }
+html.mac-native .btn.small { height: 24px; padding: 0 10px; font-size: 12px; }
+html.mac-native .btn.pri { background: var(--mn-accent); color: #fff; } html.mac-native .btn.pri:hover { background: var(--mn-accent-hover); }
+html.mac-native .btn.sec, html.mac-native .btn.ghost { background: var(--mn-ctl); color: var(--mn-text); border: .5px solid var(--mn-ctl-line); box-shadow: 0 .5px 1px rgba(0,0,0,.08); }
+html.mac-native .btn.sec:hover, html.mac-native .btn.ghost:hover { background: #f5f5f7; color: var(--mn-text); border-color: var(--mn-ctl-line); }
+html.mac-native .btn.dan { background: #d70015; color: #fff; } html.mac-native .btn.danl { background: var(--mn-ctl); color: #d70015; border: .5px solid var(--mn-ctl-line); }
+html.mac-native .shell-actions { gap: 10px; margin: 12px 0; }
+html.mac-native .shell-act, html.mac-native .shell-go, html.mac-native .shell-copy, html.mac-native .shell-mine, html.mac-native .home-buy-pill {
+  border-radius: 8px; font-size: 14px; font-weight: 600; padding: 9px 14px; box-shadow: none; background: var(--mn-accent); }
+html.mac-native .shell-act:hover, html.mac-native .shell-go:hover, html.mac-native .shell-copy:hover, html.mac-native .shell-mine:hover { background: var(--mn-accent-hover); }
+html.mac-native .shell-act:active, html.mac-native .shell-mine:active { transform: none; box-shadow: none; filter: brightness(.95); }
+html.mac-native .shell-actions .shell-act:not(:first-child), html.mac-native .shell-act.sec { background: var(--mn-ctl); color: var(--mn-text); border: .5px solid var(--mn-ctl-line); box-shadow: 0 .5px 1px rgba(0,0,0,.08); }
+html.mac-native .shell-actions .shell-act:not(:first-child):hover, html.mac-native .shell-act.sec:hover { background: #f5f5f7; }
+html.mac-native .shell-mine { display: inline-flex; width: auto; }
+html.mac-native .shell-mine.stop { background: #d70015; }
+html.mac-native input.inp, html.mac-native select.inp { height: 28px; border: .5px solid var(--mn-ctl-line); border-radius: 6px; padding: 0 8px; font-size: 13px; box-shadow: inset 0 .5px 1px rgba(0,0,0,.06); }
+html.mac-native input.inp:focus, html.mac-native select.inp:focus { outline: none; border-color: var(--mn-accent); box-shadow: 0 0 0 3px rgba(31,122,58,.3); }
+html.mac-native .sw { transform: scale(.8); transform-origin: left center; }
+
+/* sheets */
+html.mac-native .overlay { background: rgba(0,0,0,.25); }
+html.mac-native .modal { border-radius: 12px; padding: 20px 24px 18px; box-shadow: 0 0 0 .5px rgba(0,0,0,.12), 0 24px 60px rgba(0,0,0,.28); font-size: 14px; }
+html.mac-native .modal h2 { font-size: 17px; }
+html.mac-native .modal .foot { gap: 8px; }
+
+/* page bits */
+html.mac-native .mine-card { padding: 18px 20px; }
+html.mac-native .stat .v { font-size: 20px; font-weight: 600; }
+html.mac-native pre.log { font-size: 11px; border-radius: 6px; }
+html.mac-native .ai-cat-btn { width: 44px; height: 44px; border-width: 1px; border-color: var(--mn-line); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+html.mac-native .bootsplash { background: var(--mn-bg); }
+html.mac-native .bootsplash .bt { font-size: 22px; font-weight: 600; color: var(--mn-text); }
+html.mac-native .bootsplash .bs, html.mac-native .bootsplash .bm { font-size: 14px; color: var(--mn-text2); }
+html.mac-native .bootsplash .bspin { width: 22px; height: 22px; border-width: 2.5px; border-color: rgba(0,0,0,.1); border-top-color: var(--mn-text2); }
+
+/* large inline sizes from the cross-platform templates, scaled to the Mac type ramp */
+html.mac-native [style*="font-size:34px"], html.mac-native [style*="font-size:32px"], html.mac-native [style*="font-size:30px"] { font-size: 22px !important; font-weight: 600 !important; }
+html.mac-native [style*="font-size:28px"], html.mac-native [style*="font-size:26px"], html.mac-native [style*="font-size:24px"] { font-size: 17px !important; }
+html.mac-native [style*="font-size:22px"], html.mac-native [style*="font-size:21px"] { font-size: 15px !important; }
+html.mac-native [style*="font-size:20px"], html.mac-native [style*="font-size:19px"], html.mac-native [style*="font-size:18px"] { font-size: 14px !important; }
+html.mac-native [style*="font-size:17px"], html.mac-native [style*="font-size:16px"] { font-size: 13px !important; }
+
+/* bookkeeping page */
+html.mac-native .shell-mine-page { padding: 20px 28px 120px; }
+html.mac-native .mine-ledger-note { margin: -6px 0 14px; }
+html.mac-native .mine-panels { gap: 12px; }
+html.mac-native .mine-panel { border-radius: 12px; padding: 16px 18px; border: .5px solid var(--mn-line); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+html.mac-native .mine-panel h2 { font-size: 13px; font-weight: 600; color: var(--mn-text2); }
+html.mac-native .mine-glance { justify-content: flex-start; gap: 8px; margin: 4px 0 12px; }
+html.mac-native .mine-glance .mine-glance-t { font-size: 20px; font-weight: 600; letter-spacing: -.2px; }
+html.mac-native .mine-dot { width: 9px; height: 9px; }
+html.mac-native .mine-glance.on .mine-dot { box-shadow: none; background: #28a745; }
+html.mac-native .mine-load { height: 4px; }
+html.mac-native .mine-rate, html.mac-native .mine-earn, html.mac-native .home-bal, html.mac-native .home-last { font-size: 14px; font-weight: 500; }
+html.mac-native .home-bal, html.mac-native .home-last { padding: 9px 4px; border-bottom: .5px solid var(--mn-line); }
+html.mac-native .mine-kv { font-size: 14px; } html.mac-native .mine-kv span { font-size: 11px; font-weight: 500; }
+html.mac-native .mine-chain, html.mac-native .mine-chain.off { font-size: 13px; font-weight: 500; }
+html.mac-native .mine-chain input { width: 14px; height: 14px; accent-color: var(--mn-accent); }
+html.mac-native .shell-huge { width: auto; min-width: 160px; padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; color: #fff; background: var(--mn-accent); border: 0; box-shadow: none; }
+html.mac-native .shell-huge:disabled { opacity: .45; }
+html.mac-native .shell-huge-wrap { margin: 4px 0 8px; }
+html.mac-native .shell-hint { border-radius: 6px; font-size: 13px; font-weight: 500; padding: 5px 12px; }
+html.mac-native .shell-sub { justify-content: flex-start; gap: 24px; font-size: 12px; } html.mac-native .shell-sub b { font-size: 14px; font-weight: 600; }
+html.mac-native .shell-mine-page .mh-status { text-align: left; font-weight: 600; }
+html.mac-native .mine-why, html.mac-native .mine-note { font-weight: 500; font-size: 13px; }
+
+/* settings rows and switches */
+html.mac-native .shell-back { color: var(--mn-accent); font-size: 13px; font-weight: 500; padding: 4px 0; }
+html.mac-native .toggle { font-size: 14px; color: var(--mn-text); gap: 10px; margin: 2px 16px 2px 0; }
+html.mac-native .sw { transform: none; width: 32px; height: 19px; border-radius: 10px; background: rgba(0,0,0,.14); }
+html.mac-native .sw::after { left: 1.5px; top: 1.5px; width: 16px; height: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+html.mac-native .sw.on { background: var(--mn-accent); } html.mac-native .sw.on::after { left: 14.5px; }
+html.mac-native .setsec h3 { font-size: 13px; font-weight: 600; color: var(--mn-text2); text-transform: none; }
+html.mac-native .back-home-row .back-home, html.mac-native .link.back-home { color: var(--mn-accent); font-size: 13px; font-weight: 500; }
+html.mac-native .shell-set .toggle { margin-top: 10px; }
+
+/* ---------- round 2: dark appearance (tokens; component twins are in mac-native-dark.css) ---------- */
+@media (prefers-color-scheme: dark) {
+  html.mac-native {
+    --mn-accent: #2f9a4c; --mn-accent-hover: #37ab57; --mn-accent-soft: rgba(63,185,80,.16);
+    --mn-text: #f5f5f7; --mn-text2: #a1a1a6; --mn-text3: #8e8e93;
+    --mn-bg: #1e1e1f; --mn-surface: #2a2a2c; --mn-line: rgba(255,255,255,.1); --mn-line2: rgba(255,255,255,.06);
+    --mn-ctl: #3a3a3c; --mn-ctl-line: rgba(255,255,255,.14);
+    color-scheme: dark;
+  }
+  html.mac-native body { color: var(--mn-text); }
+  html.mac-native .side-nav { background: rgba(38,38,42,.62); }
+  html.mac-native .nav-item:hover { background: rgba(255,255,255,.06); }
+  html.mac-native .nav-item.on, html.mac-native .nav-item.on:hover { background: rgba(255,255,255,.12); }
+  html.mac-native .nav-item::before { background: #4cc46b; }
+  html.mac-native .site-bar .site-link:hover, html.mac-native .site-bar .site-fold > summary:hover { background: rgba(255,255,255,.08); }
+  html.mac-native .lang-switch { background: rgba(255,255,255,.08); }
+  html.mac-native .lang-opt.on { background: #636366; color: #fff; box-shadow: none; }
+  html.mac-native .btn.sec:hover, html.mac-native .btn.ghost:hover, html.mac-native .shell-actions .shell-act:not(:first-child):hover, html.mac-native .shell-act.sec:hover { background: #48484a; }
+  html.mac-native .home-backup-banner, html.mac-native .home-backup-legacy { background: rgba(255,214,10,.12); color: #ffd60a; }
+  html.mac-native .home-backup-x { color: #ffd60a; }
+  html.mac-native .sw { background: rgba(255,255,255,.18); }
+  html.mac-native .card, html.mac-native .shell-fold, html.mac-native .empty-wallet, html.mac-native .ext-payout, html.mac-native .agent-card, html.mac-native .bal-hero, html.mac-native .mine-panel { box-shadow: none; }
+  html.mac-native .agent-presence.online, html.mac-native .mine-glance.on, html.mac-native .shell-mine-page .mh-status.on, html.mac-native .back-home { color: #4cc46b; }
+  html.mac-native input.inp, html.mac-native select.inp { background: var(--mn-ctl); color: var(--mn-text); }
+  html.mac-native .modal { background: var(--mn-surface); color: var(--mn-text); }
+  html.mac-native .bootsplash { background: var(--mn-bg); }
+  html.mac-native [style*="color:#1c1c1e"], html.mac-native [style*="color:#1b1d33"], html.mac-native [style*="color: #1c1c1e"] { color: var(--mn-text) !important; }
+  html.mac-native [style*="background:#fff"], html.mac-native [style*="background: #fff"] { background: var(--mn-surface) !important; }
+}
+
+/* ---------- round 2: Settings in the System Settings style (grouped inset rows, controls on the right) ---------- */
+html.mac-native .shell-set #setHost { display: flex; flex-direction: column; gap: 18px; }
+html.mac-native .shell-set .set-open { background: var(--mn-surface); border: .5px solid var(--mn-line); border-radius: 10px; padding: 0 14px; }
+html.mac-native .shell-set #setLang { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+html.mac-native .shell-set #setLang > .lbl { font-size: 13px; color: var(--mn-text); }
+html.mac-native .shell-set #setLang .row { gap: 0; padding: 2px; border-radius: 7px; background: rgba(0,0,0,.07); }
+html.mac-native .shell-set #setLang .btn { height: 22px; border: 0; border-radius: 5px; box-shadow: none; background: transparent; color: var(--mn-text); font-size: 12px; padding: 0 12px; }
+html.mac-native .shell-set #setLang .btn.pri { background: #fff; color: var(--mn-text); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.06); }
+html.mac-native .shell-set .toggle { display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; width: 100%; min-height: 40px; margin: 0; padding: 8px 0; font-size: 13px; text-align: left; border-top: .5px solid var(--mn-line); }
+html.mac-native .shell-set .set-open > .toggle:first-child, html.mac-native .shell-set #setGuard > .lbl:first-child + .toggle { border-top: 0; }
+html.mac-native .shell-set .toggle + .lbl { margin: -6px 0 0; padding: 0 0 9px; font-size: 11.5px; color: var(--mn-text2); max-width: 88%; }
+html.mac-native .shell-set #setGuard > .lbl:first-child { padding: 10px 0 2px; font-size: 11.5px; }
+html.mac-native .shell-set #setAdvanced { margin-top: 0; }
+html.mac-native .shell-set #setAdvanced > .set-open { border: 0; padding: 0; background: transparent; }
+html.mac-native .shell-set #setAdvanced > :not(summary) { margin-left: 14px; margin-right: 14px; }
+@media (prefers-color-scheme: dark) {
+  html.mac-native .shell-set #setLang .row { background: rgba(255,255,255,.08); }
+  html.mac-native .shell-set #setLang .btn.pri { background: #636366; color: #fff; box-shadow: none; }
+}

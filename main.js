@@ -911,7 +911,9 @@ function createWindow () {
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#E8F5E9',
+    // Mac: translucent source-list sidebar (the OS title bar and window buttons stay as they are).
+    ...(process.platform === 'darwin' ? { vibrancy: 'sidebar', visualEffectState: 'followWindow' } : {}),
     // 3.1.0: the operating system's own title bar and window buttons. Do not draw a custom bar.
     titleBarStyle: 'default',
     icon: path.join(ASSETS, process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
