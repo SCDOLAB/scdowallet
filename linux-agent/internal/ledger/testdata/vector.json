@@ -1,0 +1,94 @@
+{
+  "note": "Public Hardhat test key 0. Reproduced by src/agent/envelope.js signEnvelope / ethers signMessageSync. Not a funded key.",
+  "privateKey": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "prefix": "SCDO Agent Ledger v1\n",
+  "chainId": 5680,
+  "cases": [
+    {
+      "name": "register",
+      "type": "register",
+      "seq": 1,
+      "ts": 1700000000000,
+      "body": {
+        "version": "0.1.0",
+        "platform": "linux",
+        "label": "vector",
+        "role": "light-node",
+        "payout": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"label\":\"vector\",\"payout\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"platform\":\"linux\",\"role\":\"light-node\",\"version\":\"0.1.0\"},\"chainId\":5680,\"seq\":1,\"ts\":1700000000000,\"type\":\"register\",\"v\":1}",
+      "sig": "0xe3f28dce5a3fa3e35af5c7a573dd4d8d2002996500796936feaf8d41bce476011d3422884989d05f9ca7d33485bacd918ae54a91d25e61220f0c23c449cd2e9c1c"
+    },
+    {
+      "name": "heartbeat",
+      "type": "heartbeat",
+      "seq": 2,
+      "ts": 1700000000000,
+      "body": {
+        "version": "0.1.0",
+        "code": "light"
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"code\":\"light\",\"version\":\"0.1.0\"},\"chainId\":5680,\"seq\":2,\"ts\":1700000000000,\"type\":\"heartbeat\",\"v\":1}",
+      "sig": "0x5e8f637484d47f0f95d337c7ac9a5bd04967b3978938debcd93c972aef0b55804456eff9d750516c245092795cf582b5df6f754a115207383dc10e5fa236c2e81b"
+    },
+    {
+      "name": "heartbeat-server",
+      "type": "heartbeat",
+      "seq": 5,
+      "ts": 1700000000000,
+      "body": {
+        "version": "0.1.0",
+        "code": "server"
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"code\":\"server\",\"version\":\"0.1.0\"},\"chainId\":5680,\"seq\":5,\"ts\":1700000000000,\"type\":\"heartbeat\",\"v\":1}",
+      "sig": "0x7809124110791710a2ca85e0d1aa3dd6c4fdb14b950659e1bffa993ebf3e37e81e32f6ff3d7fc63da32eb9279783e5ea2bb42fc2bb07820a5a878ff0f050c5521c"
+    },
+    {
+      "name": "heal",
+      "type": "heal",
+      "seq": 3,
+      "ts": 1700000000000,
+      "body": {
+        "action": "report",
+        "reason": "bookkeeping",
+        "outcome": "reported",
+        "problems": [
+          "CLOCK"
+        ]
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"action\":\"report\",\"outcome\":\"reported\",\"problems\":[\"CLOCK\"],\"reason\":\"bookkeeping\"},\"chainId\":5680,\"seq\":3,\"ts\":1700000000000,\"type\":\"heal\",\"v\":1}",
+      "sig": "0x21d90a4df50e39f64169bc64b3fe523f50186075f5f7ebcf32ea35a990e06ef20bf1f4b04669acebbe3b9634f4e7d06a99a4e530fb9f429dedc60c77818ae10f1c"
+    },
+    {
+      "name": "report",
+      "type": "report",
+      "seq": 4,
+      "ts": 1700000000000,
+      "body": {
+        "kind": "error",
+        "message": "disk full",
+        "stack": "",
+        "version": "0.1.0",
+        "platform": "linux"
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"kind\":\"error\",\"message\":\"disk full\",\"platform\":\"linux\",\"stack\":\"\",\"version\":\"0.1.0\"},\"chainId\":5680,\"seq\":4,\"ts\":1700000000000,\"type\":\"report\",\"v\":1}",
+      "sig": "0x73c5ed9770a219a0bf06116c36f670aece843b7cc93e96d700e68ce2aa3dd85b6155a974012288b25b95423793555edf78eb0aa466e6c0636039a27f01f298e11b"
+    },
+    {
+      "name": "register-zh",
+      "type": "register",
+      "seq": 6,
+      "ts": 1700000000000,
+      "body": {
+        "version": "0.1.0",
+        "platform": "linux",
+        "label": "記帳",
+        "role": "light-node",
+        "payout": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+      },
+      "message": "SCDO Agent Ledger v1\n{\"agent\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"body\":{\"label\":\"記帳\",\"payout\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"platform\":\"linux\",\"role\":\"light-node\",\"version\":\"0.1.0\"},\"chainId\":5680,\"seq\":6,\"ts\":1700000000000,\"type\":\"register\",\"v\":1}",
+      "sig": "0x0124ae87c7b771ea289a16a44009792254b9880b3a80db8639fe4c7f42659ef9548d2a42d06bff6c05b91f5d85661d2ad92afce9a8ee749634a89ca6892cf48f1c"
+    }
+  ]
+}

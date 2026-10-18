@@ -1,0 +1,11 @@
+[Unit]
+Description=SCDO bookkeeping agent updater
+Documentation=https://scdo.com.au/agent-ledger/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/scdo-agent upgrade-now
+# When key files are encrypted, point this at the passphrase file (mode 0600).
+# Environment=SCDO_AGENT_PASSPHRASE_FILE=/etc/scdo-agent/passphrase

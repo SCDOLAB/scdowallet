@@ -1,0 +1,43 @@
+name: linux-agent
+
+on:
+  push:
+    paths:
+      - 'linux-agent/**'
+      - '.github/workflows/linux-agent.yml'
+  pull_request:
+    paths:
+      - 'linux-agent/**'
+      - '.github/workflows/linux-agent.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+          cache-dependency-path: linux-agent/go.sum
+      - name: Test
+        working-directory: linux-agent
+        run: go test ./...
+      - name: Package tarballs, debs, and SHA256SUMS
+        working-directory: linux-agent
+        run: sh scripts/package.sh
+      - name: Check published checksums
+        working-directory: linux-agent/dist
+        run: sha256sum -c SHA256SUMS
+      - name: Upload linux agent artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: scdo-agent-linux
+          if-no-files-found: error
+          path: |
+            linux-agent/dist/scdo-agent_*.tar.gz
+            linux-agent/dist/scdo-agent_*.deb
+            linux-agent/dist/SHA256SUMS
+            linux-agent/dist/install.sh
