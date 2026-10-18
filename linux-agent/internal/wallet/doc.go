@@ -36,6 +36,9 @@ type Doc struct {
 	SpentAtomic  string   `json:"spentAtomic"`
 	SpentDay     string   `json:"spentDay,omitempty"`
 	Payees       []string `json:"payees,omitempty"`
+	Domains      []string `json:"domains,omitempty"`
+	EmailCommit  string   `json:"emailCommit,omitempty"`
+	LimitsCommit string   `json:"limitsCommit,omitempty"`
 	Killed       bool     `json:"killed"`
 	LastTx       string   `json:"lastTx,omitempty"`
 	LastPayTo    string   `json:"lastPayTo,omitempty"`

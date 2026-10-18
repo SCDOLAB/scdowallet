@@ -92,25 +92,34 @@ Removing the Debian package does not delete `/var/lib/scdo-agent`.
 
 ## Bot wallet
 
-Each agent can bind a second key, `keys/wallet.key`, as a bot wallet on Base Sepolia (`eip155:84532`). Base mainnet (`eip155:8453`) is not registered.
+Each agent can bind a second key, `keys/wallet.key`, as a bot wallet on Base Sepolia (`eip155:84532`). Base mainnet (`eip155:8453`) is not registered. The ledger identity stays in `keys/ledger.key`.
 
 Payment signing and the `PAYMENT-SIGNATURE` header come from the open-source x402 SDK at <https://github.com/coinbase/x402> (Apache-2.0, Copyright 2026 x402 Foundation). The licence and notice are kept in `third_party/x402/` and installed as `/usr/share/doc/scdo-agent/x402-LICENSE` and `/usr/share/doc/scdo-agent/x402-NOTICE`. `scdo-agent --version` prints the same credit.
 
-On top of that SDK, this agent adds the per-payment cap, the daily cap, the payee allowlist, the kill switch, and the ledger freeze.
+On top of that SDK, this agent adds the per-payment cap, the rolling 24 hour cap, the payee and domain allowlists, the kill switch, and the ledger freeze. Your keys stay on your machine. SCDO never holds them.
 
 ```sh
-scdo-agent wallet create --name rack-a --bot m1-bot
-scdo-agent wallet pay --name rack-a https://x402.payai.network/api/base-sepolia/paid-content
-scdo-agent wallet export --name rack-a
-scdo-agent wallet allow --name rack-a --payee 0xE3837fE309618AE075DbeF0A20735c0615a308E6
-scdo-agent wallet kill --name rack-a
-scdo-agent wallet unkill --name rack-a
-scdo-agent wallet record --name rack-a
+scdo-agent wallet create --bot rack-a --email bot@example.com
+scdo-agent wallet show --bot rack-a
+scdo-agent wallet limit --bot rack-a --per-payment 1 --daily 5 --allow-domain api.example.com --allow-payto 0xE3837fE309618AE075DbeF0A20735c0615a308E6
+scdo-agent pay https://x402.payai.network/api/base-sepolia/paid-content --bot rack-a
+scdo-agent serve-paywall --bot rack-a --price 0.01 --path /answer --port 8410
+scdo-agent wallet export --bot rack-a --out ks.json --export-passphrase-file /etc/scdo-agent/export.pass
+scdo-agent wallet freeze --bot rack-a
+scdo-agent wallet unfreeze --bot rack-a
 ```
 
-`create` POSTs `/bind` with the wallet address and an EIP-191 wallet proof signed by that wallet. `pay` lets the SDK sign the exact EIP-3009 authorization and retry the HTTP 402, then POSTs `/ledger/spend`. `--max` and `--daily` are atomic units with 6 decimals. The defaults are `1000000` (1 USDC) per payment and `5000000` per UTC day. An empty payee list allows any Base Sepolia payee. `kill` stops signing and POSTs `/freeze`.
+`--bot` is the agent name when `--name` is omitted. `create` POSTs `/bind` with the wallet address, an EIP-191 wallet proof signed by that wallet, and `emailCommit`. The commitment is `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`. The 32-byte salt is `email.salt` in the agent directory, mode `0600`, and is not sent.
+
+`pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `limit` and `pay --max` are decimal USDC. Defaults are 1 USDC per payment and 5 USDC across a rolling 24 hours. An empty payee list allows any Base Sepolia payee. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
+
+`serve-paywall` is a receiver for one path. It uses the official SDK middleware and `https://x402.org/facilitator`. Settled receipts are appended to `receipts.jsonl` on the agent. This build does not call a ledger income route.
+
+`export` writes a Web3 Secret Storage v3 keystore (scrypt n=2^18) under a new passphrase from `--export-passphrase-file`. A raw key is printed only on a terminal, and only with `--raw` plus `--i-understand-raw-key` (or `--i-understand-this-reveals-the-key`). Each completed export appends a line to `export-audit.log` without the key.
 
 The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This build does not pay Base mainnet.
+
+The live ledger already accepts `bind`, `emailCommit`, `limitsCommit`, `walletProofs`, `freeze`, `unfreeze`, and `/ledger/spend` (booked as tUSDC). This client does not call the email-verification or X OAuth routes. Those routes are still unimplemented on the server (`POST /bind/email/start`, `POST /bind/email/confirm`, `POST /bind/x/start`, and the X callback). `xbind` has no HTTP route. Incoming Base Sepolia receipts are not booked by this client: the server still needs `/ledger/income` to accept network `eip155:84532`, asset `0x036CbD53842c5426634e7929541eC2318f3dCF7e`, and to book the credit as tUSDC. `wallet limit` updates the local policy and the local `limitsCommit`. The next `wallet create` sends that hash. The server stores the hash and does not enforce the caps.
 
 ## ERC-8004
 
@@ -259,25 +268,34 @@ scdo-agent logs --name rack-a
 
 ### 機器人錢包
 
-每個代理可以用第二把金鑰 `keys/wallet.key`，綁定成 Base Sepolia（`eip155:84532`）上的機器人錢包。Base 主網（`eip155:8453`）不會登記。
+每個代理可以用第二把金鑰 `keys/wallet.key`，綁定成 Base Sepolia（`eip155:84532`）上的機器人錢包。Base 主網（`eip155:8453`）不會登記。帳本身份仍在 `keys/ledger.key`。
 
 付款簽章與 `PAYMENT-SIGNATURE` 標頭來自開源的 x402 SDK：<https://github.com/coinbase/x402>（Apache-2.0，Copyright 2026 x402 Foundation）。授權條款與 NOTICE 放在 `third_party/x402/`，安裝後位於 `/usr/share/doc/scdo-agent/x402-LICENSE` 與 `/usr/share/doc/scdo-agent/x402-NOTICE`。`scdo-agent --version` 會印出同一段致謝。
 
-在這個 SDK 之上，本代理加上單筆上限、每日上限、收款地址清單、停止開關，以及帳本凍結。
+在這個 SDK 之上，本代理加上單筆上限、滾動 24 小時上限、收款地址與網域清單、停止開關，以及帳本凍結。金鑰只存在你的機器上，SCDO 不保管。
 
 ```sh
-scdo-agent wallet create --name rack-a --bot m1-bot
-scdo-agent wallet pay --name rack-a https://x402.payai.network/api/base-sepolia/paid-content
-scdo-agent wallet export --name rack-a
-scdo-agent wallet allow --name rack-a --payee 0xE3837fE309618AE075DbeF0A20735c0615a308E6
-scdo-agent wallet kill --name rack-a
-scdo-agent wallet unkill --name rack-a
-scdo-agent wallet record --name rack-a
+scdo-agent wallet create --bot rack-a --email bot@example.com
+scdo-agent wallet show --bot rack-a
+scdo-agent wallet limit --bot rack-a --per-payment 1 --daily 5 --allow-domain api.example.com --allow-payto 0xE3837fE309618AE075DbeF0A20735c0615a308E6
+scdo-agent pay https://x402.payai.network/api/base-sepolia/paid-content --bot rack-a
+scdo-agent serve-paywall --bot rack-a --price 0.01 --path /answer --port 8410
+scdo-agent wallet export --bot rack-a --out ks.json --export-passphrase-file /etc/scdo-agent/export.pass
+scdo-agent wallet freeze --bot rack-a
+scdo-agent wallet unfreeze --bot rack-a
 ```
 
-`create` 會把錢包地址與該錢包的 EIP-191 證明送到 `/bind`。`pay` 由 SDK 簽署 exact EIP-3009 授權並重試 HTTP 402，然後送到 `/ledger/spend`。`--max` 與 `--daily` 的單位是 6 位小數的最小單位。預設單筆 `1000000`（1 USDC），每個 UTC 日 `5000000`。收款清單是空的時候，允許任何 Base Sepolia 收款地址。`kill` 會停止簽章並送到 `/freeze`。
+未加 `--name` 時，`--bot` 就是代理名稱。`create` 會把錢包地址、該錢包的 EIP-191 證明，以及 `emailCommit` 送到 `/bind`。承諾是 `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`。32 位元組的鹽在代理目錄的 `email.salt`，權限 `0600`，不會送出。
+
+`pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`limit` 與 `pay --max` 的金額是十進位 USDC。預設單筆 1 USDC，滾動 24 小時 5 USDC。收款清單是空的時候，允許任何 Base Sepolia 收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
+
+`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層與 `https://x402.org/facilitator`。結算後的收據附加到代理目錄的 `receipts.jsonl`。這個版本不會呼叫帳本的收入路由。
+
+`export` 以新的通行詞（來自 `--export-passphrase-file`）寫出 Web3 Secret Storage v3 金鑰庫（scrypt n=2^18）。原始金鑰只在終端機上印出，而且必須加上 `--raw` 與 `--i-understand-raw-key`（或 `--i-understand-this-reveals-the-key`）。每次完成的匯出都會在 `export-audit.log` 附加一行，裡面沒有金鑰。
 
 錢包需要 Base Sepolia 上的測試 USDC。燃料費由 facilitator 支付。這個版本不會在 Base 主網付款。
+
+現有帳本已經接受 `bind`、`emailCommit`、`limitsCommit`、`walletProofs`、`freeze`、`unfreeze`，以及 `/ledger/spend`（記入 tUSDC）。這個客戶端不會呼叫電子郵件驗證或 X OAuth 路由。伺服器上這些路由仍未實作：`POST /bind/email/start`、`POST /bind/email/confirm`、`POST /bind/x/start`，以及 X 回呼。`xbind` 沒有 HTTP 路由。這個客戶端不會把 Base Sepolia 的收入入帳：伺服器仍需要 `/ledger/income` 接受網路 `eip155:84532`、資產 `0x036CbD53842c5426634e7929541eC2318f3dCF7e`，並把貸方記成 tUSDC。`wallet limit` 更新本機政策與本機 `limitsCommit`。下一次 `wallet create` 會送出這個雜湊。伺服器只保存雜湊，不執行上限。
 
 ### ERC-8004
 

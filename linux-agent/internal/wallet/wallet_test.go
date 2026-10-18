@@ -1,18 +1,36 @@
 package wallet
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 )
+
+func stubLedger(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/agents/") {
+			_, _ = w.Write([]byte(`{"ok":true,"summary":{"frozen":null}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
 
 func TestBindPayAndRefuseMainnet(t *testing.T) {
 	var bindBody map[string]any
@@ -44,7 +62,7 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 		t.Fatal(err)
 	}
 	created, err := Create(context.Background(), CreateOptions{
-		Root: root, Name: "bot", BotID: "m1-bot", LedgerURLs: []string{ledgerSrv.URL}, Now: func() time.Time { return time.UnixMilli(1_800_000_000_000) },
+		Root: root, Name: "bot", BotID: "m1-bot", Email: " Bot@Example.com ", LedgerURLs: []string{ledgerSrv.URL}, Now: func() time.Time { return time.UnixMilli(1_800_000_000_000) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +84,24 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 	if bindBody["botId"] != "m1-bot" {
 		t.Fatal(bindBody["botId"])
 	}
+	if bindBody["emailCommit"] == "" || bindBody["emailCommit"] == nil {
+		t.Fatal("emailCommit missing")
+	}
+	rawBind, _ := json.Marshal(bindBody)
+	if strings.Contains(strings.ToLower(string(rawBind)), "bot@example.com") {
+		t.Fatal("plaintext email was sent")
+	}
+	salt, err := os.ReadFile(root + "/bot/email.salt")
+	if err != nil || len(salt) != 32 {
+		t.Fatal(err)
+	}
+	if bytes.Contains(rawBind, salt) {
+		t.Fatal("salt was sent")
+	}
 
 	tx := "0x" + strings.Repeat("ab", 32)
-	paySrv := paymentServer(t, tx, NetworkSepolia, "10000")
+	cap := &payCapture{}
+	paySrv := paymentServer(t, tx, NetworkSepolia, "10000", 300, cap)
 	defer paySrv.Close()
 	paid, err := Pay(context.Background(), PayOptions{
 		Root: root, Name: "bot", URL: paySrv.URL, LedgerURLs: []string{ledgerSrv.URL},
@@ -85,15 +118,46 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 	if !strings.Contains(paid.Ledger, "/agents/"+created.Agent) {
 		t.Fatal(paid.Ledger)
 	}
+	if cap.sig == "" || cap.sig != cap.xpay {
+		t.Fatalf("headers sig %d xpay %d", len(cap.sig), len(cap.xpay))
+	}
+	if !strings.EqualFold(cap.from, created.Wallet) || cap.value != "10000" || !strings.EqualFold(cap.to, "0xE3837fE309618AE075DbeF0A20735c0615a308E6") {
+		t.Fatalf("authorization %+v", cap)
+	}
+	if cap.network != NetworkSepolia {
+		t.Fatal(cap.network)
+	}
+	now := time.Now().Unix()
+	if cap.validBefore < now || cap.validBefore > now+125 {
+		t.Fatalf("validBefore %d now %d", cap.validBefore, now)
+	}
+	addr, err := recoverSig(cap.digest, cap.signature)
+	if err != nil || !strings.EqualFold(addr.Hex(), created.Wallet) {
+		t.Fatalf("signature %v %s", err, addr.Hex())
+	}
 
-	mainnet := paymentServer(t, tx, "eip155:8453", "10000")
+	mainnet := paymentServer(t, tx, "eip155:8453", "10000", 60, nil)
 	defer mainnet.Close()
-	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !strings.Contains(err.Error(), "eip155:84532") {
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "eip155:84532") {
+		t.Fatal(err)
+	}
+	if _, err := ApplyLimit(root, "bot", LimitUpdate{PerPayment: "0.000001", Domains: []string{"example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	blocked := paymentServer(t, tx, NetworkSepolia, "10000", 60, nil)
+	defer blocked.Close()
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: blocked.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) {
 		t.Fatal(err)
 	}
 }
 
-func paymentServer(t *testing.T, tx, network, amount string) *httptest.Server {
+type payCapture struct {
+	sig, xpay, from, to, value, network, signature string
+	validBefore                                    int64
+	digest                                         []byte
+}
+
+func paymentServer(t *testing.T, tx, network, amount string, timeout int, cap *payCapture) *httptest.Server {
 	t.Helper()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +168,7 @@ func paymentServer(t *testing.T, tx, network, amount string) *httptest.Server {
 				"accepts": []any{map[string]any{
 					"scheme": "exact", "network": network, "amount": amount,
 					"asset": SepoliaUSDC, "payTo": "0xE3837fE309618AE075DbeF0A20735c0615a308E6",
-					"maxTimeoutSeconds": 60,
+					"maxTimeoutSeconds": timeout,
 					"extra":             map[string]any{"name": "USDC", "version": "2"},
 				}},
 			})
@@ -112,6 +176,11 @@ func paymentServer(t *testing.T, tx, network, amount string) *httptest.Server {
 			w.WriteHeader(http.StatusPaymentRequired)
 			_, _ = w.Write(raw)
 			return
+		}
+		if cap != nil {
+			cap.sig = r.Header.Get("Payment-Signature")
+			cap.xpay = r.Header.Get("X-Payment")
+			notePayment(t, cap)
 		}
 		raw, _ := json.Marshal(map[string]any{
 			"success": true, "transaction": tx, "network": network, "payer": "0x0000000000000000000000000000000000000001",
@@ -121,4 +190,47 @@ func paymentServer(t *testing.T, tx, network, amount string) *httptest.Server {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	return srv
+}
+
+func notePayment(t *testing.T, cap *payCapture) {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(cap.sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Accepted struct {
+			Network string `json:"network"`
+		} `json:"accepted"`
+		Payload struct {
+			Signature     string `json:"signature"`
+			Authorization struct {
+				From        string `json:"from"`
+				To          string `json:"to"`
+				Value       string `json:"value"`
+				ValidAfter  string `json:"validAfter"`
+				ValidBefore string `json:"validBefore"`
+				Nonce       string `json:"nonce"`
+			} `json:"authorization"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	auth := payload.Payload.Authorization
+	cap.from = auth.From
+	cap.to = auth.To
+	cap.value = auth.Value
+	cap.network = payload.Accepted.Network
+	cap.signature = payload.Payload.Signature
+	cap.validBefore, _ = strconvParse(auth.ValidBefore)
+	digest, err := authorizationDigest(auth.From, auth.To, auth.Value, auth.ValidAfter, auth.ValidBefore, auth.Nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cap.digest = digest
+}
+
+func strconvParse(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
 }

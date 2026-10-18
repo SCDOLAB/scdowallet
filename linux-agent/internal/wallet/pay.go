@@ -1,10 +1,16 @@
 package wallet
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -25,6 +31,8 @@ type PayOptions struct {
 	Root       string
 	Name       string
 	URL        string
+	MaxAtomic  string
+	DryRun     bool
 	Passphrase []byte
 	LedgerURLs []string
 	Now        func() time.Time
@@ -44,8 +52,11 @@ type Paid struct {
 }
 
 // Pay uses the x402 SDK to sign an EIP-3009 exact payment and retry with
-// PAYMENT-SIGNATURE. Only eip155:84532 is registered.
+// PAYMENT-SIGNATURE. Only eip155:84532 is registered. Limits run before the signature.
 func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
+	if opt.DryRun {
+		return Preview(ctx, opt)
+	}
 	lay, doc, agentKey, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
 	if err != nil {
 		return Paid{}, err
@@ -56,8 +67,16 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	if opt.Now != nil {
 		now = opt.Now()
 	}
+	policyDoc := doc
+	if strings.TrimSpace(opt.MaxAtomic) != "" {
+		tighter, err := tighterCap(doc.MaxAtomic, opt.MaxAtomic)
+		if err != nil {
+			return Paid{}, err
+		}
+		policyDoc.MaxAtomic = tighter
+	}
 	if doc.Killed {
-		return Paid{}, fmt.Errorf("wallet kill switch is on")
+		return Paid{}, policyf("wallet kill switch is on")
 	}
 	if err := rejectFrozen(ctx, opt.LedgerURLs, agentKey.Address()); err != nil {
 		return Paid{}, err
@@ -71,21 +90,45 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	}
 	var chosen Decision
 	var authNonce string
+	var reserveID string
+	var policyErr error
 	var settled *x402.SettleResponse
 	client := x402.Newx402Client(
-		x402.WithSpendControls(x402.SpendControls{MaxAmountPerPayment: USDCap(doc.MaxAtomic)}),
+		x402.WithSpendControls(x402.SpendControls{MaxAmountPerPayment: USDCap(policyDoc.MaxAtomic)}),
 	).Register(x402.Network(NetworkSepolia), evmclient.NewExactEvmScheme(signer, nil))
 	client.OnBeforePaymentCreation(func(pc x402.PaymentCreationContext) (*x402.BeforePaymentCreationHookResult, error) {
 		req := pc.SelectedRequirements
 		chosen = Decision{
-			Network: req.GetNetwork(),
-			Asset:   req.GetAsset(),
-			PayTo:   req.GetPayTo(),
-			Amount:  req.GetAmount(),
-			Now:     now,
+			Network:  req.GetNetwork(),
+			Asset:    req.GetAsset(),
+			PayTo:    req.GetPayTo(),
+			Amount:   req.GetAmount(),
+			Resource: opt.URL,
+			Now:      now,
 		}
-		if err := Allow(doc, chosen); err != nil {
-			return &x402.BeforePaymentCreationHookResult{Abort: true, Reason: err.Error()}, nil
+		err := withSpendLock(lay.Dir, func(log *spendLog) error {
+			seedHistory(doc, log, now)
+			spent := enforcedSpent(doc, *log, now)
+			check := policyDoc
+			check.SpentAtomic = spent.String()
+			check.SpentDay = now.UTC().Format("2006-01-02")
+			if err := Allow(check, chosen); err != nil {
+				return err
+			}
+			id, err := newID()
+			if err != nil {
+				return err
+			}
+			reserveID = id
+			reservePending(log, id, chosen.Amount, now)
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, ErrPolicy) {
+				policyErr = err
+				return &x402.BeforePaymentCreationHookResult{Abort: true, Reason: err.Error()}, nil
+			}
+			return nil, err
 		}
 		return nil, nil
 	})
@@ -93,6 +136,12 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		auth, _ := pc.Payload.GetPayload()["authorization"].(map[string]any)
 		if n, _ := auth["nonce"].(string); len(n) > 0 && len(n) <= 80 {
 			authNonce = n
+		}
+		if reserveID != "" && authNonce != "" {
+			_ = withSpendLock(lay.Dir, func(log *spendLog) error {
+				noteNonce(log, reserveID, authNonce)
+				return nil
+			})
 		}
 		return nil
 	})
@@ -104,10 +153,19 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		return x402.PaymentResponseResult{}, nil
 	})
 
-	base := opt.HTTP
-	if base == nil {
-		base = &http.Client{Timeout: 90 * time.Second}
+	base := &http.Client{Timeout: 90 * time.Second}
+	if opt.HTTP != nil {
+		base.Timeout = opt.HTTP.Timeout
+		base.Transport = opt.HTTP.Transport
 	}
+	if base.Timeout == 0 {
+		base.Timeout = 90 * time.Second
+	}
+	inner := base.Transport
+	if inner == nil {
+		inner = http.DefaultTransport
+	}
+	base.Transport = payTransport{base: inner}
 	httpClient := x402http.WrapHTTPClientWithPayment(base, x402http.Newx402HTTPClient(client))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
 	if err != nil {
@@ -116,7 +174,7 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	req.Header.Set("accept", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return Paid{}, sepoliaOnly(err)
+		return Paid{}, classifyPay(err, policyErr)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -142,6 +200,12 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		doc.LastResource = resource
 		doc.LastNonce = authNonce
 		doc.LastRecorded = false
+		if reserveID != "" {
+			_ = withSpendLock(lay.Dir, func(log *spendLog) error {
+				noteSettled(log, reserveID, settled.Transaction, now)
+				return nil
+			})
+		}
 	}
 	if err := saveDoc(lay.Dir, doc); err != nil {
 		return Paid{}, err
@@ -176,13 +240,109 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 
 // sepoliaOnly keeps the Base Sepolia refusal visible when the SDK drops an
 // unregistered network before the spend-cap hook runs.
+func tighterCap(current, requested string) (string, error) {
+	req, ok := new(big.Int).SetString(requested, 10)
+	if !ok || req.Sign() <= 0 {
+		return "", policyf("bad amount")
+	}
+	cur, ok := new(big.Int).SetString(current, 10)
+	if !ok {
+		return requested, nil
+	}
+	if req.Cmp(cur) < 0 {
+		return requested, nil
+	}
+	return current, nil
+}
+
+func newID() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// payTransport caps a 402 challenge at 120 seconds and copies the v2 payment
+// header onto X-PAYMENT. Signing stays inside the x402 SDK.
+type payTransport struct {
+	base http.RoundTripper
+}
+
+func (p payTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if sig := req.Header.Get("Payment-Signature"); sig != "" && req.Header.Get("X-Payment") == "" {
+		req.Header.Set("X-Payment", sig)
+	}
+	resp, err := p.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.StatusCode != http.StatusPaymentRequired {
+		return resp, err
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	body = capChallenge(body)
+	if h := resp.Header.Get("Payment-Required"); h != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(h); err == nil {
+			resp.Header.Set("Payment-Required", base64.StdEncoding.EncodeToString(capChallenge(decoded)))
+		}
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	return resp, nil
+}
+
+func capChallenge(raw []byte) []byte {
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return raw
+	}
+	accepts, _ := doc["accepts"].([]any)
+	changed := false
+	for _, item := range accepts {
+		m, _ := item.(map[string]any)
+		if m == nil {
+			continue
+		}
+		n, ok := m["maxTimeoutSeconds"].(float64)
+		if ok && n > 120 {
+			m["maxTimeoutSeconds"] = 120
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func classifyPay(err, policyErr error) error {
+	if policyErr != nil {
+		return policyErr
+	}
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "maxAmountPerPayment") || strings.Contains(msg, "spendControls") {
+		return policyf("amount is above the per-payment cap")
+	}
+	return sepoliaOnly(err)
+}
+
 func sepoliaOnly(err error) error {
 	if err == nil {
 		return nil
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "no supported payment schemes") || strings.Contains(msg, "no client registered for network") {
-		return fmt.Errorf("only Base Sepolia (eip155:84532) payments are enabled: %w", err)
+		return policyf("only Base Sepolia (eip155:84532) payments are enabled")
 	}
 	return err
 }
@@ -221,7 +381,7 @@ func rejectFrozen(ctx context.Context, urls []string, agentAddr string) error {
 		return nil
 	}
 	if frozen, ok := sum["frozen"]; ok && frozen != nil {
-		return fmt.Errorf("wallet is frozen on the ledger")
+		return policyf("wallet is frozen on the ledger")
 	}
 	return nil
 }

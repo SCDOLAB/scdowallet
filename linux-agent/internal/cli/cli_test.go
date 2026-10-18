@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -149,7 +150,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.4.0") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.5.0") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
 	}
 }
@@ -166,6 +167,75 @@ func TestUpgradeNowNeedsRoot(t *testing.T) {
 	out.Reset()
 	if code := Main([]string{"help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "upgrade-now") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestWalletCommands(t *testing.T) {
+	t.Setenv("SCDO_AGENT_PASSPHRASE_FILE", "")
+	t.Setenv("SCDO_AGENT_LEDGER", "")
+	dir := t.TempDir()
+	ledgerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"summary":{"frozen":null}}`))
+	}))
+	defer ledgerSrv.Close()
+	var out, errb bytes.Buffer
+	if code := Main([]string{"--data-dir", dir, "init", "--name", "bot", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := Main([]string{"--data-dir", dir, "wallet", "create", "--bot", "bot", "--email", "Bot@Example.com", "--ledger", ledgerSrv.URL}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	if !strings.Contains(out.String(), "Email commitment:") || strings.Contains(strings.ToLower(out.String()), "bot@example.com") {
+		t.Fatal(out.String())
+	}
+	if !strings.Contains(out.String(), "Your keys stay on your machine") {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	if code := Main([]string{"--data-dir", dir, "wallet", "show", "--bot", "bot"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "eip155:84532") {
+		t.Fatal(out.String(), errb.String())
+	}
+	out.Reset()
+	if code := Main([]string{"--data-dir", dir, "wallet", "limit", "--bot", "bot", "--per-payment", "0.000001", "--daily", "1", "--allow-domain", "api.example.com"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	if !strings.Contains(out.String(), "0.000001") {
+		t.Fatal(out.String())
+	}
+	paySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw := []byte(`{"x402Version":2,"accepts":[{"scheme":"exact","network":"eip155:84532","amount":"10000","asset":"0x036CbD53842c5426634e7929541eC2318f3dCF7e","payTo":"0xE3837fE309618AE075DbeF0A20735c0615a308E6","maxTimeoutSeconds":60,"extra":{"name":"USDC","version":"2"}}]}`)
+		w.Header().Set("Payment-Required", base64.StdEncoding.EncodeToString(raw))
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write(raw)
+	}))
+	defer paySrv.Close()
+	out.Reset()
+	errb.Reset()
+	code := Main([]string{"--data-dir", dir, "pay", paySrv.URL, "--bot", "bot", "--dry-run", "--ledger", ledgerSrv.URL}, &out, &errb)
+	if code != 3 || !strings.Contains(errb.String(), "Payment stopped") && !strings.Contains(errb.String(), "per-payment") && !strings.Contains(errb.String(), "allowlist") {
+		t.Fatalf("code %d out %q err %q", code, out.String(), errb.String())
+	}
+	pass := dir + "/export.pass"
+	if err := os.WriteFile(pass, []byte("export-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errb.Reset()
+	ks := dir + "/ks.json"
+	if code := Main([]string{"--data-dir", dir, "wallet", "export", "--bot", "bot", "--out", ks, "--export-passphrase-file", pass}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	blob, err := os.ReadFile(ks)
+	if err != nil || !bytes.Contains(blob, []byte(`"crypto"`)) || bytes.Contains(bytes.ToLower(blob), []byte("privatekey")) {
+		t.Fatal(string(blob), err)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := Main([]string{"--data-dir", dir, "wallet", "export", "--bot", "bot", "--raw", "--i-understand-raw-key"}, &out, &errb); code == 0 || strings.Contains(out.String(), "0x") && len(strings.TrimSpace(out.String())) == 66 {
+		t.Fatalf("raw key printed off a terminal: %q %q", out.String(), errb.String())
 	}
 }
 

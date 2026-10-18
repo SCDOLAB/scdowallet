@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -40,8 +41,29 @@ func TestAllowCapsKillAndPayees(t *testing.T) {
 	if err := Allow(doc, ok); err == nil {
 		t.Fatal("allowlist")
 	}
+	ok.PayTo = "0xE3837fE309618AE075DbeF0A20735c0615a308E6"
+	doc.Domains = []string{"*.example.com", "api.scdo.com.au"}
+	ok.Resource = "https://pay.example.com/quote"
+	if err := Allow(doc, ok); err != nil {
+		t.Fatal(err)
+	}
+	ok.Resource = "https://example.com/quote"
+	if err := Allow(doc, ok); err == nil {
+		t.Fatal("apex is not a wildcard match")
+	}
+	ok.Resource = "https://evil.test/quote"
+	if err := Allow(doc, ok); err == nil || !errors.Is(err, ErrPolicy) {
+		t.Fatal(err)
+	}
 	if USDCap("10000") != "$0.01" || USDCap("1000000") != "$1" {
 		t.Fatalf("%s %s", USDCap("10000"), USDCap("1000000"))
+	}
+	atomic, err := ParseUSDC("0.10")
+	if err != nil || atomic != "100000" || FormatUSDC(atomic) != "0.100000" {
+		t.Fatal(atomic, err)
+	}
+	if _, err := ParseUSDC("1.0000001"); err == nil {
+		t.Fatal("too many decimals")
 	}
 	if doc.spentToday(now).Cmp(big.NewInt(0)) != 0 {
 		t.Fatal("stale day")

@@ -67,6 +67,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdUpgrade(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "wallet":
 		return cmdWallet(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "pay":
+		return cmdPay(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "serve-paywall":
+		return cmdServePaywall(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "erc8004":
 		return cmdERC8004(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:

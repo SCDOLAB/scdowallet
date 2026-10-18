@@ -20,6 +20,7 @@ type CreateOptions struct {
 	Root       string
 	Name       string
 	BotID      string
+	Email      string
 	MaxAtomic  string
 	Daily      string
 	Payees     []string
@@ -32,11 +33,12 @@ type CreateOptions struct {
 
 // Created is the public result of a bind.
 type Created struct {
-	Agent   string
-	Wallet  string
-	BotID   string
-	Ledger  string
-	Network string
+	Agent       string
+	Wallet      string
+	BotID       string
+	EmailCommit string
+	Ledger      string
+	Network     string
 }
 
 // Create writes keys/wallet.key when it is missing and POSTs /bind.
@@ -78,6 +80,20 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	}
 	if len(opt.Payees) > 0 {
 		doc.Payees = opt.Payees
+	}
+	if strings.TrimSpace(opt.Email) != "" {
+		salt, err := loadOrCreateSalt(lay.Dir)
+		if err != nil {
+			return Created{}, err
+		}
+		commit, err := EmailCommit(salt, opt.Email)
+		for i := range salt {
+			salt[i] = 0
+		}
+		if err != nil {
+			return Created{}, err
+		}
+		doc.EmailCommit = commit
 	}
 	platform := opt.Platform
 	if platform == "" {
@@ -122,7 +138,11 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
+	doc.LimitsCommit = commit
 	body["limitsCommit"] = commit
+	if doc.EmailCommit != "" {
+		body["emailCommit"] = doc.EmailCommit
+	}
 
 	seq, err := lay.NextSeq()
 	if err != nil {
@@ -148,11 +168,12 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 		return Created{}, err
 	}
 	return Created{
-		Agent:   agentKey.Address(),
-		Wallet:  walletKey.Address(),
-		BotID:   opt.BotID,
-		Ledger:  strings.TrimRight(res.Ledger, "/") + "/agents/" + agentKey.Address(),
-		Network: NetworkSepolia,
+		Agent:       agentKey.Address(),
+		Wallet:      walletKey.Address(),
+		BotID:       opt.BotID,
+		EmailCommit: doc.EmailCommit,
+		Ledger:      strings.TrimRight(res.Ledger, "/") + "/agents/" + agentKey.Address(),
+		Network:     NetworkSepolia,
 	}, nil
 }
 
@@ -165,10 +186,20 @@ func proofNonce() (string, error) {
 }
 
 func limitsCommit(doc Doc) (string, error) {
+	payees := doc.Payees
+	if payees == nil {
+		payees = []string{}
+	}
+	domains := doc.Domains
+	if domains == nil {
+		domains = []string{}
+	}
 	c, err := ledger.Canonical(map[string]any{
 		"budgetAtomic": doc.DailyAtomic,
+		"domains":      domains,
 		"maxAtomic":    doc.MaxAtomic,
 		"network":      doc.Network,
+		"payees":       payees,
 	})
 	if err != nil {
 		return "", err
