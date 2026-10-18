@@ -7,8 +7,13 @@ import (
 	"regexp"
 	"time"
 
+	"os"
+	"path/filepath"
+	"strconv"
+
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/ledger"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/update"
 )
 
 const (
@@ -123,8 +128,8 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
-// Tick registers if needed, then sends one heartbeat.
-// It returns true when the heartbeat was accepted.
+// Tick registers if needed, sends one update /report when a result is waiting,
+// then sends one heartbeat. It returns true when the heartbeat was accepted.
 func (s *Service) Tick(ctx context.Context) bool {
 	if !s.registered {
 		if err := s.deliver(ctx, "register", s.registerBody()); err != nil {
@@ -132,10 +137,40 @@ func (s *Service) Tick(ctx context.Context) bool {
 		}
 		s.registered = true
 	}
+	s.reportUpdate(ctx)
 	if err := s.deliver(ctx, "heartbeat", s.heartbeatBody()); err != nil {
 		return false
 	}
+	s.stampHeartbeat()
+	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
+		_ = update.MarkReported(s.Layout.Root)
+	}
 	return true
+}
+
+func (s *Service) reportUpdate(ctx context.Context) {
+	doc, ok, err := update.LoadResult(s.Layout.Root)
+	if err != nil || !ok || doc.Reported {
+		return
+	}
+	body := map[string]any{
+		"kind":     "update",
+		"message":  doc.From + " -> " + doc.To + " " + doc.Outcome,
+		"stack":    "",
+		"version":  s.version(),
+		"platform": Platform,
+		"from":     doc.From,
+		"to":       doc.To,
+		"outcome":  doc.Outcome,
+	}
+	if err := s.deliver(ctx, "report", body); err == nil {
+		_ = update.MarkReported(s.Layout.Root)
+	}
+}
+
+func (s *Service) stampHeartbeat() {
+	path := filepath.Join(s.Layout.Dir, "last-heartbeat")
+	_ = os.WriteFile(path, []byte(strconv.FormatInt(s.now(), 10)+"\n"), 0o644)
 }
 
 func (s *Service) registerBody() map[string]any {
@@ -153,6 +188,7 @@ func (s *Service) registerBody() map[string]any {
 	if m.Src != "" {
 		body["src"] = m.Src
 	}
+	addCapability(body, m)
 	return body
 }
 
@@ -161,9 +197,26 @@ func (s *Service) heartbeatBody() map[string]any {
 	if code == "" {
 		code = CodeLight
 	}
-	return map[string]any{
+	body := map[string]any{
 		"version": s.version(),
 		"code":    code,
+	}
+	addCapability(body, s.Layout.Meta)
+	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
+		body["updateFrom"] = doc.From
+		body["updateTo"] = doc.To
+		body["updateOutcome"] = doc.Outcome
+	}
+	return body
+}
+
+func addCapability(body map[string]any, m Meta) {
+	if m.GPUModel == "" {
+		return
+	}
+	body["gpuModel"] = m.GPUModel
+	if m.GPUVramMiB > 0 {
+		body["gpuVramMiB"] = m.GPUVramMiB
 	}
 }
 

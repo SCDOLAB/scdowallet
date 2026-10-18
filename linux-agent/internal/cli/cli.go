@@ -61,6 +61,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdList(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "logs":
 		return cmdLogs(b, rest, stdout, stderr)
+	case "upgrade-now":
+		return cmdUpgrade(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2

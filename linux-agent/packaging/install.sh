@@ -1,10 +1,10 @@
 #!/bin/sh
 # Install scdo-agent from https://scdo.com.au/downloads/wallet/linux/
-# Detects the CPU, checks SHA256SUMS, then installs the binary and the systemd unit.
+# Detects the CPU, checks SHA256SUMS, then installs the binary and the systemd units.
 set -eu
 
 BASE_URL="https://scdo.com.au/downloads/wallet/linux"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 lang=en
 case "${LC_ALL:-${LANG:-}}" in
@@ -82,6 +82,9 @@ else
   install -m 0755 "$unpack/scdo-agent" /usr/bin/scdo-agent
   install -d /lib/systemd/system
   install -m 0644 "$unpack/systemd/scdo-agent@.service" /lib/systemd/system/scdo-agent@.service
+  install -m 0644 "$unpack/systemd/scdo-agent-update.service" /lib/systemd/system/scdo-agent-update.service
+  install -m 0644 "$unpack/systemd/scdo-agent-update.timer" /lib/systemd/system/scdo-agent-update.timer
+  install -m 0644 "$unpack/systemd/scdo-agent-boot.service" /lib/systemd/system/scdo-agent-boot.service
   if ! id scdo-agent >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/scdo-agent --shell /usr/sbin/nologin --comment "SCDO bookkeeping agent" scdo-agent
   fi
@@ -90,6 +93,8 @@ else
   chmod 0755 /var/lib/scdo-agent
   if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
+    systemctl enable --now scdo-agent-update.timer || true
+    systemctl enable scdo-agent-boot.service || true
   fi
 fi
 
@@ -100,6 +105,8 @@ say "  sudo scdo-agent init --name <name> --payout 0x<address>" "  sudo scdo-age
 say "  sudo systemctl enable --now scdo-agent@<name>.service" "  sudo systemctl enable --now scdo-agent@<名稱>.service"
 say "  scdo-agent status --name <name>" "  scdo-agent status --name <名稱>"
 say "  scdo-agent logs --name <name>" "  scdo-agent logs --name <名稱>"
+say "  sudo scdo-agent upgrade-now" "  sudo scdo-agent upgrade-now"
 say "" ""
 say "Several agents: repeat init with another --name and enable scdo-agent@<that-name>.service." "多個代理：用另一個 --name 再執行 init，並啟用 scdo-agent@<該名稱>.service。"
 say "Each agent keeps its own ledger record." "每個代理維護自己的帳本紀錄。"
+say "A daily timer checks the signed release feed. upgrade-now is the same command." "每日計時器會檢查簽章後的發布檔。upgrade-now 是同一條命令。"

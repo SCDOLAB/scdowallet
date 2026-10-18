@@ -12,7 +12,7 @@ Published files live at `https://scdo.com.au/downloads/wallet/linux/` (you publi
 
 | File | What it is |
 | --- | --- |
-| `install.sh` | Detects x86_64 or arm64, checks `SHA256SUMS`, installs the binary and the unit |
+| `install.sh` | Detects x86_64 or arm64, checks `SHA256SUMS`, installs the binary and the units |
 | `scdo-agent_<version>_linux_amd64.deb` | Debian package |
 | `scdo-agent_<version>_linux_arm64.deb` | Debian package |
 | `scdo-agent_<version>_linux_amd64.tar.gz` | Binary plus the systemd unit |
@@ -76,7 +76,7 @@ Set `SCDO_AGENT_LEDGER` or `--ledger` to pin a single base (used for a local led
 /var/lib/scdo-agent/<name>/keys/ledger.key identity (mode 0600)
 ```
 
-`keys/` is mode `0700`. The keystore is one file per purpose, so a second key file can be added beside `ledger.key` later without changing this identity or its sequence counter.
+`keys/` is mode `0700`. The keystore is one file per purpose. `keys/wallet.key` is a second key. Creating an agent from the adapter list or from `x-accounts.toml` writes that file when it is missing, and never replaces an existing one. The ledger identity stays in `ledger.key`.
 
 Without `--passphrase-file`, the key file is unencrypted and readable only by the `scdo-agent` service user. That is the unattended systemd setup. With `--passphrase-file` (or `SCDO_AGENT_PASSPHRASE_FILE`), the file is encrypted with scrypt and AES-256-GCM. Point the unit at that file with a drop-in; do not put the passphrase on the command line.
 
@@ -89,6 +89,65 @@ Environment=SCDO_AGENT_PASSPHRASE_FILE=/etc/scdo-agent/rack-a.pass
 The passphrase file should be mode `0600` and owned by `scdo-agent`.
 
 Removing the Debian package does not delete `/var/lib/scdo-agent`.
+
+## Update
+
+`upgrade-now` is the stable entry point. It needs root, except for `--dry-run`.
+
+```sh
+sudo scdo-agent upgrade-now
+sudo scdo-agent upgrade-now --dry-run
+```
+
+`--dry-run` checks the signed feed and does not replace the binary.
+
+The installer enables two units:
+
+- `scdo-agent-update.timer` runs `upgrade-now` once a day, with up to one hour of random delay.
+- `scdo-agent-boot.service` runs `upgrade-now` at boot so adapters are reconciled after a restart.
+
+The feed is `https://scdo.com.au/downloads/wallet/linux/latest.json`, then `https://apeccapital.org/downloads/wallet/linux/latest.json`. The signature is Ed25519 over the same canonical JSON the desktop wallet uses. The package sha256 is checked before the binary is replaced. The previous binary, the config directory, and each keystore are copied to `/var/lib/scdo-agent/backups/<timestamp>/`. Only the newest five of those timestamp directories are kept. Key files are copied into the backup and are not deleted from the agent directory.
+
+After the swap, each `scdo-agent@*` instance restarts one at a time. If a restarted instance is not active, or has no successful heartbeat within 3 minutes, the previous binary is restored and the instances restart again. The next heartbeat reports `ok` or `rolled-back`.
+
+A feed that cannot be reached leaves the installed binary as it is.
+
+## Adapters
+
+On update and on boot, the agent lists graphics adapters with `nvidia-smi`, then `rocm-smi`, then `lspci`. If `nvidia-smi` is installed but the command fails, the next probe is used.
+
+Each adapter gets its own instance `scdo-agent@gpuN`, its own identity, and its own `keys/wallet.key`. The ledger record carries the model name and the memory size. No workload is started on the adapter.
+
+When an adapter is no longer listed, that instance is stopped and an offline report is sent. The directory and the keys stay on disk. A probe that cannot run at all leaves existing adapter instances running.
+
+New instances need a payout address. Set it in `/etc/scdo-agent/config.toml`:
+
+```
+payout = "0x<address>"
+```
+
+If that file is absent, the payout of the first existing agent is used.
+
+## X account file
+
+`/etc/scdo-agent/x-accounts.toml` maps an X handle and user id to an agent name:
+
+```
+[[account]]
+handle = "example"
+user_id = "123"
+agent = "example"
+```
+
+A new row creates that agent. Running the command again does not replace an existing key. The same row only refreshes the handle and user id stored in `meta.json`. OAuth binding is not part of this build.
+
+## Rig hook
+
+`linux-agent/scripts/rig-hook.sh` is a companion for a Classic node upgrader or an rtty push. That upgrader is not in this repository, and this package does not change it. The hook installs scdo-agent from `https://scdo.com.au/downloads/wallet/linux/install.sh` when the binary is missing, then runs `scdo-agent upgrade-now`.
+
+```sh
+sudo sh linux-agent/scripts/rig-hook.sh
+```
 
 ## Language
 
@@ -144,11 +203,70 @@ scdo-agent logs --name rack-a
 
 ### 金鑰
 
-`meta.json` 只有地址、收款地址與角色。`state.json` 是序號。`keys/ledger.key` 是身份。`keys/` 權限 `0700`。金鑰庫一個用途一個檔案，之後可以在 `ledger.key` 旁邊再放另一把金鑰，而不改動這把身份與序號。
+`meta.json` 只有地址、收款地址與角色。`state.json` 是序號。`keys/ledger.key` 是身份。`keys/` 權限 `0700`。金鑰庫一個用途一個檔案。`keys/wallet.key` 是第二把金鑰。從顯示卡清單或 `x-accounts.toml` 建立代理時，若這個檔案不存在就會寫入，已存在的檔案不會被替換。帳本身份仍在 `ledger.key`。
 
 未加 `--passphrase-file` 時，金鑰不加密，只有服務使用者 `scdo-agent` 能讀，適合無人值守。加上 `--passphrase-file`（或 `SCDO_AGENT_PASSPHRASE_FILE`）後，以 scrypt 與 AES-256-GCM 加密。不要把通行詞放在命令列上。
 
 移除 Debian 套件不會刪除 `/var/lib/scdo-agent`。
+
+### 更新
+
+`upgrade-now` 是固定的進入點。除了 `--dry-run` 之外需要 root。
+
+```sh
+sudo scdo-agent upgrade-now
+sudo scdo-agent upgrade-now --dry-run
+```
+
+`--dry-run` 只檢查簽章後的發布檔，不替換執行檔。
+
+安裝程式會啟用兩個單元：
+
+- `scdo-agent-update.timer` 每天執行一次 `upgrade-now`，並加上最多一小時的隨機延遲。
+- `scdo-agent-boot.service` 在開機時執行 `upgrade-now`，以便重新啟動後核對顯示卡。
+
+發布檔先讀 `https://scdo.com.au/downloads/wallet/linux/latest.json`，失敗時改讀 `https://apeccapital.org/downloads/wallet/linux/latest.json`。簽章是 Ed25519，規範 JSON 與桌面錢包相同。替換執行檔之前會核對套件的 sha256。先前的執行檔、設定目錄與每份金鑰庫會複製到 `/var/lib/scdo-agent/backups/<時間戳>/`。只保留最新的五個時間戳目錄。金鑰會複製進備份，代理目錄裡的金鑰不會被刪除。
+
+替換之後，每個 `scdo-agent@*` 實例會逐一重新啟動。若重新啟動的實例沒有處於執行中，或 3 分鐘內沒有成功的心跳，就還原先前的執行檔並再次啟動這些實例。下一次心跳會回報 `ok` 或 `rolled-back`。
+
+連不上發布檔時，已安裝的執行檔保持不變。
+
+### 顯示卡
+
+更新時與開機時，會依序用 `nvidia-smi`、`rocm-smi`、`lspci` 列出顯示卡。若 `nvidia-smi` 已安裝但命令失敗，就改用下一個探測。
+
+每張顯示卡有自己的實例 `scdo-agent@gpuN`、自己的身份，以及自己的 `keys/wallet.key`。帳本紀錄帶有型號與記憶體大小。不會在顯示卡上啟動工作。
+
+當某張顯示卡不再出現在清單上，該實例會停止，並送出離線回報。目錄與金鑰留在磁碟上。探測完全無法執行時，既有的顯示卡實例會繼續運行。
+
+新實例需要收款地址。寫在 `/etc/scdo-agent/config.toml`：
+
+```
+payout = "0x<地址>"
+```
+
+若沒有這個檔案，就沿用第一個既有代理的收款地址。
+
+### X 帳號檔
+
+`/etc/scdo-agent/x-accounts.toml` 把 X 帳號代號與使用者編號對應到代理名稱：
+
+```
+[[account]]
+handle = "example"
+user_id = "123"
+agent = "example"
+```
+
+新的一列會建立該代理。再次執行不會替換既有金鑰。同一列只會更新 `meta.json` 裡的代號與使用者編號。這個版本不含 OAuth 綁定。
+
+### 機台掛鉤
+
+`linux-agent/scripts/rig-hook.sh` 是給 Classic 節點升級程式或 rtty 推送使用的伴隨腳本。那個升級程式不在這個儲存庫裡，這個套件也不會改動它。執行檔不存在時，掛鉤會從 `https://scdo.com.au/downloads/wallet/linux/install.sh` 安裝，然後執行 `scdo-agent upgrade-now`。
+
+```sh
+sudo sh linux-agent/scripts/rig-hook.sh
+```
 
 ### 語言
 

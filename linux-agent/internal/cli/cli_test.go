@@ -143,6 +143,21 @@ func addrFrom(s string) string {
 	return ""
 }
 
+func TestUpgradeNowNeedsRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root")
+	}
+	var out, errb bytes.Buffer
+	code := Main([]string{"upgrade-now"}, &out, &errb)
+	if code != 1 || !strings.Contains(errb.String(), "root") {
+		t.Fatalf("code %d out %q err %q", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := Main([]string{"help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "upgrade-now") {
+		t.Fatal(out.String())
+	}
+}
+
 func readKey(t *testing.T, root, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(root + "/" + name + "/keys/ledger.key")

@@ -25,7 +25,9 @@ for arch in amd64 arm64; do
     -ldflags "-s -w -X github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo.Version=${VER}" \
     -o "dist/build/$arch/scdo-agent" ./cmd/scdo-agent
   cp "dist/build/$arch/scdo-agent" "dist/stage-$arch/scdo-agent"
-  cp packaging/scdo-agent@.service "dist/stage-$arch/systemd/scdo-agent@.service"
+  for unit in scdo-agent@.service scdo-agent-update.service scdo-agent-update.timer scdo-agent-boot.service; do
+    cp "packaging/$unit" "dist/stage-$arch/systemd/$unit"
+  done
   cp README.md "dist/stage-$arch/README.md"
   tar -C "dist/stage-$arch" -czf "dist/scdo-agent_${VER}_linux_${arch}.tar.gz" scdo-agent systemd README.md
 
@@ -47,6 +49,18 @@ contents:
       mode: 0755
   - src: packaging/scdo-agent@.service
     dst: /lib/systemd/system/scdo-agent@.service
+    file_info:
+      mode: 0644
+  - src: packaging/scdo-agent-update.service
+    dst: /lib/systemd/system/scdo-agent-update.service
+    file_info:
+      mode: 0644
+  - src: packaging/scdo-agent-update.timer
+    dst: /lib/systemd/system/scdo-agent-update.timer
+    file_info:
+      mode: 0644
+  - src: packaging/scdo-agent-boot.service
+    dst: /lib/systemd/system/scdo-agent-boot.service
     file_info:
       mode: 0644
 scripts:

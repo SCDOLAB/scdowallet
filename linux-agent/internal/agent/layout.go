@@ -6,7 +6,7 @@
 //	<root>/<name>/state.json         monotonic ledger seq
 //	<root>/<name>/run.lock           process lock
 //	<root>/<name>/keys/ledger.key    secp256k1 identity, mode 0600
-//	<root>/<name>/keys/wallet.key    reserved for a second key; not created here
+//	<root>/<name>/keys/wallet.key    second key; reconcile creates it, never replaces it
 //
 // The key store is one file per purpose, so another key can sit beside
 // ledger.key without sharing its scalar or this seq counter.
@@ -62,6 +62,11 @@ type Meta struct {
 	Src        string `json:"src,omitempty"`
 	CreatedAt  string `json:"createdAt"`
 	KeyPurpose string `json:"keyPurpose"`
+	GPUIndex   *int   `json:"gpuIndex,omitempty"`
+	GPUModel   string `json:"gpuModel,omitempty"`
+	GPUVramMiB int    `json:"gpuVramMiB,omitempty"`
+	XHandle    string `json:"xHandle,omitempty"`
+	XUserID    string `json:"xUserId,omitempty"`
 }
 
 type stateDoc struct {
@@ -218,6 +223,26 @@ func Open(root, name string) (*Layout, error) {
 // OpenKey loads the ledger identity. The scalar stays inside the returned key.
 func (l *Layout) OpenKey(passphrase []byte) (*ledger.Key, error) {
 	return (keys.Store{Dir: filepath.Join(l.Dir, "keys")}).Open("ledger", passphrase)
+}
+
+// SaveMeta rewrites the public record. It does not touch keys.
+func (l *Layout) SaveMeta() error {
+	return writeJSON(filepath.Join(l.Dir, "meta.json"), l.Meta, 0o644)
+}
+
+// EnsureWallet creates keys/wallet.key when it is missing.
+// An existing wallet file is left as it is, passphrase or not.
+func EnsureWallet(dir string, passphrase []byte) error {
+	store := keys.Store{Dir: filepath.Join(dir, "keys")}
+	path, err := store.Path("wallet")
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	_, err = store.Create("wallet", passphrase)
+	return err
 }
 
 // List returns agent names that have a meta.json, in directory order.
