@@ -126,6 +126,8 @@ The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This b
 
 `wallet bind-x` POSTs `/bind/x/start`. When the ledger returns an https auth URL, the command prints it. Until an X app is configured the ledger returns 503, and the command reports `X binding not yet enabled on the ledger`. The `xbind` attestation is not sent.
 
+`operator batch --name OPERATOR --bot BOT` signs `/operator/batch`. Each bot must already be bound with `operator` set to that agent's address. The merkle root is those bind hashes in the given order: each pair is sorted, hashed, and an odd hash is carried up. One bot's root is its bind hash.
+
 `wallet limit` updates the local policy and the local `limitsCommit`. The next `wallet create` sends that hash. The server stores the hash and does not enforce the caps. Base mainnet stays off.
 
 ## ERC-8004
@@ -308,6 +310,8 @@ scdo-agent wallet unfreeze --bot rack-a
 `wallet bind-email` 把 `{agent, email, salt}` 送到 `/bind/email/start`。鹽來自 `email.salt`，必須對上先前 `/bind` 送出的 `emailCommit`。鹽不會寫進紀錄。帳本若回 `delivery: "todo_no_sender"`，命令會說明承諾已接受、驗證碼尚未寄出，因為帳本還沒有寄信程式。`wallet confirm-email --code` 送出機器人簽署的 `emailconfirm` 信封 `{nonce, code}` 到 `/bind/email/confirm`。第 6 次不會送出。
 
 `wallet bind-x` 送到 `/bind/x/start`。帳本若回傳 https 授權網址，命令會印出它。在 X 應用程式設定好之前，帳本回 503，命令回報 `X binding not yet enabled on the ledger`。不會送出 `xbind` 證明。
+
+`operator batch --name 操作者 --bot 機器人` 簽署 `/operator/batch`。每個機器人綁定時的 `operator` 必須是這個代理的地址。Merkle 根是這些綁定雜湊，順序與參數相同：每一對先排序再雜湊，落單的雜湊原樣往上。只有一個機器人時，根就是它的綁定雜湊。
 
 `wallet limit` 更新本機政策與本機 `limitsCommit`。下一次 `wallet create` 會送出這個雜湊。伺服器只保存雜湊，不執行上限。Base 主網保持關閉。
 

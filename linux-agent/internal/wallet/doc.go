@@ -38,6 +38,7 @@ type Doc struct {
 	Payees       []string `json:"payees,omitempty"`
 	Domains      []string `json:"domains,omitempty"`
 	EmailCommit  string   `json:"emailCommit,omitempty"`
+	BindHash     string   `json:"bindHash,omitempty"`
 	LimitsCommit string   `json:"limitsCommit,omitempty"`
 	Killed       bool     `json:"killed"`
 	LastTx       string   `json:"lastTx,omitempty"`

@@ -73,6 +73,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdServePaywall(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "erc8004":
 		return cmdERC8004(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "operator":
+		return cmdOperator(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, b.T("usage"))
 		return 2

@@ -150,7 +150,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.5.1") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.6.0") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
 	}
 }

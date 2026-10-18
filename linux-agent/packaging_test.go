@@ -48,11 +48,11 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ver), `Version = "0.5.1"`) {
+	if !strings.Contains(string(ver), `Version = "0.6.0"`) {
 		t.Fatal("version")
 	}
 	inst, _ := os.ReadFile("packaging/install.sh")
-	if !strings.Contains(string(inst), `VERSION="0.5.1"`) {
+	if !strings.Contains(string(inst), `VERSION="0.6.0"`) {
 		t.Fatal("install.sh version")
 	}
 	for _, needle := range []string{
