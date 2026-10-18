@@ -52,11 +52,11 @@ func TestPackagingCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ver), `Version = "0.5.1"`) {
+	if !strings.Contains(string(ver), `Version = "0.5.2"`) {
 		t.Fatal("version")
 	}
 	inst, _ := os.ReadFile("packaging/install.sh")
-	if !strings.Contains(string(inst), `VERSION="0.5.1"`) {
+	if !strings.Contains(string(inst), `VERSION="0.5.2"`) {
 		t.Fatal("install.sh version")
 	}
 	for _, needle := range []string{
@@ -79,13 +79,92 @@ func TestPackagingCopy(t *testing.T) {
 	if strings.Contains(string(userUnit), "User=scdo-agent") || strings.Contains(string(userUnit), "ProtectHome=") {
 		t.Fatal("user unit must not set User= or ProtectHome=")
 	}
+	for _, bad := range []string{
+		"PrivateTmp=",
+		"ProtectSystem=",
+		"ProtectKernelTunables=",
+		"ProtectKernelModules=",
+		"ProtectControlGroups=",
+		"CapabilityBoundingSet=",
+	} {
+		if strings.Contains(string(userUnit), bad) {
+			t.Fatal("user unit has sandbox option " + bad)
+		}
+	}
+	sysUnit, err := os.ReadFile("packaging/scdo-agent@.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{
+		"PrivateTmp=true",
+		"ProtectSystem=strict",
+		"ProtectHome=true",
+		"ProtectKernelTunables=true",
+		"ProtectKernelModules=true",
+		"ProtectControlGroups=true",
+	} {
+		if !strings.Contains(string(sysUnit), needle) {
+			t.Fatal("system unit missing " + needle)
+		}
+	}
+	for _, needle := range []string{
+		"is-active",
+		"218/CAPABILITIES",
+		"apparmor_restrict_unprivileged_userns",
+		"scdo-agent@install-check.service",
+	} {
+		if !strings.Contains(string(inst), needle) {
+			t.Fatal("install.sh missing " + needle)
+		}
+	}
 	pkg, err := os.ReadFile("scripts/package.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, needle := range []string{"-trimpath", "-buildid=", "SOURCE_DATE_EPOCH", "gzip -n", "--mtime", "systemd-user"} {
+	for _, needle := range []string{
+		"CGO_ENABLED=0",
+		"-trimpath",
+		"-buildvcs=false",
+		"-buildid=",
+		"-B none",
+		"SOURCE_DATE_EPOCH",
+		"mktar",
+		"-epoch",
+		"systemd-user",
+		"GOFLAGS=-mod=readonly",
+		"go mod verify",
+		"toolchain.sum",
+		"GOMODCACHE=/tmp/scdo-gopath/pkg/mod",
+		"GOTOOLCHAIN=local",
+	} {
 		if !strings.Contains(string(pkg), needle) {
 			t.Fatal("package.sh missing " + needle)
+		}
+	}
+	if strings.Contains(string(pkg), "gobuildid") {
+		t.Fatal("package.sh must not derive a GNU build id")
+	}
+	sums, err := os.ReadFile("scripts/toolchain.sum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{
+		"cb2396bae64183cdccf81a9a6df0aea3bce9511fc21469fb89a0c00470088073",
+		"8df5750ffc0281017fb6070fba450f5d22b600a02081dceef47966ffaf36a3af",
+		"go1.24.1.linux-amd64.tar.gz",
+		"go1.24.1.linux-arm64.tar.gz",
+	} {
+		if !strings.Contains(string(sums), needle) {
+			t.Fatal("toolchain.sum missing " + needle)
+		}
+	}
+	wf, err := os.ReadFile("../.github/workflows/linux-agent.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{"ubuntu-24.04", "ubuntu-22.04", "diff -u", "scdo-agent-linux"} {
+		if !strings.Contains(string(wf), needle) {
+			t.Fatal("workflow missing " + needle)
 		}
 	}
 	for _, needle := range []string{

@@ -6,7 +6,7 @@
 set -eu
 
 BASE_URL="https://scdo.com.au/downloads/wallet/linux"
-VERSION="0.5.1"
+VERSION="0.5.2"
 
 lang=en
 case "${LC_ALL:-${LANG:-}}" in
@@ -24,6 +24,13 @@ say() {
 die() {
   say "$1" "$2" >&2
   exit 1
+}
+
+user_unit_hint() {
+  unit=$1
+  say "User unit ${unit} is not active." "使用者單元 ${unit} 沒有處於執行中。" >&2
+  systemctl --user status "$unit" --no-pager -l >&2 || true
+  say "If systemctl status shows status=218/CAPABILITIES, this kernel blocks unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1). The user unit must not set PrivateTmp, ProtectSystem, ProtectKernelTunables, ProtectKernelModules, or ProtectControlGroups. Those options need a user namespace or capabilities. Reinstall this package so the user unit drops them. The system unit keeps that hardening." "若 systemctl status 顯示 status=218/CAPABILITIES，這個核心不允許未授權的使用者命名空間（kernel.apparmor_restrict_unprivileged_userns=1）。使用者單元不能設定 PrivateTmp、ProtectSystem、ProtectKernelTunables、ProtectKernelModules、ProtectControlGroups。這些選項需要使用者命名空間或權限。請重新安裝這個套件，讓使用者單元拿掉它們。系統單元仍保留這些限制。" >&2
 }
 
 user_mode=0
@@ -115,10 +122,48 @@ if [ "$user_mode" -eq 1 ]; then
   done
   printf 'user\n' > "$datadir/install-scope"
   chmod 0644 "$datadir/install-scope"
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload || true
-    systemctl --user enable --now scdo-agent-update.timer || true
-    systemctl --user enable scdo-agent-boot.service || true
+  unit_failed=0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    say "systemctl is not installed. The user units were copied but not started." "未安裝 systemctl。使用者單元已複製，但沒有啟動。" >&2
+  elif ! systemctl --user show-environment >/dev/null 2>&1; then
+    say "systemctl --user cannot reach the user service manager, so the units were not started." "systemctl --user 連不到使用者服務管理員，所以沒有啟動單元。" >&2
+    unit_failed=1
+  elif ! systemctl --user daemon-reload; then
+    user_unit_hint scdo-agent-update.timer
+    unit_failed=1
+  else
+    if ! systemctl --user enable --now scdo-agent-update.timer || ! systemctl --user is-active --quiet scdo-agent-update.timer; then
+      user_unit_hint scdo-agent-update.timer
+      unit_failed=1
+    fi
+    if ! systemctl --user enable scdo-agent-boot.service; then
+      user_unit_hint scdo-agent-boot.service
+      unit_failed=1
+    fi
+    # status=218/CAPABILITIES is decided before ExecStart. A missing agent
+    # name is a later process exit, so only the capabilities result is a
+    # failed probe. Stop the probe so it is not left restarting.
+    probe=scdo-agent@install-check.service
+    systemctl --user reset-failed "$probe" 2>/dev/null || true
+    if ! systemctl --user start "$probe"; then
+      probe_result=$(systemctl --user show -p Result --value "$probe" 2>/dev/null || true)
+      probe_code=$(systemctl --user show -p ExecMainStatus --value "$probe" 2>/dev/null || true)
+      if [ "$probe_result" = "capabilities" ] || [ "$probe_code" = "218" ]; then
+        user_unit_hint "$probe"
+        unit_failed=1
+      fi
+    fi
+    systemctl --user stop "$probe" 2>/dev/null || true
+    systemctl --user reset-failed "$probe" 2>/dev/null || true
+    for meta in "$datadir"/*/meta.json; do
+      [ -f "$meta" ] || continue
+      name=$(basename "$(dirname "$meta")")
+      agent_unit="scdo-agent@${name}.service"
+      if ! systemctl --user enable --now "$agent_unit" || ! systemctl --user is-active --quiet "$agent_unit"; then
+        user_unit_hint "$agent_unit"
+        unit_failed=1
+      fi
+    done
   fi
   if [ -x /usr/bin/scdo-agent ] || [ -f /lib/systemd/system/scdo-agent@.service ] || [ -f /usr/lib/systemd/system/scdo-agent@.service ]; then
     say "A system install is present. An agent name enabled there is not started again by this user install." "已經有系統安裝。在那邊啟用的代理名稱，這個使用者安裝不會再啟動一次。"
@@ -138,7 +183,7 @@ if [ "$user_mode" -eq 1 ]; then
   say "  loginctl enable-linger ${linger_user}" "  loginctl enable-linger ${linger_user}"
   say "Several agents: repeat init with another --name and enable the matching user unit." "多個代理：用另一個 --name 再執行 init，並啟用對應的使用者單元。"
   say "A daily user timer checks the signed release feed. upgrade-now is the same command and does not need root." "每日使用者計時器會檢查簽章後的發布檔。upgrade-now 是同一條命令，不需要 root。"
-  exit 0
+  exit "$unit_failed"
 fi
 
 if [ "${file%.deb}" != "$file" ]; then
@@ -163,7 +208,10 @@ else
   chown scdo-agent:scdo-agent /var/lib/scdo-agent/install-scope
   if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable --now scdo-agent-update.timer || true
+    if ! systemctl enable --now scdo-agent-update.timer || ! systemctl is-active --quiet scdo-agent-update.timer; then
+      say "The update timer is not active. Check: systemctl status scdo-agent-update.timer" "更新計時器沒有處於執行中。請檢查：systemctl status scdo-agent-update.timer" >&2
+      systemctl status scdo-agent-update.timer --no-pager -l >&2 || true
+    fi
     systemctl enable scdo-agent-boot.service || true
   fi
 fi

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -29,17 +30,21 @@ type PaywallOptions struct {
 	Addr        string
 	Passphrase  []byte
 	Facilitator x402.FacilitatorClient
+	LedgerURLs  []string
+	Log         io.Writer
 	Now         func() time.Time
 }
 
 // Paywall builds an HTTP handler that answers 402 for Path and settles through
 // the x402.org testnet facilitator. Only eip155:84532 is registered.
 func Paywall(opt PaywallOptions) (http.Handler, error) {
-	lay, doc, _, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
+	lay, doc, agentKey, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
 	if err != nil {
 		return nil, err
 	}
+	defer wipeKey(agentKey)
 	defer wipeKey(walletKey)
+	agentAddr := agentKey.Address()
 	payTo := doc.Address
 	if payTo == "" {
 		payTo = walletKey.Address()
@@ -77,6 +82,8 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	}
 	dir := lay.Dir
 	now := opt.Now
+	urls := append([]string(nil), opt.LedgerURLs...)
+	log := opt.Log
 	mw := nethttp.PaymentMiddlewareFromConfig(routes,
 		nethttp.WithFacilitatorClient(facilitator),
 		nethttp.WithScheme(x402.Network(NetworkSepolia), evmserver.NewExactEvmScheme()),
@@ -89,15 +96,36 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 			if network == "" {
 				network = NetworkSepolia
 			}
-			_ = appendReceipt(dir, receipt{
+			rec := receipt{
 				At:       stamp(now),
 				Network:  network,
 				Tx:       resp.Transaction,
 				Payer:    resp.Payer,
 				Amount:   resp.Amount,
 				Resource: path,
+			}
+			payload, _ := nethttp.PayloadFromContext(r.Context())
+			reqs, _ := nethttp.RequirementsFromContext(r.Context())
+			incomeCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			_, err := ReportIncome(incomeCtx, urls, Income{
+				Agent:        agentAddr,
+				Payload:      payload,
+				Requirements: reqs,
+				Settlement:   resp,
 			})
-			_ = r
+			if err != nil {
+				rec.IncomeError = err.Error()
+				if log != nil {
+					fmt.Fprintf(log, "Income was not booked: %s\n", err.Error())
+				}
+			} else {
+				rec.Income = true
+				if log != nil {
+					fmt.Fprintf(log, "Income booked for %s tx %s\n", agentAddr, resp.Transaction)
+				}
+			}
+			_ = appendReceipt(dir, rec)
 		}),
 	)
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,12 +164,14 @@ func ServePaywall(ctx context.Context, opt PaywallOptions) error {
 }
 
 type receipt struct {
-	At       string `json:"at"`
-	Network  string `json:"network"`
-	Tx       string `json:"tx"`
-	Payer    string `json:"payer,omitempty"`
-	Amount   string `json:"amount,omitempty"`
-	Resource string `json:"resource,omitempty"`
+	At          string `json:"at"`
+	Network     string `json:"network"`
+	Tx          string `json:"tx"`
+	Payer       string `json:"payer,omitempty"`
+	Amount      string `json:"amount,omitempty"`
+	Resource    string `json:"resource,omitempty"`
+	Income      bool   `json:"income,omitempty"`
+	IncomeError string `json:"incomeError,omitempty"`
 }
 
 func appendReceipt(dir string, rec receipt) error {

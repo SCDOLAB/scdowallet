@@ -37,6 +37,8 @@ loginctl enable-linger "$USER"
 
 `loginctl enable-linger` keeps those user units running after logout. `upgrade-now` then replaces `~/.local/bin/scdo-agent` and restarts `scdo-agent@*` on the user bus. It does not need root, and it does not touch a system install. A name that is already enabled as a system unit is not started a second time. `scdo-agent --version` and `scdo-agent -v` print the same line as `scdo-agent version`.
 
+The user unit does not set `PrivateTmp`, `ProtectSystem`, `ProtectKernelTunables`, `ProtectKernelModules`, or `ProtectControlGroups`. Those options need a user namespace or capabilities, and recent Ubuntu blocks unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`), which makes the user manager fail the unit with `status=218/CAPABILITIES`. The system unit keeps that hardening. `install.sh --user` starts the user timer, checks that it is active, and prints that hint if a user unit does not come up.
+
 ## One agent
 
 ```sh
@@ -116,21 +118,28 @@ scdo-agent wallet limit --bot rack-a --per-payment 1 --daily 5 --allow-domain ap
 scdo-agent pay https://x402.payai.network/api/base-sepolia/paid-content --bot rack-a
 scdo-agent serve-paywall --bot rack-a --price 0.01 --path /answer --port 8410
 scdo-agent wallet export --bot rack-a --out ks.json --export-passphrase-file /etc/scdo-agent/export.pass
+scdo-agent wallet bind-email --bot rack-a
+scdo-agent wallet confirm-email --bot rack-a --code 123456
+scdo-agent wallet bind-x --bot rack-a
 scdo-agent wallet freeze --bot rack-a
 scdo-agent wallet unfreeze --bot rack-a
 ```
 
-`--bot` is the agent name when `--name` is omitted. `create` POSTs `/bind` with the wallet address, an EIP-191 wallet proof signed by that wallet, and `emailCommit`. The commitment is `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`. The 32-byte salt is `email.salt` in the agent directory, mode `0600`, and is not sent.
+`--bot` is the agent name when `--name` is omitted. `create` POSTs `/bind` with the wallet address, an EIP-191 wallet proof signed by that wallet, and `emailCommit`. The commitment is `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`. The 32-byte salt is `email.salt` in the agent directory, mode `0600`. The normalised address is kept in `email.txt`, mode `0600`, so `bind-email` can send it. Neither file is printed.
 
 `pay` lets the SDK sign the exact payment and retry the HTTP 402. A 402 whose `maxTimeoutSeconds` is above 120 is capped before that signature. Policy refusals exit with status 3 and do not sign. `--max` on one payment can only tighten the cap. Amounts on `limit` and `pay --max` are decimal USDC. Defaults are 1 USDC per payment and 5 USDC across a rolling 24 hours. An empty payee list allows any Base Sepolia payee. An empty domain list allows any host. `freeze` stops signing and POSTs `/freeze`.
 
-`serve-paywall` is a receiver for one path. It uses the official SDK middleware and `https://x402.org/facilitator`. Settled receipts are appended to `receipts.jsonl` on the agent. This build does not call a ledger income route.
+`serve-paywall` is a receiver for one path. It uses the official SDK middleware and `https://x402.org/facilitator`. Each settled payment is appended to `receipts.jsonl` and posted to `/ledger/income` with the full x402 payload (the authorization and the settlement response) for `eip155:84532`. The ledger books that credit as tUSDC.
 
 `export` writes a Web3 Secret Storage v3 keystore (scrypt n=2^18) under a new passphrase from `--export-passphrase-file`. A raw key is printed only on a terminal, and only with `--raw` plus `--i-understand-raw-key` (or `--i-understand-this-reveals-the-key`). Each completed export appends a line to `export-audit.log` without the key.
 
 The wallet needs test USDC on Base Sepolia. The facilitator pays the gas. This build does not pay Base mainnet.
 
-The live ledger already accepts `bind`, `emailCommit`, `limitsCommit`, `walletProofs`, `freeze`, `unfreeze`, and `/ledger/spend` (booked as tUSDC). This client does not call the email-verification or X OAuth routes. Those routes are still unimplemented on the server (`POST /bind/email/start`, `POST /bind/email/confirm`, `POST /bind/x/start`, and the X callback). `xbind` has no HTTP route. Incoming Base Sepolia receipts are not booked by this client: the server still needs `/ledger/income` to accept network `eip155:84532`, asset `0x036CbD53842c5426634e7929541eC2318f3dCF7e`, and to book the credit as tUSDC. `wallet limit` updates the local policy and the local `limitsCommit`. The next `wallet create` sends that hash. The server stores the hash and does not enforce the caps.
+`wallet bind-email` POSTs `/bind/email/start` with `{agent, email, salt}`. The salt is the file `email.salt` and must match the `emailCommit` already sent on `/bind`. The salt is not logged. When the ledger answers `delivery: "todo_no_sender"`, the command reports that the commitment was accepted and no code was sent, because the ledger has no mail sender yet. `wallet confirm-email --code` POSTs a bot-signed `emailconfirm` envelope `{nonce, code}` to `/bind/email/confirm`. A sixth try is not sent.
+
+`wallet bind-x` POSTs `/bind/x/start`. When the ledger returns an https auth URL, the command prints it. Until an X app is configured the ledger returns 503, and the command reports `X binding not yet enabled on the ledger`. The `xbind` attestation is not sent.
+
+`wallet limit` updates the local policy and the local `limitsCommit`. The next `wallet create` sends that hash. The server stores the hash and does not enforce the caps. Base mainnet stays off.
 
 ## ERC-8004
 
@@ -224,7 +233,7 @@ English is the default. 華語 is `--lang zh`, or any `LANG` / `LC_ALL` value th
 
 ## Build
 
-Go 1.24 or newer. `CGO_ENABLED=0` produces a static binary.
+Go 1.24.1, checked against `scripts/toolchain.sum`. `package.sh` downloads that tarball itself.
 
 ```sh
 cd linux-agent
@@ -232,7 +241,7 @@ go test ./...
 sh scripts/package.sh
 ```
 
-`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build uses `-trimpath`, a fixed `-buildid`, and `SOURCE_DATE_EPOCH`, and the archives pin mtimes, so a second build produces the same SHA-256. GitHub Actions (`.github/workflows/linux-agent.yml`) runs the tests and uploads those files as the `scdo-agent-linux` artifact. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
+`package.sh` writes both architectures, both archives, `install.sh`, and `SHA256SUMS` under `linux-agent/dist/`. The build sets `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false`, and `-ldflags '-s -w -buildid='` with the version string from `internal/buildinfo`. `GOFLAGS=-mod=readonly` is set after `go mod verify`. `GOROOT` and `GOMODCACHE` are fixed paths, because an assembly include otherwise records the home directory. `SOURCE_DATE_EPOCH` pins archive mtimes. The tarball is written by `scripts/mktar` with the pinned Go toolchain and members sorted by name, because Ubuntu 22.04 and 24.04 tar write different ustar headers. Deb mtimes use the same epoch. GitHub Actions (`.github/workflows/linux-agent.yml`) builds that script on `ubuntu-24.04` and `ubuntu-22.04` and fails if the SHA-256 files differ. The published hashes are the `scdo-agent-linux` artifact from that job. Publish that directory to `https://scdo.com.au/downloads/wallet/linux/`. Nothing in CI uploads to that host.
 
 ## 華語
 
@@ -259,6 +268,8 @@ loginctl enable-linger "$USER"
 ```
 
 `loginctl enable-linger` 讓這些使用者單元在登出後繼續執行。`upgrade-now` 會替換 `~/.local/bin/scdo-agent`，並在使用者匯流排上重啟 `scdo-agent@*`。它不需要 root，也不會改動系統安裝。已經在系統單元裡啟用的名稱不會再啟動第二次。`scdo-agent --version` 與 `scdo-agent -v` 印出的內容和 `scdo-agent version` 相同。
+
+使用者單元不設定 `PrivateTmp`、`ProtectSystem`、`ProtectKernelTunables`、`ProtectKernelModules`、`ProtectControlGroups`。這些選項需要使用者命名空間或權限。較新的 Ubuntu 預設 `kernel.apparmor_restrict_unprivileged_userns=1`，使用者管理員會以 `status=218/CAPABILITIES` 失敗。系統單元仍保留這些限制。`install.sh --user` 會啟動使用者計時器，確認它處於執行中，若使用者單元沒有起來就印出這個提示。
 
 ### 一個代理
 
@@ -304,21 +315,28 @@ scdo-agent wallet limit --bot rack-a --per-payment 1 --daily 5 --allow-domain ap
 scdo-agent pay https://x402.payai.network/api/base-sepolia/paid-content --bot rack-a
 scdo-agent serve-paywall --bot rack-a --price 0.01 --path /answer --port 8410
 scdo-agent wallet export --bot rack-a --out ks.json --export-passphrase-file /etc/scdo-agent/export.pass
+scdo-agent wallet bind-email --bot rack-a
+scdo-agent wallet confirm-email --bot rack-a --code 123456
+scdo-agent wallet bind-x --bot rack-a
 scdo-agent wallet freeze --bot rack-a
 scdo-agent wallet unfreeze --bot rack-a
 ```
 
-未加 `--name` 時，`--bot` 就是代理名稱。`create` 會把錢包地址、該錢包的 EIP-191 證明，以及 `emailCommit` 送到 `/bind`。承諾是 `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`。32 位元組的鹽在代理目錄的 `email.salt`，權限 `0600`，不會送出。
+未加 `--name` 時，`--bot` 就是代理名稱。`create` 會把錢包地址、該錢包的 EIP-191 證明，以及 `emailCommit` 送到 `/bind`。承諾是 `keccak256("scdo-bot-email-v1" ‖ salt32 ‖ lower(trim(email)))`。32 位元組的鹽在代理目錄的 `email.salt`，權限 `0600`。正規化後的信箱存在 `email.txt`，權限 `0600`，供 `bind-email` 送出。這兩個檔案都不會印出。
 
 `pay` 由 SDK 簽署 exact 付款並重試 HTTP 402。若 402 的 `maxTimeoutSeconds` 大於 120，會先改成 120 再簽章。政策拒絕時結束代碼為 3，而且不會簽章。單次 `--max` 只能把上限調得更低。`limit` 與 `pay --max` 的金額是十進位 USDC。預設單筆 1 USDC，滾動 24 小時 5 USDC。收款清單是空的時候，允許任何 Base Sepolia 收款地址。網域清單是空的時候，允許任何主機。`freeze` 會停止簽章並送到 `/freeze`。
 
-`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層與 `https://x402.org/facilitator`。結算後的收據附加到代理目錄的 `receipts.jsonl`。這個版本不會呼叫帳本的收入路由。
+`serve-paywall` 是單一路徑的收款端。它使用官方 SDK 中介層與 `https://x402.org/facilitator`。每筆已結算的付款會附加到 `receipts.jsonl`，並把完整的 x402 內容（授權與結算回應）送到 `/ledger/income`（`eip155:84532`）。帳本把這筆貸方記成 tUSDC。
 
 `export` 以新的通行詞（來自 `--export-passphrase-file`）寫出 Web3 Secret Storage v3 金鑰庫（scrypt n=2^18）。原始金鑰只在終端機上印出，而且必須加上 `--raw` 與 `--i-understand-raw-key`（或 `--i-understand-this-reveals-the-key`）。每次完成的匯出都會在 `export-audit.log` 附加一行，裡面沒有金鑰。
 
 錢包需要 Base Sepolia 上的測試 USDC。燃料費由 facilitator 支付。這個版本不會在 Base 主網付款。
 
-現有帳本已經接受 `bind`、`emailCommit`、`limitsCommit`、`walletProofs`、`freeze`、`unfreeze`，以及 `/ledger/spend`（記入 tUSDC）。這個客戶端不會呼叫電子郵件驗證或 X OAuth 路由。伺服器上這些路由仍未實作：`POST /bind/email/start`、`POST /bind/email/confirm`、`POST /bind/x/start`，以及 X 回呼。`xbind` 沒有 HTTP 路由。這個客戶端不會把 Base Sepolia 的收入入帳：伺服器仍需要 `/ledger/income` 接受網路 `eip155:84532`、資產 `0x036CbD53842c5426634e7929541eC2318f3dCF7e`，並把貸方記成 tUSDC。`wallet limit` 更新本機政策與本機 `limitsCommit`。下一次 `wallet create` 會送出這個雜湊。伺服器只保存雜湊，不執行上限。
+`wallet bind-email` 把 `{agent, email, salt}` 送到 `/bind/email/start`。鹽來自 `email.salt`，必須對上先前 `/bind` 送出的 `emailCommit`。鹽不會寫進紀錄。帳本若回 `delivery: "todo_no_sender"`，命令會說明承諾已接受、驗證碼尚未寄出，因為帳本還沒有寄信程式。`wallet confirm-email --code` 送出機器人簽署的 `emailconfirm` 信封 `{nonce, code}` 到 `/bind/email/confirm`。第 6 次不會送出。
+
+`wallet bind-x` 送到 `/bind/x/start`。帳本若回傳 https 授權網址，命令會印出它。在 X 應用程式設定好之前，帳本回 503，命令回報 `X binding not yet enabled on the ledger`。不會送出 `xbind` 證明。
+
+`wallet limit` 更新本機政策與本機 `limitsCommit`。下一次 `wallet create` 會送出這個雜湊。伺服器只保存雜湊，不執行上限。Base 主網保持關閉。
 
 ### ERC-8004
 
@@ -409,3 +427,7 @@ sudo sh linux-agent/scripts/rig-hook.sh
 ### 語言
 
 預設英文。華語使用 `--lang zh`，或 `LANG` / `LC_ALL` 以 `zh` 開頭。
+
+### 建置
+
+`scripts/package.sh` 核對 Go 1.24.1 官方壓縮檔的 sha256，再用 `CGO_ENABLED=0`、`-trimpath`、空的 `-buildid`、`SOURCE_DATE_EPOCH` 與排序後的檔案順序打包。壓縮檔由固定的 Go 工具鏈寫出，不使用主機的 tar。模組快取路徑是固定的。GitHub Actions 在 `ubuntu-24.04` 與 `ubuntu-22.04` 各建置一次，SHA-256 不同就失敗。對外公布的雜湊是該 `scdo-agent-linux` 成品。

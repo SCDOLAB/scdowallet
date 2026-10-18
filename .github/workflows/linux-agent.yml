@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  package:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -25,19 +25,69 @@ jobs:
       - name: Test
         working-directory: linux-agent
         run: go test ./...
+
+  package:
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@v4
       - name: Package tarballs, debs, and SHA256SUMS
         working-directory: linux-agent
         run: sh scripts/package.sh
       - name: Check published checksums
         working-directory: linux-agent/dist
         run: sha256sum -c SHA256SUMS
-      - name: Upload linux agent artifacts
+      - name: Upload runner artifact
         uses: actions/upload-artifact@v4
         with:
-          name: scdo-agent-linux
+          name: scdo-agent-linux-${{ matrix.os }}
           if-no-files-found: error
           path: |
             linux-agent/dist/scdo-agent_*.tar.gz
             linux-agent/dist/scdo-agent_*.deb
             linux-agent/dist/SHA256SUMS
             linux-agent/dist/install.sh
+
+  repro:
+    needs: [test, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: scdo-agent-linux-ubuntu-*
+          path: artifacts
+      - name: Diff SHA256SUMS across runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sums < <(find artifacts -name SHA256SUMS -type f | sort)
+          if [[ ${#sums[@]} -ne 2 ]]; then
+            echo "expected SHA256SUMS from two runners, found ${#sums[@]}" >&2
+            find artifacts -type f >&2
+            exit 1
+          fi
+          diff -u "${sums[0]}" "${sums[1]}"
+          src24=""
+          for f in "${sums[@]}"; do
+            if [[ "$f" == *ubuntu-24.04* ]]; then
+              src24=$(dirname "$f")
+            fi
+          done
+          if [[ -z "$src24" ]]; then
+            echo "ubuntu-24.04 artifact missing" >&2
+            exit 1
+          fi
+          mkdir -p publish
+          cp "$src24/SHA256SUMS" "$src24/install.sh" "$src24"/*.tar.gz "$src24"/*.deb publish/
+          echo "release hashes (CI ubuntu-24.04, matched ubuntu-22.04):"
+          cat publish/SHA256SUMS
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scdo-agent-linux
+          if-no-files-found: error
+          path: publish/

@@ -16,16 +16,17 @@ const (
 )
 
 var types = map[string]struct{}{
-	"register":  {},
-	"heartbeat": {},
-	"heal":      {},
-	"report":    {},
-	"bind":      {},
-	"xrevoke":   {},
-	"freeze":    {},
-	"unfreeze":  {},
-	"spend":     {},
-	"batch":     {},
+	"register":     {},
+	"heartbeat":    {},
+	"heal":         {},
+	"report":       {},
+	"bind":         {},
+	"xrevoke":      {},
+	"freeze":       {},
+	"unfreeze":     {},
+	"spend":        {},
+	"batch":        {},
+	"emailconfirm": {},
 }
 
 // Envelope is the POST body: { payload, sig }.

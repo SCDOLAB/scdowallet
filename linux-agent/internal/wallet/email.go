@@ -71,3 +71,38 @@ func EmailCommit(salt []byte, email string) (string, error) {
 	_, _ = h.Write([]byte(norm))
 	return "0x" + hex.EncodeToString(h.Sum(nil)), nil
 }
+
+func emailFile(dir string) string {
+	return filepath.Join(dir, "email.txt")
+}
+
+// saveEmail stores the normalised address locally so bind-email can send it later.
+// The ledger bind still receives only the commitment.
+func saveEmail(dir, email string) error {
+	norm, err := normalizeEmail(email)
+	if err != nil {
+		return err
+	}
+	path := emailFile(dir)
+	if err := os.WriteFile(path, []byte(norm), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func loadEmail(dir string) (string, error) {
+	b, err := os.ReadFile(emailFile(dir))
+	if err != nil {
+		return "", fmt.Errorf("email")
+	}
+	return normalizeEmail(string(b))
+}
+
+// readSalt reads email.salt and does not create a new one.
+func readSalt(dir string) ([]byte, error) {
+	b, err := os.ReadFile(emailSaltPath(dir))
+	if err != nil || len(b) != 32 {
+		return nil, fmt.Errorf("email salt")
+	}
+	return b, nil
+}
