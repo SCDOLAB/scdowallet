@@ -214,7 +214,7 @@ function waitingSync (m, kind) {
 // Source: indexer rows for this wallet's own addresses (Shard0 EVM in st.activity,
 // Shard1–Shard4 in st.oldAct), built by confirmedEarnLog. A row counts when the
 // indexer marked it dir "reward" (sent from the reward address), status "done",
-// asset SCDO, with a real SCDO amount and a time. A miner "block found" height
+// asset SCDO, with a non-zero SCDO amount and a time. A miner "block found" height
 // is not a credit, and a flat 2 SCDO block reward is not used. Anything less
 // certain returns null so the card shows a dash.
 const TX_PAGE = 30

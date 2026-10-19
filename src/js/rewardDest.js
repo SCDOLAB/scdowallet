@@ -1,5 +1,5 @@
 // Reward destination (記帳獎勵去向) section of 記帳設定 / Bookkeeping settings.
-// Two independent toggles, both OFF by default: A) auto-join wheel, B) lend to treasury for interest.
+// Two independent toggles, both OFF by default: A) SCDO points auto-play, B) lend to treasury for interest.
 // 3.1.13: both toggles are disabled and greyed with "Coming soon" / 「即將推出」 until the main process reports
 // active.wheel / active.lend (server capability live + production backend in this build). While a feature is not
 // active, its sub-screen cannot be opened and every action is refused here and again in the main process.
@@ -14,8 +14,8 @@
       lead: 'Choose where your bookkeeping rewards go. Both are off unless you turn them on, and you can change them at any time.',
       comingSoon: 'Coming soon',
       comingSoonHint: 'Not available yet. This option can be turned on once the service is live.',
-      wheelName: 'Auto-join wheel',
-      wheelSub: 'Use SCDO rewards to join the Games Ledger wheel automatically, 1 round per minute (paid through x402 in SCDO).',
+      wheelName: 'SCDO points auto-play',
+      wheelSub: 'Use your SCDO points rewards to auto-play the Games Ledger wheel, 1 round per minute (paid in SCDO points through x402).',
       lendName: 'Lend to treasury for interest',
       lendSub: 'Lend SCDO rewards through x402 and earn interest, booked to your agent. Withdraw your principal at any time.',
       open: 'Open',
@@ -62,8 +62,8 @@
       lead: '\u9078\u64c7\u8a18\u5e33\u734e\u52f5\u8981\u53bb\u54ea\u88e1\u3002\u5169\u9805\u90fd\u8981\u4f60\u81ea\u5df1\u6253\u958b\u624d\u6703\u751f\u6548\uff0c\u96a8\u6642\u53ef\u4ee5\u66f4\u6539\u3002',
       comingSoon: '\u5373\u5c07\u63a8\u51fa',
       comingSoonHint: '\u5c1a\u672a\u958b\u653e\uff0c\u670d\u52d9\u4e0a\u7dda\u5f8c\u5c31\u53ef\u4ee5\u958b\u555f\u3002',
-      wheelName: '\u81ea\u52d5\u53c3\u52a0\u8f49\u76e4',
-      wheelSub: '\u7528 SCDO \u734e\u52f5\u81ea\u52d5\u53c3\u52a0 Games Ledger \u8f49\u76e4\uff08\u6bcf\u5206\u9418 1 \u5c40\uff0c\u7d93 x402 \u4ee5 SCDO \u652f\u4ed8\uff09\u3002',
+      wheelName: 'SCDO \u7a4d\u5206\u81ea\u52d5\u73a9',
+      wheelSub: '\u7528 SCDO \u7a4d\u5206\u734e\u52f5\u81ea\u52d5\u73a9 Games Ledger \u8f49\u76e4\uff08\u6bcf\u5206\u9418 1 \u5c40\uff0c\u7d93 x402 \u4ee5 SCDO \u7a4d\u5206\u652f\u4ed8\uff09\u3002',
       lendName: '\u501f\u7d66\u570b\u5eab\u751f\u606f',
       lendSub: '\u7d93 x402 \u628a SCDO \u734e\u52f5\u501f\u51fa\uff0c\u5229\u606f\u8a18\u5165\u4f60\u7684\u4ee3\u7406\u3002\u672c\u91d1\u96a8\u6642\u53ef\u64a4\u56de\u3002',
       open: '\u958b\u555f',

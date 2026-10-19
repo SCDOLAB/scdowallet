@@ -123,6 +123,13 @@ async function run () {
   const ui = read('src/js/rewardDest.js')
   assert.ok(ui.includes("comingSoon: 'Coming soon'"))
   assert.ok(ui.includes('\\u5373\\u5c07\\u63a8\\u51fa'), '即將推出')
+  // Owner wording rule: SCDO is points; A is "SCDO points auto-play" / 「SCDO 積分自動玩」.
+  assert.ok(ui.includes("wheelName: 'SCDO points auto-play'"))
+  assert.ok(ui.includes('SCDO \\u7a4d\\u5206\\u81ea\\u52d5\\u73a9'), 'SCDO 積分自動玩')
+  const banned = new RegExp(['real', '(money|scdo)'].join('\\s+'), 'i')
+  for (const f of ['src/js/rewardDest.js', 'src/main/rewardDest.js', 'src/js/i18n112.js', 'src/js/demoLinks.js', 'src/main/incomingNotifier.js', 'index.html', 'doc/release-notes/3.1.13.md', 'doc/release-notes/3.1.13.zh-Hant.md']) {
+    assert.ok(!banned.test(read(f)), f + ': wording rule')
+  }
   console.log('reward-dest ok')
 }
 run().catch(e => { console.error(e); process.exit(1) })
