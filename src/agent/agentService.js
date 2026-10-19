@@ -10,6 +10,7 @@ const { joinBodyFields } = require('../js/agentJoin')
 const { EventLog } = require('./eventLog')
 const heal = require('./healRules')
 const { parseClassicAddress, parseShard0Address } = require('../miner/zpow/address')
+const { ledgerPayout } = require('./payoutRule')
 const endpoints = require('../config/endpoints')
 
 const TICK_MS = 30 * 1000
@@ -101,14 +102,22 @@ class AgentService {
     if (urls.length) { this.ledgers = urls; this.ledger = urls[0] }
   }
 
+  // 3.1.11: the ledger needs a valid Shard0/EVM payout. A classic (1S01…), placeholder or missing payout falls back to
+  // the wallet's own Shard0 account (host.accountPayout), so every desktop agent is listed with a real payout.
   async payoutAddress () {
     let v = ''
     try {
       const src = this.host.payoutAddress
       v = typeof src === 'function' ? await src() : src
     } catch (e) { v = '' }
-    return validPayout(v)
+    const direct = ledgerPayout(validPayout(v))
+    if (direct) return direct
+    try {
+      const f = this.host.accountPayout
+      return ledgerPayout(typeof f === 'function' ? await f() : f)
+    } catch (e) { return '' }
   }
+
 
   note (action, outcome, extra) {
     const rec = Object.assign({ kind: 'ledger', action, outcome }, extra || {})
@@ -221,7 +230,7 @@ class AgentService {
     }
     if (light) {
       if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-        const r = await this.deliver('heartbeat', heartbeatBody({ code: 'ONLINE' }, this.host.version))
+        const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody({ code: 'ONLINE' }, this.host.version)))
         if (r && r.ok) this.lastBeat = now
       }
       return { actions: [], problems: [], light: true }
@@ -243,7 +252,7 @@ class AgentService {
       if (this.registered) await this.deliver('heal', { action: a.type, reason: String(a.reason || '').slice(0, 200), outcome, problems: problems.map(p => p.code) })
     }
     if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-      const r = await this.deliver('heartbeat', heartbeatBody(snap, this.host.version))
+      const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody(snap, this.host.version)))
       if (r && r.ok) this.lastBeat = now
     }
     return { actions: results, problems }
@@ -266,6 +275,12 @@ class AgentService {
   }
 
   stop () { if (this.timer) clearInterval(this.timer); this.timer = null }
+
+  // 3.1.11: every heartbeat carries the payout too (the ledger requires it).
+  withPayout (body) {
+    if (this.registeredPayout) body.payout = this.registeredPayout
+    return body
+  }
 
   status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
 }

@@ -12,9 +12,9 @@ const { messageOf } = require('../src/agent/envelope')
 const { createStore } = require('../src/main/agentJoin')
 
 const root = path.join(__dirname, '..')
-const ADDR = '0x' + 'ab'.repeat(20)
-const OTHER = '0x' + '11'.repeat(20)
-const THIRD = '0x' + '22'.repeat(20)
+const ADDR = '0x2d6f6ebc9686d0316e1f24f8588585c1f22fc956' // 3.1.11: real-looking fixtures (placeholders are refused as ledger payouts)
+const OTHER = '0x52908400098527886e0f7030069857d2e4169ee7'
+const THIRD = '0xe750146dffc722f231583de628696f05d694f5ed'
 
 function tmp () { return fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-join-')) }
 
