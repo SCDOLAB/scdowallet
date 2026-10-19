@@ -93,6 +93,8 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .agent-presence { margin: 0 0 10px; font-size: 15px; font-weight: 800; }
 .agent-presence.online { color: #1d7a34; }
 .agent-presence.offline { color: #8e8e93; }
+.agent-presence.starting { color: #8e8e93; }
+.agent-x402-none { color: #8e8e93; font-weight: 600; }
 .tray-hint { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 8px 10px; background: #eef8ef; border: 1px solid #b7e0be; border-radius: 8px; color: #1d7a34; font-size: 14px; font-weight: 700; }
 .tray-hint span { flex: 1; }
 .agent-reward-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; }

@@ -790,7 +790,7 @@ function createTray () {
       getKeepMining: () => !!(readIntent() || {}).keepMining,
       onKeepMining: (on) => setKeepMining(on),
       getSession: () => publicSession(),
-      getAgentOnline: () => agentProcessOnline(),
+      getAgentOnline: () => agentLedgerOnline(),
       string: (key, fallback) => uiString(key, fallback),
       onLogin: (on) => setLoginLaunch(on === true),
       onLight: (on) => { setSessionLight(on === true) },
@@ -1167,6 +1167,11 @@ function agentProcessOnline () {
   } catch (e) {}
   return false
 }
+// 3.1.12: the tray presence line uses the same online state as the Agent card (see AgentService.online).
+// agentProcessOnline above stays for the quit question: a started agent goes offline when the wallet quits.
+function agentLedgerOnline () {
+  try { return !!(opsAgent && opsAgent.online && opsAgent.online()) } catch (e) { return false }
+}
 function sendTrayHint () {
   if (!trayHintPending || trayHintDismissed) return
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -1499,6 +1504,28 @@ function registerAgentLater () {
     tellJoinSettled(registered)
   }).catch(() => tellJoinSettled(false))
 }
+// 3.1.12: the Agent card and the tray follow the agent. When online or the x402 reserve changes, tell the page
+// (it re-reads agentJoin:get) and rebuild the tray. 3.1.11 read the card once at startup, before the first
+// register, so it could stay on Offline while the agent was online.
+let agentCardSig = ''
+let agentCardTimer = null
+function agentCardTick () {
+  let st = null
+  try { st = opsAgent && opsAgent.status() } catch (e) { st = null }
+  if (!st) return
+  const sig = [st.online ? 1 : 0, st.settled ? 1 : 0, st.registered ? 1 : 0, st.usdcWallet || ''].join('|')
+  if (sig === agentCardSig) return
+  agentCardSig = sig
+  try { refreshTray() } catch (e) {}
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:changed', { online: !!st.online, usdcWallet: st.usdcWallet || '' })
+  } catch (e) {}
+}
+function watchAgentCard () {
+  if (agentCardTimer) return
+  agentCardTimer = setInterval(agentCardTick, 5000)
+  if (agentCardTimer.unref) agentCardTimer.unref()
+}
 function tellJoinSettled (registered) {
   try {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:settled', { registered: !!registered })
@@ -1549,6 +1576,7 @@ function startOpsAgent () {
       payoutAddress: payoutAddressNow,
       accountPayout: () => { try { const a = (walletService.listAccounts() || []).find(x => x && x.evm); return a ? String(a.evm) : '' } catch (e) { return '' } },
       joinExtra: () => joinStore.joinExtra(),
+      onReserve: (addr) => { try { joinStore.setUsdc(addr) } catch (e) {} },
       enabled: () => (readIntent() || {}).agentReporting !== false,
       light: () => sessionLight,
       snapshot: agentSnapshot,
@@ -1580,6 +1608,7 @@ function startOpsAgent () {
     }
     opsAgent.start()
     keepAgentHeartbeat()
+    watchAgentCard()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
 ipcMain.handle('session:get', () => publicSession())

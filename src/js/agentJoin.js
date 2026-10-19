@@ -268,16 +268,25 @@
       const h = heals[i] || {}
       const body = h.body || {}
       const text = [body.action, body.outcome].filter(Boolean).map(x => String(x)).join(' · ')
-      if (text) out.push({ ts: h.ts || 0, text: text.slice(0, 180) })
+      // 3.1.12: keep the raw parts so the card can say them in the UI language (entryText).
+      if (text) out.push({ ts: h.ts || 0, text: text.slice(0, 180), action: String(body.action || '').slice(0, 60), outcome: String(body.outcome || '').slice(0, 120), reason: String(body.reason || '').slice(0, 180) })
     }
     return out
   }
 
+  // 3.1.12: one online state for the whole card. online is the agent's own truth: registered in this
+  // process and a register or heartbeat accepted by the ledger within its online window (15 minutes).
+  // Both the presence line and the Status row come from this value, so they can never disagree.
+  //   online   -> 'online'
+  //   started (this process or earlier) but the ledger has not accepted us yet -> 'starting' until the
+  //            first register attempt settles, then 'offline'
+  //   never started -> 'pending'
   function cardStatus (view) {
     view = view || {}
-    if (view.registered && view.online === true) return 'registered'
-    if (view.registered && (view.online === false || view.reachable === false)) return 'offline'
-    if (!view.registered && view.reachable === false) return 'offline'
+    if (view.online === true) return 'online'
+    const started = !!(view.registered || view.started || view.agentId)
+    if (started && view.settled === false) return 'starting'
+    if (started) return 'offline'
     return 'pending'
   }
 
@@ -338,44 +347,87 @@
     return u.toString()
   }
 
-  function statusLabel (status, t) {
-    if (status === 'starting') return t('agentStarting')
-    if (status === 'registered') return t('agentRegistered')
-    if (status === 'offline') return t('agentOffline')
-    return t('agentPending')
+  // 'registered' is the 3.1.11 name of 'online'.
+  function normStatus (status) {
+    if (status === 'registered') return 'online'
+    if (status === 'online' || status === 'offline' || status === 'starting') return status
+    return 'pending'
   }
 
-  // Green while this process has a started agent. Grey before that. A quiet ledger does not turn it grey.
+  function statusLabel (status, t) {
+    status = normStatus(status)
+    if (status === 'starting') return t('agentStarting')
+    if (status === 'online') return t('agentOnline')
+    if (status === 'offline') return t('agentOffline')
+    return t('agentNotStarted')
+  }
+
+  // 3.1.12: the presence line uses the same state as the Status row. Green only when online.
   function agentPresence (model) {
     model = model || {}
     if (model.noWallet) return 'offline'
-    const status = model.status || 'pending'
-    if (status === 'starting' || status === 'registered' || model.started) return 'online'
+    const status = normStatus(model.status)
+    if (status === 'online') return 'online'
+    if (status === 'starting') return 'starting'
     return 'offline'
+  }
+
+  function presenceText (presence, t) {
+    if (presence === 'online') return t('agentOnlineLine')
+    if (presence === 'starting') return t('agentStarting')
+    return t('agentOfflineLine')
+  }
+
+  // A ledger entry in the UI language. Unknown actions keep the raw ledger words.
+  function entryKey (prefix, raw) {
+    return prefix + String(raw || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  }
+  function lookup (t, key) {
+    const v = t(key)
+    return typeof v === 'string' && v && v !== key ? v : ''
+  }
+  function reasonText (reason, t) {
+    const r = String(reason || '')
+    if (!r) return ''
+    const m = r.match(/^no reward in (\d+) minutes$/)
+    if (m) { const v = t('agentReasonNoReward', { n: m[1] }); return v && v !== 'agentReasonNoReward' ? v : r }
+    if (/^GPU [≥>]=? ?\d+/.test(r)) { const n = (r.match(/\d+/) || [''])[0]; const v = t('agentReasonGpuHot', { n: n }); return v && v !== 'agentReasonGpuHot' ? v : r }
+    if (/^GPU back under \d+/.test(r)) { const n = (r.match(/\d+/) || [''])[0]; const v = t('agentReasonGpuCool', { n: n }); return v && v !== 'agentReasonGpuCool' ? v : r }
+    return lookup(t, entryKey('agentReason_', r)) || r
+  }
+  function entryText (e, t) {
+    e = e || {}
+    if (!e.action) return String(e.text || '')
+    const act = lookup(t, entryKey('agentAct_', e.action)) || e.action
+    const out = String(e.outcome || '')
+    let tail = ''
+    if (e.action === 'report' || out === 'reported') tail = reasonText(e.reason, t)
+    else if (/^failed/.test(out)) tail = t('agentOutcome_failed')
+    else tail = lookup(t, entryKey('agentOutcome_', out)) || out
+    return [act, tail].filter(Boolean).join(' · ').slice(0, 180)
   }
 
   function agentCardHtml (t, esc, model) {
     model = model || {}
     const status = model.status || 'pending'
     const addr = model.scdoAddress || '\u2014'
-    const reserve = model.x402Reserve ? model.x402Reserve : 'pending'
+    const reserve = model.x402Reserve ? model.x402Reserve : t('agentX402Pending')
     const book = model.bookkeeping || ''
     const entries = model.entries || []
     const presence = agentPresence(model)
-    const presenceKey = presence === 'online' ? 'agentOnlineLine' : 'agentOfflineLine'
     const line = model.noWallet && !model.rewardLineHidden
       ? '<div class="agent-reward-line" id="agentRewardLine"><button type="button" class="agent-reward-tap" data-act="agentUseWallet">' + esc(t('agentNoReward')) + '</button><button type="button" class="home-backup-x" data-act="agentRewardDismiss" aria-label="' + esc(t('dismiss')) + '">\u2715</button></div>'
       : ''
     const list = entries.length
-      ? '<ul class="agent-entries">' + entries.map(e => '<li>' + esc(e.text) + '</li>').join('') + '</ul>'
+      ? '<ul class="agent-entries">' + entries.map(e => '<li>' + esc(entryText(e, t)) + '</li>').join('') + '</ul>'
       : '<p class="home-state">' + esc(t('agentEntriesEmpty')) + '</p>'
     const bookBtn = model.noWallet || model.hideRig ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
     const bookRow = model.hideRig ? '' : '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>'
     return '<section class="agent-card" id="agentCard"><h2>' + esc(t('agentCardTitle')) + '</h2>' + line +
-      '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(t(presenceKey)) + '</p>' +
+      '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(presenceText(presence, t)) + '</p>' +
       '<p class="agent-row"><span>' + esc(t('agentStatus')) + '</span> <b id="agentStatus">' + esc(statusLabel(status, t)) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentScdoAddr')) + '</span> <b class="mono" id="agentScdo">' + esc(addr) + '</b></p>' +
-      '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="mono" id="agentX402">' + esc(reserve) + '</b></p>' +
+      '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="' + (model.x402Reserve ? 'mono' : 'agent-x402-none') + '" id="agentX402">' + esc(reserve) + '</b></p>' +
       bookRow +
       bookBtn + '<h3>' + esc(t('agentEntries')) + '</h3>' + list + '</section>'
   }
@@ -454,6 +506,9 @@
     ledgerEntries: ledgerEntries,
     cardStatus: cardStatus,
     agentPresence: agentPresence,
+    presenceText: presenceText,
+    statusLabel: statusLabel,
+    entryText: entryText,
     showBackupCard: showBackupCard,
     claimBlocked: claimBlocked,
     joinBodyFields: joinBodyFields,

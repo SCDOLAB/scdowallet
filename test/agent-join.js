@@ -74,9 +74,11 @@ assert.ok(/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw))
 
 assert.strictEqual(Join.x402Reserve({ services: [{ endpoint: 'eip155:8453:' + ADDR }] }), ADDR)
 assert.strictEqual(Join.x402Reserve({}), '')
-assert.strictEqual(Join.cardStatus({ registered: true, online: true }), 'registered')
+// 3.1.12: one online state drives the card.
+assert.strictEqual(Join.cardStatus({ registered: true, online: true }), 'online')
 assert.strictEqual(Join.cardStatus({ registered: true, online: false }), 'offline')
-assert.strictEqual(Join.cardStatus({ registered: false, reachable: false }), 'offline')
+assert.strictEqual(Join.cardStatus({ started: true, online: false, settled: false }), 'starting')
+assert.strictEqual(Join.cardStatus({ started: true, online: false, settled: true }), 'offline')
 assert.strictEqual(Join.cardStatus({ registered: false }), 'pending')
 assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: false, entries: [] }), false)
 assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: true, dismissed: false }), true)
@@ -95,9 +97,11 @@ const labels = {
   agentRewards: 'Rewards unlock after your agent has been active',
   agentStayOpen: 'Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.',
   agentOnlineLine: 'Online · keep app running',
-  agentOfflineLine: 'Offline · open the app to resume',
+  agentOfflineLine: 'Offline · goes online when the wallet is open',
   agentNoReward: 'Your agent has no reward address - tap to use this wallet',
-  agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Pending', agentOffline: 'Offline',
+  agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Waiting', agentOffline: 'Offline', agentOnline: 'Online', agentNotStarted: 'Not started',
+  agentStarting: 'Starting…', agentX402Pending: 'Not yet assigned (assigned when the agent goes online)',
+  agentAct_report: 'Reported', agentAct_task_join: 'Joined', agentOutcome_done: 'done', agentReason_payout_balance_stale: 'payout balance not updated for a long time',
   agentScdoAddr: 'SCDO address', agentX402: 'x402 Base USDC reserve address', agentBook: 'Bookkeeping',
   agentStartBook: 'Start bookkeeping', agentEntries: 'Latest ledger entries', agentEntriesEmpty: 'No ledger entries yet',
   dismiss: 'Dismiss', homeLineIdle: 'Bookkeeping has not started'
@@ -109,7 +113,7 @@ assert.ok(first.includes('Have an invite code?'))
 assert.ok(first.includes('Rewards unlock after your agent has been active'))
 assert.ok(first.includes('Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.'))
 assert.ok(first.includes('id="agentStayOpen"'))
-assert.ok(first.includes('Offline · open the app to resume'))
+assert.ok(first.includes('Offline · goes online when the wallet is open'))
 assert.ok(first.includes('Your agent has no reward address - tap to use this wallet'))
 assert.ok(first.includes('id="startAgentBtn"'))
 assert.ok(first.includes('data-act="import"'))
@@ -156,26 +160,42 @@ assert.ok(mainSrc.includes("perm === 'clipboard-read'"))
 const css = fs.readFileSync(path.join(root, 'src/css/shell310.css'), 'utf8')
 assert.ok(css.includes('#joinRef { -webkit-user-select: text; user-select: text; }'))
 const card = Join.agentCardHtml(t, (s) => s, {
-  status: 'registered', scdoAddress: '1S01abc', x402Reserve: '', bookkeeping: 'Bookkeeping has not started',
-  entries: [{ text: 'task:join · done' }]
+  status: 'online', scdoAddress: '1S01abc', x402Reserve: '', bookkeeping: 'Bookkeeping has not started',
+  entries: [{ text: 'task:join · done', action: 'task:join', outcome: 'done' }, { text: 'report · reported', action: 'report', outcome: 'reported', reason: 'payout balance stale' }]
 })
-assert.ok(card.includes('Registered'))
+assert.ok(card.includes('<b id="agentStatus">Online</b>'))
 assert.ok(card.includes('Online · keep app running'))
 assert.ok(card.includes('agent-presence online'))
 assert.ok(card.includes('1S01abc'))
-assert.ok(card.includes('>pending<'))
+assert.ok(!card.includes('pending'))
+assert.ok(card.includes('Not yet assigned (assigned when the agent goes online)'))
 assert.ok(card.includes('Start bookkeeping'))
 assert.ok(card.includes('data-act="isleStart"'))
-assert.ok(card.includes('task:join · done'))
+assert.ok(card.includes('Joined · done'))
+assert.ok(card.includes('Reported · payout balance not updated for a long time'))
+assert.ok(!card.includes('task:join'))
+const withReserve = Join.agentCardHtml(t, (s) => s, { status: 'online', x402Reserve: ADDR })
+assert.ok(withReserve.includes('class="mono" id="agentX402">' + ADDR + '<'))
+assert.strictEqual(Join.agentPresence({ status: 'online' }), 'online')
 assert.strictEqual(Join.agentPresence({ status: 'registered' }), 'online')
-assert.strictEqual(Join.agentPresence({ status: 'starting' }), 'online')
-assert.strictEqual(Join.agentPresence({ status: 'offline', started: true }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'starting' }), 'starting')
+assert.strictEqual(Join.agentPresence({ status: 'offline', started: true }), 'offline')
 assert.strictEqual(Join.agentPresence({ status: 'offline' }), 'offline')
 assert.strictEqual(Join.agentPresence({ status: 'pending' }), 'offline')
-assert.strictEqual(Join.agentPresence({ noWallet: true, status: 'registered', started: true }), 'offline')
+assert.strictEqual(Join.agentPresence({ noWallet: true, status: 'online', started: true }), 'offline')
+// presence and Status never disagree
+for (const status of ['online', 'offline', 'starting', 'pending']) {
+  const html = Join.agentCardHtml(t, (s) => s, { status })
+  const green = html.includes('agent-presence online')
+  const statusOnline = html.includes('<b id="agentStatus">Online</b>')
+  assert.strictEqual(green, statusOnline, status)
+}
+const off = Join.agentCardHtml(t, (s) => s, { status: 'offline' })
+assert.ok(off.includes('agent-presence offline') && off.includes('<b id="agentStatus">Offline</b>') && off.includes('Offline · goes online when the wallet is open'))
 const idle = Join.agentCardHtml(t, (s) => s, { status: 'pending' })
 assert.ok(idle.includes('agent-presence offline'))
-assert.ok(idle.includes('Offline · open the app to resume'))
+assert.ok(idle.includes('Offline · goes online when the wallet is open'))
+assert.ok(idle.includes('<b id="agentStatus">Not started</b>'))
 
 ;(async () => {
   const ran = await Join.runStart({
