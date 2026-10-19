@@ -1,0 +1,18 @@
+// 3.1.14: Mac update replaces the app and relaunches instead of leaving a dmg for a manual drag (wallet stayed off).
+const assert = require('assert')
+const upd = require('../src/updater')
+const yes = () => true
+const p = upd.macInstallPlan('/Applications/SCDO Wallet.app/Contents/MacOS/SCDO Wallet', '/u/updates/SCDOWallet-3.1.14-mac-arm64.dmg', yes)
+assert.strictEqual(p.mode, 'replace'); assert.strictEqual(p.target, '/Applications/SCDO Wallet.app'); assert.strictEqual(p.appName, 'SCDO Wallet.app')
+assert.strictEqual(upd.macInstallPlan('/Volumes/SCDO Wallet 3.1.13/SCDO Wallet.app/Contents/MacOS/SCDO Wallet', '/u/x.dmg', yes).mode, 'drag')
+assert.strictEqual(upd.macInstallPlan('/private/var/folders/x/AppTranslocation/ABC/d/SCDO Wallet.app/Contents/MacOS/SCDO Wallet', '/u/x.dmg', yes).mode, 'drag')
+assert.strictEqual(upd.macInstallPlan('/Applications/SCDO Wallet.app/Contents/MacOS/SCDO Wallet', '/u/x.dmg', () => false).mode, 'drag')
+assert.strictEqual(upd.macInstallPlan('/usr/bin/node', '/u/x.dmg', yes).mode, 'drag')
+assert.strictEqual(upd.macInstallPlan("/Applications/a'b.app/Contents/MacOS/x", '/u/x.dmg', yes).mode, 'drag')
+const sh = upd.macReplaceScript(p, 4242, '/u/updates/replace-mac-app.log')
+assert.ok(sh.includes('kill -0 4242')); assert.ok(sh.includes('-nobrowse')); assert.ok(sh.includes('TeamIdentifier=G33UDF2DLC'))
+assert.ok(sh.includes('spctl -a -t exec')); assert.ok(/fail \(\) \{[^}]*open "\$T"/.test(sh), 'a failed update must relaunch the old app')
+assert.ok(sh.trim().endsWith('open "$T"'))
+const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'updater.js'), 'utf8')
+assert.ok(src.includes("plan.mode === 'replace'") && src.includes('falling back to drag-to-Applications'))
+console.log('mac-update-3114 OK')
