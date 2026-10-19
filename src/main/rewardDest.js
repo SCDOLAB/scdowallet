@@ -1,5 +1,5 @@
 // Reward destination (記帳獎勵去向), main process only.
-//   A) Auto-join wheel   B) Lend to treasury for interest
+//   A) SCDO points auto-play   B) Lend to treasury for interest
 // 3.1.13 release rule (CEO): the UI ships on desktop direct downloads, but both toggles stay OFF, disabled and greyed
 // ("Coming soon" / 「即將推出」) until BOTH of these are true:
 //   1. the server capability probe (<agent ledger>/features) reports the feature live

@@ -1,6 +1,6 @@
 // Home screen promo links (3.1.6). This file is the ONLY place these URLs live: the renderer reads
 // window.SCDODemoLinks, and main.js reads module.exports to allow exactly these URLs in openExternalSafe.
-// DEMO_WHEEL_URL is the final demo deep link confirmed by Games Ledger (3.1.6). Demo only, no real money.
+// DEMO_WHEEL_URL is the final demo deep link confirmed by Games Ledger (3.1.6). Demo only, free play.
 ;(function (root) {
   'use strict'
   const links = Object.freeze({
