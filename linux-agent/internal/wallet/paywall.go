@@ -26,11 +26,19 @@ const WSCDOFacilitatorURL = "https://scdo.com.au/x402-scdo"
 // FacilitatorURL is the public Base Sepolia facilitator. It needs no API key.
 const FacilitatorURL = x402http.DefaultFacilitatorURL
 
+// BaseFacilitatorURL is the SCDO relay to the Coinbase CDP x402 facilitator for Base
+// mainnet (eip155:8453) USDC. CDP verifies and settles the EIP-3009 authorization and
+// pays the gas. The relay only settles to the Base wallet the ledger lists for the
+// agent named in extra.scdoAgent.
+const BaseFacilitatorURL = "https://scdo.com.au/x402-base"
+
 // PaywallOptions is a minimal exact-scheme receiver for one bot.
 type PaywallOptions struct {
-	Root        string
-	Name        string
-	Price       string
+	Root  string
+	Name  string
+	Price string
+	// Network overrides the wallet's USDC network: NetworkBase or NetworkSepolia.
+	Network     string
 	Path        string
 	Addr        string
 	Passphrase  []byte
@@ -41,8 +49,8 @@ type PaywallOptions struct {
 }
 
 // Paywall builds an HTTP handler that answers 402 for Path and settles through
-// the facilitator for the wallet asset. USDC uses eip155:84532. WSCDO uses
-// eip155:5680. Base mainnet stays off.
+// the facilitator for the wallet asset. USDC uses the wallet network (eip155:8453
+// through BaseFacilitatorURL, or eip155:84532). WSCDO uses eip155:5680.
 func Paywall(opt PaywallOptions) (http.Handler, error) {
 	lay, doc, agentKey, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
 	if err != nil {
@@ -73,10 +81,21 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	usdcNet := doc.Network
+	if strings.TrimSpace(opt.Network) != "" {
+		if usdcNet, err = ParseNetwork(opt.Network); err != nil {
+			return nil, err
+		}
+	}
 	network := x402.Network(NetworkSepolia)
 	facilitatorURL := FacilitatorURL
 	var extra map[string]any
 	scheme := evmserver.NewExactEvmScheme()
+	if asset == AssetUSDC && usdcNet == NetworkBase {
+		network = x402.Network(NetworkBase)
+		facilitatorURL = BaseFacilitatorURL
+		extra = map[string]any{"name": BaseUSDCName, "version": BaseUSDCVersion, "scdoAgent": agentAddr}
+	}
 	if asset == AssetWSCDO {
 		network = x402.Network(NetworkShard0)
 		facilitatorURL = WSCDOFacilitatorURL

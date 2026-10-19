@@ -146,7 +146,7 @@ func ParseDecimal(s string, decimals int) (string, error) {
 func capFor(doc Doc, d Decision) (max, daily, spent *big.Int, err error) {
 	var maxRaw, dailyRaw string
 	switch {
-	case d.Network == NetworkSepolia && sameAddr(d.Asset, SepoliaUSDC):
+	case isUSDC(d.Network, d.Asset):
 		maxRaw, dailyRaw = doc.MaxAtomic, doc.DailyAtomic
 		spent = doc.spentToday(d.Now)
 	case d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO):
@@ -156,7 +156,7 @@ func capFor(doc Doc, d Decision) (max, daily, spent *big.Int, err error) {
 		maxRaw, dailyRaw = doc.maxWSCDO(), doc.dailyWSCDO()
 		spent = doc.spentWSCDO(d.Now)
 	default:
-		return nil, nil, nil, policyf("only Base Sepolia USDC (eip155:84532) and Shard0 WSCDO (eip155:5680) are enabled")
+		return nil, nil, nil, policyf("only Base USDC (eip155:8453), Base Sepolia USDC (eip155:84532) and Shard0 WSCDO (eip155:5680) are enabled")
 	}
 	var ok bool
 	max, ok = new(big.Int).SetString(maxRaw, 10)

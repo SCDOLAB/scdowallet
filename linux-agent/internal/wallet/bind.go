@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// CreateOptions binds a bot wallet on Base Sepolia.
+// CreateOptions binds a bot wallet on Base mainnet (--network base) or Base Sepolia.
 type CreateOptions struct {
 	Root  string
 	Name  string
@@ -23,6 +23,8 @@ type CreateOptions struct {
 	Email string
 	// Asset is usdc or wscdo. Empty means usdc.
 	Asset string
+	// Network is NetworkBase or NetworkSepolia. Empty means NetworkSepolia.
+	Network string
 	// MaxAtomic and Daily are decimal amounts of Asset ("1", "0.10"), not atomic units.
 	MaxAtomic  string
 	Daily      string
@@ -45,7 +47,8 @@ type Created struct {
 }
 
 // Create writes keys/wallet.key when it is missing and POSTs /bind.
-// An existing wallet key is never replaced. Mainnet is not bound.
+// An existing wallet key is never replaced. With NetworkBase the same wallet key is bound for
+// eip155:8453 and eip155:84532, so Base Sepolia keeps working.
 func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if strings.TrimSpace(opt.BotID) == "" {
 		return Created{}, fmt.Errorf("bot id is required")
@@ -76,8 +79,15 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
+	network := opt.Network
+	if network == "" {
+		network = NetworkSepolia
+	}
+	if network != NetworkBase && network != NetworkSepolia {
+		return Created{}, fmt.Errorf("network must be base or base-sepolia")
+	}
 	doc.BotID = opt.BotID
-	doc.Network = NetworkSepolia
+	doc.Network = network
 	doc.Address = walletKey.Address()
 	doc.Asset = asset
 	// --max and --daily are decimal amounts of the selected asset.
@@ -141,9 +151,13 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
-	wallets := map[string]any{
-		NetworkSepolia: walletKey.Address(),
-		"eip155:5680":  agentKey.Address(),
+	bound := []string{NetworkSepolia}
+	if network == NetworkBase {
+		bound = []string{NetworkBase, NetworkSepolia}
+	}
+	wallets := map[string]any{"eip155:5680": agentKey.Address()}
+	for _, n := range bound {
+		wallets[n] = walletKey.Address()
 	}
 	body := map[string]any{
 		"botId":    opt.BotID,
@@ -153,13 +167,15 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 	}
 	if !sameAddr(walletKey.Address(), agentKey.Address()) {
 		bot := opt.BotID
-		_, sig, err := ledger.WalletProof(walletKey, agentKey.Address(), &bot, NetworkSepolia, nonce)
-		if err != nil {
-			return Created{}, err
+		proofs := map[string]any{}
+		for _, n := range bound {
+			_, sig, err := ledger.WalletProof(walletKey, agentKey.Address(), &bot, n, nonce)
+			if err != nil {
+				return Created{}, err
+			}
+			proofs[n] = map[string]any{"nonce": nonce, "sig": sig}
 		}
-		body["walletProofs"] = map[string]any{
-			NetworkSepolia: map[string]any{"nonce": nonce, "sig": sig},
-		}
+		body["walletProofs"] = proofs
 	}
 	if strings.TrimSpace(opt.Operator) != "" {
 		op, err := ledger.ChecksumAddress(opt.Operator)
@@ -217,7 +233,7 @@ func Create(ctx context.Context, opt CreateOptions) (Created, error) {
 		BotID:       opt.BotID,
 		EmailCommit: doc.EmailCommit,
 		Ledger:      strings.TrimRight(res.Ledger, "/") + "/agents/" + agentKey.Address(),
-		Network:     NetworkSepolia,
+		Network:     network,
 	}, nil
 }
 

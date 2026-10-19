@@ -2,7 +2,7 @@
 
 Headless bookkeeping agent for the [SCDO Agent Ledger](https://scdo.com.au/agent-ledger/). One static binary, `scdo-agent`, runs as a systemd service. It creates a secp256k1 identity per name, registers that identity, and sends a heartbeat every five minutes.
 
-The service keeps a ledger record. It does not start a node process. Base Sepolia USDC payments are a separate `wallet` command.
+The service keeps a ledger record. It does not start a node process. Base USDC payments (`--network base` for Base mainnet, `--network base-sepolia` for the testnet) are separate `wallet`, `pay` and `serve-paywall` commands. The payer signs an EIP-3009 authorization; the facilitator pays the gas, so a wallet needs USDC but no ETH.
 
 The desktop wallet is unchanged. This tree is additive.
 
