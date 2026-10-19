@@ -1508,7 +1508,16 @@
     if (st.tab === 'settings') settingsModal()
     refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
-    if (st.tab === 'mineSet') mountMining(); else if (window.SCDOMining && window.SCDOMining.MiningPage) window.SCDOMining.MiningPage.unmount()
+    if (st.tab === 'mineSet') {
+      mountMining()
+      try {
+        const card = document.querySelector('#main .mine-card')
+        if (window.SCDORewardDest) window.SCDORewardDest.mountSection(lang(), card, toast)
+      } catch (e) {}
+    } else {
+      if (window.SCDOMining && window.SCDOMining.MiningPage) window.SCDOMining.MiningPage.unmount()
+      try { if (window.SCDORewardDest) window.SCDORewardDest.unmount() } catch (e) {}
+    }
     renderFooter()
     const want = st.scrollTo; st.scrollTo = null
     const to = want && want !== 'top' ? $(want) : null
@@ -3346,8 +3355,13 @@
     try { nt = await api.invoke('notify:get') } catch (e) {}
     try { chan = ((await api.invoke('update:getChannel')) || {}).channel || 'stable' } catch (e) {}
     const NT_TYPES = ['firstShare', 'payout', 'hashZero', 'stopNonUser', 'nodeBehind']
+    const inc = nt && nt.incoming ? nt.incoming : { enabled: true, sound: true }
+    const incLabels = (nt && nt.incomingLabels) || {}
+    const incomingInner = `<div class="lbl" style="margin-top:14px">${esc(T('incomingHint'))}</div>
+      <div style="margin-top:8px"><button class="toggle" data-act="incomingToggle" data-v="enabled" id="inc-enabled"><span class="sw ${inc.enabled ? 'on' : ''}"></span>${esc(incLabels.enabled || T('incomingEnabled'))}</button></div>
+      <div style="margin-top:8px"><button class="toggle" data-act="incomingToggle" data-v="sound" id="inc-sound"><span class="sw ${inc.sound ? 'on' : ''}"></span>${esc(incLabels.sound || T('incomingSound'))}</button></div>`
     const notifyInner = nt && nt.config ? `<div class="lbl">${esc(T('notifyHint'))}</div>
-      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}` : ''
+      ${NT_TYPES.map(t => `<div style="margin-top:8px"><button class="toggle" data-act="notifyToggle" data-v="${t}" id="nt-${t}"><span class="sw ${nt.config[t] ? 'on' : ''}"></span>${esc((nt.labels || {})[t] || t)}</button></div>`).join('')}${incomingInner}` : incomingInner
     const rpcs = (cfg.connect || []).map((u, i) => `<div class="row" style="font-size:16px"><b style="width:120px">${i === 0 ? esc(T('netNewShort')) : esc(T('shardN', { n: i }))}</b><span class="mono">${esc(u)}</span></div>`).join('')
     let mineCfg = { keepMining: !!st.keepMining }
     try { mineCfg = Object.assign(mineCfg, await api.invoke('mining:getConfig') || {}) } catch (e) {}
@@ -4132,6 +4146,10 @@
     const act = el.getAttribute('data-act'); const f = el.getAttribute('data-f'); const v = el.getAttribute('data-v')
     if (act === 'ddClose') { closeDd(); return }
     if (act !== 'accMenu' && act !== 'accChip') closeDd()
+    if (act && act.indexOf('rd') === 0 && window.SCDORewardDest) {
+      const host = document.getElementById('rewardDestHost') || document.querySelector('#main')
+      try { if (await window.SCDORewardDest.handle(act, lang(), host, toast)) return } catch (e) { toast(String(e && e.message || e)) }
+    }
     switch (act) {
       case 'tab': if ($('md')) SD.clear($('modalRoot')); setTab(v); render(); if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }; if (v === 'old' || v === 'acc' || v === 'home') refreshOld(); if (v === 'new' || v === 'acc' || v === 'home') refreshS0(); break
       case 'goHome': case 'panelClose': if ($('md')) SD.clear($('modalRoot')); setTab('home'); render(); refreshOld(); refreshS0(); break
@@ -4298,6 +4316,14 @@
       case 'updSkip': { const m = window.__updManifest; if (m && m.version) api.invoke('update:skip', m.version); window.__updManifest = null; closeModal(); break }
       case 'defender': { const r = await api.invoke('miner:defender'); toast(r && r.ok ? T('defenderOk') : T('defenderFail') + ' ' + ((r && r.error) || ''), 6000); break }
       case 'netStatsRefresh': window.SCDOMining.networkStats.refresh(); break
+      case 'incomingToggle': {
+        const cur = await api.invoke('incoming:get')
+        const patch = {}
+        patch[v] = !(cur && cur.config && cur.config[v])
+        await api.invoke('incoming:set', patch)
+        settingsModal()
+        break
+      }
       case 'notifyToggle': { const sw = el.querySelector('.sw'); const on = !(sw && sw.classList.contains('on')); const r = await api.invoke('notify:set', v, on); if (r && r.ok && sw) sw.classList.toggle('on', !!r.config[v]); break }
       case 'setChannel': { const r = await api.invoke('update:setChannel', v); if (r && r.ok) { const a = $('chanStable'); const b = $('chanBeta'); if (a) a.className = 'btn ' + (r.channel === 'stable' ? 'pri' : 'ghost'); if (b) b.className = 'btn ' + (r.channel === 'beta' ? 'pri' : 'ghost'); toast(T('chanSaved', { c: T(r.channel === 'beta' ? 'chanBeta' : 'chanStable') })) } break }
       case 'openVerify': if (/^https:\/\/scdoscan\.io\/downloads\/wallet\/[\w./-]+\.sha256$/.test(String(v || ''))) openExternal(v); break
@@ -5089,4 +5115,23 @@
     if (st.tab === 'mineSet') render()
   }
   boot()
+
+  // Incoming SCDO: coin animation on the home balance when a notification fires
+  try {
+    api.on('incoming:scdo', (n) => {
+      try {
+        const root = document.getElementById('app') || document.body
+        const coin = document.createElement('div')
+        coin.className = 'coin-pop'
+        coin.textContent = '+' + (n && n.amount ? n.amount : '') + ' SCDO'
+        root.appendChild(coin)
+        setTimeout(() => { try { coin.remove() } catch (e) {} }, 1600)
+        const bal = document.querySelector('.bal-num, .home-bal, #s0Bal, .amount')
+        if (bal) { bal.classList.add('bal-flash'); setTimeout(() => bal.classList.remove('bal-flash'), 1200) }
+        toast((lang() === 'CN' ? '到賬 +' : 'Received +') + (n && n.amount ? n.amount : '') + ' SCDO', 4000)
+        api.invoke('incoming:clearBadge').catch(() => {})
+      } catch (e) {}
+    })
+  } catch (e) {}
+
 })()

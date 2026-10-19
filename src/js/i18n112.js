@@ -204,7 +204,7 @@ window.I18N112 = {
     // settings
     setLang: '語言 / Language', setAccounts: '帳戶', backupKeyfile: '備份帳戶檔案', backupPick: '選擇要備份的帳戶：', backupOk: '已備份到：{p}',
     openBackups: '開啟備份資料夾', setAdvanced: '進階', rpcNew: 'Shard0 EVM 節點', rpcOld: 'Shard{n} 節點', keyfileDir: '帳戶檔案位置',
-    notifyTitle: '記帳通知', notifyHint: '在 Windows 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。', notifyHintDarwin: '在 Mac 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。',
+    notifyTitle: '記帳通知', notifyHint: '在 Windows 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。', incomingHint: '到賬通知（所有版本都有，含 App Store / Play）：收到 SCDO 時顯示，預設開啟。可關閉音效。', incomingEnabled: '到賬通知', incomingSound: '到賬時播放音效', notifyHintDarwin: '在 Mac 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。',
     chanTitle: '更新管道', chanStable: '穩定版（預設）', chanBeta: '搶先版', chanHint: '搶先版會比穩定版更早收到新版本，可能還有問題。兩種都用同一把簽名金鑰驗證。', chanSaved: '更新管道已改為：{c}',
     aboutHash: '安裝檔 SHA-256', aboutHashLoading: '正在讀取安裝檔 SHA-256…', aboutHashNone: '暫時無法取得這個版本的安裝檔 SHA-256。', aboutHashVerify: '開啟下載頁的 .sha256 檔',
     aboutHashSrc_installer: '來源：錢包下載並驗證過的安裝檔', aboutHashSrc_manifest: '來源：已簽名的更新資訊', aboutHashSrc_published: '來源：下載頁的 .sha256 檔',
@@ -627,7 +627,7 @@ window.I18N112 = {
     unknownBal: 'balance unknown',
     setLang: '語言 / Language', setAccounts: 'Accounts', backupKeyfile: 'Back up a keyfile', backupPick: 'Choose the account to back up:', backupOk: 'Backed up to: {p}',
     openBackups: 'Open backup folder', setAdvanced: 'Advanced', rpcNew: 'Shard0 EVM node', rpcOld: 'Shard{n} node', keyfileDir: 'Keyfile folder',
-    notifyTitle: 'Bookkeeping notifications', notifyHint: 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.', notifyHintDarwin: 'Shown in macOS Notification Centre; at most one of each kind per 10 minutes. Click to turn one on or off.',
+    notifyTitle: 'Bookkeeping notifications', notifyHint: 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.', incomingHint: 'Incoming SCDO notifications (every build, including App Store / Play): on by default. You can mute the sound.', incomingEnabled: 'Incoming SCDO notifications', incomingSound: 'Play a sound on incoming SCDO', notifyHintDarwin: 'Shown in macOS Notification Centre; at most one of each kind per 10 minutes. Click to turn one on or off.',
     chanTitle: 'Update channel', chanStable: 'Stable (default)', chanBeta: 'Beta', chanHint: 'Beta gets new versions before Stable and may still have problems. Both are verified with the same signing key.', chanSaved: 'Update channel set to: {c}',
     aboutHash: 'Installer SHA-256', aboutHashLoading: 'Reading the installer SHA-256…', aboutHashNone: 'The installer SHA-256 for this version is not available right now.', aboutHashVerify: 'Open the .sha256 file on the download page',
     aboutHashSrc_installer: 'Source: the installer the wallet downloaded and verified', aboutHashSrc_manifest: 'Source: the signed update information', aboutHashSrc_published: 'Source: the .sha256 file on the download page',

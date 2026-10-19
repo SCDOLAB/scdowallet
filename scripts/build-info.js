@@ -20,5 +20,5 @@ if (/displayVersion\s*\|\|\s*app\.getVersion/.test(mainSrc) || /electron\.app\.g
 let commit = ''
 try { commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() } catch (e) {}
 if (!/^[0-9a-f]{7,40}$/.test(commit)) commit = process.env.SCDO_BUILD_COMMIT || ''
-fs.writeFileSync(path.join(root, 'build-info.json'), JSON.stringify({ version: VERSION, commit, builtAt: new Date().toISOString() }, null, 2) + '\n')
+fs.writeFileSync(path.join(root, 'build-info.json'), JSON.stringify({ version: VERSION, commit, builtAt: new Date().toISOString(), storeBuild: process.env.SCDO_STORE_BUILD === '1', testBuild: process.env.SCDO_REWARD_TEST === '1' }, null, 2) + '\n')
 console.log('build-info.json version=' + VERSION + ' commit=' + (commit || '(unknown)'))

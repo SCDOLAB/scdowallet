@@ -36,9 +36,13 @@ const INVOKE = Object.freeze([
   'agentJoin:get', 'agentJoin:start', 'agentJoin:setPayout', 'agentJoin:useSelection', 'agentJoin:refcode',
   'invite:claim', 'invite:confirm',
   'panel:doc', 'panel:show', 'panel:close',
-  'session:get', 'session:setLogin', 'session:setLight', 'session:setPace', 'session:loginAnswer'
+  'session:get', 'session:setLogin', 'session:setLight', 'session:setPace', 'session:loginAnswer',
+  // reward destination (TEST; hidden in store builds)
+  'rewardDest:get', 'rewardDest:setLend', 'rewardDest:setWheel', 'rewardDest:wheelStart', 'rewardDest:wheelStop', 'rewardDest:wheelStatus',
+  'rewardDest:lendRate', 'rewardDest:lendLedger', 'rewardDest:lendDeposit', 'rewardDest:lendWithdraw',
+  'incoming:get', 'incoming:set', 'incoming:clearBadge'
 ])
-const EVENTS = Object.freeze(['miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume', 'agentJoin:updated', 'agentJoin:settled', 'panel:doc', 'panel:layout', 'session:changed'])
+const EVENTS = Object.freeze(['incoming:scdo', 'miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume', 'agentJoin:updated', 'agentJoin:settled', 'panel:doc', 'panel:layout', 'session:changed'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))

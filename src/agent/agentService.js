@@ -261,6 +261,8 @@ class AgentService {
 
   stop () { if (this.timer) clearInterval(this.timer); this.timer = null }
 
+  // Reward destination (TEST): signed lend envelope; the agent key stays in identity.js.
+  signReward (type, body) { return this.id.signReward ? this.id.signReward(type, body, this.now()) : null }
   status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
 }
 

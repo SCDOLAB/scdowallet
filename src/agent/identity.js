@@ -4,7 +4,7 @@
 const fs = require('fs')
 const path = require('path')
 const { Wallet } = require('ethers')
-const { signEnvelope, newSigner } = require('./envelope')
+const { signEnvelope, newSigner, REWARD_TYPES } = require('./envelope')
 const { signRefcode } = require('./refcode')
 
 function loadOrCreate (dir) {
@@ -29,6 +29,8 @@ function loadOrCreate (dir) {
     agentId: w.address,
     // Only signed envelopes leave this object; the key itself is never returned.
     sign (type, body, ts) { seq += 1; save(); return signEnvelope(w, type, seq, body, ts) },
+    // Reward destination (TEST): lend_deposit / lend_withdraw envelopes only. Same key, same seq counter.
+    signReward (type, body, ts) { seq += 1; save(); return signEnvelope(w, type, seq, body, ts, REWARD_TYPES) },
     // Read-only lookup. Does not advance the register seq counter.
     signRefcode (ts) { return signRefcode(w, ts) },
     toJSON () { return { agentId: w.address } }
