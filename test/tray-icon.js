@@ -97,7 +97,7 @@ for (const file of [trayIconFile('darwin', null), trayIconFile('win32', null)]) 
   assert.ok(fs.existsSync(path.join(root, 'assets', file)), file)
 }
 const menu = menuLines('CN', { running: true, code: 'MINING', hashrate: 4150068 }, { agentOnline: true, light: true, loginLaunch: true })
-assert.ok(menu.lines.includes('在線 · 請保持程式執行'))
+assert.ok(menu.lines.includes('在線·請保持程式執行'))
 assert.ok(menu.lines.includes('記帳中：記帳速度 4.15 MH/s'))
 assert.ok(menu.lines.includes('恢復記帳'))
 assert.strictEqual(menu.icon, 'tray/trayTemplate-on.png')

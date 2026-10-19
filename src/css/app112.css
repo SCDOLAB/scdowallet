@@ -90,7 +90,7 @@ html.isle-paused .isle-tick { animation-play-state: paused; }
 .lang-one { background: transparent; border: 2px solid rgba(255,255,255,.6); color: #fff; border-radius: 16px; height: 36px; min-width: 40px; padding: 0 8px; font-size: 15px; font-weight: 700; flex: none; }
 .lang-one:hover { background: rgba(255,255,255,.15); }
 .gear:hover, .netsel:hover { background: rgba(255,255,255,.15); }
-/* 2.0.5: 中文 / English toggle next to the gear (same look as the scdoscan.io language bar: two pills, active one green) */
+/* 2.0.5: 華語 / English toggle next to the gear (same look as the scdoscan.io language bar: two pills, active one green) */
 .langtg { display: flex; gap: 6px; flex: none; }
 .langtg button { background: transparent; border: 2px solid rgba(255,255,255,.6); color: #fff; border-radius: 22px; padding: 6px 14px; font-size: 16px; font-weight: 600; line-height: 1.3; cursor: pointer; white-space: nowrap; }
 .langtg button:hover { border-color: #2E7D32; background: rgba(255,255,255,.15); }

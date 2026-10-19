@@ -127,7 +127,7 @@ assert.strictEqual(plan.plannedThreads(low.state), 4)
 
 const tray = fs.readFileSync(path.join(root, 'src/main/trayStatus.js'), 'utf8')
 assert.ok(tray.includes('Mode: Light') && tray.includes('模式：輕量') && tray.includes('Launch at login (start minimised in tray)'))
-assert.ok(tray.includes('Online · keep app running') && tray.includes('在線 · 請保持程式執行'))
+assert.ok(tray.includes('Online · keep app running') && tray.includes('在線·請保持程式執行'))
 assert.ok(tray.includes("mode !== 'light' && mode !== 'full'"))
 
 ;(async () => {

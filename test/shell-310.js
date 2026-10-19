@@ -90,8 +90,8 @@ const cool = page({ miners: { classicGpu: { running: true, mode: 'gpu', chain: '
 assert.ok(cool.includes('temp-ok'))
 assert.ok(cool.includes('\u2014') || cool.includes('今天記到'))
 
-assert.strictEqual(I.CN.relNotes[0].v, '3.1.11')
-assert.strictEqual(I.EN.relNotes[0].v, '3.1.11')
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.12')
+assert.strictEqual(I.EN.relNotes[0].v, '3.1.12')
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(I.CN.relNotes.find(n => n.v === '3.0.10').items.join(' ').includes('顯卡正被其他程式使用'))
 assert.ok(!I.CN.relNotes.find(n => n.v === '3.1.0').items.join(' ').includes('主鏈'))
