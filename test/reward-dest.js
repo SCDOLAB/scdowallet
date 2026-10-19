@@ -18,13 +18,14 @@ async function run () {
   assert.strictEqual(RD.flags({ buildInfo: { storeBuild: true } }).REWARD_AUTOWHEEL, false)
   assert.strictEqual(RD.flags({ buildInfo: {} }).REWARD_LEND, true)
   assert.strictEqual(RD.flags({ buildInfo: { testBuild: true } }).testBuild, undefined)
-  assert.deepStrictEqual(RD.CLIENT_READY, { wheel: false, lend: false })
+  assert.deepStrictEqual(RD.CLIENT_READY, { wheel: true, lend: false }) // 3.1.14: real autobet client; still gated by /features
 
   // amounts / validation / treasury / http mapping
   assert.strictEqual(RD.toAtomic('1.5').toString(), (15n * 10n ** 17n).toString())
   assert.strictEqual(RD.fromAtomic(10n ** 18n), '1')
-  assert.strictEqual(RD.validateWheel({ stake: '1', lossLimit: '0.5', sessionMinutes: 30 }), 'lossBelowStake')
-  assert.strictEqual(RD.validateWheel({ stake: '1', lossLimit: '10', sessionMinutes: 30 }), '')
+  assert.strictEqual(RD.validateWheel({ stake: '10', lossLimit: '5', sessionMinutes: 30 }), 'lossBelowStake')
+  assert.strictEqual(RD.validateWheel({ stake: '10', lossLimit: '100', sessionMinutes: 30 }), '')
+  assert.strictEqual(RD.validateWheel({ stake: '1', lossLimit: '10', sessionMinutes: 30 }), 'tier')
   const bad = RD.safeRate({ ok: true, enabled: true, rateBps: 100, interestPayer: RD.TREASURY })
   assert.strictEqual(bad.enabled, false)
   assert.strictEqual(bad.error, 'payer_is_treasury')
@@ -41,7 +42,7 @@ async function run () {
   // ---- RELEASE wiring (as main.js does it): even a server saying "live" cannot enable A/B in 3.1.13 ----
   let probes = 0
   const dirR = tmp()
-  fs.writeFileSync(path.join(dirR, 'reward-destination.json'), JSON.stringify({ lend: { on: true }, wheel: { on: true, stake: '1', lossLimit: '5', sessionMinutes: 5 } }))
+  fs.writeFileSync(path.join(dirR, 'reward-destination.json'), JSON.stringify({ lend: { on: true }, wheel: { on: true, stake: '10', lossLimit: '50', sessionMinutes: 5 } }))
   const rel = RD.createController({ userData: dirR, buildInfo: {}, agent: AGENT('0x1111111111111111111111111111111111111111'), featuresUrl: () => 'https://x.invalid/features', fetchJson: async () => { probes++; return { status: 200, json: { ok: true, rewardLend: true, rewardWheel: true } } } })
   const g = await rel.get()
   assert.deepStrictEqual(g.active, { wheel: false, lend: false })
@@ -88,18 +89,18 @@ async function run () {
   assert.ok(dep.ok, JSON.stringify(dep))
   const w = await c.lendWithdraw(dep.summary.balance)
   assert.strictEqual(w.summary.balance, '0')
-  assert.ok((await c.setWheel({ on: true, stake: '1', lossLimit: '5', sessionMinutes: 5 })).ok)
+  assert.ok((await c.setWheel({ on: true, stake: '10', lossLimit: '50', sessionMinutes: 5 })).ok)
   assert.ok((await c.wheelStart()).ok)
   await new Promise(r => setTimeout(r, 120))
   assert.ok((await c.wheelStatus()).rounds >= 1)
   await c.wheelStop()
   assert.strictEqual((await c.wheelStatus()).stoppedBy, 'user')
   const cR = mk(tmp(), live(true, true), { forceRegion: true })
-  await cR.setWheel({ on: true, stake: '1', lossLimit: '5', sessionMinutes: 5 })
+  await cR.setWheel({ on: true, stake: '10', lossLimit: '50', sessionMinutes: 5 })
   assert.strictEqual((await cR.wheelStart()).error, 'region_blocked')
   assert.strictEqual((await cR.get()).prefs.wheel.on, false)
   const cP = mk(tmp(), live(true, true), { forcePoolPaused: true, poolRetryMs: 50 })
-  await cP.setWheel({ on: true, stake: '1', lossLimit: '5', sessionMinutes: 5 })
+  await cP.setWheel({ on: true, stake: '10', lossLimit: '50', sessionMinutes: 5 })
   assert.strictEqual((await cP.wheelStart()).pause, true)
 
   // capability cache: probed once per TTL

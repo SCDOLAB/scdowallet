@@ -19,7 +19,7 @@ const root = path.join(__dirname, '..')
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8')
 const pkg = require('../package.json')
 
-assert.strictEqual(pkg.version, '3.1.13')
+assert.strictEqual(pkg.version, '3.1.14')
 assert.ok(pkg.scripts['dist:linux'].includes('electron-builder --linux AppImage --x64 --publish never'))
 assert.ok(!pkg.scripts['dist:linux'].includes('stage-zminer'))
 assert.strictEqual(pkg.build.linux.artifactName, 'SCDOWallet-${version}-linux-x64.${ext}')

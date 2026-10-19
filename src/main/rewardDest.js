@@ -1,13 +1,13 @@
 // Reward destination (記帳獎勵去向), main process only.
 //   A) SCDO points auto-play   B) Lend to treasury for interest
-// 3.1.13 release rule (CEO): the UI ships on desktop direct downloads, but both toggles stay OFF, disabled and greyed
+// Release rule (CEO): the UI ships on desktop direct downloads, but each toggle stays OFF, disabled and greyed
 // ("Coming soon" / 「即將推出」) until BOTH of these are true:
 //   1. the server capability probe (<agent ledger>/features) reports the feature live
-//      (rewardWheel: Games Ledger auto-wheel API live; rewardLend: LEDGER_REWARD_LEND=on). Any error = off.
-//   2. this client has a production backend for it (CLIENT_READY). 3.1.13 has no production x402 payer and no
-//      auto-wheel client, so CLIENT_READY is false for both and a later release must flip it.
-// No stub backend is shipped: the simulated wheel / lend / x402 backends live in test/support and are only
-// passed in by unit tests. There is no env var, setting or deep link that turns A or B on.
+//      (rewardWheel: agent-ledger LEDGER_REWARD_WHEEL=on; rewardLend: LEDGER_REWARD_LEND=on). Both default off. Any error = off.
+//   2. this client has a production backend for it (CLIENT_READY).
+//      3.1.14: A has the real Stake Wheel autobet client (StakeWheelAutobetClient); B has none (lend stays greyed).
+// Even when active, A is opt-in per user and OFF by default; every start is confirmed with the wallet password.
+// No stub backend is shipped: test doubles live in test/support and are only passed in by unit tests. There is no env var, setting or deep link that turns A or B on.
 // Store builds (build-info.json storeBuild:true) hide the section entirely.
 'use strict'
 const fs = require('fs')
@@ -37,8 +37,13 @@ function flags (opts) {
   })
 }
 
-// Production backends this build actually has. Both false in 3.1.13 (see header).
-const CLIENT_READY = Object.freeze({ wheel: false, lend: false })
+// Production backends this build actually has. 3.1.14: A (SCDO points auto-play) has the real Stake Wheel autobet
+// client; B (lend) still has none. A is STILL greyed until <agent ledger>/features reports rewardWheel=true
+// (agent-ledger LEDGER_REWARD_WHEEL=on, off by default; the CEO decides when).
+const CLIENT_READY = Object.freeze({ wheel: true, lend: false })
+// Stake Wheel autobet tiers (SCDO points per round) and the live API base.
+const AUTOPLAY_TIERS = Object.freeze(['10', '100'])
+const AUTOPLAY_BASE = 'https://scdo.com.au/games/stakewheel/api/autobet'
 const CAPS_TTL_MS = 5 * 60_000
 
 // ---- amounts (SCDO, 18 decimals; strings in, atomic BigInt inside) ----
@@ -57,7 +62,7 @@ function fromAtomic (v) {
 // ---- prefs (userData/reward-destination.json) ----
 const DEFAULT_PREFS = Object.freeze({
   lend: { on: false },
-  wheel: { on: false, stake: '1', lossLimit: '10', sessionMinutes: 30 }
+  wheel: { on: false, stake: '10', lossLimit: '100', sessionMinutes: 30 }
 })
 function cleanPrefs (p) {
   p = p && typeof p === 'object' ? p : {}
@@ -71,6 +76,7 @@ function cleanPrefs (p) {
 function validateWheel (w) {
   const stake = toAtomic(w.stake); const loss = toAtomic(w.lossLimit); const mins = Number(w.sessionMinutes)
   if (stake == null || stake <= 0n) return 'stake'
+  if (!AUTOPLAY_TIERS.includes(String(w.stake))) return 'tier'
   if (loss == null || loss <= 0n) return 'lossLimit'
   if (loss < stake) return 'lossBelowStake'
   if (!Number.isInteger(mins) || mins < 1 || mins > 240) return 'session'
@@ -171,40 +177,125 @@ function safeRate (rate) {
   }
 }
 
-// ---- A) wheel auto-bet: client interface ----
-// Interface the Games Ledger API must satisfy (to be mapped onto /workspace/wheel-autobet-api.md when it exists):
-//   start({ agent, stake, lossLimit, sessionMinutes, payer }) -> { ok, sessionId } | { ok:false, error }
-//   stop(sessionId) -> { ok }
-//   status(sessionId) -> { running, rounds, staked, won, net, lastResult, stoppedBy, pause?, error? }
-// Known error codes (HTTP):
-//   403 region_blocked  -> turn the toggle off; UI: "Not available in your region" / 「所在地區暫不提供」
-//   503 pool_paused     -> pause auto-bet, retry later; UI: "Wheel paused, pool refilling" / 「輪盤暫停，獎池補充中」
-//                         (pool below 501 SCDO)
+// ---- A) SCDO points auto-play (「SCDO 積分自動玩」): Stake Wheel autobet API errors ----
+//   403 region_blocked    -> turn the toggle off; UI: "Not available in your region" / 「所在地區暫不提供」
+//   503 pool_paused       -> session paused, retry later; UI: "Wheel paused, pool refilling" / 「輪盤暫停，獎池補充中」
+//   503 autobet_disabled  -> service switched off server-side (treated as unavailable)
+//   429 cap_exceeded, 400 invalid_signature / bad_or_expired_nonce -> shown as errors, nothing retried automatically
 function mapWheelHttp (status, json) {
   json = json || {}
   const code = json.error || json.code || ''
-  if (status === 403 || code === 'region_blocked') return { ok: false, error: 'region_blocked' }
-  if (status === 503 || code === 'pool_paused') return { ok: false, error: 'pool_paused', pause: true, retryAfterMs: Number(json.retryAfterMs) > 0 ? Number(json.retryAfterMs) : 60_000 }
-  if (status >= 200 && status < 300) return Object.assign({ ok: true }, json)
+  if (code === 'region_blocked' || status === 403) return { ok: false, error: 'region_blocked' }
+  if (code === 'autobet_disabled') return { ok: false, error: 'autobet_disabled' }
+  if (code === 'pool_paused' || status === 503) return { ok: false, error: 'pool_paused', pause: true, retryAfterMs: Number(json.retryAfterMs) > 0 ? Number(json.retryAfterMs) : 60_000 }
+  if (code === 'cap_exceeded' || status === 429) return { ok: false, error: 'cap_exceeded' }
+  if (status >= 200 && status < 300 && !code) return Object.assign({ ok: true }, json)
   return { ok: false, error: code || ('http_' + status) }
 }
-// Real client (unused until the Games Ledger URL is configured). Kept so the mapping is one place.
-class GamesLedgerWheelClient {
-  constructor (opts) { this.baseUrl = String(opts.baseUrl || '').replace(/\/$/, ''); this.stub = false }
+// Rounds and prepaid amount for one opt-in session: 1 round per minute, never more than the loss limit allows.
+function autoplayPlan (w) {
+  const stake = toAtomic(w.stake); const loss = toAtomic(w.lossLimit)
+  if (stake == null || loss == null || stake <= 0n) return null
+  const byLoss = Number(loss / stake)
+  const rounds = Math.max(0, Math.min(Number(w.sessionMinutes) || 0, byLoss))
+  if (rounds < 1) return null
+  return { tier: Number(w.stake), rounds, prepaid: fromAtomic(stake * BigInt(rounds)) }
+}
+// Server status -> the shape the renderer draws (rounds, staked, won, net, running, paused, stoppedBy, lastResult).
+function mapAutoplayStatus (j) {
+  j = j || {}
+  const sess = j.session && typeof j.session === 'object' ? j.session : j
+  const state = String(sess.state || sess.status || '').toLowerCase()
+  const num = (...ks) => { for (const k of ks) if (sess[k] != null && sess[k] !== '') return String(sess[k]); return '0' }
+  const paused = sess.paused === true || state === 'paused' || sess.pause_reason === 'pool_paused'
+  return {
+    ok: true,
+    found: j.found !== false,
+    sessionId: sess.session_id || sess.sessionId || null,
+    running: sess.running === true || state === 'running' || state === 'active' || paused,
+    paused,
+    pauseReason: paused ? (sess.pause_reason || 'pool_paused') : null,
+    rounds: Number(num('rounds_played', 'rounds_done', 'played')) || 0,
+    staked: num('staked', 'total_staked'),
+    won: num('paid_out', 'payout', 'won', 'total_paid'),
+    net: num('net'),
+    stoppedBy: sess.stopped_by || sess.stoppedBy || null,
+    lastResult: sess.last_round || sess.lastResult || null
+  }
+}
+// Real Stake Wheel "SCDO points auto-play" client (/games/stakewheel/api/autobet/{challenge,start,stop,status,rounds}).
+// Auth: EIP-191 personal_sign of the server challenge; start also pays tier*rounds SCDO points (prepaid_tx) to pay_to.
+// opts: baseUrl, sign({file,password,message,payTo?,amount?}) -> {address,signature,txHash?} (walletService.autoplaySign),
+//       request(method,url,body,timeoutMs) (tests inject a mock), stateFile (remembers address + session id).
+class StakeWheelAutobetClient {
+  constructor (opts) {
+    opts = opts || {}
+    this.baseUrl = String(opts.baseUrl || AUTOPLAY_BASE).replace(/\/$/, '')
+    this.sign = opts.sign
+    this.req = opts.request || request
+    this.stateFile = opts.stateFile || ''
+  }
+  _state () { try { return JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) || {} } catch (e) { return {} } }
+  _save (st) { if (!this.stateFile) return; try { fs.mkdirSync(path.dirname(this.stateFile), { recursive: true }); fs.writeFileSync(this.stateFile, JSON.stringify(st)) } catch (e) {} }
+  async _challenge (address, action, extra) {
+    const q = new URLSearchParams(Object.assign({ address, action }, extra || {}))
+    const r = await this.req('GET', this.baseUrl + '/challenge?' + q.toString(), null, 15000)
+    const m = mapWheelHttp(r.status, r.json)
+    if (!m.ok) return m
+    if (!m.message || !m.nonce) return { ok: false, error: 'bad_challenge' }
+    return m
+  }
+  // cfg: { file, password, address, stake (tier), lossLimit, sessionMinutes }
   async start (cfg) {
-    if (!this.baseUrl) return { ok: false, error: 'no_url' }
-    const r = await request('POST', this.baseUrl + '/autobet/start', cfg)
+    cfg = cfg || {}
+    if (typeof this.sign !== 'function') return { ok: false, error: 'no_signer' }
+    if (!cfg.file || !cfg.address) return { ok: false, error: 'no_account' }
+    if (!cfg.password) return { ok: false, error: 'password' }
+    const plan = autoplayPlan(cfg); if (!plan) return { ok: false, error: 'lossBelowStake' }
+    const ch = await this._challenge(cfg.address, 'start', { tier: plan.tier, rounds: plan.rounds })
+    if (!ch.ok) return ch
+    const payTo = String(ch.pay_to || '')
+    if (!/^0x[0-9a-fA-F]{40}$/.test(payTo)) return { ok: false, error: 'bad_challenge' }
+    if (payTo.toLowerCase() === TREASURY) return { ok: false, error: 'payer_is_treasury' }
+    if (ch.amount != null && toAtomic(String(ch.amount)) !== toAtomic(plan.prepaid)) return { ok: false, error: 'amount_mismatch' }
+    let sig
+    try { sig = await this.sign({ file: cfg.file, password: cfg.password, message: ch.message, payTo, amount: plan.prepaid }) } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+    if (!sig || String(sig.address).toLowerCase() !== String(cfg.address).toLowerCase()) return { ok: false, error: 'KEY_MISMATCH' }
+    const r = await this.req('POST', this.baseUrl + '/start', { address: sig.address, nonce: ch.nonce, signature: sig.signature, prepaid_tx: sig.txHash, tier: plan.tier, rounds: plan.rounds }, 20000)
+    const m = mapWheelHttp(r.status, r.json)
+    if (m.ok) this._save({ address: sig.address, sessionId: m.session_id || m.sessionId || null, prepaidTx: sig.txHash })
+    return Object.assign(m, { prepaidTx: sig.txHash, tier: plan.tier, rounds: plan.rounds })
+  }
+  // Stop needs a signed stop challenge (no payment). cfg: { file, password, address? }
+  async stop (cfg) {
+    cfg = cfg || {}
+    const st = this._state()
+    const address = cfg.address || st.address
+    if (!address) return { ok: true } // nothing was started from this wallet
+    if (!cfg.file || !cfg.password || typeof this.sign !== 'function') return { ok: false, error: 'password' }
+    const ch = await this._challenge(address, 'stop', st.sessionId ? { session_id: st.sessionId } : null)
+    if (!ch.ok) return ch
+    let sig
+    try { sig = await this.sign({ file: cfg.file, password: cfg.password, message: ch.message }) } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+    const r = await this.req('POST', this.baseUrl + '/stop', { address: sig.address, nonce: ch.nonce, signature: sig.signature, session_id: st.sessionId || undefined }, 20000)
     return mapWheelHttp(r.status, r.json)
   }
-  async stop (sessionId) {
-    if (!this.baseUrl) return { ok: true }
-    const r = await request('POST', this.baseUrl + '/autobet/stop', { sessionId })
-    return mapWheelHttp(r.status, r.json)
+  async status (address) {
+    const st = this._state()
+    const a = address || st.address
+    if (!a) return { ok: true, found: false, running: false, rounds: 0, staked: '0', won: '0', net: '0' }
+    const r = await this.req('GET', this.baseUrl + '/status?address=' + encodeURIComponent(a), null, 10000)
+    const m = mapWheelHttp(r.status, r.json)
+    if (!m.ok) return m
+    return mapAutoplayStatus(r.json)
   }
-  async status (sessionId) {
-    if (!this.baseUrl) return { ok: false, error: 'no_url' }
-    const r = await request('GET', this.baseUrl + '/autobet/status?sessionId=' + encodeURIComponent(sessionId || ''))
-    return mapWheelHttp(r.status, r.json)
+  async rounds (address) {
+    const a = address || this._state().address
+    if (!a) return { ok: true, rounds: [] }
+    const r = await this.req('GET', this.baseUrl + '/rounds?address=' + encodeURIComponent(a), null, 10000)
+    const m = mapWheelHttp(r.status, r.json)
+    if (!m.ok) return m
+    return { ok: true, rounds: Array.isArray(r.json) ? r.json : (r.json.rounds || r.json.rows || []) }
   }
 }
 // ---- capability probe ----
@@ -222,10 +313,17 @@ function createController (opts) {
   opts = opts || {}
   const fl = flags(opts)
   const now = opts.now || Date.now
-  const b = opts.backends || {}
+  // Release: the real auto-play client (opts.autoplay = { sign, accounts, baseUrl? }). Tests may pass opts.backends.
+  const b = opts.backends || {
+    wheel: opts.autoplay && typeof opts.autoplay.sign === 'function'
+      ? new StakeWheelAutobetClient({ baseUrl: opts.autoplay.baseUrl, sign: opts.autoplay.sign, request: opts.autoplay.request, stateFile: path.join(opts.userData, 'autoplay-session.json') })
+      : null
+  }
   const ready = opts.backends
-    ? { wheel: !!(b.wheel && b.payer), lend: !!(b.lend && b.payer) }
-    : CLIENT_READY
+    ? { wheel: !!b.wheel, lend: !!(b.lend && b.payer) }
+    : { wheel: CLIENT_READY.wheel && !!b.wheel, lend: CLIENT_READY.lend && !!(b.lend && b.payer) }
+  const accounts = () => { try { return ((opts.autoplay && opts.autoplay.accounts && opts.autoplay.accounts()) || []).filter(a => a && a.file && /^0x[0-9a-fA-F]{40}$/.test(a.address || '')) } catch (e) { return [] } }
+  const accountFor = (file) => accounts().find(a => a.file === file) || null
   const file = path.join(opts.userData, 'reward-destination.json')
   const readPrefs = () => { try { return cleanPrefs(JSON.parse(fs.readFileSync(file, 'utf8'))) } catch (e) { return cleanPrefs(DEFAULT_PREFS) } }
   const writePrefs = (p) => { const c = cleanPrefs(p); fs.mkdirSync(path.dirname(file), { recursive: true }); const t = file + '.tmp'; fs.writeFileSync(t, JSON.stringify(c, null, 1)); fs.renameSync(t, file); return c }
@@ -266,7 +364,7 @@ function createController (opts) {
     active,
     async get () {
       const a = await active()
-      return { flags: fl, prefs: effective(readPrefs(), a), active: a, comingSoon: { wheel: !a.wheel, lend: !a.lend } }
+      return { flags: fl, prefs: effective(readPrefs(), a), active: a, comingSoon: { wheel: !a.wheel, lend: !a.lend }, accounts: a.wheel ? accounts().map(x => ({ file: x.file, address: x.address })) : [] }
     },
     async setLend (on) {
       if (!fl.REWARD_LEND) return off
@@ -289,15 +387,18 @@ function createController (opts) {
       next.on = next.on === true
       const bad = validateWheel(next); if (bad) return { ok: false, error: bad, prefs: p }
       p.wheel = next
-      if (!next.on && b.wheel) await b.wheel.stop()
       return { ok: true, prefs: effective(writePrefs(p), a) }
     },
-    async wheelStart () {
+    // args: { file, password } - the user confirms each start with the wallet password (sign + prepaid payment).
+    async wheelStart (args) {
       if (!fl.REWARD_AUTOWHEEL) return off
       const a = await active(); if (!a.wheel) return soon
       const p = readPrefs(); if (!p.wheel.on) return { ok: false, error: 'off' }
       const bad = validateWheel(p.wheel); if (bad) return { ok: false, error: bad }
-      const r = await b.wheel.start(Object.assign({ agent: agentId(), payer: b.payer }, p.wheel))
+      args = args || {}
+      const acc = opts.backends ? { file: args.file, address: args.address } : accountFor(args.file)
+      if (!acc) return { ok: false, error: 'no_account' }
+      const r = await b.wheel.start(Object.assign({ agent: agentId(), payer: b.payer }, p.wheel, { file: acc.file, address: acc.address, password: args.password }))
       if (r && r.error === 'region_blocked') {
         p.wheel.on = false
         writePrefs(p)
@@ -305,8 +406,13 @@ function createController (opts) {
       }
       return r
     },
-    // Stop is always allowed (and a no-op when this build has no wheel backend).
-    async wheelStop () { return b.wheel ? b.wheel.stop() : { ok: true } },
+    // Stop is always allowed (no capability check), so a running session can always be ended.
+    async wheelStop (args) {
+      if (!b.wheel) return { ok: true }
+      args = args || {}
+      const acc = opts.backends ? { file: args.file, address: args.address } : accountFor(args.file)
+      return b.wheel.stop(Object.assign({}, acc || {}, { password: args.password }))
+    },
     async wheelStatus () {
       if (!fl.REWARD_AUTOWHEEL) return off
       if (!(await active()).wheel) return soon
@@ -330,8 +436,9 @@ function createController (opts) {
       const amt = toAtomic(amount); if (amt == null || amt <= 0n) return { ok: false, error: 'amount' }
       return b.lend.withdraw(agentId(), amt)
     },
-    stopAll () { return b.wheel ? b.wheel.stop() : Promise.resolve({ ok: true }) }
+    // App quit: the server-side session keeps its own limits; a signed stop needs the password, so nothing to do here.
+    stopAll () { return Promise.resolve({ ok: true }) }
   }
 }
 
-module.exports = { TREASURY, CLIENT_READY, flags, toAtomic, fromAtomic, cleanPrefs, validateWheel, summaryOf, safeRate, mapWheelHttp, parseFeatures, request, GamesLedgerWheelClient, LendClient, createController, DEFAULT_PREFS }
+module.exports = { TREASURY, CLIENT_READY, AUTOPLAY_TIERS, AUTOPLAY_BASE, autoplayPlan, mapAutoplayStatus, StakeWheelAutobetClient, flags, toAtomic, fromAtomic, cleanPrefs, validateWheel, summaryOf, safeRate, mapWheelHttp, parseFeatures, request, LendClient, createController, DEFAULT_PREFS }

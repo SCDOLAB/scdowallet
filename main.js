@@ -1671,9 +1671,9 @@ function startOpsAgent () {
     watchAgentCard()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
-// ---- Reward destination (記帳獎勵去向). 3.1.13: UI ships greyed "Coming soon"; no stub backend is wired.
-// Toggles unlock only when <agent ledger>/features reports the feature live AND the build has a production backend
-// (src/main/rewardDest.js CLIENT_READY, false in 3.1.13). Hidden in store builds.
+// ---- Reward destination (記帳獎勵去向). Toggles unlock only when <agent ledger>/features reports the feature live
+// (LEDGER_REWARD_WHEEL / LEDGER_REWARD_LEND on the agent ledger, both off by default) AND the build has a production
+// backend (src/main/rewardDest.js CLIENT_READY: 3.1.14 wheel=true via the real autobet client, lend=false). Hidden in store builds.
 let rewardDest = null
 function getRewardDest () {
   if (rewardDest) return rewardDest
@@ -1684,6 +1684,11 @@ function getRewardDest () {
     featuresUrl: () => {
       const ledger = opsAgent && opsAgent.status ? opsAgent.status().ledger : ''
       return ledger ? String(ledger).replace(/\/$/, '') + '/features' : ''
+    },
+    // 3.1.14 SCDO points auto-play: real Stake Wheel autobet client. Still greyed until /features says rewardWheel.
+    autoplay: {
+      sign: (p) => require('./src/main/walletService').autoplaySign(p),
+      accounts: () => require('./src/main/walletService').listAccounts().filter(a => a && a.evm).map(a => ({ file: a.filename, address: a.evm }))
     }
   })
   return rewardDest
@@ -1691,8 +1696,8 @@ function getRewardDest () {
 ipcMain.handle('rewardDest:get', () => getRewardDest().get())
 ipcMain.handle('rewardDest:setLend', (e, on) => getRewardDest().setLend(on === true))
 ipcMain.handle('rewardDest:setWheel', (e, patch) => getRewardDest().setWheel(patch && typeof patch === 'object' ? patch : {}))
-ipcMain.handle('rewardDest:wheelStart', () => getRewardDest().wheelStart())
-ipcMain.handle('rewardDest:wheelStop', () => getRewardDest().wheelStop())
+ipcMain.handle('rewardDest:wheelStart', (e, a) => getRewardDest().wheelStart(a && typeof a === 'object' ? { file: String(a.file || ''), password: String(a.password || '') } : {}))
+ipcMain.handle('rewardDest:wheelStop', (e, a) => getRewardDest().wheelStop(a && typeof a === 'object' ? { file: String(a.file || ''), password: String(a.password || '') } : {}))
 ipcMain.handle('rewardDest:wheelStatus', () => getRewardDest().wheelStatus())
 ipcMain.handle('rewardDest:lendRate', () => getRewardDest().lendRate())
 ipcMain.handle('rewardDest:lendLedger', () => getRewardDest().lendLedger())

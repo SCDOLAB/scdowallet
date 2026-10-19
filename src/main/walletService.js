@@ -655,4 +655,43 @@ async function sendContract (p) {
   } finally { priv = null }
 }
 
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, s0activityPublic: s0activity, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+
+// ---------- 3.1.14 SCDO points auto-play (「SCDO 積分自動玩」) ----------
+// One password entry: decrypt the key in memory, EIP-191 sign the server challenge, and (start only) pay the prepaid
+// SCDO points to the Stake Wheel game wallet through the normal Shard0 send path (nonce handling, Activity record).
+// The key never leaves this function and is dropped right after. Never pays the treasury.
+const AUTOPLAY_TREASURY = '0x0889453fe946c75163b3bbdf2266f2566b2f4c03'
+async function autoplaySign (p) {
+  p = p || {}
+  const a = accByFile(safeName(p.file))
+  if (!a || !a.evm) throw new Error('NO_ACCOUNT')
+  if (typeof p.password !== 'string' || !p.password) throw new Error('NO_PASSWORD')
+  if (typeof p.message !== 'string' || !p.message) throw new Error('NO_MESSAGE')
+  let to = null
+  let amount = null
+  if (p.payTo != null) {
+    const chk = await checkAddress(a.evm, p.payTo, 'SCDO')
+    if (!chk.ok) throw new Error('BAD_PAY_TO')
+    if (chk.address.toLowerCase() === AUTOPLAY_TREASURY) throw new Error('PAY_TO_TREASURY')
+    to = chk.address
+    amount = parseAmount(String(p.amount), 18).v
+  }
+  const run = async () => {
+    let priv
+    try { priv = await c().decKeyFile(a.filename, p.password) } catch (e) { throw new Error('WRONG_PASSWORD') }
+    try {
+      if (Shard0.addressFromPrivateKey(priv).toLowerCase() !== a.evm.toLowerCase()) throw new Error('KEY_MISMATCH')
+      const signature = await new ethers.Wallet(priv).signMessage(p.message)
+      if (!to) return { address: a.evm, signature }
+      const tx = await signAndBroadcast(priv, { from: a.evm, to, amount, asset: 'SCDO' })
+      return { address: a.evm, signature, txHash: tx.hash }
+    } finally { priv = null }
+  }
+  const key = a.evm.toLowerCase()
+  const prev = sendLocks.get(key) || Promise.resolve()
+  const job = prev.catch(() => {}).then(run)
+  sendLocks.set(key, job.catch(() => {}))
+  return job
+}
+
+module.exports = { register, autoplaySign, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, s0activityPublic: s0activity, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
