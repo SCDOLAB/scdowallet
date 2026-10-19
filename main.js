@@ -1547,6 +1547,7 @@ function startOpsAgent () {
     opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
       version: VERSION, platform: process.platform, label: '',
       payoutAddress: payoutAddressNow,
+      accountPayout: () => { try { const a = (walletService.listAccounts() || []).find(x => x && x.evm); return a ? String(a.evm) : '' } catch (e) { return '' } },
       joinExtra: () => joinStore.joinExtra(),
       enabled: () => (readIntent() || {}).agentReporting !== false,
       light: () => sessionLight,
