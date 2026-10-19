@@ -22,7 +22,7 @@
       back: '\u2190 Reward destination',
       on: 'On', off: 'Off',
       wheelRisk: 'Each round can lose its stake. Results are random. Only use rewards you can afford to lose.',
-      stake: 'Stake per round (SCDO)',
+      stake: 'SCDO points per round (10 or 100)',
       lossLimit: 'Loss limit (SCDO) \u2014 stops when net loss would pass this',
       sessionLimit: 'Session limit (minutes) \u2014 stops after this long',
       save: 'Save limits',
@@ -52,6 +52,18 @@
       err_session: 'Session limit is 1 to 240 minutes.', err_amount: 'Enter an amount above 0.', err_off: 'Turn this on first.',
       err_insufficient: 'That is more than your balance.', err_unavailable: 'Not available right now.', err_payer_is_treasury: 'Blocked: the server named the treasury as the interest payer.',
       err_coming_soon: 'Coming soon',
+      account: 'Wallet account',
+      password: 'Wallet password (confirms each start and stop)',
+      prepaidHint: 'Start pays the session in advance: points per round x rounds (1 round per minute, capped by your loss limit). Unused points are returned when you stop.',
+      err_tier: 'Points per round must be 10 or 100.',
+      err_password: 'Enter your wallet password.',
+      err_no_account: 'Choose a wallet account.',
+      err_WRONG_PASSWORD: 'Wrong password.',
+      err_INSUFFICIENT: 'Not enough SCDO points for this session.',
+      err_autobet_disabled: 'Auto-play is switched off on the server right now.',
+      err_cap_exceeded: 'Limit reached for this device or network.',
+      err_invalid_signature: 'Signature was not accepted. Try again.',
+      err_bad_or_expired_nonce: 'The request expired. Try again.',
       err_region_blocked: 'Not available in your region',
       err_pool_paused: 'Wheel paused, pool refilling',
       poolPausedHint: 'Auto-bet is paused. It will retry when the pool is above 501 SCDO.',
@@ -70,7 +82,7 @@
       back: '\u2190 \u734e\u52f5\u53bb\u5411',
       on: '\u958b', off: '\u95dc',
       wheelRisk: '\u6bcf\u5c40\u90fd\u53ef\u80fd\u8f38\u6389\u8a3b\u8a3c\u91d1\u3002\u7d50\u679c\u662f\u96a8\u6a5f\u7684\u3002\u53ea\u7528\u4f60\u4e1f\u5f97\u8d77\u7684\u734e\u52f5\u3002',
-      stake: '\u6bcf\u5c40\u8a3b\u8a3c\uff08SCDO\uff09',
+      stake: '\u6bcf\u5c40 SCDO \u7a4d\u5206\uff0810 \u6216 100\uff09',
       lossLimit: '\u8667\u640d\u4e0a\u9650\uff08SCDO\uff09\u2014\u6de8\u8667\u640d\u5c07\u8d85\u904e\u6642\u505c\u6b62',
       sessionLimit: '\u6703\u8a71\u4e0a\u9650\uff08\u5206\u9418\uff09\u2014\u6642\u9593\u5230\u5c31\u505c',
       save: '\u5132\u5b58\u4e0a\u9650',
@@ -100,6 +112,18 @@
       err_session: '\u6703\u8a71\u4e0a\u9650\u70ba 1 \u5230 240 \u5206\u9418\u3002', err_amount: '\u8acb\u8f38\u5165\u5927\u65bc 0 \u7684\u91d1\u984d\u3002', err_off: '\u8acb\u5148\u958b\u555f\u3002',
       err_insufficient: '\u8d85\u51fa\u9918\u984d\u3002', err_unavailable: '\u76ee\u524d\u4e0d\u53ef\u7528\u3002', err_payer_is_treasury: '\u5df2\u62d2\u7d55\uff1a\u4f3a\u670d\u5668\u628a\u570b\u5eab\u8a2d\u70ba\u4ed8\u606f\u65b9\u3002',
       err_coming_soon: '\u5373\u5c07\u63a8\u51fa',
+      account: '\u9322\u5305\u5e33\u6236',
+      password: '\u9322\u5305\u5bc6\u78bc\uff08\u6bcf\u6b21\u958b\u59cb\u548c\u505c\u6b62\u90fd\u8981\u78ba\u8a8d\uff09',
+      prepaidHint: '\u958b\u59cb\u6642\u5148\u9810\u4ed8\u672c\u6b21\u7a4d\u5206\uff1a\u6bcf\u5c40\u7a4d\u5206 \u00d7 \u5c40\u6578\uff08\u6bcf\u5206\u9418 1 \u5c40\uff0c\u4e0d\u8d85\u904e\u8667\u640d\u4e0a\u9650\uff09\u3002\u505c\u6b62\u5f8c\u672a\u7528\u5b8c\u7684\u7a4d\u5206\u6703\u9000\u56de\u3002',
+      err_tier: '\u6bcf\u5c40\u7a4d\u5206\u53ea\u80fd\u662f 10 \u6216 100\u3002',
+      err_password: '\u8acb\u8f38\u5165\u9322\u5305\u5bc6\u78bc\u3002',
+      err_no_account: '\u8acb\u9078\u64c7\u9322\u5305\u5e33\u6236\u3002',
+      err_WRONG_PASSWORD: '\u5bc6\u78bc\u932f\u8aa4\u3002',
+      err_INSUFFICIENT: 'SCDO \u7a4d\u5206\u4e0d\u8db3\u4ee5\u9032\u884c\u672c\u6b21\u81ea\u52d5\u73a9\u3002',
+      err_autobet_disabled: '\u4f3a\u670d\u5668\u76ee\u524d\u5df2\u95dc\u9589\u81ea\u52d5\u73a9\u3002',
+      err_cap_exceeded: '\u9019\u53f0\u88dd\u7f6e\u6216\u7db2\u8def\u5df2\u9054\u4e0a\u9650\u3002',
+      err_invalid_signature: '\u7c3d\u540d\u672a\u88ab\u63a5\u53d7\uff0c\u8acb\u518d\u8a66\u4e00\u6b21\u3002',
+      err_bad_or_expired_nonce: '\u8acb\u6c42\u5df2\u904e\u671f\uff0c\u8acb\u518d\u8a66\u4e00\u6b21\u3002',
       err_region_blocked: '\u6240\u5728\u5730\u5340\u66ab\u4e0d\u63d0\u4f9b',
       err_pool_paused: '\u8f2a\u76e4\u66ab\u505c\uff0c\u734e\u6c60\u88dc\u5145\u4e2d',
       poolPausedHint: '\u81ea\u52d5\u628a\u6ce8\u5df2\u66ab\u505c\u3002\u734e\u6c60\u8d85\u904e 501 SCDO \u5f8c\u6703\u91cd\u8a66\u3002',
@@ -182,6 +206,10 @@
     if (st.lastResult) h += `<div class="lbl" style="margin-top:10px">${esc(t(lang, 'last'))}${PU(lang)} #${esc(st.lastResult.round)} \u00b7 ${esc(st.lastResult.stake)} \u2192 ${esc(st.lastResult.payout)}</div>`
     if (by) h += `<div class="lbl">${esc(t(lang, 'stoppedBy'))}${PU(lang)}${esc(by)}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(t(lang, 'results'))}</div>`
+    const accs = (cache && cache.accounts) || []
+    h += `<div class="field" style="margin-top:14px"><div class="lbl" style="font-weight:600">${esc(t(lang, 'account'))}</div><select class="inp" id="rdAccount">${accs.map(x => `<option value="${esc(x.file)}">${esc(x.address)}</option>`).join('')}</select></div>`
+    h += `<div class="field" style="margin-top:12px"><div class="lbl" style="font-weight:600">${esc(t(lang, 'password'))}</div><input class="inp" id="rdPassword" type="password" autocomplete="off" value=""></div>`
+    h += `<div class="lbl" style="margin-top:8px">${esc(t(lang, 'prepaidHint'))}</div>`
     h += `<div class="row" style="margin-top:18px;flex-wrap:wrap;gap:14px"><button type="button" class="btn pri" data-act="rdWheelStart" ${st.running || !p.on ? 'disabled' : ''}>${esc(t(lang, 'start'))}</button><button type="button" class="btn dan big" data-act="rdWheelStop" style="min-width:160px;font-size:22px;font-weight:800">${esc(t(lang, 'stop'))}</button></div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(t(lang, 'stopHint'))}</div>`
     if (st.paused || st.pauseReason === 'pool_paused') {
@@ -264,6 +292,13 @@
     } else stopPoll()
   }
 
+  // Account + password for one start/stop; the password field is cleared right away and never stored.
+  function authArgs () {
+    const sel = document.getElementById('rdAccount'); const pw = document.getElementById('rdPassword')
+    const a = { file: sel ? sel.value : '', password: pw ? pw.value : '' }
+    if (pw) pw.value = ''
+    return a
+  }
   function errText (lang, code) {
     if (!code) return t(lang, 'err', { e: 'unknown' })
     return t(lang, 'err_' + code) || t(lang, 'err', { e: code })
@@ -303,7 +338,7 @@
       paint(lang, host); return true
     }
     if (act === 'rdWheelStart') {
-      const r = await api().invoke('rewardDest:wheelStart')
+      const r = await api().invoke('rewardDest:wheelStart', authArgs())
       if (r && r.prefs) cache.prefs = r.prefs
       if (!(r && r.ok)) {
         toast(errText(lang, r && r.error))
@@ -312,7 +347,8 @@
       await refreshLive(); paint(lang, host); return true
     }
     if (act === 'rdWheelStop') {
-      await api().invoke('rewardDest:wheelStop')
+      const r = await api().invoke('rewardDest:wheelStop', authArgs())
+      if (!(r && r.ok)) toast(errText(lang, r && r.error))
       await refreshLive(); paint(lang, host); return true
     }
     if (act === 'rdLendDeposit') {
