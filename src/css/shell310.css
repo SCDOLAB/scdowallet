@@ -11,12 +11,16 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .side-nav { width: 216px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 12px; background: #fff; border-right: 1px solid #e5e5ea; }
 .nav-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 12px 16px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 800; text-align: left; }
 .nav-item svg { display: block; flex: none; }
+.nav-item span { min-width: 0; line-height: 1.25; }
 .nav-item:hover { background: #E8F5E9; color: #1d7a34; }
 .nav-item.on, .nav-item.on:hover { background: #1d7a34; color: #fff; }
 
 .shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; min-width: 0; margin: 0 auto; padding: 26px 30px 140px; }
 .shell-h { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -0.4px; color: #1c1c1e; }
 .site-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 26px 0; min-width: 0; }
+.lang-switch { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.lang-opt { border: 1px solid #1d7a34; background: #fff; color: #1d7a34; border-radius: 999px; font-size: 14px; font-weight: 800; padding: 6px 12px; }
+.lang-opt.on { background: #1d7a34; color: #fff; }
 
 .bal-hero { border-radius: 24px; padding: 28px 32px 32px; color: #1c1c1e;
   background: linear-gradient(135deg, rgba(232,248,238,.92) 0%, rgba(206,240,220,.92) 55%, rgba(196,236,214,.92) 100%);
@@ -28,6 +32,14 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 
 .shell-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .home-lead { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: -0.3px; color: #1c1c1e; }
+.empty-wallet { background: #fff; border: 1px solid #e5e5ea; border-radius: 24px; padding: 28px 32px; margin: 0 0 16px; }
+.empty-wallet .empty-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ext-payout { background: #fff; border: 1px solid #e5e5ea; border-radius: 16px; padding: 16px 20px; margin: 12px 0 0; }
+.ext-payout .lbl { font-size: 13px; font-weight: 800; color: #3d4160; }
+.ext-payout .mono { margin-top: 6px; font-size: 16px; word-break: break-all; }
+.ext-payout .ext-bal { margin-top: 8px; font-size: 28px; font-weight: 800; }
+.ext-payout .ext-bal.dash { color: #8e8e93; }
+.ext-payout .ext-note { margin: 8px 0 0; font-size: 14px; color: #3d4160; }
 .home-backup-banner { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
 .home-backup-banner:hover { background: #ffefb0; }
 .home-backup-legacy { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 8px 6px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; color: #7a5b00; font-size: 13px; font-weight: 700; line-height: 1.35; }
@@ -68,11 +80,23 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .first-run-actions { grid-template-columns: 1fr; max-width: 420px; }
 .first-run .field { margin: 14px 0 4px; max-width: 420px; }
 .first-run .field .lbl { margin-bottom: 6px; font-weight: 700; color: #3d4160; }
+.join-ref-row { display: flex; align-items: center; gap: 8px; }
+.join-ref-row .inp { flex: 1 1 auto; width: auto; min-width: 0; }
+.join-ref-row .shell-copy { flex: 0 0 auto; height: 50px; padding: 0 16px; font-size: 16px; }
+#joinRef { -webkit-user-select: text; user-select: text; }
 .agent-claim { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 16px; font-weight: 800; }
 .agent-card { background: #fff; border-radius: 24px; padding: 22px 24px; margin: 16px 0; border: 1px solid #e5e5ea; }
 .agent-card h2 { margin: 0 0 8px; font-size: 22px; }
 .agent-card h3 { margin: 14px 0 6px; font-size: 16px; }
 .agent-row { margin: 6px 0; font-size: 16px; }
+.agent-stay { margin: 0 0 12px; color: #3d4160; font-size: 15px; }
+.agent-presence { margin: 0 0 10px; font-size: 15px; font-weight: 800; }
+.agent-presence.online { color: #1d7a34; }
+.agent-presence.offline { color: #8e8e93; }
+.agent-presence.starting { color: #8e8e93; }
+.agent-x402-none { color: #8e8e93; font-weight: 600; }
+.tray-hint { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 8px 10px; background: #eef8ef; border: 1px solid #b7e0be; border-radius: 8px; color: #1d7a34; font-size: 14px; font-weight: 700; }
+.tray-hint span { flex: 1; }
 .agent-reward-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 10px; background: #fff4cc; border: 1px solid #f0d060; border-radius: 8px; }
 .agent-reward-tap { flex: 1; text-align: left; border: 0; background: transparent; color: #7a5b00; font-size: 15px; font-weight: 800; padding: 0; }
 .agent-entries { margin: 0; padding-left: 18px; }
@@ -306,6 +330,11 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 .payinv .qrwrap { width: 240px; height: 240px; margin: 12px auto; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 #payInvoiceBtn { margin: 0 0 16px; }
 
+.offline-notice, .live-banner, .live-note { background: #fff4cc; border: 1px solid #e0b000; border-radius: 12px; padding: 10px 14px; font-weight: 700; margin: 0 0 12px; }
+.live-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.live-card { border: 1px solid #e5e5ea; border-radius: 16px; background: #fff; padding: 14px; }
+.live-card h2 { margin: 0 0 6px; font-size: 18px; }
+.live-card p { margin: 0 0 10px; }
 .panel-section { margin: 8px 0 16px; }
 .panel-head { border: 0; background: transparent; color: #1c1c1e; font-size: 18px; font-weight: 800; padding: 0 0 8px; }
 .panel-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

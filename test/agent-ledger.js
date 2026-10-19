@@ -189,7 +189,7 @@ assert.strictEqual(heartbeatBody({ code: 'MINING' }, '3.1.9').code, 'MINING')
   const visible = h => h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ')
   const han = /[\u4e00-\u9fff]/
   assert.ok(en.includes('<footer>SCDO Laboratory</footer>') && zh.includes('<footer>SCDO Laboratory</footer>'))
-  assert.ok(!han.test(visible(en).replace('華語繁體', '')), 'English page has Chinese text')
+  assert.ok(!han.test(visible(en).replace('華語', '')), 'English page has Chinese text')
   assert.ok(han.test(visible(zh)))
   assert.ok(!/\b(Agents|Online|Hashrate|Peers|Status)\b/.test(visible(zh).replace('SCDO Laboratory', '')), 'Chinese page has English labels')
   assert.ok(!/[\u4e00-\u9fff]/.test(en.match(/const T=.*;/)[0]))

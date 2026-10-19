@@ -10,6 +10,7 @@ const { joinBodyFields } = require('../js/agentJoin')
 const { EventLog } = require('./eventLog')
 const heal = require('./healRules')
 const { parseClassicAddress, parseShard0Address } = require('../miner/zpow/address')
+const { ledgerPayout } = require('./payoutRule')
 const endpoints = require('../config/endpoints')
 
 const TICK_MS = 30 * 1000
@@ -19,6 +20,11 @@ const FALLBACK_LEDGER = endpoints.FALLBACK_LEDGER
 const PUBLIC_FIELDS = ['hashrate', 'gpuTempC', 'peers', 'localBlock', 'networkBlock', 'code', 'running', 'procs', 'gpuName', 'syncing']
 const ATTEMPTS = 3
 const RETRY_DELAY_MS = 400
+// The ledger calls an agent online while its last accepted post is younger than this (ledger onlineMs).
+const ONLINE_MS = 15 * 60 * 1000
+// 3.1.12: re-register to pick up the x402 Base reserve when the ledger has not returned one yet.
+const RESERVE_RETRY_MS = [60 * 1000, 2 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000, 15 * 60 * 1000]
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/
 
 function postJson (url, obj, timeoutMs) {
   return new Promise(resolve => {
@@ -88,6 +94,11 @@ class AgentService {
     this.sleep = opts.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)))
     this.registered = false
     this.registeredPayout = ''
+    this.settled = false
+    this.lastOkAt = 0
+    this.usdcWallet = ''
+    this.reserveTries = 0
+    this.nextReserveAt = 0
     this.lastBeat = 0
     this.lastSnap = null
     this.timer = null
@@ -101,14 +112,22 @@ class AgentService {
     if (urls.length) { this.ledgers = urls; this.ledger = urls[0] }
   }
 
+  // 3.1.11: the ledger needs a valid Shard0/EVM payout. A classic (1S01…), placeholder or missing payout falls back to
+  // the wallet's own Shard0 account (host.accountPayout), so every desktop agent is listed with a real payout.
   async payoutAddress () {
     let v = ''
     try {
       const src = this.host.payoutAddress
       v = typeof src === 'function' ? await src() : src
     } catch (e) { v = '' }
-    return validPayout(v)
+    const direct = ledgerPayout(validPayout(v))
+    if (direct) return direct
+    try {
+      const f = this.host.accountPayout
+      return ledgerPayout(typeof f === 'function' ? await f() : f)
+    } catch (e) { return '' }
   }
+
 
   note (action, outcome, extra) {
     const rec = Object.assign({ kind: 'ledger', action, outcome }, extra || {})
@@ -135,7 +154,53 @@ class AgentService {
   async send (type, body) {
     if (!this.reportingOn()) return { ok: false, error: 'disabled' }
     const env = this.id.sign(type, body, this.now())
-    return this.postLedger(type, env)
+    const r = await this.postLedger(type, env)
+    if (r && r.ok && (type === 'register' || type === 'heartbeat' || type === 'heal' || type === 'report')) {
+      const wasOnline = this.online()
+      this.lastOkAt = this.now()
+      // Any accepted answer that carries the reserve fills it (the ledger assigns it when the agent posts).
+      if (r.body && r.body.usdcWallet) this.noteReserve(r.body.usdcWallet)
+      // The agent just went online (first accepted post, or the first after an offline gap) and still has
+      // no reserve: ask for it now instead of waiting for the backoff. register handles its own answer.
+      if (!wasOnline && type !== 'register' && !this.usdcWallet && this.registered) this.nextReserveAt = 0
+    }
+    return r
+  }
+
+  // 3.1.12: one online state for the card and the tray. Same rule as the ledger: registered and
+  // an accepted post within ONLINE_MS.
+  online () {
+    return !!(this.registered && this.reportingOn() && this.lastOkAt && this.now() - this.lastOkAt < ONLINE_MS)
+  }
+
+  // The x402 Base reserve the ledger assigned (register response), or the one the card read from the ledger.
+  noteReserve (address) {
+    const a = String(address || '').trim()
+    if (!ADDR_RE.test(a)) return false
+    const changed = a !== this.usdcWallet
+    this.usdcWallet = a
+    this.reserveTries = 0
+    this.nextReserveAt = 0
+    if (changed) { try { if (typeof this.host.onReserve === 'function') this.host.onReserve(a) } catch (e) {} }
+    return true
+  }
+
+  // Registered but no reserve yet: register again on a backoff (1, 2, 5, 10, then every 15 minutes).
+  reserveDue (now) {
+    if (!this.registered || this.usdcWallet) return false
+    return now >= this.nextReserveAt
+  }
+  // 3.1.12: the reserve is assigned when the agent goes online. Called after the posts of a tick: if the
+  // agent is online and still has no reserve and a request is due, register now (the ledger answers with it).
+  async reserveOnOnline () {
+    if (!this.reportingOn() || !this.online() || !this.reserveDue(this.now())) return false
+    await this.register()
+    return !!this.usdcWallet
+  }
+  scheduleReserve (now) {
+    const i = Math.min(this.reserveTries, RESERVE_RETRY_MS.length - 1)
+    this.nextReserveAt = now + RESERVE_RETRY_MS[i]
+    this.reserveTries += 1
   }
 
   async deliver (type, body) {
@@ -168,8 +233,22 @@ class AgentService {
     if (payout) body.payout = payout
     const extra = joinBodyFields(await this.joinExtra())
     Object.assign(body, extra)
+    // 3.1.12: the x402 Base reserve is assigned when the agent goes online (its register is the first post
+    // the ledger accepts; the ledger also fills it on a heartbeat). With no reserve chosen yet, ask for this
+    // agent's own address (the ledger accepts it as self-proven). Only with a real payout, so the reserve
+    // never stands in for a missing payout.
+    if (!body.usdcWallet && payout && ADDR_RE.test(String(this.id.agentId || ''))) {
+      body.usdcWallet = this.id.agentId
+      body.x402Support = true
+    }
     const r = await this.deliver('register', body)
-    if (r && r.ok) { this.registered = true; this.registeredPayout = payout }
+    this.settled = true
+    if (r && r.ok) {
+      this.registered = true
+      this.registeredPayout = payout
+      const got = r.body && r.body.usdcWallet
+      if (!this.noteReserve(got)) this.scheduleReserve(this.now())
+    }
     return r
   }
 
@@ -218,12 +297,14 @@ class AgentService {
     if (this.reportingOn()) {
       const payout = await this.payoutAddress()
       if (!this.registered || (payout && payout !== this.registeredPayout)) await this.register()
-    }
+      else if (this.reserveDue(now)) await this.register()
+    } else this.settled = true
     if (light) {
       if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-        const r = await this.deliver('heartbeat', heartbeatBody({ code: 'ONLINE' }, this.host.version))
+        const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody({ code: 'ONLINE' }, this.host.version)))
         if (r && r.ok) this.lastBeat = now
       }
+      await this.reserveOnOnline()
       return { actions: [], problems: [], light: true }
     }
     let snap
@@ -243,9 +324,10 @@ class AgentService {
       if (this.registered) await this.deliver('heal', { action: a.type, reason: String(a.reason || '').slice(0, 200), outcome, problems: problems.map(p => p.code) })
     }
     if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-      const r = await this.deliver('heartbeat', heartbeatBody(snap, this.host.version))
+      const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody(snap, this.host.version)))
       if (r && r.ok) this.lastBeat = now
     }
+    await this.reserveOnOnline()
     return { actions: results, problems }
   }
 
@@ -259,11 +341,21 @@ class AgentService {
     if (first.unref) first.unref()
   }
 
+  // The window can be hidden. The heartbeat timer lives in this process, not in the page.
+  nudge () {
+    this.start()
+    return this.tick().catch(e => this.fail('tick', e))
+  }
+
   stop () { if (this.timer) clearInterval(this.timer); this.timer = null }
 
-  // Reward destination (TEST): signed lend envelope; the agent key stays in identity.js.
-  signReward (type, body) { return this.id.signReward ? this.id.signReward(type, body, this.now()) : null }
-  status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
+  // 3.1.11: every heartbeat carries the payout too (the ledger requires it).
+  withPayout (body) {
+    if (this.registeredPayout) body.payout = this.registeredPayout
+    return body
+  }
+
+  status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, online: this.online(), settled: this.settled, started: !!this.timer, lastOkAt: this.lastOkAt || 0, usdcWallet: this.usdcWallet || '', payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
 }
 
-module.exports = { AgentService, heartbeatBody, postJson, validPayout, shouldRetry, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, FALLBACK_LEDGER, PUBLIC_FIELDS, ATTEMPTS }
+module.exports = { AgentService, heartbeatBody, postJson, validPayout, shouldRetry, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, FALLBACK_LEDGER, PUBLIC_FIELDS, ATTEMPTS, ONLINE_MS, RESERVE_RETRY_MS }

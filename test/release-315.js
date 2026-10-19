@@ -114,7 +114,7 @@ assert.ok(agentSrc.includes('gave-up') && agentSrc.includes("deliver('report'"))
 assert.ok(read('index.html').includes("connect-src 'self' https://apeccapital.org"))
 assert.ok(read('main.js').includes('apeccapital\\.org'))
 assert.ok(read('src/updater.js').includes("'https://apeccapital.org'"))
-assert.strictEqual(require('../package.json').version, '3.1.9')
+assert.strictEqual(require('../package.json').version, '3.1.13')
 assert.ok(read('server/agent-ledger/server.js').includes('report'))
 
 ;(async () => {
@@ -141,7 +141,7 @@ assert.ok(read('server/agent-ledger/server.js').includes('report'))
   assert.strictEqual(cached.config.noRewardHours, 12)
 
   let n = 0
-  const retry = new AgentService(tmp(), { version: '3.1.5', snapshot: async () => ({}), payoutAddress: () => '0x' + 'ab'.repeat(20) }, {
+  const retry = new AgentService(tmp(), { version: '3.1.5', snapshot: async () => ({}), payoutAddress: () => '0x2d6f6ebc9686d0316e1f24f8588585c1f22fc956' }, {
     ledgerUrl: 'http://127.0.0.1:9/agent-ledger/api',
     attempts: 3,
     retryDelayMs: 1,
@@ -151,7 +151,7 @@ assert.ok(read('server/agent-ledger/server.js').includes('report'))
   assert.strictEqual(reg.ok, true)
   assert.strictEqual(n, 3)
   assert.ok(retry.log.recent(20).some(e => e.outcome === 'retry'))
-  assert.strictEqual(retry.registeredPayout, '0x' + 'ab'.repeat(20))
+  assert.strictEqual(retry.registeredPayout, '0x2d6f6ebc9686d0316e1f24f8588585c1f22fc956')
 
   const seen = []
   const fb = new AgentService(tmp(), { version: '3.1.5', snapshot: async () => ({}) }, {
@@ -171,7 +171,7 @@ assert.ok(read('server/agent-ledger/server.js').includes('report'))
   const srv = http.createServer(createApp({ dataDir: tmp() }).handler)
   await new Promise(resolve => srv.listen(0, '127.0.0.1', resolve))
   const base = 'http://127.0.0.1:' + srv.address().port + '/agent-ledger/api'
-  const addr = '0x' + 'cd'.repeat(20)
+  const addr = '0x52908400098527886e0f7030069857d2e4169ee7'
   const svc = new AgentService(tmp(), {
     version: '3.1.5', platform: 'linux', snapshot: async () => ({}), payoutAddress: () => addr
   }, { ledgerUrl: base, attempts: 1, retryDelayMs: 1 })

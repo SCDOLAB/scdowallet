@@ -1309,6 +1309,7 @@ function minePageHtml (input, T, esc, extra) {
   const gpu = devicePanel(input, 'gpu', pick.gpu, pick.cpu, T, esc, true)
   return `<div class="page shell-mine-page" id="minePage">
     <h1 class="shell-h">${esc(tr(T, 'navMine'))}</h1>
+    <div class="lbl mine-ledger-note" id="ledgerNodeNote">${esc(tr(T, 'ledgerNodeLine'))}</div>
     <div class="mine-panels">
       ${cpu.html}
       ${gpu.html}

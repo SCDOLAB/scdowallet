@@ -1,6 +1,8 @@
-// Reward destination (記帳獎勵去向) section of 記帳設定 / Bookkeeping settings. TEST feature.
+// Reward destination (記帳獎勵去向) section of 記帳設定 / Bookkeeping settings.
 // Two independent toggles, both OFF by default: A) auto-join wheel, B) lend to treasury for interest.
-// The main process (src/main/rewardDest.js) owns prefs, limits, the x402 payer and the server calls.
+// 3.1.13: both toggles are disabled and greyed with "Coming soon" / 「即將推出」 until the main process reports
+// active.wheel / active.lend (server capability live + production backend in this build). While a feature is not
+// active, its sub-screen cannot be opened and every action is refused here and again in the main process.
 // Store builds (App Store / Play / store): flags come back false and nothing is drawn.
 'use strict'
 ;(function () {
@@ -10,10 +12,8 @@
     EN: {
       title: 'Reward destination',
       lead: 'Choose where your bookkeeping rewards go. Both are off unless you turn them on, and you can change them at any time.',
-      testBadge: 'TEST BUILD',
-      stubWheel: 'STUB: the Games Ledger auto-bet API is not connected yet. Rounds are simulated here; no SCDO moves.',
-      stubLend: 'STUB: the lend server is not connected. Records are simulated on this computer; no SCDO moves.',
-      stubX402: 'STUB: x402 payments are simulated; nothing is signed or sent.',
+      comingSoon: 'Coming soon',
+      comingSoonHint: 'Not available yet. This option can be turned on once the service is live.',
       wheelName: 'Auto-join wheel',
       wheelSub: 'Use SCDO rewards to join the Games Ledger wheel automatically, 1 round per minute (paid through x402 in SCDO).',
       lendName: 'Lend to treasury for interest',
@@ -51,6 +51,7 @@
       err_stake: 'Enter a stake above 0.', err_lossLimit: 'Enter a loss limit above 0.', err_lossBelowStake: 'The loss limit must be at least one stake.',
       err_session: 'Session limit is 1 to 240 minutes.', err_amount: 'Enter an amount above 0.', err_off: 'Turn this on first.',
       err_insufficient: 'That is more than your balance.', err_unavailable: 'Not available right now.', err_payer_is_treasury: 'Blocked: the server named the treasury as the interest payer.',
+      err_coming_soon: 'Coming soon',
       err_region_blocked: 'Not available in your region',
       err_pool_paused: 'Wheel paused, pool refilling',
       poolPausedHint: 'Auto-bet is paused. It will retry when the pool is above 501 SCDO.',
@@ -59,10 +60,8 @@
     CN: {
       title: '\u734e\u52f5\u53bb\u5411',
       lead: '\u9078\u64c7\u8a18\u5e33\u734e\u52f5\u8981\u53bb\u54ea\u88e1\u3002\u5169\u9805\u90fd\u8981\u4f60\u81ea\u5df1\u6253\u958b\u624d\u6703\u751f\u6548\uff0c\u96a8\u6642\u53ef\u4ee5\u66f4\u6539\u3002',
-      testBadge: '\u6e2c\u8a66\u7248',
-      stubWheel: 'STUB\uff1aGames Ledger \u8f49\u76e4\u81ea\u52d5\u628a\u6ce8 API \u5c1a\u672a\u63a5\u4e0a\u3002\u9019\u88e1\u53ea\u662f\u6a21\u64ec\u5c40\u6578\uff0c\u4e0d\u6703\u52d5\u7528 SCDO\u3002',
-      stubLend: 'STUB\uff1a\u501f\u8cb8\u4f3a\u670d\u5668\u5c1a\u672a\u9023\u4e0a\u3002\u7d00\u9304\u5728\u672c\u6a5f\u6a21\u64ec\uff0c\u4e0d\u6703\u52d5\u7528 SCDO\u3002',
-      stubX402: 'STUB\uff1ax402 \u4ed8\u6b3e\u70ba\u6a21\u64ec\uff0c\u4e0d\u6703\u7c3d\u540d\u4e5f\u4e0d\u6703\u9001\u51fa\u3002',
+      comingSoon: '\u5373\u5c07\u63a8\u51fa',
+      comingSoonHint: '\u5c1a\u672a\u958b\u653e\uff0c\u670d\u52d9\u4e0a\u7dda\u5f8c\u5c31\u53ef\u4ee5\u958b\u555f\u3002',
       wheelName: '\u81ea\u52d5\u53c3\u52a0\u8f49\u76e4',
       wheelSub: '\u7528 SCDO \u734e\u52f5\u81ea\u52d5\u53c3\u52a0 Games Ledger \u8f49\u76e4\uff08\u6bcf\u5206\u9418 1 \u5c40\uff0c\u7d93 x402 \u4ee5 SCDO \u652f\u4ed8\uff09\u3002',
       lendName: '\u501f\u7d66\u570b\u5eab\u751f\u606f',
@@ -100,6 +99,7 @@
       err_stake: '\u8acb\u8f38\u5165\u5927\u65bc 0 \u7684\u8a3b\u8a3c\u91d1\u3002', err_lossLimit: '\u8acb\u8f38\u5165\u5927\u65bc 0 \u7684\u8667\u640d\u4e0a\u9650\u3002', err_lossBelowStake: '\u8667\u640d\u4e0a\u9650\u81f3\u5c11\u8981\u7b49\u65bc\u4e00\u5c40\u8a3b\u8a3c\u3002',
       err_session: '\u6703\u8a71\u4e0a\u9650\u70ba 1 \u5230 240 \u5206\u9418\u3002', err_amount: '\u8acb\u8f38\u5165\u5927\u65bc 0 \u7684\u91d1\u984d\u3002', err_off: '\u8acb\u5148\u958b\u555f\u3002',
       err_insufficient: '\u8d85\u51fa\u9918\u984d\u3002', err_unavailable: '\u76ee\u524d\u4e0d\u53ef\u7528\u3002', err_payer_is_treasury: '\u5df2\u62d2\u7d55\uff1a\u4f3a\u670d\u5668\u628a\u570b\u5eab\u8a2d\u70ba\u4ed8\u606f\u65b9\u3002',
+      err_coming_soon: '\u5373\u5c07\u63a8\u51fa',
       err_region_blocked: '\u6240\u5728\u5730\u5340\u66ab\u4e0d\u63d0\u4f9b',
       err_pool_paused: '\u8f2a\u76e4\u66ab\u505c\uff0c\u734e\u6c60\u88dc\u5145\u4e2d',
       poolPausedHint: '\u81ea\u52d5\u628a\u6ce8\u5df2\u66ab\u505c\u3002\u734e\u6c60\u8d85\u904e 501 SCDO \u5f8c\u6703\u91cd\u8a66\u3002',
@@ -136,35 +136,33 @@
     poll = setInterval(() => { fn().catch(() => {}) }, 2000)
   }
 
-  function toggle (id, on, act, name) {
+  function toggle (id, on, act, name, soon) {
+    if (soon) {
+      // Disabled + greyed: no click handler fires (no data-act), screen readers hear "dimmed".
+      return `<button type="button" class="toggle rd-soon" id="${esc(id)}" disabled aria-disabled="true" style="opacity:.5;filter:grayscale(1);cursor:not-allowed;pointer-events:none"><span class="sw"></span>${esc(name)}</button>`
+    }
     return `<button type="button" class="toggle" data-act="${esc(act)}" id="${esc(id)}"><span class="sw ${on ? 'on' : ''}"></span>${esc(name)}</button>`
   }
+  function isActive (which) { return !!(cache && cache.active && cache.active[which] === true) }
+  function soonTag (lang) { return `<span class="tag" style="background:#eceef5;color:#5f6482;font-weight:700">${esc(t(lang, 'comingSoon'))}</span>` }
   function field (id, label, value, type) {
     return `<div class="field" style="margin-top:12px"><div class="lbl" style="font-weight:600">${esc(label)}</div><input class="inp" id="${esc(id)}" type="${type || 'text'}" inputmode="decimal" value="${esc(value == null ? '' : value)}"></div>`
   }
-  function stubBox (lang) {
-    const bits = []
-    if (cache && cache.stubs) {
-      if (cache.stubs.wheel) bits.push(t(lang, 'stubWheel'))
-      if (cache.stubs.lend) bits.push(t(lang, 'stubLend'))
-      if (cache.stubs.x402) bits.push(t(lang, 'stubX402'))
-    }
-    if (!bits.length) return ''
-    return bits.map(b => `<div class="infobox" style="margin-top:10px;background:#fff6e5;border:1px solid #f0c36d">${esc(b)}</div>`).join('')
-  }
-
   function listHtml (lang) {
     if (!enabled()) return ''
     const p = (cache && cache.prefs) || { lend: { on: false }, wheel: { on: false } }
     const f = cache.flags
-    let body = `<div class="card mine-card" id="rewardDest" style="margin-top:18px"><div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="font-size:24px;font-weight:700">${esc(t(lang, 'title'))}</div><span class="tag" style="background:#fff6e5;color:#8a5a00">${esc(t(lang, 'testBadge'))}</span></div><div class="lbl" style="margin-top:6px">${esc(t(lang, 'lead'))}</div>`
-    body += stubBox(lang)
-    if (f.REWARD_AUTOWHEEL) {
-      body += `<div style="margin-top:16px;padding:14px;border:1px solid #dfe3f0;border-radius:14px">${toggle('rdWheelOn', !!p.wheel.on, 'rdWheelToggle', t(lang, 'wheelName'))}<div class="lbl" style="margin-top:6px">${esc(t(lang, 'wheelSub'))}</div><div class="row" style="margin-top:10px"><button type="button" class="btn ghost small" data-act="rdOpenWheel">${esc(t(lang, 'open'))}</button></div></div>`
+    let body = `<div class="card mine-card" id="rewardDest" style="margin-top:18px"><div style="font-size:24px;font-weight:700">${esc(t(lang, 'title'))}</div><div class="lbl" style="margin-top:6px">${esc(t(lang, 'lead'))}</div>`
+    const item = (key, idT, act, nameK, subK, openAct, top) => {
+      const soon = !isActive(key)
+      const head = `<div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">${toggle(idT, !soon && !!p[key].on, act, t(lang, nameK), soon)}${soon ? soonTag(lang) : ''}</div>`
+      const tail = soon
+        ? `<div class="lbl" style="margin-top:6px;color:#8a8fa8">${esc(t(lang, 'comingSoonHint'))}</div>`
+        : `<div class="row" style="margin-top:10px"><button type="button" class="btn ghost small" data-act="${esc(openAct)}">${esc(t(lang, 'open'))}</button></div>`
+      return `<div class="rd-item${soon ? ' rd-item-soon' : ''}" data-rd="${esc(key)}" style="margin-top:${top}px;padding:14px;border:1px solid #dfe3f0;border-radius:14px;${soon ? 'background:#f6f7fb;color:#8a8fa8' : ''}">${head}<div class="lbl" style="margin-top:6px">${esc(t(lang, subK))}</div>${tail}</div>`
     }
-    if (f.REWARD_LEND) {
-      body += `<div style="margin-top:12px;padding:14px;border:1px solid #dfe3f0;border-radius:14px">${toggle('rdLendOn', !!p.lend.on, 'rdLendToggle', t(lang, 'lendName'))}<div class="lbl" style="margin-top:6px">${esc(t(lang, 'lendSub'))}</div><div class="row" style="margin-top:10px"><button type="button" class="btn ghost small" data-act="rdOpenLend">${esc(t(lang, 'open'))}</button></div></div>`
-    }
+    if (f.REWARD_AUTOWHEEL) body += item('wheel', 'rdWheelOn', 'rdWheelToggle', 'wheelName', 'wheelSub', 'rdOpenWheel', 16)
+    if (f.REWARD_LEND) body += item('lend', 'rdLendOn', 'rdLendToggle', 'lendName', 'lendSub', 'rdOpenLend', 12)
     return body + '</div>'
   }
 
@@ -174,7 +172,6 @@
     const by = st.stoppedBy ? t(lang, 'by_' + st.stoppedBy) || st.stoppedBy : ''
     let h = `<div class="page" id="rewardDestWheel"><div class="card mine-card"><button type="button" class="btn ghost small" data-act="rdBack">${esc(t(lang, 'back'))}</button>`
     h += `<div style="font-size:28px;font-weight:700;margin-top:10px">${esc(t(lang, 'wheelName'))}</div>`
-    h += stubBox(lang)
     h += `<div class="infobox" style="margin-top:10px">${esc(t(lang, 'wheelRisk'))}</div>`
     h += `<div style="margin-top:14px">${toggle('rdWheelOn2', !!p.on, 'rdWheelToggle', t(lang, p.on ? 'on' : 'off'))}</div>`
     h += field('rdStake', t(lang, 'stake'), p.stake)
@@ -203,7 +200,6 @@
     const sum = led.summary || {}
     let h = `<div class="page" id="rewardDestLend"><div class="card mine-card"><button type="button" class="btn ghost small" data-act="rdBack">${esc(t(lang, 'back'))}</button>`
     h += `<div style="font-size:28px;font-weight:700;margin-top:10px">${esc(t(lang, 'lendName'))}</div>`
-    h += stubBox(lang)
     h += `<div style="margin-top:14px">${toggle('rdLendOn2', !!p.on, 'rdLendToggle', t(lang, p.on ? 'on' : 'off'))}</div>`
     const rateLine = rate.rateBps != null ? ((rate.rateBps / 100).toFixed(2) + '%') : t(lang, 'rateNone')
     h += `<div class="infobox" style="margin-top:12px"><div style="font-weight:700">${esc(t(lang, 'rateLabel'))}</div><div style="font-size:28px;font-weight:800;margin-top:6px">${esc(rateLine)}</div><div class="lbl" style="margin-top:6px">${esc(t(lang, 'rateNote'))}</div><div class="lbl" style="margin-top:4px">${esc(t(lang, 'payer'))}</div></div>`
@@ -214,7 +210,7 @@
     h += `<div class="stats"><div class="stat"><div class="lbl">${esc(t(lang, 'lent'))}</div><div class="v">${esc(sum.lent || '0')}</div></div><div class="stat"><div class="lbl">${esc(t(lang, 'interest'))}</div><div class="v">${esc(sum.interestBooked || '0')}</div></div><div class="stat"><div class="lbl">${esc(t(lang, 'withdrawn'))}</div><div class="v">${esc(sum.withdrawn || '0')}</div></div><div class="stat"><div class="lbl">${esc(t(lang, 'balance'))}</div><div class="v">${esc(sum.balance || '0')}</div></div></div>`
     const rows = (led.records || []).slice().reverse().slice(0, 40)
     if (!rows.length) h += `<div class="muted" style="margin-top:10px">${esc(t(lang, 'empty'))}</div>`
-    else h += rows.map(r => `<div class="txrow" style="cursor:default"><div style="flex:1"><div style="font-weight:700">${esc(t(lang, 'k_' + r.kind) || r.kind)}</div><div class="lbl">${esc(r.ts ? new Date(r.ts).toLocaleString() : '')}${r.stub ? ' \u00b7 STUB' : ''}</div></div><div style="font-weight:700">${esc(r.amountDisplay || '')}</div></div>`).join('')
+    else h += rows.map(r => `<div class="txrow" style="cursor:default"><div style="flex:1"><div style="font-weight:700">${esc(t(lang, 'k_' + r.kind) || r.kind)}</div><div class="lbl">${esc(r.ts ? new Date(r.ts).toLocaleString() : '')}</div></div><div style="font-weight:700">${esc(r.amountDisplay || '')}</div></div>`).join('')
     return h + '</div></div>'
   }
 
@@ -277,6 +273,12 @@
     if (toastFn) window.SCDORewardDest._toast = toastFn
     window.SCDORewardDest._lang = lang
     const read = (id) => { const el = document.getElementById(id); return el ? el.value : '' }
+    // Coming soon: nothing below may run for a feature that is not active (main refuses too).
+    const needs = { rdOpenWheel: 'wheel', rdWheelToggle: 'wheel', rdWheelSave: 'wheel', rdWheelStart: 'wheel', rdOpenLend: 'lend', rdLendToggle: 'lend', rdLendDeposit: 'lend', rdLendWithdraw: 'lend', rdLendWithdrawAll: 'lend' }
+    if (needs[act]) {
+      await load()
+      if (!isActive(needs[act])) { stopPoll(); view = 'list'; toast(t(lang, 'comingSoon')); paint(lang, host); return true }
+    }
     if (act === 'rdOpenWheel') { await openSub('wheel', lang, host); return true }
     if (act === 'rdOpenLend') { await openSub('lend', lang, host); return true }
     if (act === 'rdBack') { stopPoll(); view = 'list'; await load(); paint(lang, host); return true }
@@ -291,6 +293,7 @@
       const on = !(cache && cache.prefs && cache.prefs.lend && cache.prefs.lend.on)
       const r = await api().invoke('rewardDest:setLend', on)
       if (r && r.ok) cache.prefs = r.prefs
+      else toast(errText(lang, r && r.error))
       paint(lang, host); return true
     }
     if (act === 'rdWheelSave') {

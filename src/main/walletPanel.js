@@ -1,5 +1,5 @@
 // Sandboxed in-app panel. No preload and no wallet APIs in the guest.
-// scdowallet:// stays inside the app. Other https links open in the system browser.
+// scdowallet:// stays inside the app. https and tg:// links open in the system browser.
 'use strict'
 const crypto = require('crypto')
 const walletUi = require('../js/walletUi')
@@ -152,7 +152,9 @@ function create (opts) {
   function onExternal (url) {
     const decision = walletUi.classifyNavigation(url)
     if (decision.action !== 'external') return
-    try { shell.openExternal(decision.href) } catch (e) {}
+    const href = String(decision.href || '')
+    if (!/^https:\/\//i.test(href) && !/^tg:\/\//i.test(href)) return
+    try { shell.openExternal(href) } catch (e) {}
   }
   const effects = {
     protocol: onProtocol,
@@ -198,7 +200,8 @@ function create (opts) {
     if (!win || win.isDestroyed()) return { ok: false }
     const doc = walletUi.current()
     const id = String(req && req.id || 'hub')
-    const url = (doc.links && (doc.links[id] || doc.links.hub)) || ''
+    const direct = req && req.url ? walletUi.classifyNavigation(req.url) : null
+    const url = direct && direct.action === 'allow' ? direct.href : ((doc.links && (doc.links[id] || doc.links.hub)) || '')
     const decision = walletUi.classifyNavigation(url)
     if (decision.action !== 'allow') return { ok: false }
     const href = walletUi.withPanelLang(decision.href, langNow())

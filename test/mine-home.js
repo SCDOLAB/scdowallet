@@ -805,3 +805,12 @@ assert.ok(ui.includes('minerRunShard0'))
 }
 
 console.log('mine-home: ok')
+
+// 3.1.10+: the bookkeeping page itself names the built-in ledger node (EN and 華語 strings exist).
+{
+  const html = mine.minePageHtml({}, k => (k === 'ledgerNodeLine' ? 'LEDGER-NOTE' : k), s => s)
+  assert.ok(html.includes('id="ledgerNodeNote"') && html.includes('LEDGER-NOTE'))
+  const i18n = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'i18n112.js'), 'utf8')
+  assert.ok(i18n.includes("ledgerNodeLine: 'Built-in ledger node:") && i18n.includes("ledgerNodeLine: '內置記帳節點："))
+  console.log('mine-home: ledger node note ok')
+}

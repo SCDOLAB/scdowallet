@@ -17,9 +17,16 @@
 
   // ---------------- small helpers ----------------
   const $ = (id) => document.getElementById(id)
-  // 3.0.8: first launch is 華語. A saved EN or CN from wallet:boot is kept. The operating-system language is not used.
-  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) { return String(v == null ? '' : v).trim().toUpperCase() === 'EN' ? 'EN' : 'CN' }
-  let LANG = normUi(CFG && CFG.lang)
+  function rigUi () { return !api || api.platform !== 'linux' }
+  // wallet:boot already resolved the language: a saved EN or CN is kept, and a first launch
+  // followed the operating-system locale (zh-* is 華語, otherwise English) and stored it.
+  const normUi = (window.SCDOUiLang && window.SCDOUiLang.normLang) || function (v) {
+    const s = String(v == null ? '' : v).trim().toUpperCase().replace(/_/g, '-')
+    if (s === 'EN' || s.startsWith('EN-')) return 'EN'
+    if (s === 'CN' || s === 'TW' || s.startsWith('ZH')) return 'CN'
+    return null
+  }
+  let LANG = normUi(CFG && CFG.lang) || 'EN'
   function lang () { return LANG }
   function applyLangAttr () { try { document.documentElement.lang = LANG === 'CN' ? 'zh-Hant-TW' : 'en'; if (window.SCDOMining) window.SCDOMining.lang = LANG } catch (e) {} }
   applyLangAttr()
@@ -42,9 +49,25 @@
     const pick = (pack) => (window.SCDOPlatformCopy ? window.SCDOPlatformCopy.copyText(pack, k, plat) : (pack || {})[k])
     let s = pick(window.I18N112[lang()] || {})
     if (s == null) s = pick(window.I18N112.EN)
+    const over = uiOverride(k)
+    if (over != null) s = over
     if (s == null) s = k
     if (p) s = s.replace(/\{(\w+)\}/g, (m, n) => p[n] != null ? p[n] : m)
     return s
+  }
+  function uiOverride (k) {
+    let doc = null
+    try { doc = st && st.walletUi } catch (e) { return null }
+    if (!doc || !doc.strings) return null
+    const loc = lang() === 'EN' ? 'en' : 'zh-Hant'
+    const pack = doc.strings[loc] || {}
+    const v = pack[k]
+    if (typeof v !== 'string' || /[<>]/.test(v)) return null
+    const en = window.I18N112 && window.I18N112.EN
+    const cn = window.I18N112 && window.I18N112.CN
+    const known = (en && typeof en[k] === 'string') || (cn && typeof cn[k] === 'string')
+    if (!known) return null
+    return v
   }
   // punctuation that follows the UI language (full-width in Chinese, ASCII in English)
   const PU = { c: () => lang() === 'CN' ? '：' : ': ', l: () => lang() === 'CN' ? '（' : ' (', r: () => lang() === 'CN' ? '）' : ')', bar: () => lang() === 'CN' ? ' ｜ ' : ' | ', com: () => lang() === 'CN' ? '，' : ', ' }
@@ -233,8 +256,8 @@
     poolStatus: null,
     oldErr: {},
     phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
-    agent: {}, rewardLineHide: false, backupAskHide: false,
-    walletUi: null, panelId: 'hub', panelShown: false,
+    agent: {}, rewardLineHide: false, backupAskHide: false, trayHint: false,
+    walletUi: null, panelId: 'hub', panelUrl: '', panelShown: false,
     session: {}, loginPrompt: false
   }
   let phraseHold = null
@@ -265,7 +288,7 @@
     const vis = visible('new')
     let a = vis.find(x => x.filename === st.sel)
     if (!a) { a = vis.find(x => x.evm) || vis[0] || null; st.sel = a ? a.filename : ''; localStorage.setItem('selAcc112', st.sel) }
-    return a
+    return a || null
   }
   function accByFile (f) { return st.accounts.find(a => a.filename === f) }
 
@@ -285,6 +308,7 @@
       // 3.0.4: Home lists every visible Shard0 EVM account's history (indexer, at most once a minute); the selected one every time
       const sa = selected()
       if (Date.now() - (st.s0ActAt || 0) > 60000) { st.s0ActAt = Date.now(); await Promise.all(visible('new').filter(x => x.evm).map(x => loadActivity(x.evm))) } else if (sa && sa.evm) await loadActivity(sa.evm)
+      await refreshExternalPayout()
     } finally { refreshingS0 = false; renderLive() }
   }
   function balFromIpc (b) {
@@ -324,6 +348,7 @@
   // 'old' / 'new' (old tab names, deep links) open the Accounts tab at that section and pick that chain.
   // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
+    if (!rigUi() && (v === 'mine' || v === 'mineSet')) v = 'home'
     if (v === 'remit') { st.tab = 'remit'; st.scrollTo = 'top' }
     else if (v === 'recv') { st.tab = 'recv'; st.scrollTo = 'top' }
     else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
@@ -348,7 +373,8 @@
       const list = headerAccounts()
       return list.find(x => x.filename === st.sel) || list[0] || null
     }
-    return selected()
+    const picked = selected()
+    return picked || null
   }
   // Card buttons open Mining or 匯款 with this keyfile already chosen. No account menu.
   // Mining still shows Shard0 GPU and Classic Shard1–4 GPU and CPU; the click does not start a miner.
@@ -521,7 +547,7 @@
     const vals = []
     const s0 = s0Total(visible('new').filter(a => a.evm))
     vals.push(s0.known ? s0.wei : null)
-    for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length ? (t.known ? t.v * 10n ** 10n : null) : 0n) }
+    for (const n of [1, 2, 3, 4]) { const list = classicOn(n); const t = oldTotal(list); vals.push(list.length && t.known ? t.v * 10n ** 10n : null) }
     const text = vals.map(v => v == null ? '\u2014' : AMT.fmtUnits(v, 18))
     return { text }
   }
@@ -719,13 +745,15 @@
   function agentModel () {
     const a = st.accounts && st.accounts.length ? selected() : null
     const ag = st.agent || {}
+    // 3.1.12: the presence line and the Status row both come from ag.status (one online state from main).
     return {
       noWallet: !st.accounts.length,
       rewardLineHidden: !!st.rewardLineHide,
-      status: ag.status || 'pending',
+      status: ag.starting ? 'starting' : (ag.status || 'pending'),
       scdoAddress: a ? (a.pubkey || a.evm || ag.payout || '') : '',
       x402Reserve: ag.x402Reserve || '',
       bookkeeping: homeMineLine(),
+      hideRig: !rigUi(),
       entries: ag.entries || []
     }
   }
@@ -805,35 +833,111 @@
     if (!U) return ''
     return U.cardsHtml(st.walletUi || U.defaults(), { title: T('panelSection'), lang: lang() === 'EN' ? 'en' : 'cn', esc: esc })
   }
+  function offlineNoticeHtml () {
+    if (st.net.s0Ok !== false) return ''
+    return `<div class="offline-notice" id="offlineNotice" role="status">${esc(T('offlineNotice'))}</div>`
+  }
+  function trayHintHtml () {
+    if (!st.trayHint) return ''
+    return `<div class="tray-hint" id="trayHint" role="status"><span>${esc(T('trayStayNotice'))}</span><button type="button" class="home-backup-x" data-act="trayHintDismiss" aria-label="${esc(T('dismiss'))}">\u2715</button></div>`
+  }
+  function liveHomeHtml () {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults()) || null
+    if (!U || !doc) return ''
+    const langKey = lang() === 'EN' ? 'en' : 'zh-Hant'
+    let ver = ''
+    try { ver = APPVER || '' } catch (e) { ver = '' }
+    const noteKind = ver ? U.versionNote(doc, ver) : ''
+    const note = noteKind === 'min' ? `<div class="live-note" id="uiMinNote">${esc(T('uiMinNote'))}</div>` : noteKind === 'rec' ? `<div class="live-note" id="uiRecNote">${esc(T('uiRecNote'))}</div>` : ''
+    return U.bannerHtml(doc, { lang: langKey, esc: esc }) + note + U.homeCardsHtml(doc, { lang: langKey, esc: esc })
+  }
+  function payoutInput () {
+    let reward = ''
+    let node = ''
+    try { reward = localStorage.getItem('minerReward') || '' } catch (e) {}
+    try { node = localStorage.getItem('nodePayout') || '' } catch (e) {}
+    const s0 = (st.miners && st.miners.shard0) || st.miner || {}
+    return {
+      accounts: st.accounts || [],
+      minerReward: reward,
+      intentReward: st.intentReward || '',
+      minerWallet: (s0 && s0.wallet) || '',
+      nodePayout: node,
+      agentPayout: (st.agent && st.agent.payout) || ''
+    }
+  }
+  function externalPayoutView () {
+    const EH = window.SCDOEmptyHome
+    if (!EH) return null
+    const found = EH.externalPayout(payoutInput())
+    if (!found) return null
+    const bal = st.extBal && String(st.extBal.address || '').toLowerCase() === found.address.toLowerCase() ? st.extBal : null
+    return { address: found.address, units: bal ? bal.units : null }
+  }
+  function externalCardHtml () {
+    const EH = window.SCDOEmptyHome
+    const view = externalPayoutView()
+    if (!EH || !view) return ''
+    return EH.payoutHtml(T, esc, view, (u) => AMT.fmtUnits(u, 18))
+  }
+  async function refreshExternalPayout () {
+    const EH = window.SCDOEmptyHome
+    if (!EH) return
+    try { const it = await api.invoke('miner:intent'); st.intentReward = it && /^0x[0-9a-fA-F]{40}$/.test(String(it.reward || '')) ? it.reward : '' } catch (e) {}
+    const found = EH.externalPayout(payoutInput())
+    if (!found) { st.extBal = null; return }
+    try {
+      const b = balFromIpc(await api.invoke('s0:balances', found.address))
+      st.extBal = { address: found.address, units: b.nativeWei }
+    } catch (e) {
+      st.extBal = { address: found.address, units: null }
+    }
+  }
   function pageHome () {
     const J = window.SCDOAgentJoin
-    if (!st.accounts.length && J) return J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide }) + panelCardsHtml()
+    if (!st.accounts.length) {
+      const EH = window.SCDOEmptyHome
+      const empty = EH ? EH.html(T, esc, { payout: externalPayoutView(), fmt: (u) => AMT.fmtUnits(u, 18) }) : ''
+      const first = J ? J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide, hideRig: !rigUi() }) : ''
+      return offlineNoticeHtml() + empty + first + panelCardsHtml() + liveHomeHtml()
+    }
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
     const qr = link ? `<div class="qrwrap"><div id="homeInviteQr" data-addr="${esc(link)}"></div></div>` : ''
+    const giftDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
+    const giftBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(giftDoc, ['invite', 'inviteGift']))
+      ? `<button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button>` : ''
+    const mineState = rigUi() ? '<p class="home-state" id="homeMineState">' + esc(homeMineLine()) + '</p>' : ''
+    const heights = rigUi() ? '<details class="home-heights" id="homeHeights">' + shellFoldSummary(T('homeHeights')) + '<p class="home-height-line" id="homeHeightLine">' + esc(homeHeightLine()) + '</p></details>' : ''
+    const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
     return `<div class="page shell-home" id="homePage">
+      ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
       ${claim}
       ${card}
       <p class="home-lead">${esc(T('homeLead'))}</p>
-      <p class="home-state" id="homeMineState">${esc(homeMineLine())}</p>
-      <details class="home-heights" id="homeHeights">${shellFoldSummary(T('homeHeights'))}<p class="home-height-line" id="homeHeightLine">${esc(homeHeightLine())}</p></details>
+      ${externalCardHtml()}
+      ${mineState}
+      ${heights}
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
-        <button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>
+        ${mineBtn}
       </div>
       <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
       ${homeBuyHtml()}
       ${homeDemoHtml()}
       ${panelCardsHtml()}
-      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button><button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button></div></details>
+      ${liveHomeHtml()}
+      <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button>${giftBtn}</div></details>
     </div>`
   }
   function renderFooter () {
     const f = $('footBar'); if (!f) return
+    if (!st.accounts.length) { f.hidden = true; renderFooter.last = ''; return }
     const show = st.tab !== 'mineSet'
     f.hidden = !show
     if (!show || !window.SCDOChainHome) return
@@ -846,6 +950,21 @@
     renderFooter()
     if ($('md')) return
     if (st.tab === 'home') {
+      if (!$('md')) {
+        const wantOff = st.net.s0Ok === false
+        const haveOff = !!$('offlineNotice')
+        if (wantOff !== haveOff) { render(); return }
+      }
+      const ext = $('extPayout')
+      const view = externalPayoutView()
+      if (!!ext !== !!view) { render(); return }
+      if (ext && view && window.SCDOEmptyHome) {
+        const addrEl = $('extPayoutAddr')
+        const balEl = $('extPayoutBal')
+        const text = window.SCDOEmptyHome.balanceText(view.units, (u) => AMT.fmtUnits(u, 18))
+        if (addrEl && addrEl.textContent !== view.address) addrEl.textContent = view.address
+        if (balEl && balEl.textContent !== text) balEl.textContent = text
+      }
       const line = $('homeMineState')
       if (line) {
         const text = homeMineLine()
@@ -887,18 +1006,20 @@
   function pageInviteGift () {
     const J = window.SCDOAgentJoin
     if (!J) return ''
-    return J.inviteGiftHtml(T, esc, { gift: st.inviteGift == null ? 1 : st.inviteGift })
+    return J.inviteGiftHtml(T, esc, { gift: st.inviteGift == null ? 1 : st.inviteGift, view: st.inviteView, id: st.inviteId || '' })
   }
   function pageInviteClaim () {
     const J = window.SCDOAgentJoin
     if (!J) return ''
-    return J.inviteClaimHtml(T, esc)
+    const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
+    return J.inviteClaimHtml(T, esc) + claim
   }
   function pagePanel () {
     const U = window.SCDOWalletUi
     const doc = st.walletUi || (U && U.defaults()) || { cards: [] }
-    const card = (doc.cards || []).find(c => c.id === st.panelId) || { en: 'Wallet hub', cn: '錢包總覽' }
-    const title = lang() === 'EN' ? card.en : card.cn
+    const card = (doc.cards || []).find(c => c.id === st.panelId)
+    const fallback = st.panelId === 'connect' ? T('navConnect') : (lang() === 'EN' ? 'Wallet hub' : '錢包總覽')
+    const title = card ? (lang() === 'EN' ? card.en : card.cn) : fallback
     return `<div class="page shell-panel" id="panelPage"><div class="panel-bar"><button type="button" class="link back-home" data-act="panelClose" id="panelClose">${esc(T('goHome'))}</button><h1 class="shell-h" id="panelTitle">${esc(title)}</h1></div><div id="panelFrame" class="panel-frame"></div></div>`
   }
   function openPanel (id) {
@@ -907,6 +1028,7 @@
     const key = doc.links && doc.links[id] ? id : 'hub'
     if (!doc.links || !doc.links[key]) return
     if ($('md')) SD.clear($('modalRoot'))
+    st.panelUrl = ''
     st.panelId = key
     st.tab = 'panel'
     st.scrollTo = 'top'
@@ -918,7 +1040,29 @@
     const r = frame.getBoundingClientRect()
     if (r.width < 20 || r.height < 20) return
     st.panelShown = true
-    api.invoke('panel:show', { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }).catch(() => {})
+    const req = { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }
+    if (st.panelUrl) req.url = st.panelUrl
+    api.invoke('panel:show', req).catch(() => {})
+  }
+  function runLiveCard (id) {
+    const U = window.SCDOWalletUi
+    const doc = st.walletUi || (U && U.defaults())
+    const card = doc && (doc.homeCards || []).find(c => c && c.id === id)
+    const action = card && card.action
+    if (!action) return
+    if (action.type === 'open-page') { openPanel(action.page); return }
+    if (action.type === 'open-url') {
+      if (!U || U.classifyNavigation(action.url).action !== 'allow') return
+      st.panelUrl = action.url
+      st.panelId = 'hub'
+      st.tab = 'panel'
+      st.scrollTo = 'top'
+      render()
+      return
+    }
+    if (action.type === 'start-agent') { openAgentStart(); return }
+    if (action.type === 'invite') { openInviteCreate(); return }
+    if (action.type === 'claim') { openInviteClaim(); return }
   }
   function openAgentStart () {
     setTab('home')
@@ -1069,7 +1213,10 @@
     try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
   function pageRemit () {
-    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1><button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button><div id="remitHost"></div></div>`
+    const payDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
+    const payBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(payDoc, ['send', 'payInvoice']))
+      ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
+    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1>${payBtn}<div id="remitHost"></div></div>`
   }
   function pageSettings () {
     return `<div class="page shell-set" id="setPage"><h1 class="shell-h">${esc(T('navSettings'))}</h1><div id="setHost"></div></div>`
@@ -1111,7 +1258,8 @@
     return ''
   }
   function cardFeatureOps (a, chain) {
-    return `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button><button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
+    const mine = rigUi() ? `<button class="btn sec small" data-act="cardMine" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabMine'))}</button>` : ''
+    return mine + `<button class="btn sec small" data-act="cardRemit" data-chain="${esc(chain)}" data-f="${esc(a.filename)}">${esc(T('tabRemit'))}</button>`
   }
   function rewardOptions () {
     const l = visible('new').filter(a => a.evm).map(a => ({ v: a.evm, l: accLabel(a) }))
@@ -1316,6 +1464,7 @@
     h += `<div class="shardchips" id="mineShards">${[0, 1, 2, 3, 4].map(n => `<button type="button" class="${mineShard === n ? 'on' : ''}" data-act="mineShard" data-v="${n}">${esc(n ? T('mineShardN', { n }) : T('mineShard0'))}</button>`).join('')}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineTogether'))}</div>`
     h += `<div class="lbl" style="margin-top:8px">${esc(T('mineStartOnHome'))}</div>`
+    h += `<div class="lbl" id="ledgerNodeNote" style="margin-top:8px">${esc(T('ledgerNodeLine'))}</div>`
     if (mineShard !== 0) {
       h += pageMineClassic(m, running, mineShard)
       h += mineAdvanced(false, m)
@@ -1372,7 +1521,8 @@
   function remitAccount () {
     const exact = st.accounts.find(x => x.filename === st.sel)
     if (exact) return exact
-    return selected()
+    const picked = selected()
+    return picked || null
   }
   function remitOwnsSession () {
     const a = remitAccount()
@@ -1414,7 +1564,8 @@
     return String((r && r.error) || T('failed'))
   }
   async function remitLogin (filename) {
-    const a = accByFile(filename) || selected()
+    const picked = selected()
+    const a = accByFile(filename) || picked
     if (!a) return
     const inp = $('remitPw')
     const pw = inp ? inp.value : ''
@@ -1463,10 +1614,22 @@
   })
 
   function renderSiteBar () {
-    const bar = $('siteBar'); if (!bar || !window.SCDOSiteNav) return
+    const bar = $('siteBar'); if (!bar) return
+    const langSwitch = `<span class="lang-switch" id="langSwitch"><button type="button" class="lang-opt${lang() === 'EN' ? ' on' : ''}" data-act="hdrLang" data-v="EN">English</button><button type="button" class="lang-opt${lang() === 'CN' ? ' on' : ''}" data-act="hdrLang" data-v="CN">華語</button></span>`
+    if (!window.SCDOSiteNav) {
+      if (renderSiteBar.last !== langSwitch) { renderSiteBar.last = langSwitch; SD.html(bar, langSwitch) }
+      return
+    }
     const cn = lang() !== 'EN'
-    const primary = window.SCDOSiteNav.GROUPS.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
-    const rest = window.SCDOSiteNav.GROUPS.filter(g => primary.indexOf(g) < 0)
+    const groups = window.SCDOSiteNav.GROUPS.map(g => {
+      if (rigUi() || !g.children) return g
+      const children = g.children.filter(c => c.action !== 'mineHome' && c.action !== 'mineSettings')
+      if (children.length === g.children.length) return g
+      if (!children.length) return null
+      return Object.assign({}, g, { children: children })
+    }).filter(Boolean)
+    const primary = groups.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
+    const rest = groups.filter(g => primary.indexOf(g) < 0)
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
       if (!g.children || !g.children.length) return btn(g)
@@ -1474,18 +1637,19 @@
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
-    const html = primary.map(group).join('') + more
+    const html = primary.map(group).join('') + more + langSwitch
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
   function renderSideNav () {
     const nav = $('sideNav'); if (!nav) return
-    const cur = st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab)
-    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit'], ['mine', 'navMine'], ['settings', 'navSettings']]
+    const cur = st.tab === 'panel' && st.panelId === 'connect' ? 'connect' : (st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab))
+    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit']].concat(rigUi() ? [['mine', 'navMine']] : []).concat([['connect', 'navConnect'], ['settings', 'navSettings']])
     const ico = {
       home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
       recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
       remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
       mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
+      connect: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M8.2 11.2a3.2 3.2 0 0 1 0-4.5l1.6-1.6a3.2 3.2 0 0 1 4.5 4.5l-.8.8-1.4-1.4.8-.8a1.2 1.2 0 0 0-1.7-1.7l-1.6 1.6a1.2 1.2 0 0 0 0 1.7l.7.7-1.4 1.4zm7.6 1.6a3.2 3.2 0 0 1 0 4.5l-1.6 1.6a3.2 3.2 0 0 1-4.5-4.5l.8-.8 1.4 1.4-.8.8a1.2 1.2 0 0 0 1.7 1.7l1.6-1.6a1.2 1.2 0 0 0 0-1.7l-.7-.7z"/></svg>',
       settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
     }
     const html = items.map(([id, key]) => `<button type="button" class="nav-item${cur === id ? ' on' : ''}" data-act="nav" data-v="${id}">${ico[id]}<span>${esc(T(key))}</span></button>`).join('')
@@ -1502,7 +1666,7 @@
     const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
     const wiz = $('payWiz')
     const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
-    if (main && !keepPay) SD.html(main, (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
     if (st.tab === 'remit' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
     if (st.tab === 'recv') paintRecvQr()
     if (st.tab === 'settings') settingsModal()
@@ -3366,22 +3530,23 @@
     let mineCfg = { keepMining: !!st.keepMining }
     try { mineCfg = Object.assign(mineCfg, await api.invoke('mining:getConfig') || {}) } catch (e) {}
     const resumeOn = !!mineCfg.keepMining
-    const langNow = lang() === 'CN' ? '華語繁體' : 'English'
+    const langNow = lang() === 'CN' ? '華語' : 'English'
     const langRow = `<div class="set-open" id="setLang"><div class="lbl">${esc(T('setLang'))} · ${esc(langNow)}</div><div class="row" style="flex-wrap:wrap">
-        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">${lang() === 'EN' ? '華語繁體 (Traditional)' : '華語繁體'}</button></div></div>`
-    const resumeRow = `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>`
+        <button class="btn ${lang() === 'EN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="EN">English</button><button class="btn ${lang() === 'CN' ? 'pri' : 'ghost'}" data-act="setLang" data-v="CN">華語</button></div></div>`
+    const resumeRow = rigUi() ? `<div class="set-open" id="setResume"><button class="toggle" data-act="keepMining" id="keepMiningBtn"><span class="sw ${resumeOn ? 'on' : ''}"></span>${esc(T('setResume'))}</button><div class="lbl">${esc(T('setResumeHint'))}</div></div>` : ''
     const sess = st.session || {}
     const loginOn = !!sess.loginLaunch
     const lightOn = !!sess.light
-    const paceRows = lightOn ? '' : `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>`
-    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div><button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>${paceRows}</div>`
+    const paceRows = rigUi() && !lightOn ? `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>` : ''
+    const lightBtn = rigUi() ? `<button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>` : ''
+    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div>${lightBtn}${paceRows}</div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
     const lowOn = mineCfg.lowPriority !== false
     let showGuardIntro = true
     try { showGuardIntro = !localStorage.getItem('scdoGuardIntro'); if (showGuardIntro) localStorage.setItem('scdoGuardIntro', '1') } catch (e) {}
     const guardIntro = showGuardIntro ? `<div class="lbl" id="guardFirst">${esc(T('guardFirst'))}</div>` : ''
-    const advancedInner = `<div class="set-open" id="setGuard">${guardIntro}<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ${guardOn ? 'on' : ''}"></span>${esc(T('guardSmooth'))}</button><div class="lbl">${esc(T('guardSmoothHint'))}</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ${batOn ? 'on' : ''}"></span>${esc(T('guardBattery'))}</button><div class="lbl">${esc(T('guardBatteryHint'))}</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ${lowOn ? 'on' : ''}"></span>${esc(T('guardLow'))}</button><div class="lbl">${esc(T('guardLowHint'))}</div><button class="btn ghost" data-act="guardReset" id="guardReset">${esc(T('guardReset'))}</button></div>
+    const advancedInner = (rigUi() ? '<div class="set-open" id="setGuard">' + guardIntro + '<button class="toggle" data-act="guardSmooth" id="guardSmoothBtn"><span class="sw ' + (guardOn ? 'on' : '') + '"></span>' + esc(T('guardSmooth')) + '</button><div class="lbl">' + esc(T('guardSmoothHint')) + '</div><button class="toggle" data-act="mineOnBattery" id="mineOnBatteryBtn"><span class="sw ' + (batOn ? 'on' : '') + '"></span>' + esc(T('guardBattery')) + '</button><div class="lbl">' + esc(T('guardBatteryHint')) + '</div><button class="toggle" data-act="lowPriority" id="lowPriorityBtn"><span class="sw ' + (lowOn ? 'on' : '') + '"></span>' + esc(T('guardLow')) + '</button><div class="lbl">' + esc(T('guardLowHint')) + '</div><button class="btn ghost" data-act="guardReset" id="guardReset">' + esc(T('guardReset')) + '</button></div>' : '') + `
       ${shellFold('setSecurity', T('setSecTitle'), `<div class="row" style="flex-wrap:wrap;gap:8px;margin:8px 0">
           <button class="btn sec" data-act="create">${esc(T('setCreate'))}</button>
           <button class="btn sec" data-act="import">${esc(T('setImport'))}</button>
@@ -3394,7 +3559,7 @@
       <div class="lbl">${esc(T('backupDir'))}${PU.c()}<span class="mono">${esc(paths.backupRoot)}</span></div>
       <div class="lbl">${esc(T('rpcList'))}</div>${rpcs}
       <div class="lbl" style="margin-top:6px">${esc(T('rpcHint'))}</div>
-      ${notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
+      ${rigUi() && notifyInner ? shellFold('setNotify', T('notifyTitle'), notifyInner) : ''}
       ${shellFold('setUpdate', T('updTitle') + ' · ' + APPVER, `<div class="lbl">${esc(T('updCurrent'))}${PU.c()}SCDO Wallet ${esc(APPVER)}</div>
         <div class="lbl" style="margin-top:10px;font-weight:600">${esc(T('chanTitle'))}</div><div class="row" id="chanRow" style="flex-wrap:wrap;margin-top:6px">
           <button class="btn ${chan === 'stable' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="stable" id="chanStable">${esc(T('chanStable'))}</button><button class="btn ${chan === 'beta' ? 'pri' : 'ghost'}" data-act="setChannel" data-v="beta" id="chanBeta">${esc(T('chanBeta'))}</button></div>
@@ -3402,7 +3567,7 @@
         <div class="row" style="flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
           <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
-      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-12</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
+      ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-19</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
       ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
         <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}`
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
@@ -4157,6 +4322,7 @@
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
+        if (!rigUi()) break
         if (miningBusy() || st.actStarting) break
         st.actStarting = true
         renderActBar()
@@ -4179,6 +4345,7 @@
       case 'homeSub': st.homeSub = v; localStorage.setItem('homeSub112', v); render(); break
       case 'nav': {
         if ($('md')) SD.clear($('modalRoot'))
+        if (v === 'connect') { openPanel('connect'); break }
         setTab(v)
         render()
         if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }
@@ -4234,6 +4401,7 @@
       case 'setLang': setLangUi(v); break
       case 'hdrLang': setLangUi(v, true); break
       case 'copy': copyText(v); break
+      case 'pasteJoinRef': pasteJoinRef(); break
       case 'receive': receiveModal(f, el.getAttribute('data-chain') || 'new'); break
       case 'openPay': openRemitFor(f || (headerAccount() || {}).filename || st.sel); break
       case 'payInvoice': openPayInvoice(); break
@@ -4242,7 +4410,12 @@
       case 'agentUseWallet': startMyAgent(); break
       case 'claimRetry': runClaim(); break
       case 'inviteCreate': openInviteCreate(); break
+      case 'inviteCreateSubmit': submitInviteCreate(); break
+      case 'inviteCancelSubmit': submitInviteCancel(); break
+      case 'inviteClaimSubmit': submitInviteClaim(); break
+      case 'liveCard': runLiveCard(v); break
       case 'agentRewardDismiss': st.rewardLineHide = true; render(); break
+      case 'trayHintDismiss': st.trayHint = false; api.invoke('session:trayHintDismiss').catch(() => {}); render(); break
       case 'phraseBannerDismiss': st.backupAskHide = true; render(); break
       case 'phraseOpen': openBackupPage((st.phrasePending || [])[0]); break
       case 'phraseLater': laterLeave(); break
@@ -4359,6 +4532,13 @@
       if (t.id === 'mReward') syncRewardPayout(addr)
     }
   })
+  document.addEventListener('paste', (ev) => {
+    const t = ev.target
+    if (!t || t.id !== 'joinRef' || t.readOnly) return
+    ev.preventDefault()
+    const text = (ev.clipboardData && ev.clipboardData.getData('text')) || ''
+    applyJoinPaste(t, text)
+  })
   document.addEventListener('input', (ev) => {
     const t = ev.target; if (!t || ev.isComposing) return
     if (t.id === 'inviteGiftAmt' && window.SCDOAgentJoin) {
@@ -4438,11 +4618,13 @@
     goPage('settings')
   }
   function goPage (v) {
+    if (!rigUi() && (v === 'mine' || v === 'mineSet')) v = 'home'
     if ($('md')) SD.clear($('modalRoot'))
     setTab(v); render()
     if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() } else { refreshOld(); refreshS0() }
   }
   function goMineHome () {
+    if (!rigUi()) { goPage('home'); return }
     if ($('md')) SD.clear($('modalRoot'))
     setTab('mine')
     render()
@@ -4450,6 +4632,7 @@
     ensureCaps()
   }
   async function menuStartMining () {
+    if (!rigUi()) return
     if (miningBusy() || st.actStarting) { toast(currentMinePill().t, 5000); return }
     st.actStarting = true
     try { await askCat('開始記帳', { quiet: true, toast: true }) } finally { st.actStarting = false }
@@ -4928,15 +5111,24 @@
   let APPCOMMIT = ''
   api.on('miner:status', (m) => onMinerStatus(m))
   api.on('miner:classic', (m) => onMinerStatus(m))
+  api.on('agent:trayHint', () => {
+    if (st.trayHint) return
+    st.trayHint = true
+    const wiz = $('payWiz')
+    const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
+    if (!keepPay) render()
+  })
   api.on('agentJoin:updated', (msg) => {
     msg = msg || {}
     if (msg.route === 'agent-start') { openAgentStart(); return }
     if (msg.route === 'invite-create') { openInviteCreate(); return }
     if (msg.route === 'invite-claim') { openInviteClaim(msg); return }
     st.agent = st.agent || {}
-    if (msg.pendingRef && !(st.agent && st.agent.locked)) st.agent.pendingRef = msg.pendingRef
-    const input = $('joinRef')
-    if (input && msg.pendingRef && !input.value) input.value = msg.pendingRef
+    if (msg.pendingRef && !(st.agent && st.agent.locked)) {
+      st.agent.pendingRef = msg.pendingRef
+      const input = $('joinRef')
+      if (input && !input.readOnly) render()
+    }
   })
   api.on('panel:doc', (doc) => {
     if (!doc || !doc.links || !doc.links.hub) return
@@ -4949,13 +5141,21 @@
     applySessionUi()
     if ($('setSession')) settingsModal()
   })
+  // 3.1.12: main says the agent went online or offline, or got its x402 reserve.
+  api.on('agentJoin:changed', () => {
+    refreshAgent().then(() => {
+      const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)
+      if (st.tab === 'home' && $('agentCard') && !typing) render()
+    }).catch(() => {})
+  })
   api.on('agentJoin:settled', () => {
     if (st.agent) st.agent.starting = false
     refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
   })
   function syncRewardPayout (addr) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(String(addr || ''))) return
-    api.invoke('agentJoin:setPayout', { address: addr, file: (selected() && selected().filename) || '' }).then(() => refreshAgent()).catch(() => {})
+    const picked = selected()
+    api.invoke('agentJoin:setPayout', { address: addr, file: (picked && picked.filename) || '' }).then(() => refreshAgent()).catch(() => {})
   }
   async function refreshAgent () {
     const starting = !!(st.agent && st.agent.starting)
@@ -4977,13 +5177,27 @@
   }
   async function prepareAgent () {
     if (st.accounts.length) {
-      const file = st.sel || ((selected() || {}).filename) || ''
+      const picked = selected()
+      const file = st.sel || (picked && picked.filename) || ''
       try { await api.invoke('agentJoin:useSelection', { file: file }) } catch (e) {}
     }
     await refreshAgent()
   }
+  function applyJoinPaste (input, raw) {
+    if (!input || input.readOnly) return
+    const Join = window.SCDOAgentJoin
+    input.value = Join ? Join.refFromPaste(raw) : ''
+  }
+  async function pasteJoinRef () {
+    const input = $('joinRef')
+    if (!input || input.readOnly) return
+    let text = ''
+    try { text = await navigator.clipboard.readText() } catch (e) { return }
+    applyJoinPaste($('joinRef'), text)
+  }
   async function startMyAgent () {
-    const typed = ($('joinRef') && $('joinRef').value) || ''
+    const field = $('joinRef')
+    const typed = field ? (window.SCDOAgentJoin ? window.SCDOAgentJoin.refFromPaste(field.value) : field.value) : ''
     const btn = $('startAgentBtn')
     if (btn) btn.disabled = true
     let r = null
@@ -5003,7 +5217,46 @@
     setTab('home')
     render()
     refreshAgent().then(() => { if (st.tab === 'home') render() }).catch(() => {})
-    offerLoginChoice()
+    api.invoke('session:armLogin').then((s) => { st.session = s || st.session; applySessionUi() }).catch(() => {})
+  }
+  function inviteAccountFile () {
+    const picked = selected()
+    return (picked && picked.filename) || st.sel || ''
+  }
+  async function submitInviteCreate () {
+    const password = ($('invitePass') && $('invitePass').value) || ''
+    const gift = st.inviteGift
+    const Opt = window.SCDOOptimistic
+    if (Opt) st.inviteView = Opt.createView()
+    render()
+    let res = null
+    try { res = await api.invoke('invite:create', { gift: gift, file: inviteAccountFile(), password: password }) } catch (e) { res = { ok: false } }
+    st.inviteView = Opt ? Opt.actionFromResult(st.inviteView, res) : null
+    if (res && res.ok) { st.inviteId = res.id || ''; st.inviteLink = res.link || '' }
+    if (password && $('invitePass')) $('invitePass').value = ''
+    render()
+    if (res && res.ok && Opt) {
+      Opt.confirmInBackground(st.inviteView, async () => {
+        try { const c = await api.invoke('s0:waitReceipt', res.hash); return !!(c && c.ok) } catch (e) { return false }
+      }).then(next => { st.inviteView = next; if (st.tab === 'inviteGift') render() })
+    }
+  }
+  async function submitInviteCancel () {
+    const password = ($('invitePass') && $('invitePass').value) || ''
+    const Opt = window.SCDOOptimistic
+    if (!st.inviteId) return
+    if (Opt) st.inviteView = Opt.cancelView()
+    render()
+    let res = null
+    try { res = await api.invoke('invite:cancel', { id: st.inviteId, file: inviteAccountFile(), password: password }) } catch (e) { res = { ok: false } }
+    st.inviteView = Opt ? Opt.actionFromResult(st.inviteView, res) : null
+    if (password && $('invitePass')) $('invitePass').value = ''
+    render()
+  }
+  async function submitInviteClaim () {
+    const msg = st.inviteClaim || {}
+    const acct = selected()
+    await runClaim({ secret: msg.secret, contract: msg.contract, chainId: msg.chainId, newAddr: (acct && acct.evm) || '' })
   }
   async function runClaim (body) {
     if (body) st.claimBody = body

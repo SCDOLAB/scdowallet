@@ -189,7 +189,10 @@ function createController (opts) {
     const registration = await getJson(base + '/agents/' + id + '/registration.json')
     const view = ledgerView(record, registration)
     if (!record) view.reachable = false
-    if (view.x402Reserve) store.setUsdc(view.x402Reserve)
+    if (view.x402Reserve) {
+      store.setUsdc(view.x402Reserve)
+      try { if (svc && svc.noteReserve) svc.noteReserve(view.x402Reserve) } catch (e) {}
+    }
     return view
   }
   async function refcode () {
@@ -220,10 +223,14 @@ function createController (opts) {
       try { led = await ledger(st.agentId) } catch (e) { led = { online: null, entries: [], x402Reserve: '', reachable: false } }
     }
     const registered = !!(st && st.registered)
+    // 3.1.12: one online state (the agent's own, see AgentService.online). The ledger read only fills
+    // the reserve and the entries; it no longer decides a second, different status.
     const card = Join.cardStatus({
       registered: registered,
-      online: led.online,
-      reachable: led.reachable === false ? false : true
+      online: st.online === true,
+      started: !!(st.started || view.locked),
+      settled: st.settled !== false,
+      agentId: registered ? st.agentId : ''
     })
     return {
       ref: view.ref,
@@ -234,12 +241,13 @@ function createController (opts) {
       payoutSource: view.payoutSource,
       shareUrl: view.shareUrl,
       code: view.code,
-      x402Reserve: led.x402Reserve || view.usdcWallet || '',
+      x402Reserve: led.x402Reserve || (st && st.usdcWallet) || view.usdcWallet || '',
       entries: led.entries || [],
       status: card,
       registered: registered,
       agentId: (st && st.agentId) || '',
-      online: led.online
+      online: st.online === true,
+      ledgerOnline: led.online
     }
   }
   return { store, ledger, refcode, snapshot }

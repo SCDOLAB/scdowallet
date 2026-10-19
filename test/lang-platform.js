@@ -6,7 +6,7 @@ const fs = require('fs')
 const path = require('path')
 const vm = require('vm')
 const { execFileSync } = require('child_process')
-const { normLang, menuLang } = require('../src/js/uiLang')
+const { normLang, menuLang, langFromLocale, resolveLang } = require('../src/js/uiLang')
 const { copyText, MAC_BACKUP_DISPLAY } = require('../src/js/platformCopy')
 const macAfterSign = require('../scripts/mac-after-sign')
 const { signPlan, macTarget } = macAfterSign
@@ -19,25 +19,46 @@ const WIN_EN_BACKUP = 'A reminder: copies keyfiles to the backup folder below (i
 const WIN_CN_NOTIFY = '在 Windows 通知中心顯示；同一種通知 10 分鐘內最多一則。點按鈕可以開啟或關閉。'
 const WIN_EN_NOTIFY = 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.'
 
-// ---- (1) language: unset is CN, a saved choice is kept, menu matches ----
-for (const v of [undefined, null, '', '   ', 'zh-TW', 'zh-Hant', 'TW', 'CN', 'zh_HK', 'fr', 'ja']) {
-  assert.strictEqual(normLang(v), 'CN', 'unset or non-English ' + JSON.stringify(v))
+// ---- (1) language: a saved choice is kept; an unset value follows the OS locale ----
+for (const v of [undefined, null, '', '   ', 'fr', 'ja']) {
+  assert.strictEqual(normLang(v), null, 'unset ' + JSON.stringify(v))
+}
+for (const v of ['zh-TW', 'zh-CN', 'zh-Hant', 'zh-Hans', 'zh_TW', 'zh_CN', 'TW', 'CN', 'zh_HK']) {
+  assert.strictEqual(normLang(v), 'CN', 'saved 華語 ' + JSON.stringify(v))
   assert.strictEqual(menuLang(v), 'CN', 'menu ' + JSON.stringify(v))
 }
 for (const v of ['EN', 'en', 'en-US', 'en_GB', ' EN ']) {
   assert.strictEqual(normLang(v), 'EN', 'saved English ' + JSON.stringify(v))
   assert.strictEqual(menuLang(v), 'EN')
 }
+for (const v of ['zh', 'zh-TW', 'zh-CN', 'zh-Hant', 'zh-Hans', 'zh_HK', 'zh_Hant_TW']) {
+  assert.strictEqual(langFromLocale(v), 'CN', v)
+  assert.strictEqual(resolveLang(undefined, v), 'CN', v)
+}
+for (const v of ['en-US', 'en-AU', 'fr', 'ja', 'de', '', null]) {
+  assert.strictEqual(langFromLocale(v), 'EN', JSON.stringify(v))
+  assert.strictEqual(resolveLang(null, v), 'EN', JSON.stringify(v))
+}
+assert.strictEqual(resolveLang('EN', 'zh-Hant-TW'), 'EN', 'saved English wins over a zh system')
+assert.strictEqual(resolveLang('CN', 'en-US'), 'CN', 'saved 華語 wins over an English system')
+assert.strictEqual(resolveLang('zh-CN', 'en-US'), 'CN')
+assert.strictEqual(menuLang(undefined, 'zh-TW'), 'CN')
+assert.strictEqual(menuLang(undefined, 'en-AU'), 'EN')
 const uiLangSrc = read('src/js/uiLang.js')
-assert.ok(!/getLocale|navigator|process\.platform|app\.getLocale/.test(uiLangSrc), 'language default must not read the operating system')
-assert.strictEqual(JSON.parse(read('src/json/viewconfig_1.1.json')).lang, 'CN')
-assert.ok(read('src/api/scdoClient.js').includes('cfg.lang = "CN"'))
-assert.ok(!read('src/api/scdoClient.js').includes('cfg.lang = "EN"'))
+const normBody = uiLangSrc.slice(uiLangSrc.indexOf('function normLang'), uiLangSrc.indexOf('function langFromLocale'))
+assert.ok(!/osLocale|getLocale/.test(normBody), 'a saved language does not read the operating system')
+assert.ok(uiLangSrc.includes('function osLocale') && uiLangSrc.includes('getLocale'))
+assert.ok(!JSON.parse(read('src/json/viewconfig_1.1.json')).lang, 'shipped config does not force a language')
+const clientSrc = read('src/api/scdoClient.js')
+assert.ok(clientSrc.includes('langFromLocale(osLocale())'))
+assert.ok(!clientSrc.includes('cfg.lang = "CN"'))
+assert.ok(!clientSrc.includes('cfg.lang = "EN"'))
+assert.ok(read('src/main/walletService.js').includes('resolveLang(cfg.lang, osLocale())'))
 assert.ok(read('src/js/app112.js').includes('api.platform'))
 assert.ok(read('src/js/app112.js').includes('window.SCDOUiLang'))
 assert.ok(read('src/js/boot.js').includes("info.lang === 'EN' ? 'EN' : 'CN'"))
 assert.ok(read('main.js').includes("walletService.currentLang() === 'EN' ? 'EN' : 'CN'"))
-assert.ok(read('translations/i18n.js').includes("settings && settings.lang ? String(settings.lang) : 'CN'"))
+assert.ok(read('translations/i18n.js').includes('resolveLang(settings && settings.lang'))
 assert.ok(!/getLocale\s*\(/.test(read('translations/i18n.js')))
 assert.ok(read('index.html').includes('lang="zh-Hant-TW"'))
 assert.ok(read('preload.js').includes('platform: process.platform'))
@@ -56,9 +77,11 @@ Module._load = function (req, parent, ...rest) {
 }
 const menu = require('../src/js/menu.js')
 Module._load = realLoad
-const cnMenu = menu.buildTemplate(null, undefined)
+const cnMenu = menu.buildTemplate(null, 'CN')
 const enMenu = menu.buildTemplate(null, 'EN')
-assert.strictEqual(cnMenu[0].label, 'SCDO 錢包', 'first launch menu is 華語繁體')
+assert.strictEqual(cnMenu[0].label, 'SCDO 錢包', '華語 menu')
+assert.strictEqual(menu.buildTemplate(null, resolveLang(undefined, 'zh-Hant'))[0].label, 'SCDO 錢包', 'zh system first launch is 華語')
+assert.strictEqual(menu.buildTemplate(null, resolveLang(undefined, 'en-US'))[0].label, 'SCDO Wallet', 'other systems start in English')
 assert.deepStrictEqual(cnMenu.slice(2, 8).map(m => m.label), ['首頁', 'GPU 共享', '錢包', '遊戲', '區塊鏈', '記帳'])
 assert.strictEqual(cnMenu.find(m => m.label === '錢包').submenu.map(s => s.label).join('|'), '收款|匯款…|支付發票|設定|建立新地址（Shard0–Shard4 任選）…|匯入錢包（帳戶檔案或私鑰）…')
 assert.strictEqual(cnMenu.find(m => m.label === '記帳').submenu[0].label, '記帳')
@@ -103,20 +126,35 @@ assert.ok(enNote.startsWith('Shown in macOS Notification Centre'))
 assert.ok(!enNote.includes('Windows'))
 assert.strictEqual(cnNote.slice('在 Mac 通知中心顯示'.length), WIN_CN_NOTIFY.slice('在 Windows 通知中心顯示'.length))
 assert.strictEqual(enNote.slice('Shown in macOS Notification Centre'.length), WIN_EN_NOTIFY.slice('Shown in the Windows notification centre'.length))
-assert.strictEqual(I.CN.relNotes[0].v, '3.1.9')
-assert.strictEqual(I.EN.relNotes[0].v, '3.1.9')
+assert.strictEqual(I.CN.relNotes[0].v, '3.1.13')
+assert.strictEqual(I.EN.relNotes[0].v, '3.1.13')
 assert.ok(I.CN.relNotes.find(n => n.v === '3.1.0').items.join(' ').includes('顯卡正被其他程式使用'))
 assert.ok(I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('華語繁體'))
 assert.ok(!I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('繁體中文'))
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(read('src/js/app112.js').includes('T(\'backupHint\')') && read('src/js/app112.js').includes('T(\'notifyHint\')'))
+const langRow = read('src/js/app112.js').slice(read('src/js/app112.js').indexOf('const langNow'), read('src/js/app112.js').indexOf('const resumeRow'))
+assert.ok(langRow.includes('>English</button>') && langRow.includes('>華語</button>'))
+assert.ok(!/中文|简体中文|簡體中文|繁體中文|華語繁體/.test(langRow))
+assert.strictEqual((langRow.match(/data-act="setLang"/g) || []).length, 2)
+const siteFn = read('src/js/app112.js')
+const site = siteFn.slice(siteFn.indexOf('function renderSiteBar'), siteFn.indexOf('function renderSideNav'))
+assert.ok(site.includes('id="langSwitch"') && site.includes('data-act="hdrLang"'))
+assert.ok(site.includes('>English</button>') && site.includes('>華語</button>'))
+assert.ok(!/中文|简体中文|簡體中文|繁體中文|華語繁體/.test(site))
+assert.ok(!site.includes('darwin'), 'the top-bar switch is not skipped on macOS')
+const shellCss = read('src/css/shell310.css')
+assert.ok(shellCss.includes('.lang-switch') && shellCss.includes('.site-bar { display: flex'))
+assert.ok(!/\.lang-switch\s*\{[^}]*display:\s*none/.test(shellCss))
+assert.ok(!/#langSwitch\s*\{[^}]*display:\s*none/.test(shellCss))
+assert.ok(!/#siteBar\s*\{[^}]*display:\s*none/.test(shellCss))
 
 // version and Windows build left as they were, plus the Mac signing gate
 const pkg = require('../package.json')
-assert.strictEqual(pkg.version, '3.1.9')
+assert.strictEqual(pkg.version, '3.1.13')
 const lock = JSON.parse(read('package-lock.json'))
-assert.strictEqual(lock.version, '3.1.9')
-assert.strictEqual(lock.packages[''].version, '3.1.9')
+assert.strictEqual(lock.version, '3.1.13')
+assert.strictEqual(lock.packages[''].version, '3.1.13')
 const base = JSON.parse(execFileSync('git', ['show', 'c8049bb:package.json'], { encoding: 'utf8' }))
 const win = JSON.parse(JSON.stringify(base.build.win))
 const genesisAt = win.extraResources.findIndex(x => x.from === 'miner-bin/scdo-shard0-genesis.json')

@@ -19,10 +19,7 @@ const { VERSION, checkRuntime } = require('./src/version')
 // 2.0.0 rename: the product is now "SCDO Wallet" (package.json productName), but the Electron user-data folder must stay
 // %APPDATA%\ScdoWalletBeta (miner-intent.json, update-state/pending, updater log, miner chain data, Local Storage).
 // Electron derives it from productName, so pin it before anything reads it (single-instance lock, updater, miner).
-// Test runs only: SCDO_WALLET_PROFILE=<name> keeps a test build in its own ScdoWalletBeta-<name> folder (own agent key,
-// own intent file, own single-instance lock), so it never touches the live wallet's data on the same machine.
-const TEST_PROFILE = /^[a-z0-9-]{1,32}$/.test(String(process.env.SCDO_WALLET_PROFILE || '')) ? String(process.env.SCDO_WALLET_PROFILE) : ''
-try { app.setPath('userData', path.join(app.getPath('appData'), 'ScdoWalletBeta' + (TEST_PROFILE ? '-' + TEST_PROFILE : ''))) } catch (e) { console.error('userData pin failed', e) }
+try { app.setPath('userData', path.join(app.getPath('appData'), 'ScdoWalletBeta')) } catch (e) { console.error('userData pin failed', e) }
 
 // 2.0.6 (black window after upgrade/startup): on Windows the page is composited by the same NVIDIA GPU that the built-in
 // miner keeps at 100 % (and that builds a ~1 GB DAG right after an update resumes mining). Chromium's GPU process can then
@@ -53,10 +50,18 @@ app.on('child-process-gone', (e, d) => {
 // 2.0.1: every ipcMain.handle only answers the wallet's own page (file:// index.html in the main window).
 // (2.0.0's 'compileContract' handler, used only by the unused legacy contract page, was removed.)
 const APP_INDEX_URL = require('url').pathToFileURL(path.join(__dirname, 'index.html')).href
+function trustedUiUrl (url) {
+  const bare = String(url || '').split('#')[0]
+  if (bare === APP_INDEX_URL) return true
+  try {
+    const extra = require('./src/main/uiHost').activeUrl()
+    return !!extra && bare === extra
+  } catch (e) { return false }
+}
 function trustedSender (e) {
   try {
     const f = e.senderFrame
-    return !!(mainWindow && !mainWindow.isDestroyed() && e.sender === mainWindow.webContents && f && f === e.sender.mainFrame && f.url.split('#')[0] === APP_INDEX_URL)
+    return !!(mainWindow && !mainWindow.isDestroyed() && e.sender === mainWindow.webContents && f && f === e.sender.mainFrame && trustedUiUrl(f.url))
   } catch (err) { return false }
 }
 const ipcHandleRaw = ipcMain.handle.bind(ipcMain)
@@ -135,16 +140,35 @@ const MT = {
     stopTitle: '停止記帳 — SCDO Wallet', stopMsg: '確定要停止記帳嗎？停止後將不再獲得出塊獎勵。', stopBtns: ['取消', '停止記帳'],
     quitTitle: '結束 SCDO Wallet', quitMsg: '記帳正在進行。確定要結束 SCDO Wallet 嗎？結束後記帳會停止，將不再獲得出塊獎勵。', quitBtns: ['取消', '結束'],
     updated: '已更新', stopping: '正在停止記帳 — SCDO Wallet',
-    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。'
+    trayHidden: 'SCDO Wallet 仍在背景執行', trayHiddenMsg: '記帳和節點會繼續執行。要結束錢包，請在系統匣圖示上按右鍵，選「結束」。',
+    trayStayNotice: 'SCDO Wallet 仍在系統匣執行，Agent 才會保持在線。要停止請從系統匣選單結束。',
+    quitAgentMsg: '結束後 Agent 會離線，獎勵也會暫停。',
+    quitAgentQuit: '結束', quitAgentStay: '繼續執行', quitAgentDontAsk: '不要再問'
   },
   EN: {
     stopTitle: 'Stop bookkeeping — SCDO Wallet', stopMsg: 'Stop bookkeeping? You will no longer earn block rewards.', stopBtns: ['Cancel', 'Stop bookkeeping'],
     quitTitle: 'Quit SCDO Wallet', quitMsg: 'Bookkeeping is running. Quit SCDO Wallet? Bookkeeping will stop and you will no longer earn block rewards.', quitBtns: ['Cancel', 'Quit'],
     updated: 'updated', stopping: 'Stopping bookkeeping node — SCDO Wallet',
-    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.'
+    trayHidden: 'SCDO Wallet is still running', trayHiddenMsg: 'Bookkeeping and the node keep running. To quit the wallet, right-click the tray icon and choose Quit.',
+    trayStayNotice: 'SCDO Wallet is still running in the tray so your agent stays online. Quit from the tray menu to stop.',
+    quitAgentMsg: 'Quitting takes your agent offline and pauses rewards.',
+    quitAgentQuit: 'Quit', quitAgentStay: 'Keep running', quitAgentDontAsk: "Don't ask again"
   }
 }
 function mt (k) { return (MT[uiLang()] || MT.CN)[k] }
+// Signed wallet-ui.json can replace these keys. Unknown or HTML values stay on the built-in line.
+function uiString (key, fallback) {
+  const loc = uiLang() === 'EN' ? 'en' : 'zh-Hant'
+  let v = null
+  try {
+    const ui = require('./src/js/walletUi')
+    const doc = walletUiDoc || ui.current()
+    const pack = doc && doc.strings && doc.strings[loc]
+    v = pack && pack[key]
+  } catch (e) { v = null }
+  if (typeof v === 'string' && v && !/[<>]/.test(v)) return v
+  return fallback
+}
 // 2.0.6: Stop-mining confirmation (Mining tab button and tray item). Cancel is the default and the Esc answer.
 async function confirmStopMining () {
   const opts = { type: 'question', title: mt('stopTitle'), message: mt('stopMsg'), buttons: mt('stopBtns'), defaultId: 0, cancelId: 0, noLink: true }
@@ -321,7 +345,7 @@ async function pollPayout () {
 }
 setInterval(pollPayout, 2 * 60 * 1000)
 
-// ---------------- built-in miners ----------------
+// ---------------- built-in ledger nodes ----------------
 // Shard0: Ethash GPU (geth + scdo-stratum + Rigel).
 // Classic shards 1–4: zminer CPU to the pool, and zminer-gpu (one process per shard, device 0).
 // Solo Classic uses the go-scdo node only when solo was saved and that node is synced.
@@ -590,6 +614,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
       const runPatch = backend === 'cpu' ? { runningCpu: true } : { runningClassicGpu: true }
       if (cfgNow.keepMining) runPatch.autoResume = true
       writeIntent(runPatch)
+      armLoginLaunch()
       refreshTray()
       return { ok: true }
     } catch (err) {
@@ -610,6 +635,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     await getMiner().start(wallet, startOpts)
     // 2.0.1: autoResume (start again on the next launch) only when the user turned on "Keep mining"
     writeIntent(Object.assign({ autoResume: !!cfg.keepMining, runningShard0: mode !== 'node', mode: mode === 'node' ? 'node' : 'mine' }, mode !== 'node' ? { reward: wallet } : { payout: opts.payout || null }))
+    if (mode !== 'node') armLoginLaunch()
     if (tray) tray.rebuild()
     return { ok: true }
   } catch (err) {
@@ -770,6 +796,7 @@ ipcMain.handle('mining:poolStatus', async () => {
 })
 function setKeepMining (on) {
   writeIntent({ keepMining: on, autoResume: on && !!(miner && miner.wantRunning) })
+  if (on) armLoginLaunch()
   if (tray) tray.rebuild()
   if (miner) miner.emit('status', miner.status())
   return { ok: true, keepMining: on }
@@ -822,6 +849,8 @@ function createTray () {
       getKeepMining: () => !!(readIntent() || {}).keepMining,
       onKeepMining: (on) => setKeepMining(on),
       getSession: () => publicSession(),
+      getAgentOnline: () => agentLedgerOnline(),
+      string: (key, fallback) => uiString(key, fallback),
       onLogin: (on) => setLoginLaunch(on === true),
       onLight: (on) => { setSessionLight(on === true) },
       onPace: (patch) => setPace(patch),
@@ -903,7 +932,11 @@ ipcMain.handle('keyfile:backupDelete', (e, name) => {
   try { b = backupKeyfile(name) } catch (err) { return { ok: false, stage: 'backup', error: err.message } }
   try { fs.unlinkSync(b.src) } catch (err) { return { ok: false, stage: 'delete', error: err.message, backup: b.dst } }
   try { require('./src/api/mnemonic').removeSeal(path.join(os.homedir(), '.ScdoWallet', 'mnemonic'), name) } catch (err) {}
-  return { ok: true, backup: b.dst, sha256: b.sha256 }
+  // The keyfile above is the only key this delete removes. evm.json loses that account's entry
+  // after a backup; other accounts and their key files stay where they are.
+  let evm = { ok: true, removed: false, backup: '' }
+  try { evm = require('./src/api/evmCache').forgetAccount(path.join(os.homedir(), '.ScdoWallet', 'evm.json'), name) } catch (err) { evm = { ok: false, removed: false, backup: '', error: err && err.message } }
+  return { ok: true, backup: b.dst, sha256: b.sha256, evm: evm }
 })
 ipcMain.handle('keyfile:backupOnly', (e, name) => {
   try { const b = backupKeyfile(name); return { ok: true, backup: b.dst } } catch (err) { return { ok: false, error: err.message } }
@@ -960,7 +993,7 @@ function createWindow () {
       spellcheck: false
     }
   })
-  mainWindow.loadFile('index.html')
+  try { require('./src/main/uiHost').load(mainWindow) } catch (e) { mainWindow.loadFile('index.html') }
   const t0 = Date.now()
   let shown = false
   const showMain = (why) => {
@@ -979,10 +1012,28 @@ function createWindow () {
     }
   }, 3000)
   mainWindow.on('page-title-updated', (e) => e.preventDefault()) // 2.0.6: the title is set here (version, "updated")
-  mainWindow.webContents.on('render-process-gone', (e, d) => { console.error('renderer gone: ' + d.reason + ' exitCode=' + d.exitCode); setTimeout(() => { try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload() } catch (err) {} }, 1000) })
+  mainWindow.webContents.on('render-process-gone', (e, d) => {
+    console.error('renderer gone: ' + d.reason + ' exitCode=' + d.exitCode)
+    let rolled = false
+    try { rolled = require('./src/main/uiHost').noteCrash(d && d.reason) } catch (err) {}
+    setTimeout(() => {
+      try {
+        if (!mainWindow || mainWindow.isDestroyed()) return
+        if (rolled) require('./src/main/uiHost').load(mainWindow)
+        else mainWindow.reload()
+      } catch (err) {}
+    }, 1000)
+  })
+  mainWindow.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return
+    try {
+      const host = require('./src/main/uiHost')
+      if (host.noteLoadFail(url)) host.load(mainWindow)
+    } catch (err) {}
+  })
   mainWindow.webContents.on('unresponsive', () => console.error('renderer unresponsive'))
   // the page may never navigate away from index.html; external links go to the allowlisted system browser
-  const guardNav = (e, url) => { if (String(url).split('#')[0] !== APP_INDEX_URL) { e.preventDefault(); openExternalSafe(url) } }
+  const guardNav = (e, url) => { if (!trustedUiUrl(url)) { e.preventDefault(); openExternalSafe(url) } }
   mainWindow.webContents.on('will-navigate', guardNav)
   mainWindow.webContents.on('will-redirect', guardNav)
   mainWindow.webContents.on('will-frame-navigate', (e) => { if (!e.isMainFrame) e.preventDefault() })
@@ -990,18 +1041,20 @@ function createWindow () {
   mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault())
   mainWindow.webContents.on('did-finish-load', () => {
     if (tray) tray.reapply()
+    sendTrayHint()
     if (!pendingProtocol || !mainWindow || mainWindow.isDestroyed()) return
     try { mainWindow.webContents.send('agentJoin:updated', pendingProtocol) } catch (e) {}
   })
   // 2.0.6: the window's X (and Ctrl+W) only hides the wallet to the tray; mining and the node keep running.
   // Quitting is done from the tray menu (Quit, with a confirmation while mining), by an update, or by Windows shutdown.
+  mainWindow.on('show', () => sendTrayHint())
   mainWindow.on('close', (e) => {
     if (quitting || readyToQuit) return
     e.preventDefault()
     if (!tray) { requestQuit({ confirm: true, reason: 'window close without tray' }); return }
     mainWindow.hide()
     try { getMiner().log('wallet', 'main window closed by the user: hidden to the tray, bookkeeping/node unchanged') } catch (err) {}
-    if (!hintShown && process.platform === 'win32' && tray.balloon) { hintShown = true; tray.balloon(mt('trayHidden'), mt('trayHiddenMsg')) }
+    noteHiddenToTray()
   })
   mainWindow.on('session-end', () => { quitting = true; try { getNotifier().markUserStop() } catch (e) {} }) // Windows log-off / shutdown (no 'mining stopped' notification)
   mainWindow.on('closed', () => {
@@ -1038,7 +1091,17 @@ app.on('open-url', (e, url) => { e.preventDefault(); acceptProtocolUrl(url) })
 function publicWalletUi () {
   const walletUi = require('./src/js/walletUi')
   const doc = walletUiDoc || walletUi.current() || walletUi.defaults()
-  return { links: doc.links, cards: doc.cards, from: doc.from || 'default' }
+  return {
+    links: doc.links,
+    cards: doc.cards,
+    strings: doc.strings || { en: {}, 'zh-Hant': {} },
+    homeCards: doc.homeCards || [],
+    banner: doc.banner || null,
+    flags: doc.flags || {},
+    minVersion: doc.minVersion || '',
+    recommendedVersion: doc.recommendedVersion || '',
+    from: doc.from || 'default'
+  }
 }
 function publishWalletUi (doc, from) {
   walletUiDoc = Object.assign({}, doc, { from: from || (doc && doc.from) || 'default' })
@@ -1048,7 +1111,6 @@ function publishWalletUi (doc, from) {
 }
 function startWalletPanel () {
   const { create } = require('./src/main/walletPanel')
-  const walletUi = require('./src/js/walletUi')
   walletPanelCtl = create({
     getWindow: function () { return mainWindow },
     getLang: function () { return uiLang() },
@@ -1058,12 +1120,24 @@ function startWalletPanel () {
   ipcMain.handle('panel:doc', () => publicWalletUi())
   ipcMain.handle('panel:show', (e, req) => walletPanelCtl.show(req))
   ipcMain.handle('panel:close', () => { walletPanelCtl.hide(); return true })
-  const { verifyMessage } = require('ethers')
+  refreshLiveUi()
+  const liveTimer = setInterval(refreshLiveUi, 30 * 60 * 1000)
+  if (liveTimer.unref) liveTimer.unref()
+}
+function refreshLiveUi () {
+  const walletUi = require('./src/js/walletUi')
+  const uiBundle = require('./src/main/uiBundle')
   walletUi.refresh({
-    verifyMessage: verifyMessage,
     cacheFile: path.join(app.getPath('userData'), 'wallet-ui.json'),
-    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 4000) }
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 8000) }
   }).then(function (result) { publishWalletUi(result.doc, result.from) }).catch(function (e) { console.warn('wallet ui', e && e.message) })
+  uiBundle.refresh({
+    userData: app.getPath('userData'),
+    shellVersion: VERSION,
+    fetchImpl: function (url) { return require('./src/config/endpoints').getJson(url, 8000) }
+  }).then(function (result) {
+    if (result && result.state) require('./src/main/uiHost').adopt(result.state)
+  }).catch(function (e) { console.warn('ui bundle', e && e.message) })
 }
 function registerScdoProtocol () {
   try {
@@ -1095,8 +1169,9 @@ if (!app.requestSingleInstanceLock()) {
     registerScdoProtocol()
     takeJoinArgv(process.argv)
     fixCors()
-    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'clipboard-sanitized-write'))
-    session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'clipboard-sanitized-write')
+    const allowClip = (perm) => perm === 'clipboard-sanitized-write' || perm === 'clipboard-read'
+    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(allowClip(perm)))
+    session.defaultSession.setPermissionCheckHandler((wc, perm) => allowClip(perm))
     app.on('web-contents-created', (e, wc) => {
       let panelGuest = false
       try { panelGuest = String((wc.session && wc.session.storagePath) || '').indexOf('wallet-panel') >= 0 } catch (err) {}
@@ -1111,6 +1186,9 @@ if (!app.requestSingleInstanceLock()) {
     // 1.1.6: apply any completed-update marker from a previous run (log + restore mining intent)
     const ra = getUpdater().resumeAfterUpdate()
     if (ra && ra.applied) justUpdated = { version: ra.version, wasMining: !!ra.wasMining }
+    try {
+      require('./src/main/uiHost').init({ userData: app.getPath('userData'), appIndex: path.join(__dirname, 'index.html') })
+    } catch (e) { console.warn('ui host', e && e.message) }
     createWindow()
     applyLightRuntime()
     createMenu(mainWindow, uiLang())
@@ -1134,7 +1212,72 @@ let readyToQuit = false
 let quitPromise = null
 let quitting = false // 2.0.6: set once a real quit was decided (tray Quit, update, installer, shutdown)
 let hintShown = false
-let startHidden = process.argv.includes('--scdo-hidden')
+let trayHintPending = false
+let trayHintDismissed = false
+let agentLive = false
+function agentProcessOnline () {
+  try {
+    const st = opsAgent && opsAgent.status && opsAgent.status()
+    if (st && st.registered) return true
+  } catch (e) {}
+  if (agentLive) return true
+  try {
+    const view = joinStore.publicView()
+    if (view && view.locked) return true
+  } catch (e) {}
+  return false
+}
+// 3.1.12: the tray presence line uses the same online state as the Agent card (see AgentService.online).
+// agentProcessOnline above stays for the quit question: a started agent goes offline when the wallet quits.
+function agentLedgerOnline () {
+  try { return !!(opsAgent && opsAgent.online && opsAgent.online()) } catch (e) { return false }
+}
+function sendTrayHint () {
+  if (!trayHintPending || trayHintDismissed) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  try { mainWindow.webContents.send('agent:trayHint', { show: true }) } catch (e) {}
+}
+function noteHiddenToTray () {
+  keepAgentHeartbeat()
+  if (!hintShown) {
+    hintShown = true
+    trayHintPending = true
+    const body = uiString('trayStayNotice', mt('trayStayNotice'))
+    let noted = false
+    try {
+      if (Notification.isSupported()) {
+        const n = new Notification({ title: 'SCDO Wallet', body: body, silent: true })
+        n.on('click', () => { try { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus() } } catch (err) {} })
+        n.show()
+        noted = true
+      }
+    } catch (e) {}
+    if (!noted && tray && tray.balloon) tray.balloon('SCDO Wallet', body)
+  }
+}
+function confirmAgentQuit () {
+  if ((readIntent() || {}).agentQuitQuiet === true) return Promise.resolve(true)
+  const w = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  if (w && !w.isVisible()) { try { w.show(); w.focus() } catch (e) {} }
+  const opts = {
+    type: 'question',
+    title: mt('quitTitle'),
+    message: uiString('quitAgentMsg', mt('quitAgentMsg')),
+    buttons: [uiString('quitAgentQuit', mt('quitAgentQuit')), uiString('quitAgentStay', mt('quitAgentStay'))],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    checkboxLabel: uiString('quitAgentDontAsk', mt('quitAgentDontAsk')),
+    checkboxChecked: false
+  }
+  const box = w && !w.isDestroyed() ? dialog.showMessageBox(w, opts) : dialog.showMessageBox(opts)
+  return box.then(r => {
+    if (!r || r.response !== 0) return false
+    if (r.checkboxChecked) writeIntent({ agentQuitQuiet: true })
+    return true
+  })
+}
+let startHidden = process.argv.includes('--scdo-hidden') || process.argv.includes('--hidden')
 function bootSession () {
   let was = false
   try {
@@ -1142,9 +1285,20 @@ function bootSession () {
     was = !!(settings && settings.wasOpenedAtLogin)
   } catch (e) {}
   sessionOpenedAtLogin = sessionMode.openedAtLogin({ argv: process.argv, wasOpenedAtLogin: was })
-  sessionLight = sessionMode.resolveLight({ intent: readIntent(), openedAtLogin: sessionOpenedAtLogin })
-  if (sessionOpenedAtLogin) startHidden = true
-  applyLoginLaunch()
+  const intent = readIntent()
+  sessionLight = sessionMode.linuxLight(process.platform) || sessionMode.resolveLight({ intent: intent, openedAtLogin: sessionOpenedAtLogin })
+  if (sessionOpenedAtLogin || sessionMode.hiddenLaunch(process.argv)) startHidden = true
+  if (sessionMode.shouldArmLogin(intent) && sessionMode.rigWantsLogin(intent, agentStartedForLogin())) armLoginLaunch()
+  else applyLoginLaunch()
+}
+function agentStartedForLogin () {
+  try {
+    const view = joinStore.publicView()
+    return !!(view && view.locked)
+  } catch (e) { return false }
+}
+function keepAgentHeartbeat () {
+  try { if (opsAgent && opsAgent.nudge) opsAgent.nudge() } catch (e) {}
 }
 function applyLoginLaunch () {
   const on = (readIntent() || {}).loginLaunch === true
@@ -1181,7 +1335,14 @@ function applyLightRuntime () {
 }
 function setLoginLaunch (on) {
   const open = on === true
-  writeIntent({ loginLaunch: open, loginAsked: true })
+  writeIntent({ loginLaunch: open, loginAsked: true, loginOff: !open })
+  applyLoginLaunch()
+  publishSession()
+  return publicSession()
+}
+function armLoginLaunch () {
+  if (!sessionMode.shouldArmLogin(readIntent())) return publicSession()
+  writeIntent(sessionMode.armLoginPatch())
   applyLoginLaunch()
   publishSession()
   return publicSession()
@@ -1196,6 +1357,11 @@ function setPace (patch) {
   return publicSession()
 }
 async function setSessionLight (on) {
+  if (sessionMode.linuxLight(process.platform)) {
+    sessionLight = true
+    applyLightRuntime()
+    return publicSession()
+  }
   const want = on === true
   sessionLight = want
   writeIntent({ lightMode: want, lightChosen: true })
@@ -1215,7 +1381,10 @@ async function clearPageRunFlags () {
 }
 async function requestQuit ({ confirm, reason } = {}) {
   if (quitPromise) return quitPromise
-  if (confirm && miningNow()) {
+  if (confirm && agentProcessOnline()) {
+    const ok = await confirmAgentQuit()
+    if (!ok) { try { getMiner().log('wallet', 'quit cancelled by the user (' + reason + ')') } catch (e) {} return }
+  } else if (confirm && miningNow()) {
     const opts = { type: 'question', title: mt('quitTitle'), message: mt('quitMsg'), buttons: mt('quitBtns'), defaultId: 0, cancelId: 0, noLink: true }
     const w = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null
     const r = w ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
@@ -1363,6 +1532,9 @@ async function startMyAgent (typedRef) {
     try { accounts = walletService.listAccounts() } catch (e) { accounts = [] }
   }
   joinStore.lock(typedRef)
+  agentLive = true
+  try { armLoginLaunch() } catch (e) {}
+  try { refreshTray() } catch (e) {}
   const file = (created && created.file) || joinStore.publicView().payoutFile || ''
   if (created && created.evm) joinStore.setPayout(created.evm, created.file, 'auto')
   const applied = created && created.evm
@@ -1388,8 +1560,31 @@ function registerAgentLater () {
   opsAgent.register().then(r => {
     const registered = !!(r && r.ok)
     if (registered) joinCtl.refcode().catch(() => {})
+    try { refreshTray() } catch (e) {}
     tellJoinSettled(registered)
   }).catch(() => tellJoinSettled(false))
+}
+// 3.1.12: the Agent card and the tray follow the agent. When online or the x402 reserve changes, tell the page
+// (it re-reads agentJoin:get) and rebuild the tray. 3.1.11 read the card once at startup, before the first
+// register, so it could stay on Offline while the agent was online.
+let agentCardSig = ''
+let agentCardTimer = null
+function agentCardTick () {
+  let st = null
+  try { st = opsAgent && opsAgent.status() } catch (e) { st = null }
+  if (!st) return
+  const sig = [st.online ? 1 : 0, st.settled ? 1 : 0, st.registered ? 1 : 0, st.usdcWallet || ''].join('|')
+  if (sig === agentCardSig) return
+  agentCardSig = sig
+  try { refreshTray() } catch (e) {}
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agentJoin:changed', { online: !!st.online, usdcWallet: st.usdcWallet || '' })
+  } catch (e) {}
+}
+function watchAgentCard () {
+  if (agentCardTimer) return
+  agentCardTimer = setInterval(agentCardTick, 5000)
+  if (agentCardTimer.unref) agentCardTimer.unref()
 }
 function tellJoinSettled (registered) {
   try {
@@ -1439,7 +1634,9 @@ function startOpsAgent () {
     opsAgent = new AgentService(path.join(app.getPath('userData'), 'agent'), {
       version: VERSION, platform: process.platform, label: '',
       payoutAddress: payoutAddressNow,
+      accountPayout: () => { try { const a = (walletService.listAccounts() || []).find(x => x && x.evm); return a ? String(a.evm) : '' } catch (e) { return '' } },
       joinExtra: () => joinStore.joinExtra(),
+      onReserve: (addr) => { try { joinStore.setUsdc(addr) } catch (e) {} },
       enabled: () => (readIntent() || {}).agentReporting !== false,
       light: () => sessionLight,
       snapshot: agentSnapshot,
@@ -1465,10 +1662,18 @@ function startOpsAgent () {
         unthrottle: async () => { refreshTray(); return true }
       }
     })
+    const rawRegister = opsAgent.register.bind(opsAgent)
+    opsAgent.register = function () {
+      return rawRegister().then(r => { try { refreshTray() } catch (err) {} return r })
+    }
     opsAgent.start()
+    keepAgentHeartbeat()
+    watchAgentCard()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
-// ---- Reward destination (記帳獎勵去向), TEST feature. Hidden in store builds (src/main/rewardDest.js flags). ----
+// ---- Reward destination (記帳獎勵去向). 3.1.13: UI ships greyed "Coming soon"; no stub backend is wired.
+// Toggles unlock only when <agent ledger>/features reports the feature live AND the build has a production backend
+// (src/main/rewardDest.js CLIENT_READY, false in 3.1.13). Hidden in store builds.
 let rewardDest = null
 function getRewardDest () {
   if (rewardDest) return rewardDest
@@ -1476,11 +1681,9 @@ function getRewardDest () {
   rewardDest = RD.createController({
     userData: app.getPath('userData'),
     agent: () => opsAgent,
-    lendUrl: () => {
-      const remote = (() => { try { return require('./src/config/endpoints').getCachedRemote() } catch (e) { return null } })()
-      const fromRemote = remote && remote.rewardLend && remote.rewardLend.url
+    featuresUrl: () => {
       const ledger = opsAgent && opsAgent.status ? opsAgent.status().ledger : ''
-      return process.env.SCDO_LEND_URL || fromRemote || (ledger ? String(ledger).replace(/\/$/, '') + '/lend' : '')
+      return ledger ? String(ledger).replace(/\/$/, '') + '/features' : ''
     }
   })
   return rewardDest
@@ -1500,6 +1703,8 @@ ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
 ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
 ipcMain.handle('session:setPace', (e, patch) => setPace(patch))
 ipcMain.handle('session:loginAnswer', (e, yes) => setLoginLaunch(yes === true))
+ipcMain.handle('session:armLogin', () => armLoginLaunch())
+ipcMain.handle('session:trayHintDismiss', () => { trayHintDismissed = true; trayHintPending = false; return { ok: true } })
 ipcMain.handle('agent:status', () => opsAgent ? opsAgent.status() : null)
 ipcMain.handle('agent:setReporting', (e, on) => { writeIntent({ agentReporting: !!on }); return !!on })
 ipcMain.handle('agentJoin:get', () => joinCtl.snapshot(opsAgent ? opsAgent.status() : null))
@@ -1523,6 +1728,23 @@ ipcMain.handle('agentJoin:useSelection', (e, p) => {
   return applied.view
 })
 ipcMain.handle('agentJoin:refcode', () => joinCtl.refcode().catch(() => ({ ok: false, error: 'refcode' })))
+ipcMain.handle('invite:create', async (e, p) => {
+  p = p || {}
+  const Invite = require('./src/js/inviteRegistry')
+  const plan = Invite.planCreate({ gift: p.gift, feeBps: p.feeBps })
+  const sent = await walletService.sendContract({ file: p.file, password: p.password, to: plan.to, data: plan.data, valueWei: plan.valueWei })
+  if (!sent || !sent.ok) return { ok: false, error: (sent && sent.error) || 'send' }
+  return { ok: true, hash: sent.hash, id: plan.id, link: plan.link }
+})
+ipcMain.handle('invite:cancel', async (e, p) => {
+  p = p || {}
+  const Invite = require('./src/js/inviteRegistry')
+  const plan = Invite.planCancel(p.id)
+  if (!plan) return { ok: false, error: 'id' }
+  const sent = await walletService.sendContract({ file: p.file, password: p.password, to: plan.to, data: plan.data, valueWei: '0' })
+  if (!sent || !sent.ok) return { ok: false, error: (sent && sent.error) || 'send' }
+  return { ok: true, hash: sent.hash, id: plan.id }
+})
 ipcMain.handle('invite:claim', async (e, body) => {
   body = body && typeof body === 'object' ? body : {}
   claimWatch = String(body.newAddr || '')

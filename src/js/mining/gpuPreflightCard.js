@@ -26,7 +26,7 @@
   // Mac: static notice, GPU mining is not offered (spec: Mac static hint card)
   M.macNotSupportedCard = function () {
     return h('div', { class: 'nogpu', id: 'macNoGpu' }, h('b', { text: M.L('Graphics-card bookkeeping is not supported on Mac') }),
-      h('div', { style: 'margin-top:6px;font-size:17px', text: M.L('Macs do not have the graphics driver this kind of graphics-card bookkeeping needs, and the built-in bookkeeping node (Rigel) has no macOS version, so graphics-card bookkeeping is not offered on this computer. Accounts, transfers and the network stats below work normally.') }))
+      h('div', { style: 'margin-top:6px;font-size:17px', text: M.L('Macs do not have the graphics driver this kind of graphics-card bookkeeping needs, and the built-in ledger node (Rigel) has no macOS version, so graphics-card bookkeeping is not offered on this computer. Accounts, transfers and the network stats below work normally.') }))
   }
   M.GpuPreflightCard = { render }
 })(window.SCDOMining)

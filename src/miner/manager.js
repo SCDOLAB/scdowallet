@@ -488,6 +488,7 @@ class MinerManager extends EventEmitter {
       try { this.o.onSpawn(p, name) } catch (e) {}
     }
     this.procs[name] = p
+    this.recordOwnPid(name, p.pid, true)
     const lf = path.join(this.logDir, name + '.log')
     rotateIfBig(lf)
     const logf = this.logStreams[name] = fs.createWriteStream(lf, { flags: 'a' })
@@ -501,6 +502,7 @@ class MinerManager extends EventEmitter {
     p.stdout.on('data', onData('out')); p.stderr.on('data', onData('err'))
     p.on('error', e => this.log(name, 'spawn error: ' + e.message))
     p.on('exit', (code, sig) => {
+      this.recordOwnPid(name, p.pid, false)
       if (this.procs[name] === p) { const ls = this.logStreams[name]; if (ls) ls.end(); this.logStreams[name] = null; this.procs[name] = null } else logf.end()
       this.log(name, 'exited (code ' + code + (sig ? ', ' + sig : '') + ')')
       if (!this.wantRunning) return
@@ -936,6 +938,21 @@ class MinerManager extends EventEmitter {
 
   // Is this process one of the wallet's own miner processes? Matched by exe path (wallet install / wallet miner
   // folder) or, for geth, by the wallet's own --datadir. Never matches other installs (e.g. C:\SCDO\gpu-miner).
+  // 3.1.10+: pids this profile spawned, kept in <userData>/miner/own-pids.json so a later session can tell its own
+  // leftovers apart from another profile's miner that runs the same shared binary (e.g. /Applications/SCDO Wallet.app).
+  ownPidsFile () { return path.join(this.minerDir, 'own-pids.json') }
+  readOwnPids () { try { const j = JSON.parse(fs.readFileSync(this.ownPidsFile(), 'utf8')); return Array.isArray(j) ? j : [] } catch (e) { return [] } }
+  recordOwnPid (name, pid, add) {
+    if (!pid) return
+    try {
+      const rest = this.readOwnPids().filter(x => x && x.pid !== pid)
+      if (add) rest.push({ name, pid, at: Date.now() })
+      fs.mkdirSync(this.minerDir, { recursive: true })
+      fs.writeFileSync(this.ownPidsFile(), JSON.stringify(rest.slice(-20)))
+    } catch (e) {}
+  }
+  spawnedByThisProfile (p) { return this.readOwnPids().some(x => x && x.pid === p.pid && x.name === p.name) }
+
   isOwnProc (p) {
     const win = this.o.platform === 'win32'
     const norm = s => { if (!s) return ''; let r = path.resolve(String(s)); if (win) r = r.toLowerCase(); return r }
@@ -948,8 +965,13 @@ class MinerManager extends EventEmitter {
       // only a geth that uses THIS wallet's data folder (another profile/instance may run the same geth.exe)
       return !!dd && cmd.includes(dd) && (exe === binFile('geth') || !exe || /geth/i.test(path.basename(exe)))
     }
-    if (p.name === 'scdo-stratum') return exe === binFile('scdo-stratum')
-    if (p.name === 'rigel') return exe === norm(this.rigelPath()) || under(p.exe, this.o.dataRoot)
+    // A binary inside this profile's own data folder is ours. A binary in the shared app install can be another
+    // profile's (or the owner's live wallet's) miner, so it only counts when this profile recorded that pid.
+    if (p.name === 'scdo-stratum') return exe === binFile('scdo-stratum') && this.spawnedByThisProfile(p)
+    if (p.name === 'rigel') {
+      if (under(p.exe, this.o.dataRoot)) return true
+      return exe === norm(this.rigelPath()) && this.spawnedByThisProfile(p)
+    }
     return false
   }
 

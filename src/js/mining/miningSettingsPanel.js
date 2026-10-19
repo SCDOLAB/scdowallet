@@ -25,7 +25,7 @@
       } })
     return h('div', { class: 'card m1-card', id: 'miningSettings' },
       h('div', { class: 'm1-h', text: M.L('Bookkeeping mode') }),
-      h('div', { class: 'm1-row', style: 'gap:28px' }, radio('solo', M.L('Solo (built-in SCDO node)')), radio('pool', M.L('Pool (enter a pool address)'))),
+      h('div', { class: 'm1-row', style: 'gap:28px' }, radio('solo', M.L('Solo (built-in ledger node)')), radio('pool', M.L('Pool (enter a pool address)'))),
       h('div', { class: 'lbl', text: mode === 'solo' ? M.L('Solo: you only see a result when this PC finds a whole block. With one graphics card that can take a very long time, or not happen at all.') : M.L('Pool: the graphics-card bookkeeping node connects directly to the pool address below.') }),
       poolRow, err,
       h('div', { class: 'm1-row', style: 'margin-top:10px' }, apply, running ? h('span', { class: 'lbl', text: M.L('Stop bookkeeping to change the mode.') }) : null),

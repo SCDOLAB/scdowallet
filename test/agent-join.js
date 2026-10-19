@@ -12,9 +12,9 @@ const { messageOf } = require('../src/agent/envelope')
 const { createStore } = require('../src/main/agentJoin')
 
 const root = path.join(__dirname, '..')
-const ADDR = '0x' + 'ab'.repeat(20)
-const OTHER = '0x' + '11'.repeat(20)
-const THIRD = '0x' + '22'.repeat(20)
+const ADDR = '0x2d6f6ebc9686d0316e1f24f8588585c1f22fc956' // 3.1.11: real-looking fixtures (placeholders are refused as ledger payouts)
+const OTHER = '0x52908400098527886e0f7030069857d2e4169ee7'
+const THIRD = '0xe750146dffc722f231583de628696f05d694f5ed'
 
 function tmp () { return fs.mkdtempSync(path.join(os.tmpdir(), 'scdo-join-')) }
 
@@ -74,9 +74,11 @@ assert.ok(/(?=.*[0-9])(?=.*[A-Z])(?=.*[a-z])(?=.*[^a-zA-Z0-9]).{8,15}/.test(pw))
 
 assert.strictEqual(Join.x402Reserve({ services: [{ endpoint: 'eip155:8453:' + ADDR }] }), ADDR)
 assert.strictEqual(Join.x402Reserve({}), '')
-assert.strictEqual(Join.cardStatus({ registered: true, online: true }), 'registered')
+// 3.1.12: one online state drives the card.
+assert.strictEqual(Join.cardStatus({ registered: true, online: true }), 'online')
 assert.strictEqual(Join.cardStatus({ registered: true, online: false }), 'offline')
-assert.strictEqual(Join.cardStatus({ registered: false, reachable: false }), 'offline')
+assert.strictEqual(Join.cardStatus({ started: true, online: false, settled: false }), 'starting')
+assert.strictEqual(Join.cardStatus({ started: true, online: false, settled: true }), 'offline')
 assert.strictEqual(Join.cardStatus({ registered: false }), 'pending')
 assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: false, entries: [] }), false)
 assert.strictEqual(Join.showBackupCard({ phrasePending: 1, registered: true, dismissed: false }), true)
@@ -93,8 +95,13 @@ assert.ok(!fs.readFileSync(path.join(root, 'src/js/agentJoin.js'), 'utf8').inclu
 const labels = {
   startAgent: 'Start my agent', importShort: 'Import', inviteCodeAsk: 'Have an invite code?',
   agentRewards: 'Rewards unlock after your agent has been active',
+  agentStayOpen: 'Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.',
+  agentOnlineLine: 'Online · keep app running',
+  agentOfflineLine: 'Offline · goes online when the wallet is open',
   agentNoReward: 'Your agent has no reward address - tap to use this wallet',
-  agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Pending', agentOffline: 'Offline',
+  agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Waiting', agentOffline: 'Offline', agentOnline: 'Online', agentNotStarted: 'Not started',
+  agentStarting: 'Starting…', agentX402Pending: 'Not yet assigned (assigned when the agent goes online)',
+  agentAct_report: 'Reported', agentAct_task_join: 'Joined', agentOutcome_done: 'done', agentReason_payout_balance_stale: 'payout balance not updated for a long time',
   agentScdoAddr: 'SCDO address', agentX402: 'x402 Base USDC reserve address', agentBook: 'Bookkeeping',
   agentStartBook: 'Start bookkeeping', agentEntries: 'Latest ledger entries', agentEntriesEmpty: 'No ledger entries yet',
   dismiss: 'Dismiss', homeLineIdle: 'Bookkeeping has not started'
@@ -104,21 +111,91 @@ const first = Join.firstRunHtml(t, (s) => s, {})
 assert.ok(first.includes('Start my agent'))
 assert.ok(first.includes('Have an invite code?'))
 assert.ok(first.includes('Rewards unlock after your agent has been active'))
+assert.ok(first.includes('Your agent is online only while SCDO Wallet is running. Keep it open or in the tray.'))
+assert.ok(first.includes('id="agentStayOpen"'))
+assert.ok(first.includes('Offline · goes online when the wallet is open'))
 assert.ok(first.includes('Your agent has no reward address - tap to use this wallet'))
 assert.ok(first.includes('id="startAgentBtn"'))
 assert.ok(first.includes('data-act="import"'))
 assert.ok(first.includes('data-act="agentRewardDismiss"'))
 assert.ok(!/\$\d|\d+\s*SCDO/.test(first))
+assert.ok(first.includes('data-act="pasteJoinRef"'))
+assert.ok(first.includes('id="joinRefPaste"'))
+assert.ok(!first.includes('readonly'))
+assert.ok(!first.includes('data-act="copy"'))
+assert.strictEqual(Join.refFromPaste('  good_code  '), 'good_code')
+assert.strictEqual(Join.refFromPaste('https://scdo.com.au/join?ref=abc_1&src=wallet'), 'abc_1')
+assert.strictEqual(Join.refFromPaste('https://apeccapital.org/join?ref=ok.2'), 'ok.2')
+assert.strictEqual(Join.refFromPaste('scdowallet://join?ref=deep-3&src=x'), 'deep-3')
+assert.strictEqual(Join.refFromPaste('scdo.com.au/join?ref=abc_1'), 'abc_1')
+assert.strictEqual(Join.refFromPaste('https://SCDO.com.au/join?ref=Ab_1'), 'Ab_1')
+assert.strictEqual(Join.refFromPaste('http://scdo.com.au/join?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('https://evil.example/join?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('https://scdo.com.au.evil.com/join?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('https://user:pass@scdo.com.au/join?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('https://scdo.com.au:8443/join?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('https://scdo.com.au/join?ref=bad ref'), '')
+assert.strictEqual(Join.refFromPaste('scdowallet://pay?ref=abc'), '')
+assert.strictEqual(Join.refFromPaste('has space'), '')
+const locked = Join.firstRunHtml(t, (s) => s, { pendingRef: 'deep-3' })
+assert.ok(locked.includes('readonly'))
+assert.ok(!locked.includes('disabled'))
+assert.ok(locked.includes('data-act="copy"'))
+assert.ok(locked.includes('data-v="deep-3"'))
+assert.ok(locked.includes('id="joinRefCopy"'))
+assert.ok(!locked.includes('pasteJoinRef'))
+assert.ok(!locked.includes('id="joinRefPaste"'))
+const appSrc = fs.readFileSync(path.join(root, 'src/js/app112.js'), 'utf8')
+const pasteAt = appSrc.indexOf("t.id !== 'joinRef'")
+assert.ok(pasteAt > 0)
+const pasteSlice = appSrc.slice(pasteAt, pasteAt + 280)
+assert.ok(pasteSlice.includes('preventDefault()'))
+assert.ok(pasteSlice.includes('applyJoinPaste'))
+const applyAt = appSrc.indexOf('function applyJoinPaste')
+assert.ok(applyAt > 0)
+assert.ok(appSrc.slice(applyAt, applyAt + 220).includes('refFromPaste'))
+assert.ok(appSrc.includes("case 'pasteJoinRef'"))
+const mainSrc = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
+assert.ok(mainSrc.includes("perm === 'clipboard-read'"))
+const css = fs.readFileSync(path.join(root, 'src/css/shell310.css'), 'utf8')
+assert.ok(css.includes('#joinRef { -webkit-user-select: text; user-select: text; }'))
 const card = Join.agentCardHtml(t, (s) => s, {
-  status: 'registered', scdoAddress: '1S01abc', x402Reserve: '', bookkeeping: 'Bookkeeping has not started',
-  entries: [{ text: 'task:join · done' }]
+  status: 'online', scdoAddress: '1S01abc', x402Reserve: '', bookkeeping: 'Bookkeeping has not started',
+  entries: [{ text: 'task:join · done', action: 'task:join', outcome: 'done' }, { text: 'report · reported', action: 'report', outcome: 'reported', reason: 'payout balance stale' }]
 })
-assert.ok(card.includes('Registered'))
+assert.ok(card.includes('<b id="agentStatus">Online</b>'))
+assert.ok(card.includes('Online · keep app running'))
+assert.ok(card.includes('agent-presence online'))
 assert.ok(card.includes('1S01abc'))
-assert.ok(card.includes('>pending<'))
+assert.ok(!card.includes('pending'))
+assert.ok(card.includes('Not yet assigned (assigned when the agent goes online)'))
 assert.ok(card.includes('Start bookkeeping'))
 assert.ok(card.includes('data-act="isleStart"'))
-assert.ok(card.includes('task:join · done'))
+assert.ok(card.includes('Joined · done'))
+assert.ok(card.includes('Reported · payout balance not updated for a long time'))
+assert.ok(!card.includes('task:join'))
+const withReserve = Join.agentCardHtml(t, (s) => s, { status: 'online', x402Reserve: ADDR })
+assert.ok(withReserve.includes('class="mono" id="agentX402">' + ADDR + '<'))
+assert.strictEqual(Join.agentPresence({ status: 'online' }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'registered' }), 'online')
+assert.strictEqual(Join.agentPresence({ status: 'starting' }), 'starting')
+assert.strictEqual(Join.agentPresence({ status: 'offline', started: true }), 'offline')
+assert.strictEqual(Join.agentPresence({ status: 'offline' }), 'offline')
+assert.strictEqual(Join.agentPresence({ status: 'pending' }), 'offline')
+assert.strictEqual(Join.agentPresence({ noWallet: true, status: 'online', started: true }), 'offline')
+// presence and Status never disagree
+for (const status of ['online', 'offline', 'starting', 'pending']) {
+  const html = Join.agentCardHtml(t, (s) => s, { status })
+  const green = html.includes('agent-presence online')
+  const statusOnline = html.includes('<b id="agentStatus">Online</b>')
+  assert.strictEqual(green, statusOnline, status)
+}
+const off = Join.agentCardHtml(t, (s) => s, { status: 'offline' })
+assert.ok(off.includes('agent-presence offline') && off.includes('<b id="agentStatus">Offline</b>') && off.includes('Offline · goes online when the wallet is open'))
+const idle = Join.agentCardHtml(t, (s) => s, { status: 'pending' })
+assert.ok(idle.includes('agent-presence offline'))
+assert.ok(idle.includes('Offline · goes online when the wallet is open'))
+assert.ok(idle.includes('<b id="agentStatus">Not started</b>'))
 
 ;(async () => {
   const ran = await Join.runStart({

@@ -70,7 +70,8 @@
       const view = balanceView(sum, dec)
       text = view.short
       full = view.full
-    } else if (!entries.length) text = '0'
+    }
+    // No address on this chain is not a zero balance. A dash stays until a real read arrives.
     return {
       n: chain && chain.n,
       title: chainTitle(chain && chain.n),

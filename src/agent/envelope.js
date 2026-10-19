@@ -9,8 +9,6 @@ const VERSION = 1
 const CHAIN_ID = 5680
 const PREFIX = 'SCDO Agent Ledger v1\n'
 const TYPES = ['register', 'heartbeat', 'heal', 'report']
-// Reward destination (TEST): lend envelopes go to the agent-ledger /lend routes only (flag off in production).
-const REWARD_TYPES = ['lend_deposit', 'lend_withdraw']
 
 function canonical (v) {
   if (v === null || typeof v !== 'object') {
@@ -24,8 +22,8 @@ function canonical (v) {
 function messageOf (payload) { return PREFIX + canonical(payload) }
 
 // signer: ethers Wallet (or anything with address + signMessageSync)
-function signEnvelope (signer, type, seq, body, ts, allowed) {
-  if ((allowed || TYPES).indexOf(type) < 0) throw new Error('bad type')
+function signEnvelope (signer, type, seq, body, ts) {
+  if (TYPES.indexOf(type) < 0) throw new Error('bad type')
   const payload = { v: VERSION, chainId: CHAIN_ID, type, agent: getAddress(signer.address), seq: Number(seq), ts: Number(ts || Date.now()), body: body || {} }
   return { payload, sig: signer.signMessageSync(messageOf(payload)) }
 }
@@ -51,4 +49,4 @@ function verifyEnvelope (env) {
 
 function newSigner () { return Wallet.createRandom() }
 
-module.exports = { VERSION, CHAIN_ID, PREFIX, TYPES, REWARD_TYPES, canonical, messageOf, signEnvelope, verifyEnvelope, newSigner }
+module.exports = { VERSION, CHAIN_ID, PREFIX, TYPES, canonical, messageOf, signEnvelope, verifyEnvelope, newSigner }

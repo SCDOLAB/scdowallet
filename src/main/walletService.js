@@ -14,7 +14,7 @@ const { Shard0 } = require('../api/evm')
 const mnemonic = require('../api/mnemonic')
 const { normalizeHalfWidth } = require('../js/halfWidth')
 const { guardAmount, toUnits } = require('../js/amount')
-const { normLang } = require('../js/uiLang')
+const { normLang, resolveLang, langFromLocale, osLocale } = require('../js/uiLang')
 const { rpcCandidates } = require('../config/endpoints')
 
 const S0_CHAIN_ID = 5680
@@ -555,11 +555,12 @@ function saveUi (ui) {
   return true
 }
 
-// 3.0.8: UI language. Only 'EN' and 'CN' (= 華語繁體 / Traditional Chinese) are stored.
-// 'CN' stays the stored value so older wallets that share viewconfig_1.1.json keep reading it.
-// An unset language is CN. A saved EN or CN is kept. The operating-system language is not used.
+// Only 'EN' and 'CN' (= 華語) are stored. A saved EN or CN is kept.
+// An unset language follows the operating-system locale (zh-* is 華語, otherwise English)
+// and is written back so the next launch remembers it.
 function setLang (v) {
   const l = normLang(v)
+  if (l !== 'EN' && l !== 'CN') return { ok: false, error: 'bad language' }
   const cl = c()
   let cfg = {}
   try { cfg = JSON.parse(fs.readFileSync(cl.configpath, 'utf8')) || {} } catch (e) { cfg = Object.assign({}, cl.config || {}) }
@@ -572,10 +573,10 @@ function setLang (v) {
 function boot () {
   const cl = c()
   const cfg = cl.config || {}
-  // 3.0.8: a saved EN or CN is kept. An unset language is 華語. The Chinese UI is
-  // Traditional Chinese only; an old saved "CN" (or any zh / TW value) maps to the Traditional strings.
+  const lang = resolveLang(cfg.lang, osLocale())
+  if (cfg.lang !== lang) { try { setLang(lang) } catch (e) {} }
   return {
-    config: { lang: normLang(cfg.lang), connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
+    config: { lang: lang, connect: (cfg.connect || []).slice(0, 5), allowCrossShard: !!cfg.allowCrossShard },
     shard0: { chainId: shard0().cfg.chainId, explorer: shard0().cfg.explorer, tokens: shard0().cfg.tokens.map(t => ({ symbol: t.symbol, name: t.name || '', address: t.address, decimals: t.decimals, logo: t.logo || '' })) },
     ui: readJson(UI_PATH, {}),
     accounts: accounts(),
@@ -621,5 +622,37 @@ function register (ipcMain, getWin) {
 }
 
 // 2.0.6: language for main-process dialogs / tray / window titles
-function currentLang () { try { return normLang((c().config || {}).lang) } catch (e) { return 'CN' } }
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, s0activityPublic: s0activity, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+function currentLang () { try { return resolveLang((c().config || {}).lang, osLocale()) } catch (e) { return langFromLocale(osLocale()) } }
+// InviteRegistry and other allow-listed contract calls. The caller picks the calldata.
+// Private keys stay in this process for the one signature.
+async function sendContract (p) {
+  p = p || {}
+  let file
+  try { file = safeName(p.file) } catch (e) { return { ok: false, error: 'NO_ACCOUNT' } }
+  const a = accByFile(file)
+  if (!a || !a.evm) return { ok: false, error: 'NO_ACCOUNT' }
+  if (typeof p.password !== 'string' || !p.password) return { ok: false, error: 'NO_PASSWORD' }
+  if (!ADDR_RE.test(String(p.to || ''))) return { ok: false, error: 'BAD_TO' }
+  const data = String(p.data || '')
+  if (!/^0x[0-9a-fA-F]+$/.test(data) || (data.length - 2) % 2 !== 0) return { ok: false, error: 'BAD_DATA' }
+  let value
+  try { value = BigInt(String(p.valueWei == null ? '0' : p.valueWei)) } catch (e) { return { ok: false, error: 'BAD_VALUE' } }
+  if (value < 0n) return { ok: false, error: 'BAD_VALUE' }
+  let priv
+  try { priv = await c().decKeyFile(a.filename, p.password) } catch (e) { return { ok: false, error: 'WRONG_PASSWORD' } }
+  try {
+    if (Shard0.addressFromPrivateKey(priv).toLowerCase() !== a.evm.toLowerCase()) return { ok: false, error: 'KEY_MISMATCH' }
+    const wallet = new ethers.Wallet(priv, shard0().provider)
+    const tx = await shard0().prepare(wallet, { to: p.to, data: data, value: value })
+    if (Number(tx.chainId) !== S0_CHAIN_ID) return { ok: false, error: 'WRONG_CHAIN' }
+    const raw = await wallet.signTransaction(tx)
+    const hash = ethers.keccak256(raw)
+    s0txUpsert(hash, { t: Date.now(), from: a.evm, to: p.to, amount: value.toString(), asset: 'SCDO', status: 'pending', nonce: tx.nonce, raw: raw, lastBcast: Date.now() })
+    await shard0().broadcastRaw(raw, BCAST_TIMEOUT_MS)
+    return { ok: true, hash: hash }
+  } catch (e) {
+    return { ok: false, error: plainErr(e).split(' (')[0].slice(0, 200) }
+  } finally { priv = null }
+}
+
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, s0activityPublic: s0activity, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
