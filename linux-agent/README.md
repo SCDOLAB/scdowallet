@@ -50,7 +50,7 @@ scdo-agent status --name rack-a
 scdo-agent logs --name rack-a
 ```
 
-`init` is required because `--payout` has no default. The key is written to `/var/lib/scdo-agent/rack-a/keys/ledger.key` with mode `0600`. It is never printed and never sent. A second `init` for the same name refuses to replace that key.
+`init` is required before the first run. Since 0.5.7 `--payout` is optional: without it the agent uses its own ledger address as payout. The SCDO Agent Ledger lists only agents with a real payout address, so zero, placeholder (0x1111…1111, repeated digits), burn (0x…dEaD) and public test addresses are refused, and a mixed-case address must have a valid EIP-55 checksum. The agent sends its payout on every register and heartbeat; a 0.5.6 meta.json with a placeholder payout is repaired to the agent's own address. The key is written to `/var/lib/scdo-agent/rack-a/keys/ledger.key` with mode `0600`. It is never printed and never sent. A second `init` for the same name refuses to replace that key.
 
 `status` prints the agent address and `Online: true` or `Online: false` from `GET https://scdo.com.au/agent-ledger/api/agents/<0x>`. If that host does not answer, the client tries `https://apeccapital.org`.
 

@@ -52,7 +52,7 @@ func (p probe) Run(name string, args ...string) ([]byte, error) {
 func TestBindingsAreIdempotent(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if _, err := agent.Create(root, "alice", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "alice", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
@@ -94,7 +94,7 @@ func TestBindingsAreIdempotent(t *testing.T) {
 func TestUpgradeDoesNotCreateAgents(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0x52908400098527886e0f7030069857d2e4169ee7\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
@@ -129,7 +129,7 @@ func TestUpgradeDoesNotCreateAgents(t *testing.T) {
 func TestGPUGoneKeepsDirectory(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0x52908400098527886e0f7030069857d2e4169ee7\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var reported int
@@ -143,7 +143,7 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
-	if _, err := agent.Create(root, "gpu0", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "old", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "gpu0", "0x52908400098527886e0f7030069857d2e4169ee7", "old", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	withCard := probe{
@@ -192,7 +192,7 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 func TestIntelDoesNotCreateOrRewriteGPU(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if _, err := agent.Create(root, "gpu0", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "old", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "gpu0", "0x52908400098527886e0f7030069857d2e4169ee7", "old", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	before := readFile(t, filepath.Join(root, "gpu0", "meta.json"))

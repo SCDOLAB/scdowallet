@@ -135,9 +135,13 @@ func Create(root, name, payout, label, role, ref, src string, passphrase []byte)
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
-	sum, err := ledger.ChecksumAddress(payout)
-	if err != nil {
-		return nil, err
+	// Empty payout: auto-fill with the agent's own ledger address after the key is created.
+	sum := ""
+	if strings.TrimSpace(payout) != "" {
+		var err error
+		if sum, err = ledger.ValidPayout(payout); err != nil {
+			return nil, err
+		}
 	}
 	role, code, err := NormalizeRole(role)
 	if err != nil {
@@ -181,7 +185,7 @@ func Create(root, name, payout, label, role, ref, src string, passphrase []byte)
 		V:          1,
 		Name:       name,
 		Address:    k.Address(),
-		Payout:     sum,
+		Payout:     firstNonEmpty(sum, k.Address()),
 		Label:      CutLabel(name, label),
 		Role:       role,
 		Code:       code,
@@ -378,4 +382,21 @@ func readJSON(path string, dest any) error {
 		return err
 	}
 	return json.Unmarshal(b, dest)
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// EffectivePayout is the payout the agent sends on register and heartbeat. A missing or
+// placeholder payout (0x0000..., 0x1111...1111, burn/test address) falls back to the agent's
+// own ledger address, so the SCDO Agent Ledger always lists it with a real payout.
+func (m Meta) EffectivePayout() (string, bool) {
+	if sum, err := ledger.ValidPayout(m.Payout); err == nil {
+		return sum, false
+	}
+	return m.Address, true
 }

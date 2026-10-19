@@ -90,19 +90,24 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 			Timeout: SettleTimeout,
 		})
 	}
+	paid := x402http.RouteConfig{
+		Accepts: x402http.PaymentOptions{{
+			Scheme:            "exact",
+			PayTo:             payTo,
+			Price:             price,
+			Network:           network,
+			MaxTimeoutSeconds: 120,
+			Extra:             extra,
+		}},
+		Description: "SCDO bot answer",
+		MimeType:    "application/json",
+	}
+	// HEAD must carry the same payment requirement as GET. x402 Go <= v2.28.0 matches routes
+	// by exact method, so a GET-only route let an unpaid HEAD reach the protected handler
+	// (fixed upstream in x402-foundation/x402 e95b0666, go/http/server.go).
 	routes := x402http.RoutesConfig{
-		"GET " + path: {
-			Accepts: x402http.PaymentOptions{{
-				Scheme:            "exact",
-				PayTo:             payTo,
-				Price:             price,
-				Network:           network,
-				MaxTimeoutSeconds: 120,
-				Extra:             extra,
-			}},
-			Description: "SCDO bot answer",
-			MimeType:    "application/json",
-		},
+		"GET " + path:  paid,
+		"HEAD " + path: paid,
 	}
 	dir := lay.Dir
 	now := opt.Now
@@ -157,7 +162,25 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	return mw(next), nil
+	return guardPaidRoute(path, mw(next)), nil
+}
+
+// guardPaidRoute is defence in depth for the paywall: only GET and HEAD on the paid path ever
+// reach the x402 middleware (both registered as paid routes). Any other method gets 405 and
+// any other path 404, so nothing unmatched by the middleware can fall through to the handler.
+func guardPaidRoute(path string, paid http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		paid.ServeHTTP(w, r)
+	})
 }
 
 // ServePaywall listens until ctx is cancelled. USDC uses FacilitatorURL.

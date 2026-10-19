@@ -31,10 +31,10 @@ func TestOperatorBatchSendsBindHashes(t *testing.T) {
 	defer srv.Close()
 
 	root := t.TempDir()
-	if _, err := agent.Create(root, "op", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "op", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	op, err := agent.Open(root, "op")
