@@ -373,7 +373,23 @@ class Updater {
     const pending = { version: manifest.version, wasMining, mode: wasMining && miner.state && miner.state.mode === 'node' ? 'node' : 'mine', ts: new Date().toISOString() }
     try { fs.writeFileSync(this.pendingPath(), JSON.stringify(pending, null, 2)) } catch (e) { this.log('install: cannot write pending marker ' + e.message) }
     if (process.platform === 'darwin') {
-      // 3.1.5 Mac: open the verified, notarized dmg so the user drags SCDO Wallet into Applications, then quit.
+      // 3.1.14: the 3.1.5 flow opened the dmg for drag-to-Applications and quit at once. On an unattended Mac nobody
+      // drags, so the wallet (and bookkeeping) stayed off. Now a detached helper waits for the quit, mounts the
+      // verified dmg silently, checks the Developer ID team, swaps the bundle and relaunches. Any failure relaunches
+      // the old app (bookkeeping resumes from the intent) and opens the dmg; drag-only when the bundle is not writable.
+      const plan = macInstallPlan(process.execPath, file, (p) => { try { fs.accessSync(p, fs.constants.W_OK); return true } catch (e) { return false } })
+      if (plan.mode === 'replace') {
+        const script = path.join(this.updatesDir(), 'replace-mac-app.sh')
+        fs.writeFileSync(script, macReplaceScript(plan, process.pid, path.join(this.updatesDir(), 'replace-mac-app.log')), { mode: 0o700 })
+        const child = require('child_process').spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' })
+        child.on('error', e => this.log('install: mac replace helper failed to start: ' + e.message))
+        child.unref()
+        this.log('install: replacing ' + plan.target + ' from ' + path.basename(file) + ' after quit, then relaunching')
+        this.send('update:installing', pending)
+        setTimeout(() => this.quit(), 1500)
+        return { ok: true }
+      }
+      this.log('install: ' + plan.reason + ' - falling back to drag-to-Applications')
       try { await electron.shell.openPath(file) } catch (e) { this.log('install: cannot open dmg ' + e.message); return { ok: false, error: e.message } }
       this.log('install: opened ' + path.basename(file) + ' for drag-to-Applications, quitting wallet')
       this.send('update:installing', pending)
@@ -460,6 +476,40 @@ function linuxInstallPlan (env, verifiedFile) {
   return { mode: 'replace', file: verifiedFile, target: raw }
 }
 
+// 3.1.14 Mac: replace the running .app in place when its folder is writable and it is not translocated / on a dmg.
+const MAC_TEAM_ID = 'G33UDF2DLC'
+function macInstallPlan (execPath, dmg, writable) {
+  const m = /^(\/.+?\.app)\/Contents\/MacOS\/[^/]+$/.exec(String(execPath || ''))
+  if (!m) return { mode: 'drag', reason: 'not running from an .app bundle' }
+  const target = m[1]
+  if (/[\0\r\n']/.test(target) || /[\0\r\n']/.test(String(dmg))) return { mode: 'drag', reason: 'unsafe path' }
+  if (/^\/Volumes\//.test(target) || /\/AppTranslocation\//.test(target)) return { mode: 'drag', reason: 'app runs from a disk image or is translocated' }
+  if (!writable(path.dirname(target)) || !writable(target)) return { mode: 'drag', reason: 'app folder is not writable' }
+  return { mode: 'replace', target, dmg, appName: path.basename(target) }
+}
+function macReplaceScript (plan, pid, logFile) {
+  const q = quoteSh
+  return [
+    '#!/bin/sh',
+    'LOG=' + q(logFile) + '; T=' + q(plan.target) + '; DMG=' + q(plan.dmg) + '; NAME=' + q(plan.appName),
+    'exec >>"$LOG" 2>&1; echo "$(date -u) start"',
+    'i=0; while kill -0 ' + Number(pid) + ' 2>/dev/null && [ $i -lt 120 ]; do sleep 1; i=$((i+1)); done',
+    'MNT=$(mktemp -d /tmp/scdo-upd.XXXXXX)',
+    'fail () { echo "FAIL: $1"; hdiutil detach "$MNT" -quiet 2>/dev/null; [ -d "$T.old-upd" ] && [ ! -d "$T" ] && mv "$T.old-upd" "$T"; open "$T"; open "$DMG"; exit 1; }',
+    'hdiutil attach -nobrowse -noautoopen -readonly -mountpoint "$MNT" "$DMG" || fail attach',
+    'SRC="$MNT/$NAME"; [ -d "$SRC" ] || fail "no app in dmg"',
+    'codesign --verify --deep --strict "$SRC" || fail codesign',
+    'codesign -dv "$SRC" 2>&1 | grep -q "^TeamIdentifier=' + MAC_TEAM_ID + '$" || fail team',
+    'spctl -a -t exec "$SRC" || fail spctl',
+    'rm -rf "$T.new-upd"; ditto "$SRC" "$T.new-upd" || fail copy',
+    'rm -rf "$T.old-upd"; mv "$T" "$T.old-upd" || fail "move old"',
+    'mv "$T.new-upd" "$T" || fail "move new"',
+    'rm -rf "$T.old-upd"; hdiutil detach "$MNT" -quiet; rmdir "$MNT" 2>/dev/null',
+    'echo "$(date -u) replaced, relaunching"; open "$T"',
+    ''
+  ].join('\n')
+}
+
 function minerActive (miner) {
   if (!miner) return false
   return !!(miner.wantRunning || miner.stopping || miner.cleaning || Object.values(miner.procs || {}).some(Boolean))
@@ -467,4 +517,4 @@ function minerActive (miner) {
 
 // 2.0.6: classify a download/install error for the user ('network' vs 'verify')
 function errorKind (msg) { return /timeout|HTTP \d|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|socket|aborted|network/i.test(String(msg || '')) ? 'network' : 'verify' }
-module.exports = { Updater, errorKind, verifyManifest, checkManifest, validateManifest, urlAllowed, compareVersions, canonicalManifest, linuxInstallPlan, UPDATER_URL, ALLOWED_ORIGINS, PUBKEY_B64, CHECK_DELAY_MS, CHECK_INTERVAL_MS }
+module.exports = { Updater, errorKind, verifyManifest, checkManifest, validateManifest, urlAllowed, compareVersions, canonicalManifest, linuxInstallPlan, macInstallPlan, macReplaceScript, UPDATER_URL, ALLOWED_ORIGINS, PUBKEY_B64, CHECK_DELAY_MS, CHECK_INTERVAL_MS }
