@@ -655,4 +655,4 @@ async function sendContract (p) {
   } finally { priv = null }
 }
 
-module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }
+module.exports = { register, checkAddress, parseAmount, currentLang, normalizeHalfWidth, decryptForRemit, listAccounts: accounts, createAccount: create, sendContract, s0activityPublic: s0activity, _test: { reviews, indexerRow, rawUnits, ADDR_TXS } }

@@ -107,7 +107,8 @@ eq(I.CN.help_title, '說明與聯絡')
 
 // ---- 6. wording stays ----
 const cnText = JSON.stringify(I.CN)
-assert.ok(!/賬/.test(cnText), 'no 賬')
+// 3.1.13: the one exception is the owner-specified incoming notification wording 「到賬 +X SCDO」.
+assert.ok(!/賬/.test(cnText.replace(/到賬/g, '')), 'no 賬 (except 到賬)')
 assert.ok(cnText.includes('今天賺了') && cnText.includes('一共賺了'))
 assert.ok(cnText.includes('轉帳') && cnText.includes('帳戶'))
 

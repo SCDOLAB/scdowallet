@@ -245,6 +245,62 @@ ipcMain.handle('about:buildHash', async () => {
   } catch (err) { return { version: VERSION, sha256: null, source: null, error: err.message } }
 })
 const { MiningNotifier } = require('./src/main/miningNotifier')
+const { IncomingNotifier } = require('./src/main/incomingNotifier')
+let incomingNotifier = null
+function playCoinSound () {
+  const wav = path.join(ASSETS, 'sounds', 'coin.wav')
+  try {
+    if (!fs.existsSync(wav)) return
+    if (process.platform === 'darwin') {
+      require('child_process').execFile('afplay', [wav], { stdio: 'ignore' })
+    } else if (process.platform === 'win32') {
+      // Headless: System.Media.SoundPlayer (no GUI popup)
+      const ps = "Add-Type -AssemblyName presentationCore; $p = New-Object System.Media.SoundPlayer '" + wav.replace(/'/g, "''") + "'; $p.PlaySync()"
+      require('child_process').execFile('powershell.exe', ['-NoProfile', '-Command', ps], { stdio: 'ignore', windowsHide: true })
+    } else {
+      require('child_process').execFile('aplay', ['-q', wav], { stdio: 'ignore' }, () => {})
+    }
+  } catch (e) {}
+}
+function getIncomingNotifier () {
+  if (incomingNotifier) return incomingNotifier
+  incomingNotifier = new IncomingNotifier({
+    store: settingsStore,
+    stateFile: path.join(app.getPath('userData'), 'incoming-seen.json'),
+    lang: () => uiLang(),
+    listAccounts: () => { try { return walletService.listAccounts() } catch (e) { return [] } },
+    activity: (addr) => walletService.s0activityPublic ? walletService.s0activityPublic(addr) : Promise.resolve([]),
+    notify: (n) => {
+      try { getMiner().log('wallet', 'incoming: ' + n.source + ' +' + n.amount) } catch (e) {}
+      if (!Notification.isSupported()) return
+      const x = new Notification({ title: n.title, body: n.body, icon: path.join(ASSETS, 'icon-256.png'), silent: true })
+      liveNotes.add(x)
+      x.on('click', () => {
+        if (n.url) openExternalSafe(n.url)
+        else if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus() }
+        try { incomingNotifier && incomingNotifier.clearBadge() } catch (e) {}
+      })
+      x.on('close', () => liveNotes.delete(x))
+      setTimeout(() => liveNotes.delete(x), 10 * 60 * 1000)
+      x.show()
+      // Coin animation on the open window (balance tick)
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('incoming:scdo', { amount: n.amount, source: n.source, hash: (n.url || '').split('/').pop() })
+      } catch (e) {}
+    },
+    playSound: playCoinSound,
+    setBadge: (count) => {
+      try {
+        if (process.platform === 'darwin' && app.dock) app.dock.setBadge(count > 0 ? String(count) : '')
+        if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
+          // Small overlay count via tray balloon is enough; taskbar overlay stays mining-coloured.
+          if (count > 0 && tray && tray.balloon) tray.balloon('SCDO Wallet', (uiLang() === 'EN' ? 'New SCDO received' : '收到新的 SCDO') + ' (' + count + ')')
+        }
+      } catch (e) {}
+    }
+  })
+  return incomingNotifier
+}
 let notifier = null
 const liveNotes = new Set() // keep shown notifications referenced until closed (click handler)
 function getNotifier () {
@@ -266,8 +322,11 @@ function getNotifier () {
   }
   return notifier
 }
-ipcMain.handle('notify:get', () => ({ config: getNotifier().config(), labels: getNotifier().labels() }))
+ipcMain.handle('notify:get', () => ({ config: getNotifier().config(), labels: getNotifier().labels(), incoming: getIncomingNotifier().config(), incomingLabels: getIncomingNotifier().labels() }))
 ipcMain.handle('notify:set', (e, type, on) => getNotifier().setToggle(String(type), !!on))
+ipcMain.handle('incoming:get', () => ({ config: getIncomingNotifier().config(), labels: getIncomingNotifier().labels() }))
+ipcMain.handle('incoming:set', (e, patch) => getIncomingNotifier().set(patch && typeof patch === 'object' ? patch : {}))
+ipcMain.handle('incoming:clearBadge', () => { getIncomingNotifier().clearBadge(); return { ok: true } })
 ipcMain.handle('pool:account', (e, addr) => miningService.poolAccount(addr))
 // payout notifications: while pool-mining on the official SCDO pool, read the pool account every 2 minutes
 const lastPayoutTx = {}
@@ -1135,6 +1194,7 @@ if (!app.requestSingleInstanceLock()) {
     createMenu(mainWindow, uiLang())
     createTray()
     startOpsAgent()
+    try { getIncomingNotifier().start() } catch (e) { console.warn('incoming notifier', e && e.message) }
     try {
       const { refresh } = require('./src/config/remoteConfig')
       refresh({ cacheFile: path.join(app.getPath('userData'), 'remote-config.json') }).then(applyRemoteConfig).catch(e => console.warn('remote config', e && e.message))
@@ -1611,6 +1671,33 @@ function startOpsAgent () {
     watchAgentCard()
   } catch (e) { console.error('ops agent failed to start', e && e.message) }
 }
+// ---- Reward destination (記帳獎勵去向). 3.1.13: UI ships greyed "Coming soon"; no stub backend is wired.
+// Toggles unlock only when <agent ledger>/features reports the feature live AND the build has a production backend
+// (src/main/rewardDest.js CLIENT_READY, false in 3.1.13). Hidden in store builds.
+let rewardDest = null
+function getRewardDest () {
+  if (rewardDest) return rewardDest
+  const RD = require('./src/main/rewardDest')
+  rewardDest = RD.createController({
+    userData: app.getPath('userData'),
+    agent: () => opsAgent,
+    featuresUrl: () => {
+      const ledger = opsAgent && opsAgent.status ? opsAgent.status().ledger : ''
+      return ledger ? String(ledger).replace(/\/$/, '') + '/features' : ''
+    }
+  })
+  return rewardDest
+}
+ipcMain.handle('rewardDest:get', () => getRewardDest().get())
+ipcMain.handle('rewardDest:setLend', (e, on) => getRewardDest().setLend(on === true))
+ipcMain.handle('rewardDest:setWheel', (e, patch) => getRewardDest().setWheel(patch && typeof patch === 'object' ? patch : {}))
+ipcMain.handle('rewardDest:wheelStart', () => getRewardDest().wheelStart())
+ipcMain.handle('rewardDest:wheelStop', () => getRewardDest().wheelStop())
+ipcMain.handle('rewardDest:wheelStatus', () => getRewardDest().wheelStatus())
+ipcMain.handle('rewardDest:lendRate', () => getRewardDest().lendRate())
+ipcMain.handle('rewardDest:lendLedger', () => getRewardDest().lendLedger())
+ipcMain.handle('rewardDest:lendDeposit', (e, amount) => getRewardDest().lendDeposit(String(amount || '')))
+ipcMain.handle('rewardDest:lendWithdraw', (e, amount) => getRewardDest().lendWithdraw(String(amount || '')))
 ipcMain.handle('session:get', () => publicSession())
 ipcMain.handle('session:setLogin', (e, on) => setLoginLaunch(on === true))
 ipcMain.handle('session:setLight', (e, on) => setSessionLight(on === true))
@@ -1671,7 +1758,7 @@ ipcMain.handle('invite:confirm', () => claimReceiptReady().then(ok => ({ ok: !!o
 
 process.on('uncaughtException', err => reportProcessError('crash', err))
 process.on('unhandledRejection', err => reportProcessError('error', err))
-app.on('will-quit', () => { killMinerChildrenSync(); if (tray) tray.destroy() })
+app.on('will-quit', () => { try { if (rewardDest) rewardDest.stopAll() } catch (e) {} try { if (incomingNotifier) incomingNotifier.stop() } catch (e) {} killMinerChildrenSync(); if (tray) tray.destroy() })
 process.on('exit', () => killMinerChildrenSync())
 
 app.on('window-all-closed', function () {

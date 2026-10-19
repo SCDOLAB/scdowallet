@@ -111,6 +111,11 @@ function normalizeRemote (doc) {
   if (Number.isFinite(hours) && hours >= 1 && hours <= 24 * 14) out.noRewardHours = hours
   const stale = Number(doc.payoutStaleHours)
   if (Number.isFinite(stale) && stale >= 1 && stale <= 24 * 14) out.payoutStaleHours = stale
+  // Reward destination (TEST): server config for the lend endpoint (the rate itself is read from <url>/rate).
+  if (doc.rewardLend && typeof doc.rewardLend === 'object' && !Array.isArray(doc.rewardLend)) {
+    const u = sanitizeUrl(doc.rewardLend.url)
+    if (u) out.rewardLend = { url: u }
+  }
   return out
 }
 
