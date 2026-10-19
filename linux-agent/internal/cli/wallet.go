@@ -64,6 +64,7 @@ func cmdServePaywall(b i18n.Bundle, root string, args []string, stdout, stderr i
 	name := fs.String("name", "", "")
 	price := fs.String("price", "", "")
 	path := fs.String("path", "/answer", "")
+	network := fs.String("network", "", "")
 	port := fs.Int("port", 8410, "")
 	passFile := fs.String("passphrase-file", "", "")
 	ledgerURL := fs.String("ledger", "", "")
@@ -100,13 +101,24 @@ func cmdServePaywall(b i18n.Bundle, root string, args []string, stdout, stderr i
 	}
 	assetName := "USDC"
 	fac := wallet.FacilitatorURL
+	usdcNet := view.Doc.Network
+	if strings.TrimSpace(*network) != "" {
+		if usdcNet, err = wallet.ParseNetwork(*network); err != nil {
+			fmt.Fprintln(stderr, err.Error())
+			return 2
+		}
+	}
+	if usdcNet == wallet.NetworkBase {
+		assetName = "USDC (Base mainnet)"
+		fac = wallet.BaseFacilitatorURL
+	}
 	if view.Asset == wallet.AssetWSCDO {
 		assetName = "WSCDO"
 		fac = wallet.WSCDOFacilitatorURL
 	}
 	fmt.Fprintf(stdout, b.T("paywallReady")+"\n", dirName, *price, assetName, *path, *port, fac)
 	err = wallet.ServePaywall(ctx, wallet.PaywallOptions{
-		Root: root, Name: dirName, Price: *price, Path: *path,
+		Root: root, Name: dirName, Price: *price, Path: *path, Network: *network,
 		Addr: fmt.Sprintf(":%d", *port), Passphrase: pass, LedgerURLs: urls, Log: stdout,
 	})
 	if err != nil {
@@ -123,6 +135,7 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 	bot := fs.String("bot", "", "")
 	email := fs.String("email", "", "")
 	asset := fs.String("asset", "usdc", "")
+	network := fs.String("network", "base-sepolia", "")
 	max := fs.String("max", "", "")
 	daily := fs.String("daily", "", "")
 	payee := fs.String("payee", "", "")
@@ -150,6 +163,11 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
+	net, err := wallet.ParseNetwork(*network)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 2
+	}
 	var payees []string
 	if strings.TrimSpace(*payee) != "" {
 		payees = []string{strings.TrimSpace(*payee)}
@@ -157,7 +175,7 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	created, err := wallet.Create(ctx, wallet.CreateOptions{
-		Root: root, Name: dirName, BotID: botID, Email: *email, Asset: *asset, MaxAtomic: *max, Daily: *daily,
+		Root: root, Name: dirName, BotID: botID, Email: *email, Asset: *asset, Network: net, MaxAtomic: *max, Daily: *daily,
 		Payees: payees, Platform: *platform, Operator: *operator,
 		Passphrase: pass, LedgerURLs: urls,
 	})
@@ -167,7 +185,7 @@ func walletCreate(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 	}
 	fmt.Fprintf(stdout, b.T("walletReady")+"\n", created.Wallet, created.BotID)
 	fmt.Fprintf(stdout, b.T("address")+"\n", created.Agent)
-	fmt.Fprintf(stdout, b.T("walletNetwork")+"\n", created.Network)
+	fmt.Fprintf(stdout, b.T("walletNetwork")+"\n", created.Network+" ("+wallet.NetworkLabel(created.Network)+")")
 	if created.EmailCommit != "" {
 		fmt.Fprintf(stdout, b.T("walletEmail")+"\n", created.EmailCommit)
 	}
@@ -276,11 +294,12 @@ func walletPay(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 	name := fs.String("name", "", "")
 	bot := fs.String("bot", "", "")
 	max := fs.String("max", "", "")
+	network := fs.String("network", "", "")
 	dry := fs.Bool("dry-run", false, "")
 	ledgerURL := fs.String("ledger", "", "")
 	passFile := fs.String("passphrase-file", "", "")
 	if err := fs.Parse(hoistPositionals(args, map[string]bool{
-		"name": true, "bot": true, "max": true, "ledger": true, "passphrase-file": true,
+		"name": true, "bot": true, "max": true, "network": true, "ledger": true, "passphrase-file": true,
 	})); err != nil {
 		fmt.Fprintln(stderr, b.T("needBot"))
 		return 2
@@ -294,7 +313,7 @@ func walletPay(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 		fmt.Fprintln(stderr, b.T("needURL"))
 		return 2
 	}
-	return finishPay(b, root, dirName, fs.Arg(0), strings.TrimSpace(*max), *dry, *ledgerURL, *passFile, stdout, stderr, false)
+	return finishPay(b, root, dirName, fs.Arg(0), strings.TrimSpace(*max), *dry, *ledgerURL, *passFile, stdout, stderr, false, *network)
 }
 
 func walletRecord(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer) int {
@@ -313,10 +332,10 @@ func walletRecord(b i18n.Bundle, root string, args []string, stdout, stderr io.W
 		fmt.Fprintln(stderr, b.T("needBot"))
 		return 2
 	}
-	return finishPay(b, root, dirName, "", "", false, *ledgerURL, *passFile, stdout, stderr, true)
+	return finishPay(b, root, dirName, "", "", false, *ledgerURL, *passFile, stdout, stderr, true, "")
 }
 
-func finishPay(b i18n.Bundle, root, name, rawURL, maxAtomic string, dry bool, ledgerURL, passFile string, stdout, stderr io.Writer, recordOnly bool) int {
+func finishPay(b i18n.Bundle, root, name, rawURL, maxAtomic string, dry bool, ledgerURL, passFile string, stdout, stderr io.Writer, recordOnly bool, network string) int {
 	pass, err := passphrase(passFile)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -331,7 +350,7 @@ func finishPay(b i18n.Bundle, root, name, rawURL, maxAtomic string, dry bool, le
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	opt := wallet.PayOptions{
-		Root: root, Name: name, URL: rawURL, MaxAtomic: maxAtomic, DryRun: dry,
+		Root: root, Name: name, URL: rawURL, MaxAtomic: maxAtomic, Network: network, DryRun: dry,
 		Passphrase: pass, LedgerURLs: urls,
 	}
 	var paid wallet.Paid

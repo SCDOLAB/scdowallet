@@ -65,7 +65,11 @@ func Preview(ctx context.Context, opt PayOptions) (Paid, error) {
 	} else {
 		raw = capChallenge(body)
 	}
-	chosen, err := pickAccept(raw)
+	usdcNet, err := payNetwork(opt, doc)
+	if err != nil {
+		return Paid{}, err
+	}
+	chosen, err := pickAccept(raw, usdcNet)
 	if err != nil {
 		return Paid{}, err
 	}
@@ -91,7 +95,7 @@ func Preview(ctx context.Context, opt PayOptions) (Paid, error) {
 	}, nil
 }
 
-func pickAccept(raw []byte) (Decision, error) {
+func pickAccept(raw []byte, usdcNet string) (Decision, error) {
 	var doc struct {
 		Accepts []map[string]any `json:"accepts"`
 	}
@@ -115,7 +119,7 @@ func pickAccept(raw []byte) (Decision, error) {
 			d.Name = strField(extra, "name")
 			d.Version = strField(extra, "version")
 		}
-		if d.Network == NetworkSepolia && sameAddr(d.Asset, SepoliaUSDC) {
+		if d.Network == usdcNet && isUSDC(d.Network, d.Asset) {
 			return d, nil
 		}
 		if d.Network == NetworkShard0 && sameAddr(d.Asset, WSCDO) {
@@ -129,7 +133,7 @@ func pickAccept(raw []byte) (Decision, error) {
 	if found {
 		return fallback, nil
 	}
-	return Decision{}, policyf("only Base Sepolia (eip155:84532) payments are enabled")
+	return Decision{}, policyf("no payment option on %s", NetworkLabel(usdcNet))
 }
 
 func strField(m map[string]any, key string) string {

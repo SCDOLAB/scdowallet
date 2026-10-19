@@ -13,7 +13,7 @@ import (
 	"github.com/x402-foundation/x402/go/v2/types"
 )
 
-// Income is one settled Base Sepolia payment posted to /ledger/income.
+// Income is one settled Base, Base Sepolia or Shard0 payment posted to /ledger/income.
 type Income struct {
 	Agent        string
 	Payload      *types.PaymentPayload
@@ -76,7 +76,7 @@ func incomeBody(in Income) (map[string]any, error) {
 		copied := in.Payload.Accepted
 		reqs = &copied
 	}
-	if reqs.Network != "" && reqs.Network != NetworkSepolia && reqs.Network != NetworkShard0 {
+	if reqs.Network != "" && reqs.Network != NetworkSepolia && reqs.Network != NetworkBase && reqs.Network != NetworkShard0 {
 		return nil, fmt.Errorf("income network")
 	}
 	if reqs.Network == NetworkShard0 && !sameAddr(reqs.Asset, WSCDO) {
@@ -93,7 +93,7 @@ func incomeBody(in Income) (map[string]any, error) {
 	if network == "" {
 		network = NetworkSepolia
 	}
-	if network != NetworkSepolia && network != NetworkShard0 {
+	if network != NetworkSepolia && network != NetworkBase && network != NetworkShard0 {
 		return nil, fmt.Errorf("income network")
 	}
 	settlement := map[string]any{

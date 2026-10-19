@@ -125,6 +125,10 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, b.T("needName"))
 		return 2
 	}
+	switch strings.ToLower(strings.TrimSpace(*role)) {
+	case "bookkeeping-node", "bookkeeping", "light":
+		*role = agent.RoleLight
+	}
 	pass, err := passphrase(*passFile)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -156,7 +160,12 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 	} else {
 		fmt.Fprintf(stdout, b.T("nextEnable")+"\n", lay.Name)
 	}
-	fmt.Fprintf(stdout, b.T("nextStatus")+"\n", lay.Name)
+	if root != agent.DefaultRoot {
+		// A user install (or any non-default data root) needs --data-dir for status to find the agent.
+		fmt.Fprintf(stdout, b.T("nextStatusData")+"\n", root, lay.Name)
+	} else {
+		fmt.Fprintf(stdout, b.T("nextStatus")+"\n", lay.Name)
+	}
 	return 0
 }
 

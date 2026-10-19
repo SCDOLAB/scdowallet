@@ -6,7 +6,7 @@
 set -eu
 
 BASE_URL="https://scdo.com.au/downloads/wallet/linux"
-VERSION="0.5.7"
+VERSION="0.5.8"
 
 lang=en
 case "${LC_ALL:-${LANG:-}}" in
