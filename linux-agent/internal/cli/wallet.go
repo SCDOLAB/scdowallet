@@ -369,7 +369,11 @@ func finishPay(b i18n.Bundle, root, name, rawURL, maxAtomic string, dry bool, le
 		fmt.Fprintf(stdout, b.T("walletBot")+"\n", paid.Wallet)
 	}
 	if paid.Tx != "" {
-		fmt.Fprintf(stdout, b.T("walletTx")+"\n", paid.Tx)
+		link := paid.Basescan
+		if link == "" {
+			link = paid.Tx
+		}
+		fmt.Fprintf(stdout, b.T("walletTx")+"\n", link)
 	}
 	if paid.Ledger != "" {
 		fmt.Fprintf(stdout, b.T("walletLedger")+"\n", paid.Ledger)
