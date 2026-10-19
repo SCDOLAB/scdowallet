@@ -206,7 +206,7 @@ func (s *Service) registerBody() map[string]any {
 		"platform": Platform,
 		"label":    m.Label,
 		"role":     m.Role,
-		"payout":   m.Payout,
+		"payout":   s.payout(),
 	}
 	if m.Ref != "" {
 		body["ref"] = m.Ref
@@ -226,6 +226,7 @@ func (s *Service) heartbeatBody() map[string]any {
 	body := map[string]any{
 		"version": s.version(),
 		"code":    code,
+		"payout":  s.payout(),
 	}
 	addCapability(body, s.Layout.Meta)
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
@@ -300,4 +301,15 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// payout returns the payout sent to the ledger and repairs a missing/placeholder payout in
+// meta.json with the agent's own address (0.5.7: the ledger lists only agents with a real payout).
+func (s *Service) payout() string {
+	p, fixed := s.Layout.Meta.EffectivePayout()
+	if fixed && p != "" && s.Layout.Meta.Payout != p {
+		s.Layout.Meta.Payout = p
+		_ = s.Layout.SaveMeta()
+	}
+	return p
 }

@@ -34,7 +34,7 @@ func stubLedger(t *testing.T) string {
 
 func TestCreateStoresDecimalCaps(t *testing.T) {
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Create(context.Background(), CreateOptions{
@@ -97,7 +97,7 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 	defer ledgerSrv.Close()
 
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	created, err := Create(context.Background(), CreateOptions{
@@ -211,7 +211,7 @@ func TestCreateWSCDOCapsAndPay(t *testing.T) {
 	defer ledgerSrv.Close()
 
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Create(context.Background(), CreateOptions{

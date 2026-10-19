@@ -125,10 +125,6 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, b.T("needName"))
 		return 2
 	}
-	if strings.TrimSpace(*payout) == "" {
-		fmt.Fprintln(stderr, b.T("badPayout"))
-		return 2
-	}
 	pass, err := passphrase(*passFile)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())

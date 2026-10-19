@@ -17,7 +17,7 @@ import (
 
 func TestSeqPersistsAndAgentsStayIsolated(t *testing.T) {
 	root := t.TempDir()
-	payout := "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+	payout := "0x52908400098527886e0f7030069857d2e4169ee7"
 	a, err := Create(root, "alpha", payout, "alpha", "", "ref-a", "src-a", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestSeqPersistsAndAgentsStayIsolated(t *testing.T) {
 
 func TestServiceRegisterAndHeartbeat(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Create(root, "node1", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "lab", "", "ref1", "src1", nil)
+	lay, err := Create(root, "node1", "0x52908400098527886e0f7030069857d2e4169ee7", "lab", "", "ref1", "src1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +150,9 @@ func TestServiceRegisterAndHeartbeat(t *testing.T) {
 	if hb["code"] != "light" || hb["version"] != "0.1.0" {
 		t.Fatalf("heartbeat %#v", hb)
 	}
+	if body["payout"] != "0x52908400098527886E0F7030069857D2E4169EE7" || hb["payout"] != body["payout"] {
+		t.Fatalf("payout must be sent on register and heartbeat: %v / %v", body["payout"], hb["payout"])
+	}
 	if payloadOf(t, seen[2])["seq"] != float64(3) {
 		t.Fatal("seq did not advance")
 	}
@@ -166,7 +169,7 @@ func TestServiceRegisterAndHeartbeat(t *testing.T) {
 
 func TestOnStartRunsOnceAfterRegister(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Create(root, "node1", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "lab", "", "", "", nil)
+	lay, err := Create(root, "node1", "0x52908400098527886e0f7030069857d2e4169ee7", "lab", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +221,7 @@ func mode(path string) os.FileMode {
 
 func TestLockAndLabel(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Create(root, "lock1", "0x0000000000000000000000000000000000000001", "", "", "", "", nil)
+	lay, err := Create(root, "lock1", "0x52908400098527886E0F7030069857D2E4169EE7", "", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,4 +240,37 @@ func TestLockAndLabel(t *testing.T) {
 		t.Fatalf("second lock %v", err)
 	}
 	unlock()
+}
+
+// 0.5.7: a missing payout is auto-filled with the agent's own address; placeholders are refused
+// at init, and an old meta.json with a placeholder payout is repaired before it is sent.
+func TestPayoutAutoFillAndPlaceholderRepair(t *testing.T) {
+	root := t.TempDir()
+	lay, err := Create(root, "auto1", "", "", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lay.Meta.Payout == "" || lay.Meta.Payout != lay.Meta.Address {
+		t.Fatalf("payout %q address %q", lay.Meta.Payout, lay.Meta.Address)
+	}
+	for _, bad := range []string{"0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "0x000000000000000000000000000000000000dEaD"} {
+		if _, err := Create(root, "bad1", bad, "", "", "", "", nil); err == nil {
+			t.Fatalf("placeholder %s accepted", bad)
+		}
+	}
+	lay.Meta.Payout = "0x1111111111111111111111111111111111111111" // as written by 0.5.6
+	if err := lay.SaveMeta(); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{Layout: lay}
+	if got := svc.registerBody()["payout"]; got != lay.Meta.Address {
+		t.Fatalf("register payout %v", got)
+	}
+	if got := svc.heartbeatBody()["payout"]; got != lay.Meta.Address {
+		t.Fatalf("heartbeat payout %v", got)
+	}
+	again, err := Open(root, "auto1")
+	if err != nil || again.Meta.Payout != lay.Meta.Address {
+		t.Fatalf("meta not repaired: %v %v", again.Meta.Payout, err)
+	}
 }

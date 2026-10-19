@@ -27,7 +27,7 @@ func TestPaywall402RoundTrip(t *testing.T) {
 		t.Fatal(WSCDOFacilitatorURL)
 	}
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	created, err := Create(context.Background(), CreateOptions{Root: root, Name: "bot", BotID: "bot", LedgerURLs: []string{stubLedger(t)}})
@@ -128,7 +128,7 @@ func TestPaywall402RoundTrip(t *testing.T) {
 
 func TestPaywallWSCDO(t *testing.T) {
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Create(context.Background(), CreateOptions{
@@ -173,7 +173,7 @@ func TestSettleAfterThirtySecondsIsBooked(t *testing.T) {
 		t.Fatal(SettleTimeout)
 	}
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	created, err := Create(context.Background(), CreateOptions{Root: root, Name: "bot", BotID: "bot", LedgerURLs: []string{stubLedger(t)}})
@@ -284,4 +284,54 @@ func (m *mockFacilitator) Settle(ctx context.Context, _ []byte, _ []byte) (*x402
 		Success: true, Transaction: "0x" + strings.Repeat("cd", 32), Network: x402.Network(m.net()),
 		Payer: "0x0000000000000000000000000000000000000001", Amount: m.amt(),
 	}, nil
+}
+
+// HEAD-bypass regression (x402 Go v2.28.0, fixed upstream in x402-foundation/x402 e95b0666):
+// an unpaid HEAD, or any other unpaid method/path, must never reach the protected handler.
+func TestPaywallUnpaidHeadAndOtherMethodsBlocked(t *testing.T) {
+	root := t.TempDir()
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(context.Background(), CreateOptions{Root: root, Name: "bot", BotID: "bot", LedgerURLs: []string{stubLedger(t)}}); err != nil {
+		t.Fatal(err)
+	}
+	settled := false
+	h, err := Paywall(PaywallOptions{
+		Root: root, Name: "bot", Price: "0.01", Path: "/answer",
+		Facilitator: &mockFacilitator{onSettle: func() { settled = true }},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		method, url string
+		want        int
+	}{
+		{http.MethodHead, "http://paywall.test/answer", http.StatusPaymentRequired},
+		{http.MethodGet, "http://paywall.test/answer", http.StatusPaymentRequired},
+		{http.MethodPost, "http://paywall.test/answer", http.StatusMethodNotAllowed},
+		{http.MethodPut, "http://paywall.test/answer", http.StatusMethodNotAllowed},
+		{http.MethodOptions, "http://paywall.test/answer", http.StatusMethodNotAllowed},
+		{http.MethodGet, "http://paywall.test/answer/x", http.StatusNotFound},
+		{http.MethodHead, "http://paywall.test/other", http.StatusNotFound},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.url, nil)
+		req.Header.Set("accept", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Fatalf("%s %s: status %d want %d body %s", c.method, c.url, rec.Code, c.want, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), `"ok":true`) {
+			t.Fatalf("%s %s reached the protected handler", c.method, c.url)
+		}
+		if c.method == http.MethodHead && c.want == http.StatusPaymentRequired && rec.Header().Get("Payment-Required") == "" {
+			t.Fatalf("HEAD without payment returned no Payment-Required header")
+		}
+	}
+	if settled {
+		t.Fatal("unpaid request settled")
+	}
 }

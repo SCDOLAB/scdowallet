@@ -22,7 +22,7 @@ func TestInitListLogsAndWording(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	code := Main([]string{"--data-dir", dir, "init", "--name", "a", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "--label", "TEST"}, &out, &errb)
+	code := Main([]string{"--data-dir", dir, "init", "--name", "a", "--payout", "0x52908400098527886e0f7030069857d2e4169ee7", "--label", "TEST"}, &out, &errb)
 	if code != 0 {
 		t.Fatalf("init %d %s", code, errb.String())
 	}
@@ -36,7 +36,7 @@ func TestInitListLogsAndWording(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	code = Main([]string{"--data-dir", dir, "init", "--name", "b", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "--role", "server-node"}, &out, &errb)
+	code = Main([]string{"--data-dir", dir, "init", "--name", "b", "--payout", "0x52908400098527886e0f7030069857d2e4169ee7", "--role", "server-node"}, &out, &errb)
 	if code != 0 {
 		t.Fatal(errb.String())
 	}
@@ -59,7 +59,7 @@ func TestInitListLogsAndWording(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Main([]string{"--data-dir", dir, "init", "--name", "a", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"}, &out, &errb); code == 0 {
+	if code := Main([]string{"--data-dir", dir, "init", "--name", "a", "--payout", "0x52908400098527886e0f7030069857d2e4169ee7"}, &out, &errb); code == 0 {
 		t.Fatal("re-init should fail")
 	}
 	if strings.Contains(errb.String(), raw) {
@@ -86,7 +86,7 @@ func TestStatusReadsLedger(t *testing.T) {
 	t.Setenv("SCDO_AGENT_PASSPHRASE_FILE", "")
 	dir := t.TempDir()
 	var out, errb bytes.Buffer
-	if code := Main([]string{"--data-dir", dir, "init", "--name", "s", "--payout", "0x0000000000000000000000000000000000000001"}, &out, &errb); code != 0 {
+	if code := Main([]string{"--data-dir", dir, "init", "--name", "s", "--payout", "0x52908400098527886E0F7030069857D2E4169EE7"}, &out, &errb); code != 0 {
 		t.Fatal(errb.String())
 	}
 	addr := addrFrom(out.String())
@@ -151,7 +151,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.5.6") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.5.7") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
 	}
 	for _, args := range [][]string{{"--version"}, {"-v"}, {"--lang", "zh", "--version"}} {
@@ -160,7 +160,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		if code := Main(args, &out, &errb); code != 0 {
 			t.Fatalf("%v code %d %s", args, code, errb.String())
 		}
-		if !strings.Contains(out.String(), "0.5.6") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
+		if !strings.Contains(out.String(), "0.5.7") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
 			t.Fatalf("%v %s", args, out.String())
 		}
 	}
@@ -185,7 +185,7 @@ func TestUserInstallDefaultsDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := Main([]string{"init", "--name", "rack", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"}, &out, &errb); code != 0 {
+	if code := Main([]string{"init", "--name", "rack", "--payout", "0x52908400098527886e0f7030069857d2e4169ee7"}, &out, &errb); code != 0 {
 		t.Fatal(errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(data, "rack", "meta.json")); err != nil {
@@ -227,7 +227,7 @@ func TestWalletCommands(t *testing.T) {
 	}))
 	defer ledgerSrv.Close()
 	var out, errb bytes.Buffer
-	if code := Main([]string{"--data-dir", dir, "init", "--name", "bot", "--payout", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"}, &out, &errb); code != 0 {
+	if code := Main([]string{"--data-dir", dir, "init", "--name", "bot", "--payout", "0x52908400098527886e0f7030069857d2e4169ee7"}, &out, &errb); code != 0 {
 		t.Fatal(errb.String())
 	}
 	out.Reset()
