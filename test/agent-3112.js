@@ -1,5 +1,5 @@
-// 3.1.12: Agent card. One online state for presence and Status; the x402 Base reserve is asked for at
-// registration and retried until the ledger returns it; the 華語 strings use Traditional characters only.
+// 3.1.12: Agent card. One online state for presence and Status; the x402 Base reserve is asked for when the
+// agent goes online and retried until the ledger returns it; the 華語 strings use Traditional characters only.
 'use strict'
 const assert = require('assert')
 const fs = require('fs')
@@ -64,6 +64,27 @@ function make (reply) {
   m.clock.now += RESERVE_RETRY_MS[4] * 2
   await m.svc.tick()
   assert.strictEqual(regs(), 3, 'no more retries once the reserve is known')
+  // going online fires the reserve request: offline gap, then an accepted heartbeat -> register in the same tick
+  give = false
+  m = make((url, b) => ({ ok: true, status: 200, body: url.endsWith('/register') && give ? { ok: true, usdcWallet: b.usdcWallet } : { ok: true } }))
+  await m.svc.tick()
+  assert.strictEqual(regs(), 1)
+  m.clock.now += ONLINE_MS + 1
+  assert.strictEqual(m.svc.online(), false, 'offline after the gap')
+  m.svc.nextReserveAt = m.clock.now + 100 * ONLINE_MS // backoff far away: only the online trigger can fire
+  give = true
+  await m.svc.tick()
+  assert.ok(m.sent.slice(-2)[0].url.endsWith('/heartbeat'), 'heartbeat first')
+  assert.strictEqual(regs(), 2, 'register fired when the agent came back online')
+  assert.strictEqual(m.svc.online(), true)
+  assert.strictEqual(m.svc.status().usdcWallet, m.svc.id.agentId)
+  // a heartbeat answer that carries the reserve fills it too
+  m = make((url) => ({ ok: true, status: 200, body: url.endsWith('/heartbeat') ? { ok: true, usdcWallet: OWN } : { ok: true } }))
+  await m.svc.tick()
+  m.clock.now += 5 * 60 * 1000
+  m.svc.nextReserveAt = m.clock.now + 100 * ONLINE_MS
+  await m.svc.tick()
+  assert.strictEqual(m.svc.status().usdcWallet, OWN)
   // the card's ledger read can also fill it
   m = make(() => ({ ok: true, status: 200, body: { ok: true } }))
   await m.svc.tick()
@@ -100,8 +121,8 @@ function make (reply) {
   vm.runInNewContext(fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8'), box)
   const CN = box.window.I18N112.CN
   const EN = box.window.I18N112.EN
-  assert.strictEqual(CN.agentX402Pending, '待生成（Agent 註冊後自動分配）')
-  assert.strictEqual(EN.agentX402Pending, 'Not yet assigned (assigned when the agent registers)')
+  assert.strictEqual(CN.agentX402Pending, '待生成（Agent 上線後自動分配）')
+  assert.strictEqual(EN.agentX402Pending, 'Not yet assigned (assigned when the agent goes online)')
   assert.strictEqual(CN.agentOnlineLine, '在線·請保持程式執行')
   assert.strictEqual(CN.agentOfflineLine, '離線·開啟錢包後自動上線')
   assert.strictEqual(CN.agentOnline, '在線')

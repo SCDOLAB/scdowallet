@@ -100,7 +100,7 @@ const labels = {
   agentOfflineLine: 'Offline · goes online when the wallet is open',
   agentNoReward: 'Your agent has no reward address - tap to use this wallet',
   agentCardTitle: 'Agent', agentStatus: 'Status', agentRegistered: 'Registered', agentPending: 'Waiting', agentOffline: 'Offline', agentOnline: 'Online', agentNotStarted: 'Not started',
-  agentStarting: 'Starting…', agentX402Pending: 'Not yet assigned (assigned when the agent registers)',
+  agentStarting: 'Starting…', agentX402Pending: 'Not yet assigned (assigned when the agent goes online)',
   agentAct_report: 'Reported', agentAct_task_join: 'Joined', agentOutcome_done: 'done', agentReason_payout_balance_stale: 'payout balance not updated for a long time',
   agentScdoAddr: 'SCDO address', agentX402: 'x402 Base USDC reserve address', agentBook: 'Bookkeeping',
   agentStartBook: 'Start bookkeeping', agentEntries: 'Latest ledger entries', agentEntriesEmpty: 'No ledger entries yet',
@@ -168,7 +168,7 @@ assert.ok(card.includes('Online · keep app running'))
 assert.ok(card.includes('agent-presence online'))
 assert.ok(card.includes('1S01abc'))
 assert.ok(!card.includes('pending'))
-assert.ok(card.includes('Not yet assigned (assigned when the agent registers)'))
+assert.ok(card.includes('Not yet assigned (assigned when the agent goes online)'))
 assert.ok(card.includes('Start bookkeeping'))
 assert.ok(card.includes('data-act="isleStart"'))
 assert.ok(card.includes('Joined · done'))

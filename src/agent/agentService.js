@@ -155,7 +155,15 @@ class AgentService {
     if (!this.reportingOn()) return { ok: false, error: 'disabled' }
     const env = this.id.sign(type, body, this.now())
     const r = await this.postLedger(type, env)
-    if (r && r.ok && (type === 'register' || type === 'heartbeat' || type === 'heal' || type === 'report')) this.lastOkAt = this.now()
+    if (r && r.ok && (type === 'register' || type === 'heartbeat' || type === 'heal' || type === 'report')) {
+      const wasOnline = this.online()
+      this.lastOkAt = this.now()
+      // Any accepted answer that carries the reserve fills it (the ledger assigns it when the agent posts).
+      if (r.body && r.body.usdcWallet) this.noteReserve(r.body.usdcWallet)
+      // The agent just went online (first accepted post, or the first after an offline gap) and still has
+      // no reserve: ask for it now instead of waiting for the backoff. register handles its own answer.
+      if (!wasOnline && type !== 'register' && !this.usdcWallet && this.registered) this.nextReserveAt = 0
+    }
     return r
   }
 
@@ -181,6 +189,13 @@ class AgentService {
   reserveDue (now) {
     if (!this.registered || this.usdcWallet) return false
     return now >= this.nextReserveAt
+  }
+  // 3.1.12: the reserve is assigned when the agent goes online. Called after the posts of a tick: if the
+  // agent is online and still has no reserve and a request is due, register now (the ledger answers with it).
+  async reserveOnOnline () {
+    if (!this.reportingOn() || !this.online() || !this.reserveDue(this.now())) return false
+    await this.register()
+    return !!this.usdcWallet
   }
   scheduleReserve (now) {
     const i = Math.min(this.reserveTries, RESERVE_RETRY_MS.length - 1)
@@ -218,7 +233,8 @@ class AgentService {
     if (payout) body.payout = payout
     const extra = joinBodyFields(await this.joinExtra())
     Object.assign(body, extra)
-    // 3.1.12: the x402 Base reserve is assigned at registration. With no reserve chosen yet, ask for this
+    // 3.1.12: the x402 Base reserve is assigned when the agent goes online (its register is the first post
+    // the ledger accepts; the ledger also fills it on a heartbeat). With no reserve chosen yet, ask for this
     // agent's own address (the ledger accepts it as self-proven). Only with a real payout, so the reserve
     // never stands in for a missing payout.
     if (!body.usdcWallet && payout && ADDR_RE.test(String(this.id.agentId || ''))) {
@@ -288,6 +304,7 @@ class AgentService {
         const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody({ code: 'ONLINE' }, this.host.version)))
         if (r && r.ok) this.lastBeat = now
       }
+      await this.reserveOnOnline()
       return { actions: [], problems: [], light: true }
     }
     let snap
@@ -310,6 +327,7 @@ class AgentService {
       const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody(snap, this.host.version)))
       if (r && r.ok) this.lastBeat = now
     }
+    await this.reserveOnOnline()
     return { actions: results, problems }
   }
 
