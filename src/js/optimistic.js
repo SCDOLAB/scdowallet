@@ -51,6 +51,34 @@
     })
   }
 
+  function createView () {
+    return { phase: 'creating', kind: 'create', text: 'Creating…', blocking: false, spinner: false }
+  }
+
+  function cancelView () {
+    return { phase: 'cancelling', kind: 'cancel', text: 'Cancelling…', blocking: false, spinner: false }
+  }
+
+  // Broadcast accepted: paint the link and the confirming badge. A miss is a quiet retry.
+  function actionFromResult (state, res) {
+    const kind = (state && state.kind) || 'create'
+    if (res && res.ok) {
+      return {
+        phase: 'confirming',
+        kind: kind,
+        text: kind === 'cancel' ? 'Cancelling…' : 'Creating…',
+        badge: COPY.confirming,
+        link: res.link || '',
+        hash: res.hash || '',
+        id: res.id || '',
+        blocking: false,
+        spinner: false,
+        confirmMs: CONFIRM_MS
+      }
+    }
+    return { phase: 'retry', kind: kind, text: '', badge: '', retry: true, gentle: true, blocking: false, spinner: false }
+  }
+
   function claimBannerHtml (view, t, esc) {
     if (!view || view.phase === 'idle' || view.spinner) return ''
     if (view.phase === 'retry') {
@@ -69,6 +97,9 @@
     claimFromHttp: claimFromHttp,
     claimSettled: claimSettled,
     confirmInBackground: confirmInBackground,
+    createView: createView,
+    cancelView: cancelView,
+    actionFromResult: actionFromResult,
     claimBannerHtml: claimBannerHtml
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api

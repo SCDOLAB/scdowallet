@@ -7,12 +7,37 @@ const { Tray, Menu, nativeImage, BrowserWindow, screen } = require('electron')
 const { tooltipError, minersRunning } = require('../js/minerStartError')
 const { TRAY_COPY } = require('../miner/guardPlan')
 
+function humaneRate (h) {
+  const n = Number(h)
+  if (!Number.isFinite(n) || n <= 0) return '0 H/s'
+  const trim = (x) => x.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+  if (n >= 1e9) return trim(n / 1e9) + ' GH/s'
+  if (n >= 1e6) return trim(n / 1e6) + ' MH/s'
+  if (n >= 1e3) return trim(n / 1e3) + ' kH/s'
+  return Math.round(n).toLocaleString('en-US') + ' H/s'
+}
 function fmtHash (h, lang) {
-  const raw = Number(h)
-  const n = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0
-  const num = n.toLocaleString('en-US')
-  if (lang === 'CN') return '記帳速度 (H/s) 每秒 ' + num + ' 次'
-  return 'Bookkeeping speed (H/s) ' + num + ' tries per second'
+  const rate = humaneRate(h)
+  if (lang === 'CN') return '記帳速度 ' + rate
+  return 'Bookkeeping speed ' + rate
+}
+// macOS uses a monochrome template glyph (never a solid colour square).
+// Windows uses the coloured logo .ico, with a small corner dot for state.
+function trayIconFile (platform, st) {
+  const colour = st && st.guard && st.guard.colour
+  const running = !!(st && (st.running || (st.classicNote && st.phase !== 'error')))
+  if (platform === 'darwin') {
+    if (colour === 'blue' || colour === 'yellow' || colour === 'red') return 'tray/trayTemplate-dot.png'
+    if (colour === 'green' || running) return 'tray/trayTemplate-on.png'
+    return 'tray/trayTemplate.png'
+  }
+  if (platform === 'win32') {
+    if (colour === 'red') return 'tray/tray-error.ico'
+    if (colour === 'blue' || colour === 'yellow') return 'tray/tray-pause.ico'
+    if (colour === 'green' || running) return 'tray/tray-on.ico'
+    return 'tray/tray.ico'
+  }
+  return 'icon-32.png'
 }
 
 // state of the badge for a miner status object
@@ -26,8 +51,8 @@ function badgeState (st) {
 }
 // 2.0.6: tray texts follow the wallet language ('CN' = 華語繁體)
 const TL = {
-  EN: { show: 'Show SCDO Wallet', notMining: 'Not bookkeeping', minerError: 'Bookkeeping node error', nodeOnly: 'Node only (not bookkeeping)', nodeOnlyShort: 'Node only', mining: 'Bookkeeping: ', starting: 'Bookkeeping node starting…', stop: 'Stop bookkeeping', keep: 'Keep bookkeeping (restart the bookkeeping node if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume bookkeeping', modeLight: 'Mode: Light', modeFull: 'Mode: Full', login: 'Start when I log in', light: 'Light mode', paceGpu: 'Lower graphics card effort', paceIdle: 'Pause while I am using this computer' },
-  CN: { show: '顯示 SCDO Wallet', notMining: '未在記帳', minerError: '記帳節點出錯', nodeOnly: '只執行節點（未記帳）', nodeOnlyShort: '只執行節點', mining: '記帳中：', starting: '記帳節點啟動中…', stop: '停止記帳', keep: '持續記帳（記帳節點退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復記帳', modeLight: '模式：輕量', modeFull: '模式：完整', login: '登入時啟動', light: '輕量模式', paceGpu: '降低顯卡出力', paceIdle: '我在用電腦時暫停記帳' }
+  EN: { show: 'Show SCDO Wallet', notMining: 'Not bookkeeping', minerError: 'Bookkeeping node error', nodeOnly: 'Node only (not bookkeeping)', nodeOnlyShort: 'Node only', mining: 'Bookkeeping: ', starting: 'Bookkeeping node starting…', stop: 'Stop bookkeeping', keep: 'Keep bookkeeping (restart the bookkeeping node if it exits)', quit: 'Quit', pauseHour: 'Pause for 1 hour', pauseToday: 'Pause for today', pauseClear: 'Resume bookkeeping', modeLight: 'Mode: Light', modeFull: 'Mode: Full', login: 'Launch at login (start minimised in tray)', light: 'Light mode', paceGpu: 'Lower graphics card effort', paceIdle: 'Pause while I am using this computer', agentOnline: 'Online · keep app running', agentOffline: 'Offline · open the app to resume' },
+  CN: { show: '顯示 SCDO Wallet', notMining: '未在記帳', minerError: '記帳節點出錯', nodeOnly: '只執行節點（未記帳）', nodeOnlyShort: '只執行節點', mining: '記帳中：', starting: '記帳節點啟動中…', stop: '停止記帳', keep: '持續記帳（記帳節點退出時自動重新啟動）', quit: '結束', pauseHour: '暫停 1 小時', pauseToday: '今天暫停', pauseClear: '恢復記帳', modeLight: '模式：輕量', modeFull: '模式：完整', login: '登入時啟動（最小化到系統匣）', light: '輕量模式', paceGpu: '降低顯卡出力', paceIdle: '我在用電腦時暫停記帳', agentOnline: '在線 · 請保持程式執行', agentOffline: '離線 · 打開程式即可恢復' }
 }
 // The tray paints guard.colour from the snapshot. It does not write the state machine.
 function guardLine (st, lang) {
@@ -119,7 +144,9 @@ class TrayStatus {
     this.badges = { green: this.img('overlay-green.png'), grey: this.img('overlay-grey.png'), red: this.img('overlay-red.png') }
     this.last = null
     this.lastBadge = null
-    this.tray = new Tray(process.platform === 'win32' ? path.join(o.assetsDir, 'tray.ico') : this.img('icon-32.png'))
+    this.iconFile = trayIconFile(process.platform, null)
+    const initial = process.platform === 'win32' ? path.join(o.assetsDir, this.iconFile) : this.prepareIcon(this.img(this.iconFile))
+    this.tray = new Tray(initial)
     this.lang = o.lang === 'EN' ? 'EN' : 'CN'
     this.tray.setToolTip(tooltipText(o.version, null, this.lang))
     this.tray.on('click', () => this.openPanel())
@@ -128,6 +155,20 @@ class TrayStatus {
     this.rebuild()
   }
 
+  prepareIcon (img) {
+    if (process.platform === 'darwin' && img && img.setTemplateImage) img.setTemplateImage(true)
+    return img
+  }
+  applyTrayIcon (st) {
+    if (!this.tray || this.tray.isDestroyed()) return
+    const file = trayIconFile(process.platform, st)
+    this.iconFile = file
+    if (process.platform === 'win32') this.tray.setImage(path.join(this.o.assetsDir, file))
+    else {
+      const img = this.prepareIcon(this.img(file))
+      if (img) this.tray.setImage(img)
+    }
+  }
   colourIcon (colour) {
     if (!this.icons) {
       const solid = (r, g, b) => {
@@ -194,6 +235,25 @@ class TrayStatus {
   }
 
   L () { return TL[this.lang] || TL.CN }
+  copy (key, fallback) {
+    try {
+      if (typeof this.o.string === 'function') {
+        const v = this.o.string(key, fallback)
+        if (typeof v === 'string' && v) return v
+      }
+    } catch (e) {}
+    return fallback
+  }
+  agentOnline () { try { return !!(this.o.getAgentOnline && this.o.getAgentOnline()) } catch (e) { return false } }
+  presenceItem () {
+    const online = this.agentOnline()
+    const L = this.L()
+    const label = online ? this.copy('agentOnlineLine', L.agentOnline) : this.copy('agentOfflineLine', L.agentOffline)
+    const item = { label: label, enabled: false }
+    const icon = online ? this.badges.green : this.badges.grey
+    try { if (icon && !icon.isEmpty()) item.icon = icon } catch (e) {}
+    return item
+  }
   session () { try { return (this.o.getSession && this.o.getSession()) || {} } catch (e) { return {} } }
   setLang (l) { const n = l === 'EN' ? 'EN' : 'CN'; if (n === this.lang) return; this.lang = n; this.sig = null; this.update(this.last); this.rebuild() }
   // 2.0.6: one-time Windows notification when the window is hidden to the tray
@@ -205,15 +265,28 @@ class TrayStatus {
     if (!this.tray || this.tray.isDestroyed()) return
     const st = this.last
     const L = this.L()
-    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     const sess = this.session()
     const light = !!sess.light
+    if (process.platform === 'linux') {
+      const items = [
+        { label: L.show, click: () => this.showWindow() },
+        this.presenceItem(),
+        { type: 'separator' },
+        { label: this.copy('loginToggle', L.login), type: 'checkbox', checked: !!sess.loginLaunch, click: (item) => { if (this.o.onLogin) this.o.onLogin(!!(item && item.checked)) } },
+        { type: 'separator' },
+        { label: L.quit, click: () => this.o.onQuit() }
+      ]
+      this.tray.setContextMenu(Menu.buildFromTemplate(items))
+      return
+    }
+    const label = st && st.running ? (st.code === 'MINING' ? L.mining + fmtHash(st.hashrate, this.lang) : st.mode === 'node' ? L.nodeOnlyShort : L.starting) : (st && st.phase === 'error' ? L.minerError : st && st.classicNote ? L.mining + st.classicNote : L.notMining)
     const items = [
       { label: L.show, click: () => this.showWindow() },
+      this.presenceItem(),
       { label, enabled: false },
       { label: light ? L.modeLight : L.modeFull, enabled: false },
       { type: 'separator' },
-      { label: L.login, type: 'checkbox', checked: !!sess.loginLaunch, click: (item) => { if (this.o.onLogin) this.o.onLogin(!!(item && item.checked)) } },
+      { label: this.copy('loginToggle', L.login), type: 'checkbox', checked: !!sess.loginLaunch, click: (item) => { if (this.o.onLogin) this.o.onLogin(!!(item && item.checked)) } },
       { label: L.light, type: 'checkbox', checked: light, click: (item) => { if (this.o.onLight) this.o.onLight(!!(item && item.checked)) } }
     ]
     if (minersRunning(st)) {
@@ -239,11 +312,11 @@ class TrayStatus {
     const b = badgeState(st)
     if (st && st.guard && st.guard.colour && st.guard.colour !== this.guardColour) {
       this.guardColour = st.guard.colour
-      const icon = this.colourIcon(st.guard.colour)
-      if (icon) this.tray.setImage(icon)
       const line = guardLine(st, this.lang)
       if (line) this.balloon('SCDO Wallet', line)
     }
+    const iconFile = trayIconFile(process.platform, st)
+    if (iconFile !== this.iconFile) this.applyTrayIcon(st)
     const w = this.o.getWindow()
     const overlay = b === 'yellow' ? 'green' : b === 'blue' ? 'blue' : b
     if (process.platform === 'win32' && w && !w.isDestroyed() && overlay !== this.lastBadge) {
@@ -253,7 +326,7 @@ class TrayStatus {
       if (badge) w.setOverlayIcon(badge, caption)
     }
     const sessNow = this.session()
-    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5), sessNow.light ? 1 : 0, sessNow.loginLaunch ? 1 : 0, sessNow.gpuLow ? 1 : 0, sessNow.idleOnly ? 1 : 0].join('|')
+    const sig = [minersRunning(st), st && st.classicNote, st && st.running, st && st.code, st && st.phase, this.o.getKeepMining(), Math.round(((st && st.hashrate) || 0) / 1e5), sessNow.light ? 1 : 0, sessNow.loginLaunch ? 1 : 0, sessNow.gpuLow ? 1 : 0, sessNow.idleOnly ? 1 : 0, this.agentOnline() ? 1 : 0].join('|')
     if (sig !== this.sig) { this.sig = sig; this.rebuild() }
   }
 
@@ -262,4 +335,30 @@ class TrayStatus {
   destroy () { try { if (this.tray && !this.tray.isDestroyed()) this.tray.destroy() } catch (e) {} this.tray = null }
 }
 
-module.exports = { TrayStatus, badgeState, tooltipText, fmtHash }
+function menuLines (lang, st, sess, platform) {
+  const L = TL[lang === 'EN' ? 'EN' : 'CN']
+  const online = !!(sess && sess.agentOnline)
+  const presence = online ? L.agentOnline : L.agentOffline
+  if (platform === 'linux') {
+    return { icon: trayIconFile('linux', st), lines: [L.show, presence, L.login, L.quit] }
+  }
+  const running = !!(st && st.running && st.code === 'MINING')
+  const speed = running ? L.mining + fmtHash(st.hashrate, lang === 'EN' ? 'EN' : 'CN') : (st && st.phase === 'error' ? L.minerError : L.notMining)
+  return {
+    icon: trayIconFile('darwin', st),
+    lines: [
+      L.show,
+      presence,
+      speed,
+      sess && sess.light ? L.modeLight : L.modeFull,
+      L.login,
+      L.light,
+      L.pauseHour,
+      L.pauseToday,
+      L.pauseClear,
+      L.quit
+    ]
+  }
+}
+
+module.exports = { TrayStatus, badgeState, tooltipText, fmtHash, trayIconFile, menuLines }

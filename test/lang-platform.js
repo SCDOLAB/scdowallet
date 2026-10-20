@@ -20,8 +20,8 @@ const WIN_CN_NOTIFY = '在 Windows 通知中心顯示；同一種通知 10 分�
 const WIN_EN_NOTIFY = 'Shown in the Windows notification centre; at most one of each kind per 10 minutes. Click to turn one on or off.'
 
 // ---- (1) language: unset is CN, a saved choice is kept, menu matches ----
-for (const v of [undefined, null, '', '   ', 'zh-TW', 'zh-Hant', 'TW', 'CN', 'zh_HK', 'fr', 'ja']) {
-  assert.strictEqual(normLang(v), 'CN', 'unset or non-English ' + JSON.stringify(v))
+for (const v of [undefined, null, '', '   ', 'zh-TW', 'zh-CN', 'zh-Hant', 'zh-Hans', 'zh_TW', 'zh_CN', 'TW', 'CN', 'zh_HK', 'fr', 'ja']) {
+  assert.strictEqual(normLang(v), 'CN', 'unset or 華語 ' + JSON.stringify(v))
   assert.strictEqual(menuLang(v), 'CN', 'menu ' + JSON.stringify(v))
 }
 for (const v of ['EN', 'en', 'en-US', 'en_GB', ' EN ']) {
@@ -110,6 +110,10 @@ assert.ok(I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('華
 assert.ok(!I.CN.relNotes.find(n => n.v === '3.0.8').items.join(' ').includes('繁體中文'))
 assert.ok(!/[\u4e00-\u9fff]/.test(I.EN.relNotes[0].items.join(' ')))
 assert.ok(read('src/js/app112.js').includes('T(\'backupHint\')') && read('src/js/app112.js').includes('T(\'notifyHint\')'))
+const langRow = read('src/js/app112.js').slice(read('src/js/app112.js').indexOf('const langNow'), read('src/js/app112.js').indexOf('const resumeRow'))
+assert.ok(langRow.includes('>English</button>') && langRow.includes('>華語</button>'))
+assert.ok(!/中文|简体中文|簡體中文|繁體中文|華語繁體/.test(langRow))
+assert.strictEqual((langRow.match(/data-act="setLang"/g) || []).length, 2)
 
 // version and Windows build left as they were, plus the Mac signing gate
 const pkg = require('../package.json')

@@ -145,7 +145,7 @@
         ['setAbout', T('about') + ' · 3.1.0', '<div>SCDO Wallet 3.1.0</div>'],
         ['setCat', 'AI小貓', '<div class="lbl">' + esc(T('catHint')) + '</div>']
       ].map(g => fold(g[0], g[1], g[2])).join('')
-      return '<div class="page shell-set" id="setPage"><h1 class="shell-h">' + esc(T('navSettings')) + '</h1><div id="setHost"><div class="set-open" id="setLang"><div class="lbl">' + esc(T('setLang')) + ' · 華語繁體</div><div class="row"><button type="button" class="btn ghost">English</button><button type="button" class="btn pri">華語繁體</button></div></div><div class="set-open" id="setResume"><button type="button" class="toggle"><span class="sw on"></span>' + esc(T('setResume')) + '</button><div class="lbl">' + esc(T('setResumeHint')) + '</div></div>' + fold('setAdvanced', T('advanced'), inner) + '</div></div>'
+      return '<div class="page shell-set" id="setPage"><h1 class="shell-h">' + esc(T('navSettings')) + '</h1><div id="setHost"><div class="set-open" id="setLang"><div class="lbl">' + esc(T('setLang')) + ' · 華語</div><div class="row"><button type="button" class="btn ghost">English</button><button type="button" class="btn pri">華語</button></div></div><div class="set-open" id="setResume"><button type="button" class="toggle"><span class="sw on"></span>' + esc(T('setResume')) + '</button><div class="lbl">' + esc(T('setResumeHint')) + '</div></div>' + fold('setAdvanced', T('advanced'), inner) + '</div></div>'
     }
     function catHtml () {
       const sites = window.SCDOSiteNav.flat().map(it => '<button type="button" class="link">' + esc(it.cn) + '</button>').join('')

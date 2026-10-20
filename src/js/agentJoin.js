@@ -26,6 +26,32 @@
   function validRef (value) { return cleanToken(value) !== '' }
   function validSrc (value) { return cleanToken(value) !== '' }
 
+  // A pasted join link becomes its ref. Anything else is cleaned as a plain code.
+  // Only https on scdo.com.au and apeccapital.org, or scdowallet://join, can carry a ref.
+  function refFromPaste (raw) {
+    const text = String(raw == null ? '' : raw).trim()
+    if (!text) return ''
+    let candidate = text
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(text) && /^(?:scdo\.com\.au|apeccapital\.org)(?:[/:?#]|$)/i.test(text)) {
+      candidate = 'https://' + text
+    }
+    let u
+    try { u = new URL(candidate) } catch (e) { return cleanToken(text) }
+    const proto = String(u.protocol || '').toLowerCase()
+    if (proto === 'scdowallet:') {
+      const parsed = parseJoinUrl(candidate)
+      return parsed.ok ? parsed.ref : ''
+    }
+    if (proto !== 'https:') return ''
+    const host = String(u.hostname || '').toLowerCase()
+    if (host !== 'scdo.com.au' && host !== 'apeccapital.org') return ''
+    if (u.username || u.password) return ''
+    if (u.port && u.port !== '443') return ''
+    const refRaw = u.searchParams.get('ref')
+    if (refRaw == null || refRaw === '') return ''
+    return cleanToken(refRaw)
+  }
+
   function parseJoinUrl (input) {
     const raw = String(input || '').trim()
     let u
@@ -95,16 +121,35 @@
   function inviteGiftHtml (t, esc, opts) {
     opts = opts || {}
     const n = giftAmount(opts.gift == null ? 1 : opts.gift)
+    const view = opts.view || {}
+    let status = ''
+    if (view.phase === 'creating' || view.phase === 'cancelling') {
+      status = '<p class="home-state" id="inviteBadge">' + esc(t(view.phase === 'cancelling' ? 'inviteCancelling' : 'inviteCreating')) + '</p>'
+    } else if (view.phase === 'confirming' && view.link) {
+      status = '<p class="lbl" id="inviteLinkLabel">' + esc(t('inviteLinkLabel')) + '</p><p class="mono" id="inviteLink">' + esc(view.link) + '</p><p class="home-state" id="inviteBadge">' + esc(t('claimConfirming')) + '</p>'
+    } else if (view.phase === 'confirmed') {
+      status = '<p class="home-state" id="inviteBadge">' + esc(t('claimConfirmed')) + '</p>'
+    } else if (view.phase === 'retry') {
+      status = '<p class="agent-claim" id="inviteRetry"><button type="button" class="shell-act sec" data-act="inviteCreateSubmit">' + esc(t('claimRetry')) + '</button></p>'
+    }
+    const cancel = opts.id
+      ? '<button type="button" class="shell-act sec" id="inviteCancelBtn" data-act="inviteCancelSubmit">' + esc(t('inviteCancelBtn')) + '</button>'
+      : ''
     return '<div class="page shell-home" id="inviteGift"><h1 class="shell-h">' + esc(t('inviteGiftTitle')) + '</h1>' +
       '<p class="home-lead" id="inviteGiftOwn">' + esc(t('inviteGiftOwn', { n: n })) + '</p>' +
       '<div class="field"><div class="lbl">' + esc(t('inviteGiftAsk')) + '</div>' +
-      '<input class="inp" id="inviteGiftAmt" inputmode="numeric" maxlength="4" value="' + n + '" autocomplete="off"></div></div>'
+      '<input class="inp" id="inviteGiftAmt" inputmode="numeric" maxlength="4" value="' + n + '" autocomplete="off"></div>' +
+      '<div class="field"><div class="lbl">' + esc(t('invitePassword')) + '</div>' +
+      '<input class="inp" id="invitePass" type="password" autocomplete="off"></div>' +
+      '<div class="shell-actions"><button type="button" class="shell-act" id="inviteCreateBtn" data-act="inviteCreateSubmit">' + esc(t('inviteCreateBtn')) + '</button>' + cancel + '</div>' +
+      status + '</div>'
   }
 
   function inviteClaimHtml (t, esc) {
     return '<div class="page shell-home" id="inviteClaim"><h1 class="shell-h">' + esc(t('inviteClaimTitle')) + '</h1>' +
       '<p class="home-lead" id="inviteClaimBody">' + esc(t('inviteClaimBody')) + '</p>' +
-      '<p class="home-state">' + esc(t('inviteClaimConsent')) + '</p></div>'
+      '<p class="home-state">' + esc(t('inviteClaimConsent')) + '</p>' +
+      '<div class="shell-actions"><button type="button" class="shell-act" id="inviteClaimBtn" data-act="inviteClaimSubmit">' + esc(t('inviteClaimBtn')) + '</button></div></div>'
   }
 
   function urlsFromArgv (argv) {
@@ -300,6 +345,15 @@
     return t('agentPending')
   }
 
+  // Green while this process has a started agent. Grey before that. A quiet ledger does not turn it grey.
+  function agentPresence (model) {
+    model = model || {}
+    if (model.noWallet) return 'offline'
+    const status = model.status || 'pending'
+    if (status === 'starting' || status === 'registered' || model.started) return 'online'
+    return 'offline'
+  }
+
   function agentCardHtml (t, esc, model) {
     model = model || {}
     const status = model.status || 'pending'
@@ -307,33 +361,41 @@
     const reserve = model.x402Reserve ? model.x402Reserve : 'pending'
     const book = model.bookkeeping || ''
     const entries = model.entries || []
+    const presence = agentPresence(model)
+    const presenceKey = presence === 'online' ? 'agentOnlineLine' : 'agentOfflineLine'
     const line = model.noWallet && !model.rewardLineHidden
       ? '<div class="agent-reward-line" id="agentRewardLine"><button type="button" class="agent-reward-tap" data-act="agentUseWallet">' + esc(t('agentNoReward')) + '</button><button type="button" class="home-backup-x" data-act="agentRewardDismiss" aria-label="' + esc(t('dismiss')) + '">\u2715</button></div>'
       : ''
     const list = entries.length
       ? '<ul class="agent-entries">' + entries.map(e => '<li>' + esc(e.text) + '</li>').join('') + '</ul>'
       : '<p class="home-state">' + esc(t('agentEntriesEmpty')) + '</p>'
-    const bookBtn = model.noWallet ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
+    const bookBtn = model.noWallet || model.hideRig ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
+    const bookRow = model.hideRig ? '' : '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>'
     return '<section class="agent-card" id="agentCard"><h2>' + esc(t('agentCardTitle')) + '</h2>' + line +
+      '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(t(presenceKey)) + '</p>' +
       '<p class="agent-row"><span>' + esc(t('agentStatus')) + '</span> <b id="agentStatus">' + esc(statusLabel(status, t)) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentScdoAddr')) + '</span> <b class="mono" id="agentScdo">' + esc(addr) + '</b></p>' +
       '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="mono" id="agentX402">' + esc(reserve) + '</b></p>' +
-      '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>' +
+      bookRow +
       bookBtn + '<h3>' + esc(t('agentEntries')) + '</h3>' + list + '</section>'
   }
 
   function firstRunHtml (t, esc, opts) {
     opts = opts || {}
     const pending = cleanToken(opts.pendingRef)
-    const readonly = pending ? ' readonly' : ''
+    const input = '<input class="inp" id="joinRef" maxlength="64" value="' + esc(pending) + '" autocomplete="off" spellcheck="false"' + (pending ? ' readonly' : '') + '>'
+    const btn = pending
+      ? '<button type="button" class="shell-copy" id="joinRefCopy" data-act="copy" data-v="' + esc(pending) + '">' + esc(t('copy')) + '</button>'
+      : '<button type="button" class="shell-copy" id="joinRefPaste" data-act="pasteJoinRef">' + esc(t('paste')) + '</button>'
     return '<div class="page shell-home first-run" id="firstRun"><h1 class="shell-h">' + esc(t('startAgent')) + '</h1>' +
       '<p class="home-lead" id="agentRewards">' + esc(t('agentRewards')) + '</p>' +
+      '<p class="agent-stay" id="agentStayOpen">' + esc(t('agentStayOpen')) + '</p>' +
       '<div class="field"><div class="lbl">' + esc(t('inviteCodeAsk')) + '</div>' +
-      '<input class="inp" id="joinRef" maxlength="64" value="' + esc(pending) + '" autocomplete="off" spellcheck="false"' + readonly + '></div>' +
+      '<div class="join-ref-row">' + input + btn + '</div></div>' +
       '<div class="shell-actions first-run-actions">' +
       '<button type="button" class="shell-act" id="startAgentBtn" data-act="startAgent">' + esc(t('startAgent')) + '</button>' +
       '<button type="button" class="shell-act sec" data-act="import">' + esc(t('importShort')) + '</button></div>' +
-      agentCardHtml(t, esc, { noWallet: true, rewardLineHidden: !!opts.rewardLineHidden, status: 'pending', bookkeeping: t('homeLineIdle'), entries: [] }) +
+      agentCardHtml(t, esc, { noWallet: true, rewardLineHidden: !!opts.rewardLineHidden, hideRig: !!opts.hideRig, status: 'pending', bookkeeping: t('homeLineIdle'), entries: [] }) +
       '</div>'
   }
 
@@ -372,6 +434,7 @@
   const api = {
     JOIN: JOIN,
     cleanToken: cleanToken,
+    refFromPaste: refFromPaste,
     validRef: validRef,
     validSrc: validSrc,
     parseJoinUrl: parseJoinUrl,
@@ -390,6 +453,7 @@
     x402Reserve: x402Reserve,
     ledgerEntries: ledgerEntries,
     cardStatus: cardStatus,
+    agentPresence: agentPresence,
     showBackupCard: showBackupCard,
     claimBlocked: claimBlocked,
     joinBodyFields: joinBodyFields,

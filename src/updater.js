@@ -92,13 +92,25 @@ function urlAllowed (u, origins) {
 }
 const SAFE_VER_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/ // 2.0.0 (U6)
 const VER_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/
-// 3.1.5: the Mac feed (downloads/wallet/mac/latest.json) points at a notarized .dmg; Windows stays .exe.
-function packageExtRe (platform) { return (platform || process.platform) === 'darwin' ? /\.dmg$/i : /\.exe$/i }
+// 3.1.5: the Mac feed points at a notarized .dmg. 3.1.9 Linux points at an AppImage. Windows stays .exe.
+function packagePlatform (platform) { return platform == null || platform === '' ? process.platform : platform }
+function packageExtRe (platform) {
+  const p = packagePlatform(platform)
+  if (p === 'darwin') return /\.dmg$/i
+  if (p === 'linux') return /\.AppImage$/i
+  return /\.exe$/i
+}
+function packageKindError (platform) {
+  const p = packagePlatform(platform)
+  if (p === 'darwin') return 'installer url is not a .dmg'
+  if (p === 'linux') return 'installer url is not an .AppImage'
+  return 'installer url is not an .exe'
+}
 function validateManifest (m, origins, platform) {
   if (!VER_RE.test(m.version)) return 'bad version'
   if (m.minVersion != null && !VER_RE.test(m.minVersion)) return 'bad minVersion'
   if (typeof m.url !== 'string' || !urlAllowed(m.url, origins)) return 'installer url not allowed: ' + String(m.url).slice(0, 120)
-  if (!packageExtRe(platform).test(new URL(m.url).pathname)) return (platform || process.platform) === 'darwin' ? 'installer url is not a .dmg' : 'installer url is not an .exe'
+  if (!packageExtRe(platform).test(new URL(m.url).pathname)) return packageKindError(platform)
   if (!Number.isInteger(m.size) || m.size <= 0 || m.size > MAX_INSTALLER_SIZE) return 'bad size'
   if (typeof m.sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(m.sha256)) return 'bad sha256'
   if (m.changelog != null && (typeof m.changelog !== 'object' || Object.values(m.changelog).some(v => typeof v !== 'string'))) return 'bad changelog'
@@ -168,8 +180,7 @@ class Updater {
   // 2.0.0: local installer name follows the 2.0 installer file name (SCDOWallet-<ver>-win-x64-setup.exe)
   // 2.0.0 (U6): path.basename() - the version can never move the file out of <userData>\updates
   installerPath (version) {
-    const v = path.basename(String(version))
-    return path.join(this.updatesDir(), process.platform === 'darwin' ? 'SCDOWallet-' + v + '-mac-arm64.dmg' : 'SCDOWallet-' + v + '-win-x64-setup.exe')
+    return path.join(this.updatesDir(), require('./main/updateChannel').installerName(version, process.platform))
   }
   statePath () { return path.join(this.userData(), 'update-state.json') }
   pendingPath () { return path.join(this.userData(), 'update-pending.json') }
@@ -369,6 +380,27 @@ class Updater {
       setTimeout(() => this.quit(), 1500)
       return { ok: true }
     }
+    if (process.platform === 'linux') {
+      try { fs.chmodSync(file, 0o755) } catch (e) {}
+      const plan = linuxInstallPlan(process.env, file)
+      if (plan.mode === 'replace') {
+        const script = path.join(this.updatesDir(), 'replace-appimage.sh')
+        const body = '#!/bin/sh\nsleep 1\nmv -f ' + quoteSh(plan.file) + ' ' + quoteSh(plan.target) + '\nchmod 755 ' + quoteSh(plan.target) + '\nexec ' + quoteSh(plan.target) + '\n'
+        fs.writeFileSync(script, body, { mode: 0o700 })
+        const child = require('child_process').spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' })
+        child.on('error', e => this.log('install: AppImage replace failed to start: ' + e.message))
+        child.unref()
+        this.log('install: replacing ' + plan.target + ' with the verified AppImage after quit')
+      } else {
+        if (!electron || !electron.shell || !electron.shell.openPath) { this.log('install: cannot open AppImage'); return { ok: false, error: 'cannot open AppImage' } }
+        const opened = await electron.shell.openPath(file)
+        if (opened) { this.log('install: cannot open AppImage ' + opened); return { ok: false, error: opened } }
+        this.log('install: opened verified AppImage ' + path.basename(file))
+      }
+      this.send('update:installing', pending)
+      setTimeout(() => this.quit(), 1500)
+      return { ok: true }
+    }
     const installer = file
     // /S silent overwrite; --force-run: the installer starts the wallet again when it is done (then mining resumes)
     const child = require('child_process').spawn(installer, ['/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true })
@@ -418,6 +450,16 @@ class Updater {
   }
 }
 
+function quoteSh (s) { return "'" + String(s).replace(/'/g, "'\\''") + "'" }
+
+// A running AppImage can replace its own file after quit. Anything else opens the verified file.
+function linuxInstallPlan (env, verifiedFile) {
+  const raw = env && typeof env.APPIMAGE === 'string' ? env.APPIMAGE : ''
+  const safe = !!raw && path.isAbsolute(raw) && /\.AppImage$/i.test(raw) && !/[\0\r\n']/.test(raw)
+  if (!safe) return { mode: 'open', file: verifiedFile }
+  return { mode: 'replace', file: verifiedFile, target: raw }
+}
+
 function minerActive (miner) {
   if (!miner) return false
   return !!(miner.wantRunning || miner.stopping || miner.cleaning || Object.values(miner.procs || {}).some(Boolean))
@@ -425,4 +467,4 @@ function minerActive (miner) {
 
 // 2.0.6: classify a download/install error for the user ('network' vs 'verify')
 function errorKind (msg) { return /timeout|HTTP \d|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ENETUNREACH|socket|aborted|network/i.test(String(msg || '')) ? 'network' : 'verify' }
-module.exports = { Updater, errorKind, verifyManifest, checkManifest, validateManifest, urlAllowed, compareVersions, canonicalManifest, UPDATER_URL, ALLOWED_ORIGINS, PUBKEY_B64, CHECK_DELAY_MS, CHECK_INTERVAL_MS }
+module.exports = { Updater, errorKind, verifyManifest, checkManifest, validateManifest, urlAllowed, compareVersions, canonicalManifest, linuxInstallPlan, UPDATER_URL, ALLOWED_ORIGINS, PUBKEY_B64, CHECK_DELAY_MS, CHECK_INTERVAL_MS }

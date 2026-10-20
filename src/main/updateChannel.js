@@ -41,17 +41,28 @@ const MAC_MANIFEST_URLS = Object.freeze({
   stable: MAC_DOWNLOAD_BASE + 'mac/latest.json',
   beta: MAC_DOWNLOAD_BASE + 'mac/beta/latest.json'
 })
+const LINUX_MANIFEST_URLS = Object.freeze({
+  stable: DOWNLOAD_BASE + 'linux/latest.json',
+  beta: DOWNLOAD_BASE + 'linux/beta/latest.json'
+})
 function manifestUrls (ch, platform) {
-  const u = (platform || process.platform) === 'darwin' ? MAC_MANIFEST_URLS : MANIFEST_URLS
+  const plat = platform || process.platform
+  const u = plat === 'darwin' ? MAC_MANIFEST_URLS : plat === 'linux' ? LINUX_MANIFEST_URLS : MANIFEST_URLS
   return ch === 'beta' ? [u.beta, u.stable] : [u.stable]
 }
 
 const isPre = (v) => /-/.test(String(v || ''))
 function installerName (version, platform) {
   const v = path.basename(String(version))
-  return platform === 'darwin' ? 'SCDOWallet-' + v + '-mac-arm64.dmg' : 'SCDOWallet-' + v + '-win-x64-setup.exe'
+  if (platform === 'darwin') return 'SCDOWallet-' + v + '-mac-arm64.dmg'
+  if (platform === 'linux') return 'SCDOWallet-' + v + '-linux-x64.AppImage'
+  return 'SCDOWallet-' + v + '-win-x64-setup.exe'
 }
-function installerUrl (version, platform) { return (platform === 'darwin' ? MAC_DOWNLOAD_BASE : DOWNLOAD_BASE) + (isPre(version) ? 'beta/' : '') + installerName(version, platform) }
+function installerUrl (version, platform) {
+  const pre = isPre(version) ? 'beta/' : ''
+  if (platform === 'linux') return DOWNLOAD_BASE + 'linux/' + pre + installerName(version, platform)
+  return (platform === 'darwin' ? MAC_DOWNLOAD_BASE : DOWNLOAD_BASE) + pre + installerName(version, platform)
+}
 function sha256Url (version, platform) { return installerUrl(version, platform) + '.sha256' }
 // sha256sum format: "<64 hex>  <file name>" (one line per file; the line for our file wins, else the first hash)
 function parseSha256File (text, fileName) {
@@ -88,4 +99,4 @@ async function buildHashInfo (opts) {
   return out
 }
 
-module.exports = { STORE_KEY, DEFAULT_CHANNEL, CHANNELS, DOWNLOAD_BASE, MANIFEST_URLS, MAC_MANIFEST_URLS, getChannel, setChannel, manifestUrls, installerName, installerUrl, sha256Url, parseSha256File, sha256Line, buildHashInfo }
+module.exports = { STORE_KEY, DEFAULT_CHANNEL, CHANNELS, DOWNLOAD_BASE, MANIFEST_URLS, MAC_MANIFEST_URLS, LINUX_MANIFEST_URLS, getChannel, setChannel, manifestUrls, installerName, installerUrl, sha256Url, parseSha256File, sha256Line, buildHashInfo }
