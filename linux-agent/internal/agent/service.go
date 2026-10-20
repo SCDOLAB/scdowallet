@@ -54,6 +54,7 @@ type Service struct {
 	// It posts a GPU attestation and a challenge solution when both are real.
 	Prove      func(context.Context)
 	registered bool
+	node       *nodeSampler
 }
 
 func (s *Service) version() string {
@@ -126,6 +127,10 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	s.log("agent " + s.Layout.Meta.Address + " bookkeeping")
+	if s.node == nil {
+		s.node = newNodeSampler()
+	}
+	go s.node.loop(ctx, func() int64 { return time.Now().UnixMilli() })
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -161,6 +166,9 @@ func (s *Service) Tick(ctx context.Context) bool {
 		return false
 	}
 	s.stampHeartbeat()
+	if s.node != nil {
+		s.node.clear()
+	}
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
 		_ = update.MarkReported(s.Layout.Root)
 	}
@@ -229,6 +237,9 @@ func (s *Service) heartbeatBody() map[string]any {
 		"payout":  s.payout(),
 	}
 	addCapability(body, s.Layout.Meta)
+	if s.node != nil {
+		s.node.addTo(body)
+	}
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
 		body["updateFrom"] = doc.From
 		body["updateTo"] = doc.To
