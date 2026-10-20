@@ -13,7 +13,7 @@ import (
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 )
 
-// 0.5.8: wallet create --network base binds Base mainnet (and Base Sepolia with the same key);
+// 0.5.9: wallet create --network base binds Base mainnet (and Base Sepolia with the same key);
 // pay settles Base mainnet USDC (eip155:8453) and books /ledger/spend on eip155:8453.
 func TestBaseMainnetCreateAndPay(t *testing.T) {
 	var bindBody, spendBody map[string]any

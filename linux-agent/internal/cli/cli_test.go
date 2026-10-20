@@ -151,7 +151,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		t.Fatal(errb.String())
 	}
 	text := out.String()
-	if !strings.Contains(text, "0.5.8") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
+	if !strings.Contains(text, "0.5.9") || !strings.Contains(text, "https://github.com/coinbase/x402") || !strings.Contains(text, "Apache-2.0") || !strings.Contains(text, "Copyright 2026 x402 Foundation") {
 		t.Fatal(text)
 	}
 	for _, args := range [][]string{{"--version"}, {"-v"}, {"--lang", "zh", "--version"}} {
@@ -160,7 +160,7 @@ func TestVersionCreditsX402(t *testing.T) {
 		if code := Main(args, &out, &errb); code != 0 {
 			t.Fatalf("%v code %d %s", args, code, errb.String())
 		}
-		if !strings.Contains(out.String(), "0.5.8") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
+		if !strings.Contains(out.String(), "0.5.9") || !strings.Contains(out.String(), "https://github.com/coinbase/x402") {
 			t.Fatalf("%v %s", args, out.String())
 		}
 	}
@@ -301,7 +301,7 @@ func readKey(t *testing.T, root, name string) string {
 	return doc.Key
 }
 
-// 0.5.8: init with a non-default data root prints status with --data-dir, and the
+// 0.5.9: init with a non-default data root prints status with --data-dir, and the
 // bookkeeping-node role alias registers as light-node while the output says bookkeeping node.
 func TestInitPrintsDataDirAndBookkeepingRole(t *testing.T) {
 	dir := t.TempDir()
