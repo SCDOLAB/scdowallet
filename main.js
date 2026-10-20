@@ -587,6 +587,9 @@ async function stopMinerVisibly (parent) {
   }
 }
 
+const shardPolicy = require('./src/js/shardPolicy')
+const currentShardPolicy = () => shardPolicy.fromRemote(remoteDoc)
+ipcMain.handle('shard:policy', () => currentShardPolicy())
 ipcMain.handle('miner:start', async (e, wallet, opts) => {
   opts = opts || {}
   if (sessionLight) return { ok: false, code: 'LIGHT' }
@@ -622,6 +625,8 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
       return { ok: false, error: err.message, code: err.code }
     }
   }
+  // 3.1.15: Shard0 EVM bookkeeping is stopped (Shard1–4 only). Running a Shard0 node stays allowed.
+  if (opts.mode !== 'node' && !currentShardPolicy().shard0Mining) return { ok: false, code: 'SHARD0_STOPPED' }
   const cfg = readIntent() || {}
   let mode = opts.mode === 'node' ? 'node' : (cfg.miningMode === 'pool' ? 'pool' : 'mine')
   // 3.1.7: no Shard0 node ships for macOS, so the Mac graphics card always mines through a pool
@@ -656,6 +661,11 @@ ipcMain.handle('miner:intentMigrate', (e, ls) => {
 })
 ipcMain.handle('miner:otherRigels', async () => { await afterCleanup(); try { return await getMiner().otherRigels() } catch (err) { return [] } })
 // everything the renderer needs to decide about auto-resume on launch
+// 3.1.15: a saved Shard0 EVM session is not resumed while Shard0 bookkeeping is stopped.
+function shardResume (r) {
+  if (!r || typeof r !== 'object' || currentShardPolicy().shard0Mining) return r
+  return Object.assign({}, r, { shard0: false })
+}
 ipcMain.handle('miner:resumeCheck', async () => {
   const it = readIntent() || {}
   if (sessionLight) {
@@ -691,7 +701,7 @@ ipcMain.handle('miner:resumeCheck', async () => {
     try { if (tray) tray.balloon('SCDO Wallet', line) } catch (e) {}
   }
   const autoResume = !!((it.autoResume && it.keepMining) || once) && !weak
-  return { autoResume, weakDevice: weak, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? (it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
+  return { autoResume, weakDevice: weak, mode: it.mode || 'mine', reward: it.reward || null, payout: it.payout || null, gpuOk, otherRigels: others, running: m.wantRunning, resume: autoResume ? shardResume(it.resume || null) : { cpu: false, classicGpu: false, shard0: false } }
 })
 ipcMain.handle('miner:gpu', async () => { try { return await getMiner().gpu() } catch (err) { return { nvidia: false, names: [], error: err.message } } })
 ipcMain.handle('miner:stop', async (e, src) => {
@@ -724,6 +734,8 @@ ipcMain.handle('miner:caps', async () => {
   try {
     if (guardActive()) await guardHost.ready()
     const caps = getZpow('cpu').capabilities()
+    // 3.1.15: Shard1–4 only. The page greys out Shard0 EVM bookkeeping while this is set.
+    caps.shard0Stopped = !currentShardPolicy().shard0Mining
     if (process.platform === 'darwin') { try { const g = await getMiner().gpu(); caps.macGpu = { available: !!(g && g.nvidia), names: (g && g.mineNames) || [] } } catch (e) { caps.macGpu = { available: false, names: [] } } }
     return caps
   } catch (err) { return { cpu: { available: false }, gpu: { available: false }, error: err.message } }
@@ -1640,6 +1652,7 @@ function startOpsAgent () {
       enabled: () => (readIntent() || {}).agentReporting !== false,
       light: () => sessionLight,
       snapshot: agentSnapshot,
+      nodeSampler: (() => { try { const { NodeSampler } = require('./src/agent/nodeSampler'); const s = new NodeSampler(); s.start(60000); return s } catch (e) { return null } })(),
       handlers: {
         'free-port': async (a) => {
           const freed = await getMiner().agentFreeRigelPort(a.pids)

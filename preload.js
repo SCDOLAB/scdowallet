@@ -15,7 +15,7 @@ const INVOKE = Object.freeze([
   'acct:create', 'acct:unlock', 'acct:import',
   'phrase:show', 'phrase:done', 'phrase:save',
   's0:chainInfo', 's0:balances', 's0:activity', 's0:refreshPending', 's0:waitReceipt', 's0:checkAddress', 's0:estimate', 's0:review', 's0:send', 's0:cancelReview',
-  'old:balance', 'old:records', 'old:activity', 'old:estimateGas', 'old:send',
+  'old:balance', 'old:records', 'shard:policy', 'old:activity', 'old:estimateGas', 'old:send',
   // keyfile backup / delete
   'keyfile:paths', 'keyfile:backupDelete', 'keyfile:backupOnly', 'keyfile:openBackups',
   // updater

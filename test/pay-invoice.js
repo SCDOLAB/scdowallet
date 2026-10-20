@@ -242,6 +242,6 @@ assert.ok(main.includes("'open-url'") || main.includes('"open-url"'))
 assert.ok(!/setAsDefaultProtocolClient\(\s*['"]ton['"]/.test(main))
 assert.ok(!/setAsDefaultProtocolClient\(\s*['"]ethereum['"]/.test(main))
 assert.ok(JSON.stringify(require(path.join(root, 'package.json')).build.protocols).includes('scdowallet'))
-assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.14')
+assert.strictEqual(require(path.join(root, 'package.json')).version, '3.1.15')
 
 console.log('pay-invoice: ok')
