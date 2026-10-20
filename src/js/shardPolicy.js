@@ -9,6 +9,13 @@
   const PREFIX = { 1: '1S01', 2: '2S02', 3: '3S03', 4: '4S04' }
   const CLASSIC_RE = /^(1S01|2S02|3S03|4S04)[0-9a-fA-F]{37}[12]$/
   const DEFAULT_TAX = 0.6
+  // Treasury Shard1–4 addresses (CEO, 2026-10-20). The remote config can replace one per shard.
+  const DEFAULT_TREASURY = Object.freeze({
+    1: '1S0123a229d1815b5bb8a1d45423adc787e90646b1',
+    2: '2S02a22dbaed78e0c7a73fd52f20912d9201c0ad11',
+    3: '3S03f4b06dbf7360c73c6f0bd05e4172b4636860f1',
+    4: '4S046bb72cbeee5064e82de9acf00328b3d1813641'
+  })
 
   function classicShard (addr) {
     const s = String(addr || '').trim()
@@ -23,9 +30,9 @@
     const treasury = { 1: '', 2: '', 3: '', 4: '' }
     const src = r.shardTreasury && typeof r.shardTreasury === 'object' ? r.shardTreasury : {}
     for (const n of [1, 2, 3, 4]) {
-      const a = String(src[n] || src[String(n)] || '').trim()
+      const a = String(src[n] || src[String(n)] || DEFAULT_TREASURY[n]).trim()
       // A treasury address must be a Classic address on its own shard.
-      if (classicShard(a) === n) treasury[n] = a
+      treasury[n] = classicShard(a) === n ? a : DEFAULT_TREASURY[n]
     }
     const rate = Number(r.shardTaxRate)
     return {
@@ -89,7 +96,7 @@
     }))
   }
 
-  const api = { PREFIX, CLASSIC_RE, DEFAULT_TAX, classicShard, fromRemote, filterPick, freshPick, isTreasury, txKind, taxSplit, treasuryRows }
+  const api = { DEFAULT_TREASURY, PREFIX, CLASSIC_RE, DEFAULT_TAX, classicShard, fromRemote, filterPick, freshPick, isTreasury, txKind, taxSplit, treasuryRows }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOShardPolicy = Object.freeze(api)
 })()
