@@ -34,6 +34,25 @@ function sessionHashrate (m) {
   return null
 }
 
+// 3.1.15: 「運算中」/"Running" only when a miner reports a speed above zero; otherwise 「啟動中」/"Starting".
+function positiveRate (v) {
+  const n = num(v)
+  return n != null && n > 0
+}
+
+function anyRate (list) {
+  for (const m of list || []) {
+    if (!m) continue
+    if (positiveRate(reportedRate(m)) || positiveRate(sessionHashrate(m))) return true
+  }
+  return false
+}
+
+function runningOrBoot (state, hashingNow, T) {
+  if (state === tr(T, 'shellMineOn') && !hashingNow) return tr(T, 'shellBoot')
+  return state
+}
+
 function heightsBehind (m) {
   const local = knownHeight(m && m.localBlock)
   const network = knownHeight(m && m.networkBlock)
@@ -957,6 +976,9 @@ function deviceModel (input, device, T) {
     liveOnly: true
   }, T)
   let status = plainStatus(view, T)
+  const devMiners = miners && typeof miners === 'object' ? (Array.isArray(miners) ? miners : Object.values(miners)) : []
+  status = runningOrBoot(status, anyRate(devMiners), T)
+  if (status === tr(T, 'shellBoot') && view.statusTone === 'on') view.statusTone = 'busy'
   const known = !!(input && input.caps && (input.caps.gpu || input.caps.cpu))
   const g = (input && input.miners && input.miners.classicGpu)
   if (device === 'gpu' && g && processAlive(g) && g.backend !== 'zminer-gpu' && waitingSync(g, 'classic') && !(g.gpuActive || g.code === 'CLASSIC_GPU')) {
@@ -1112,8 +1134,8 @@ function chainExpandHtml (input, device, n, T, esc, pools) {
   const alive = !!(session && processAlive(session) && session.mode !== 'node')
   const rate = reportedRate(session)
   let state = tr(T, 'shellMineOff')
-  if (alive && (session.backend === 'zminer-gpu' || session.backend === 'zminer' || session.mode === 'cpu')) state = rate == null ? tr(T, 'shellBoot') : tr(T, 'shellMineOn')
-  else if (alive && (session.phase === 'mining' || session.code === 'CLASSIC_GPU' || session.code === 'CLASSIC_MINING' || session.gpuActive)) state = tr(T, 'shellMineOn')
+  if (alive && (session.backend === 'zminer-gpu' || session.backend === 'zminer' || session.mode === 'cpu')) state = positiveRate(rate) ? tr(T, 'shellMineOn') : tr(T, 'shellBoot')
+  else if (alive && (session.phase === 'mining' || session.code === 'CLASSIC_GPU' || session.code === 'CLASSIC_MINING' || session.gpuActive)) state = runningOrBoot(tr(T, 'shellMineOn'), anyRate([session]), T)
   else if (alive && stillSyncing(session)) state = tr(T, 'shellMineWaitPlain')
   else if (alive) state = tr(T, 'shellMineStarting')
   const speed = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
@@ -1171,7 +1193,7 @@ function chainDetailHtml (input, device, n, T, esc) {
   else if (held && held.label && held.action === 'solo') state = held.label
   else if (held && held.reason) state = held.reason
   else if (held && held.reasonKey) state = tr(T, held.reasonKey)
-  else if (session && ((n === 0 && liveMiner(session, 'shard0')) || (n >= 1 && liveMiner(session, 'classic')))) state = tr(T, 'shellMineOn')
+  else if (session && ((n === 0 && liveMiner(session, 'shard0')) || (n >= 1 && liveMiner(session, 'classic')))) state = runningOrBoot(tr(T, 'shellMineOn'), anyRate([session]), T)
   else if (session && processAlive(session) && ((n === 0 && waitingSync(session, 'shard0')) || (n >= 1 && waitingSync(session, 'classic')))) {
     const pct = syncPctOf(session)
     state = pct == null ? tr(T, 'shellMineWaitPlain') : tr(T, 'shellMineWait', { detail: chainLabel(n) + ' ' + pct + '%' })
@@ -1269,8 +1291,8 @@ function devicePanel (input, device, picked, other, T, esc, huge) {
   let load = ''
   if (zpow.length && model.phase !== 'stopped' && model.phase !== 'stopping') {
     const rate = rateOfList(zpow)
-    model.status = rate == null ? tr(T, 'shellBoot') : tr(T, 'shellMineOn')
-    model.view.statusTone = rate == null ? 'busy' : 'on'
+    model.status = positiveRate(rate) ? tr(T, 'shellMineOn') : tr(T, 'shellBoot')
+    model.view.statusTone = positiveRate(rate) ? 'on' : 'busy'
     const rateText = rate == null ? DASH : tr(T, 'islePerSec', { n: Math.round(rate).toLocaleString('en-US') })
     const earn = sessionEarnText(zpow, T)
     const earnText = earn == null ? DASH : earn
