@@ -267,6 +267,7 @@ func (s *Service) deliver(ctx context.Context, typ string, body map[string]any) 
 		}
 		env, _, err := ledger.Sign(s.Key, typ, seq, body, s.now())
 		if err != nil {
+			s.log(fmt.Sprintf("%s sign failed: %v", typ, err))
 			return err
 		}
 		res, err := s.Client.Post(ctx, typ, env)

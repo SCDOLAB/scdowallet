@@ -141,13 +141,17 @@ func (n *nodeSampler) addTo(body map[string]any) {
 		return
 	}
 	last := n.samples[len(n.samples)-1]
-	body["head_block"] = last.Block
+	body["head_block"] = int64(last.Block)
 	body["head_hash"] = last.Hash
 	body["peer_count"] = last.Peers
 	if n.enode != "" {
 		body["enode"] = n.enode
 	}
-	body["node_samples"] = append([]NodeSample(nil), n.samples...)
+	arr := make([]any, 0, len(n.samples))
+	for _, x := range n.samples { // canonical signer takes only []any / map[string]any / int64
+		arr = append(arr, map[string]any{"t": x.T, "h": int64(x.Block), "hash": x.Hash, "peers": x.Peers})
+	}
+	body["node_samples"] = arr
 	n.sentTo = last.T
 }
 
