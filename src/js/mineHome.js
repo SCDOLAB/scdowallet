@@ -565,7 +565,7 @@ function jobsForHome (input) {
   if (saved.classic) pushClassic(jobs, saved.classic, primary, caps)
   if (saved.cpu) pushClassic(jobs, 'cpu', input.classicCpu || input.classic, caps)
   const reward = String(input.reward || '')
-  if (saved.shard0 && !input.gpuBusy && input.nvidia && shard0PreflightOk(input.preflight) && /^0x[0-9a-fA-F]{40}$/.test(reward)) {
+  if (saved.shard0 && !(input.caps && input.caps.shard0Stopped) && !input.gpuBusy && input.nvidia && shard0PreflightOk(input.preflight) && /^0x[0-9a-fA-F]{40}$/.test(reward)) {
     jobs.push({ chain: 'shard0', backend: 'gpu', mode: 'mine', address: reward })
   }
   if (input.hot) return jobs.filter(j => j.chain === 'classic' && j.backend === 'cpu')
@@ -740,6 +740,8 @@ function poolNotOffered (pools, n) {
 
 function chainSupport (device, n, caps, pools) {
   n = Number(n)
+  // 3.1.15: Shard0 EVM bookkeeping is stopped; only Shard1–Shard4 can be picked.
+  if (n === 0 && caps && caps.shard0Stopped) return { ok: false, reasonKey: 'shellShard0Stopped' }
   const known = !!(caps && (caps.gpu || caps.cpu))
   if (device === 'cpu') {
     if (n === 0) return { ok: false, reasonKey: 'shellOnlyGpu' }

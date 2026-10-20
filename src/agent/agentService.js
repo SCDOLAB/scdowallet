@@ -324,8 +324,12 @@ class AgentService {
       if (this.registered) await this.deliver('heal', { action: a.type, reason: String(a.reason || '').slice(0, 200), outcome, problems: problems.map(p => p.code) })
     }
     if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
-      const r = await this.deliver('heartbeat', this.withPayout(heartbeatBody(snap, this.host.version)))
-      if (r && r.ok) this.lastBeat = now
+      // 3.1.15: local Shard0 node head_hash / per-minute samples (anti-farm), when a node answers.
+      const sampler = this.host && this.host.nodeSampler
+      const body = heartbeatBody(snap, this.host.version)
+      if (sampler) { try { sampler.addTo(body) } catch (e) {} }
+      const r = await this.deliver('heartbeat', this.withPayout(body))
+      if (r && r.ok) { this.lastBeat = now; if (sampler) { try { sampler.clear() } catch (e) {} } }
     }
     await this.reserveOnOnline()
     return { actions: results, problems }
