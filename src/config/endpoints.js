@@ -116,6 +116,15 @@ function normalizeRemote (doc) {
     const u = sanitizeUrl(doc.rewardLend.url)
     if (u) out.rewardLend = { url: u }
   }
+  // 3.1.15: Shard1–4 only policy. shard0Mining true turns Shard0 EVM bookkeeping back on.
+  if (typeof doc.shard0Mining === 'boolean') out.shard0Mining = doc.shard0Mining
+  if (doc.shardTreasury && typeof doc.shardTreasury === 'object' && !Array.isArray(doc.shardTreasury)) {
+    const t = {}
+    for (const n of ['1', '2', '3', '4']) if (typeof doc.shardTreasury[n] === 'string') t[n] = doc.shardTreasury[n].trim()
+    out.shardTreasury = t
+  }
+  const rate = Number(doc.shardTaxRate)
+  if (Number.isFinite(rate) && rate > 0 && rate < 1) out.shardTaxRate = rate
   return out
 }
 

@@ -314,8 +314,35 @@
   function balFromIpc (b) {
     return { nativeWei: b.nativeWei == null ? null : BigInt(b.nativeWei), tokens: (b.tokens || []).map(t => Object.assign({}, t, { raw: t.raw == null ? null : BigInt(t.raw) })) }
   }
+  // 3.1.15: Shard1–4 only policy and the treasury (team) addresses per shard, from the remote config.
+  // Treasury balances use the same public Shard1–4 balance read as the wallet's own accounts.
+  let treasuryAt = 0
+  function refreshTreasury () {
+    if (Date.now() - treasuryAt < 60000) return
+    treasuryAt = Date.now()
+    api.invoke('shard:policy').then(p => {
+      if (!p) return
+      st.policy = p
+      st.treasuryBal = st.treasuryBal || {}
+      return Promise.all([1, 2, 3, 4].map(n => {
+        const a = p.treasury && p.treasury[n]
+        if (!a) { delete st.treasuryBal[n]; return null }
+        return api.invoke('old:balance', a, n).then(v => { if (v != null) st.treasuryBal[n] = v }).catch(() => {})
+      }))
+    }).then(() => { try { const h = document.getElementById('treasuryHost'); if (h) h.innerHTML = treasuryHtml() } catch (e) {} }).catch(() => {})
+  }
+  function treasuryHtml () {
+    if (!window.SCDOShardPolicy) return ''
+    const pol = st.policy || window.SCDOShardPolicy.fromRemote(null)
+    const rows = window.SCDOShardPolicy.treasuryRows(pol, st.treasuryBal || {})
+    const pct = Math.round((pol.taxRate || 0.6) * 100)
+    const fmt = (v) => { try { return AMT.fmtUnits(BigInt(v), 8) + ' SCDO' } catch (e) { return '\u2014' } }
+    const line = (r) => `<div class="row" data-treasury-shard="${r.shard}"><b>${esc(r.chain)}</b> <span class="lbl">${esc(r.address ? r.address : T('d_treasuryNone'))}</span> <span>${esc(r.address && r.balance != null ? fmt(r.balance) : '\u2014')}</span></div>`
+    return `<div class="sec-h">${esc(T('d_treasuryHead'))}</div><div class="lbl">${esc(T('d_treasuryLead', { pct }))}</div>${rows.map(line).join('')}`
+  }
   let refreshingOld = false
   function refreshOld () {
+    refreshTreasury()
     if (refreshingOld || !st.accounts.length) return; refreshingOld = true
     let left = st.accounts.length; let anyOk = false
     const doneOne = () => { if (--left <= 0) { refreshingOld = false; st.net.oldOk = anyOk; renderLive() } }
@@ -582,13 +609,16 @@
     if (r.raw != null && r.decimals != null) { try { return AMT.fmtUnits(BigInt(r.raw), r.decimals) } catch (e) {} }
     return fmtNum(r.amount)
   }
-  const TX_TITLE = { in: 'd_txIn', out: 'd_txOut', self: 'd_txSelf', reward: 'd_txReward' }
+  const TX_TITLE = { in: 'd_txIn', out: 'd_txOut', self: 'd_txSelf', reward: 'd_txReward', tax: 'd_txTax' }
   function txRow (r, chain, when) {
-    const dir = TX_TITLE[r.dir] ? r.dir : 'out'
+    // 3.1.15: a Shard1–4 transfer to that shard's treasury is the treasury tax, not an ordinary send.
+    const shardN = /^Shard([1-4])$/.exec(chain)
+    const kind = shardN && window.SCDOShardPolicy ? window.SCDOShardPolicy.txKind(r, Number(shardN[1]), st.policy) : r.dir
+    const dir = TX_TITLE[kind] ? kind : 'out'
     const status = r.status === 'done' ? T('d_txDone') : (r.status === 'fail' || r.status === 'error') ? T('d_txFail') : T('d_txPending')
     const who = dir === 'reward' ? '' : (dir === 'in' ? T('d_txFrom', { a: r.from }) : T('d_txTo', { a: r.to }))
-    const sign = dir === 'out' ? '\u2212' : dir === 'self' ? '' : '+'
-    return { t: Number(new Date(r.t)) || 0, dir: dir === 'reward' ? 'mine' : dir === 'self' ? 'self' : dir, key: String(r.hash || '').toLowerCase() + ':' + (r.asset || 'SCDO'), hash: /^0x[0-9a-fA-F]{64}$/.test(String(r.hash || '')) && chain === 'Shard0 EVM' ? r.hash : '', title: T(TX_TITLE[dir], { chain }), sub: [who, when(r.t), r.block ? '#' + r.block : '', status].filter(Boolean).join(' · '), amount: sign + txAmount(r) + ' ' + (r.asset || 'SCDO') }
+    const sign = dir === 'out' || dir === 'tax' ? '\u2212' : dir === 'self' ? '' : '+'
+    return { t: Number(new Date(r.t)) || 0, dir: dir === 'reward' ? 'mine' : dir === 'self' ? 'self' : dir === 'tax' ? 'out' : dir, key: String(r.hash || '').toLowerCase() + ':' + (r.asset || 'SCDO'), hash: /^0x[0-9a-fA-F]{64}$/.test(String(r.hash || '')) && chain === 'Shard0 EVM' ? r.hash : '', title: T(TX_TITLE[dir], { chain, pct: Math.round(((st.policy && st.policy.taxRate) || 0.6) * 100) }), sub: [who, when(r.t), r.block ? '#' + r.block : '', status].filter(Boolean).join(' · '), amount: sign + txAmount(r) + ' ' + (r.asset || 'SCDO') }
   }
   function recentTx () {
     const rows = []
@@ -1116,7 +1146,7 @@
     return h
   }
   function pageAcc () {
-    return `<div class="page dash" id="accPage"><div class="dash-h"><span class="h1">${esc(T('d_accPageTitle'))}</span><span class="lbl">${esc(T('d_accPageLead'))}</span></div><div id="accList">${accListHtml()}</div></div>`
+    return `<div class="page dash" id="accPage"><div class="dash-h"><span class="h1">${esc(T('d_accPageTitle'))}</span><span class="lbl">${esc(T('d_accPageLead'))}</span></div><div id="accList">${accListHtml()}</div><div id="treasuryHost">${treasuryHtml()}</div></div>`
   }
   // 挖礦 page: read-only status of the three miners
   function mineSlotsHtml () {
@@ -3793,7 +3823,8 @@
     let classic = ''
     if (gpuKind === 'external' || gpuKind === 'gpu' || (gpuList && gpuList.some(n => n >= 1))) classic = gpuKind === 'external' ? 'external' : 'gpu'
     else if (cpuOn) classic = 'cpu'
-    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: !!shard0 }
+    const s0Off = !!(st.caps && st.caps.shard0Stopped)
+    return { classic: classic, cpu: cpuOn && classic !== 'cpu', shard0: !!shard0 && !s0Off }
   }
   function classicTargetForHome (backendName) {
     const pickedBackend = backendName === 'gpu' || backendName === 'external' || backendName === 'cpu'
