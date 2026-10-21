@@ -116,6 +116,24 @@ func (c *rpc) chainID(ctx context.Context) (*big.Int, error) {
 	return parseHex(raw)
 }
 
+func (c *rpc) getLogs(ctx context.Context, topics []any) ([]logJSON, error) {
+	params := []any{map[string]any{
+		"address":   IdentityRegistry,
+		"fromBlock": "0x0",
+		"toBlock":   "latest",
+		"topics":    topics,
+	}}
+	raw, err := c.call(ctx, "eth_getLogs", params)
+	if err != nil {
+		return nil, err
+	}
+	var logs []logJSON
+	if err := json.Unmarshal(raw, &logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
 func (c *rpc) registrations(ctx context.Context, address string) ([]foundReg, error) {
 	params := []any{map[string]any{
 		"address":   IdentityRegistry,

@@ -1,4 +1,4 @@
-// Package wallet is the per-bot Base Sepolia wallet.
+// Package wallet is the per-bot Base wallet (Base mainnet or Base Sepolia).
 //
 // Payment signing and the PAYMENT-SIGNATURE header come from the open-source
 // x402 SDK (https://github.com/coinbase/x402, Apache-2.0). This package adds
@@ -18,8 +18,14 @@ import (
 )
 
 const (
-	// NetworkSepolia is Base Sepolia. Base mainnet (eip155:8453) stays off.
+	// NetworkSepolia is Base Sepolia (--network base-sepolia).
 	NetworkSepolia = "eip155:84532"
+	// NetworkBase is Base mainnet (--network base, chain 8453).
+	NetworkBase = "eip155:8453"
+	// BaseUSDC is native USDC on Base mainnet: EIP-712 name "USD Coin", version "2", 6 decimals.
+	BaseUSDC        = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+	BaseUSDCName    = "USD Coin"
+	BaseUSDCVersion = "2"
 	// NetworkShard0 is SCDO Shard0.
 	NetworkShard0 = "eip155:5680"
 	// SepoliaUSDC is the Base Sepolia USDC contract the x402 SDK already lists
@@ -181,6 +187,48 @@ func NormalizeAsset(s string) (string, error) {
 	default:
 		return "", fmt.Errorf("asset")
 	}
+}
+
+// ParseNetwork maps the --network flag to a CAIP-2 id. "base" is Base mainnet.
+func ParseNetwork(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "base", "base-mainnet", "mainnet", NetworkBase, "8453":
+		return NetworkBase, nil
+	case "base-sepolia", "sepolia", NetworkSepolia, "84532":
+		return NetworkSepolia, nil
+	default:
+		return "", fmt.Errorf("network must be base or base-sepolia")
+	}
+}
+
+// USDCFor is the USDC contract on a Base network, or "" for other networks.
+func USDCFor(network string) string {
+	switch network {
+	case NetworkBase:
+		return BaseUSDC
+	case NetworkSepolia:
+		return SepoliaUSDC
+	}
+	return ""
+}
+
+// isUSDC reports a Base mainnet or Base Sepolia USDC requirement.
+func isUSDC(network, asset string) bool {
+	u := USDCFor(network)
+	return u != "" && sameAddr(asset, u)
+}
+
+// NetworkLabel is the --network name for a CAIP-2 id.
+func NetworkLabel(network string) string {
+	switch network {
+	case NetworkBase:
+		return "base"
+	case NetworkSepolia:
+		return "base-sepolia"
+	case NetworkShard0:
+		return "scdo-shard0"
+	}
+	return network
 }
 
 // LayoutDir is the agent directory that holds wallet.json.

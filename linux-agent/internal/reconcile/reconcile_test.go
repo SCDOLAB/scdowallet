@@ -52,7 +52,7 @@ func (p probe) Run(name string, args ...string) ([]byte, error) {
 func TestBindingsAreIdempotent(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if _, err := agent.Create(root, "alice", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "alice", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
@@ -94,7 +94,7 @@ func TestBindingsAreIdempotent(t *testing.T) {
 func TestUpgradeDoesNotCreateAgents(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0x52908400098527886e0f7030069857d2e4169ee7\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	toml := "[[account]]\nhandle = \"alice\"\nuser_id = \"42\"\nagent = \"alice\"\n"
@@ -129,7 +129,7 @@ func TestUpgradeDoesNotCreateAgents(t *testing.T) {
 func TestGPUGoneKeepsDirectory(t *testing.T) {
 	root := t.TempDir()
 	cfg := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte("payout = \"0x52908400098527886e0f7030069857d2e4169ee7\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var reported int
@@ -143,7 +143,7 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
-	if _, err := agent.Create(root, "gpu0", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "old", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "gpu0", "0x52908400098527886e0f7030069857d2e4169ee7", "old", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	withCard := probe{
@@ -186,6 +186,49 @@ func TestGPUGoneKeepsDirectory(t *testing.T) {
 	}
 	if len(host.stopped) != 1 {
 		t.Fatalf("probe failure stopped again: %v", host.stopped)
+	}
+}
+
+func TestIntelDoesNotCreateOrRewriteGPU(t *testing.T) {
+	root := t.TempDir()
+	cfg := t.TempDir()
+	if _, err := agent.Create(root, "gpu0", "0x52908400098527886e0f7030069857d2e4169ee7", "old", agent.RoleLight, "", "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, filepath.Join(root, "gpu0", "meta.json"))
+	key := readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))
+	intel := probe{
+		have: map[string]bool{"lspci": true},
+		out:  map[string]string{"lspci -nn": "00:02.0 VGA compatible controller [0300]: Intel Corporation UHD Graphics 610\n"},
+	}
+	host := &sys{}
+	var logs []string
+	opt := Options{DataRoot: root, ConfigDir: cfg, Probe: intel, System: host, Log: func(s string) { logs = append(logs, s) }}
+	if err := Run(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.stopped) != 0 || len(host.enabled) != 0 {
+		t.Fatalf("stopped %v enabled %v", host.stopped, host.enabled)
+	}
+	if !bytes.Equal(key, readFile(t, filepath.Join(root, "gpu0", "keys", "ledger.key"))) {
+		t.Fatal("key changed")
+	}
+	if !bytes.Equal(before, readFile(t, filepath.Join(root, "gpu0", "meta.json"))) {
+		t.Fatal("intel probe rewrote meta.json")
+	}
+	text := strings.Join(logs, "\n")
+	if strings.Contains(text, "init --name gpu0") {
+		t.Fatal(text)
+	}
+	empty := probe{have: map[string]bool{"lspci": true}, out: map[string]string{"lspci -nn": "00:00.0 Host bridge: Intel\n"}}
+	opt.Probe = empty
+	opt.Log = func(string) {}
+	if _, err := os.Stat(filepath.Join(root, "gpu0")); err != nil {
+		t.Fatal(err)
+	}
+	_ = Run(context.Background(), Options{DataRoot: t.TempDir(), ConfigDir: cfg, Probe: intel, Log: func(s string) { text = s }})
+	if strings.Contains(text, "init --name") {
+		t.Fatal(text)
 	}
 }
 

@@ -71,9 +71,11 @@ Commands:
   logs      Show how to read the service log
   upgrade-now  Check the signed feed and swap the binary. It does not create agents
   wallet    Create a bot wallet, set limits, or export the keystore
-  pay       Pay an HTTP 402 with Base Sepolia USDC
-  serve-paywall  Receive a payment through the testnet facilitator
+  pay       Pay an HTTP 402 with Base USDC (--network base or base-sepolia)
+  serve-paywall  Receive a Base USDC payment (facilitator pays the gas)
   erc8004   Register this agent on the Shard0 ERC-8004 identity registry
+  log-job   Sign and publish one job outcome for any paid service (started, succeeded, failed, refunded, ...)
+  link-8004 Link an ERC-8004 agentId on Base mainnet to this agent
   operator  Confirm bots that named this operator
   version   Print the version
   help      Show this help
@@ -87,11 +89,12 @@ Language:
   English by default. For 華語, pass --lang zh or use a LANG=zh* locale.
 
 init:
-  scdo-agent init --name NAME --payout 0xADDR [--label TEXT]
-      [--role light-node|server-node] [--ref TOKEN] [--src TOKEN]
+  scdo-agent init --name NAME [--payout 0xADDR] [--label TEXT]
+      [--role bookkeeping-node|server-node] [--ref TOKEN] [--src TOKEN]
       [--passphrase-file PATH]
 
-  --payout is required. The secp256k1 key is stored mode 0600 and is never printed.
+  --payout is optional; without it the agent's own ledger address is used.
+  bookkeeping-node is the default role (sent to the ledger as light-node). The secp256k1 key is stored mode 0600 and is never printed.
   --passphrase-file encrypts that key. Without it, a service-user key file is used
   for unattended systemd.
 
@@ -100,6 +103,23 @@ run:
 
   Heartbeats go out every 5 minutes. The ledger base is https://scdo.com.au
   and falls back to https://apeccapital.org. This process keeps the ledger record.
+
+link-8004:
+  scdo-agent link-8004 --name NAME --agent-id N
+      Links an ERC-8004 agentId from the Base mainnet IdentityRegistry
+      (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432). ownerOf(N) or getAgentWallet(N)
+      must be this agent's address. The ledger page then shows the agentId.
+
+log-job:
+  scdo-agent log-job --name NAME --job-id ID --status placed|started|ready|succeeded|failed|refunded|credited
+      [--service-type gpu|api|data|TEXT] [--latency-ms N] [--duration-s N] [--error-class TEXT]
+      [--amount DECIMAL --currency CODE] [--refund-amount DECIMAL] [--payment-tx 0xBASE_TX]
+      [--provider TEXT | --provider-hash TEXT] [--gpu-type TEXT] [--note TEXT] [--json]
+
+  Signs one job outcome for any paid service with the agent key and posts it to the Agent Ledger.
+  Nothing is paid. --provider-hash publishes sha256(TEXT) instead of the name. --payment-tx
+  (alias --evidence-tx) must be a Base mainnet transaction that exists.
+  Public: https://scdo.com.au/agent-ledger/api/agents/<agent>/jobs
 
 status:
   scdo-agent status --name NAME [--ledger URL]
@@ -130,7 +150,7 @@ User install (no root):
 
 wallet:
   scdo-agent wallet create --bot ID [--name NAME] [--email ADDR]
-      [--asset usdc|wscdo] [--max AMOUNT] [--daily AMOUNT]
+      [--network base|base-sepolia] [--asset usdc|wscdo] [--max AMOUNT] [--daily AMOUNT]
       [--passphrase-file PATH] [--ledger URL]
   scdo-agent wallet show --bot ID
   scdo-agent wallet limit --bot ID [--asset usdc|wscdo]
@@ -143,22 +163,30 @@ wallet:
   scdo-agent wallet bind-email --bot ID [--email ADDR]
   scdo-agent wallet confirm-email --bot ID --code 123456
   scdo-agent wallet bind-x --bot ID
-  scdo-agent pay URL --bot ID [--max AMOUNT] [--dry-run]
-  scdo-agent serve-paywall --bot ID --price AMOUNT [--path /answer] [--port 8410]
+  scdo-agent pay URL --bot ID [--network base|base-sepolia] [--max AMOUNT] [--dry-run]
+  scdo-agent serve-paywall --bot ID --price AMOUNT [--network base|base-sepolia]
+      [--path /answer] [--port 8410]
 
   --bot is the agent name when --name is omitted. An email is stored only as a
   salted commitment. The salt stays in the agent directory and is sent only to
   /bind/email/start, never printed.
   --asset selects the serve-paywall asset and which cap --max and --daily write.
   usdc uses 6 decimals. wscdo uses 18. The two caps are stored separately.
-  Payments use the open-source x402 SDK. Base Sepolia USDC (eip155:84532) and
-  Shard0 WSCDO (eip155:5680, 0xea830FF078410C22342a39e8985E439dc0035cf5) are
-  enabled. WSCDO is EIP-3009 with domain name Wrapped SCDO and version 1.
-  Base mainnet stays off.
+  --network base is Base mainnet (chain 8453, USDC
+  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913). --network base-sepolia is the
+  testnet (eip155:84532) and is the default for wallet create. A base wallet
+  is also bound for Base Sepolia with the same key. pay and serve-paywall use
+  the wallet's network unless --network is given.
+  Payments use the open-source x402 SDK. The payer signs an EIP-3009
+  authorization only; the facilitator submits it and pays the gas, so the
+  wallet needs USDC but no ETH. Shard0 WSCDO (eip155:5680,
+  0xea830FF078410C22342a39e8985E439dc0035cf5) is also enabled. WSCDO is
+  EIP-3009 with domain name Wrapped SCDO and version 1.
   Limits are checked before signing. A policy refusal exits with status 3.
   An empty payee or domain list allows any payee or host on those networks.
-  serve-paywall uses https://x402.org/facilitator for USDC and
-  https://scdo.com.au/x402-scdo for WSCDO. Settle is that base plus /settle.
+  serve-paywall uses https://scdo.com.au/x402-base (the Coinbase CDP
+  facilitator) for Base mainnet USDC, https://x402.org/facilitator for Base
+  Sepolia USDC and https://scdo.com.au/x402-scdo for WSCDO. Settle is that base plus /settle.
   Each settled payment is booked with /ledger/income.
   export writes an encrypted Web3 keystore. A raw key is printed only on a
   terminal, and only with --raw and --i-understand-raw-key.
@@ -177,8 +205,12 @@ erc8004:
   to the agent, and checks that the owner is the agent. Both transactions
   are sent by the sponsor. Keys are not printed.
   An identity the agent already owns is left as it is.
-  Automatic registration on start stays off unless /etc/scdo-agent/config.toml
-  contains erc8004 = true. That path uses the agent key.
+  Since 0.5.10 "run" self-registers on start: the agent key sends the mint itself,
+  so the agent passes the Agent Ledger "verified" check (v1-2026-10-21). When the
+  agent has no Shard0 SCDO for gas it asks the ledger once for a small gas drip and
+  waits for it on chain before minting. Identities minted by others and transferred
+  to the agent are left as they are. Turn this off with erc8004 = false in
+  /etc/scdo-agent/config.toml.
 
 operator:
   scdo-agent operator batch --name OPERATOR --bot BOT [--bot BOT]
@@ -199,6 +231,7 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"next":               "Next:",
 	"nextEnable":         "  sudo systemctl enable --now scdo-agent@%s.service",
 	"nextStatus":         "  scdo-agent status --name %s",
+	"nextStatusData":     "  scdo-agent --data-dir %s status --name %s",
 	"exists":             "Agent %s already exists. The existing key was left in place.",
 	"notInit":            "Agent %s is not initialised. Run init first.",
 	"running":            "Agent %s is already running.",
@@ -212,7 +245,7 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"unreachable":        "The ledger could not be reached.",
 	"notReg":             "This agent has no ledger record yet.",
 	"version":            "scdo-agent %s",
-	"roleLight":          "bookkeeping node",
+	"roleLight":          "bookkeeping node (ledger role light-node)",
 	"roleServer":         "server node",
 	"langName":           "English",
 	"usage":              "Run scdo-agent help for usage.",
@@ -233,7 +266,7 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"walletSpent":        "Spent in the last 24 hours: %s USDC",
 	"walletPayees":       "Payees: %s",
 	"walletDomains":      "Domains: %s",
-	"walletAnyPayee":     "Payees: any Base Sepolia address",
+	"walletAnyPayee":     "Payees: any address on the wallet network",
 	"walletAnyDomain":    "Domains: any host",
 	"walletKillOn":       "Kill switch: on",
 	"walletKillOff":      "Kill switch: off",
@@ -259,7 +292,7 @@ One systemd instance per agent: scdo-agent@<name>.service.
 	"walletDailyWSCDO":   "Daily: %s WSCDO",
 	"walletLedger":       "Ledger: %s",
 	"walletBot":          "Bot wallet: %s",
-	"walletTx":           "Transaction: https://sepolia.basescan.org/tx/%s",
+	"walletTx":           "Transaction: %s",
 	"walletKilled":       "Payments are stopped and the ledger record is frozen.",
 	"walletUnkilled":     "Payments are allowed and the ledger record is unfrozen.",
 	"erc8004ID":          "Agent id: %s",
@@ -300,8 +333,8 @@ var zh = map[string]string{
   logs      顯示如何查看服務紀錄
   upgrade-now  檢查簽章後的發布檔並替換執行檔。它不會建立代理
   wallet    建立機器人錢包、設定限額，或匯出金鑰庫
-  pay       對 HTTP 402 支付 Base Sepolia USDC
-  serve-paywall  以測試網 facilitator 收取付款
+  pay       對 HTTP 402 支付 Base USDC（--network base 或 base-sepolia）
+  serve-paywall  收取 Base USDC 付款（facilitator 支付 gas）
   erc8004   在 Shard0 的 ERC-8004 身份登記冊登記這個代理
   operator  確認已把這個操作者寫進綁定的機器人
   version   顯示版本
@@ -316,17 +349,35 @@ version：
   預設為英文。華語：--lang zh，或 LANG=zh* 語系。
 
 init：
-  scdo-agent init --name 名稱 --payout 0x地址 [--label 文字]
-      [--role light-node|server-node] [--ref 代碼] [--src 代碼]
+  scdo-agent init --name 名稱 [--payout 0x地址] [--label 文字]
+      [--role bookkeeping-node|server-node] [--ref 代碼] [--src 代碼]
       [--passphrase-file 路徑]
 
-  --payout 為必填。secp256k1 金鑰以 0600 權限存放，不會印出。
+  --payout 可省略；省略時使用代理自己的帳本地址。
+  預設角色是記帳節點 bookkeeping-node（送到帳本時為 light-node）。secp256k1 金鑰以 0600 權限存放，不會印出。
   --passphrase-file 會把金鑰加密後存放。未設定時，以僅限服務使用者讀取的金鑰檔提供無人值守的 systemd。
 
 run：
   scdo-agent run --name 名稱 [--ledger URL] [--passphrase-file 路徑]
 
   每 5 分鐘送出一次心跳。帳本位址為 https://scdo.com.au，失敗時改用 https://apeccapital.org。此行程只維護帳本紀錄。
+
+link-8004:
+  scdo-agent link-8004 --name NAME --agent-id N
+      Links an ERC-8004 agentId from the Base mainnet IdentityRegistry
+      (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432). ownerOf(N) or getAgentWallet(N)
+      must be this agent's address. The ledger page then shows the agentId.
+
+log-job:
+  scdo-agent log-job --name NAME --job-id ID --status placed|started|ready|succeeded|failed|refunded|credited
+      [--service-type gpu|api|data|TEXT] [--latency-ms N] [--duration-s N] [--error-class TEXT]
+      [--amount DECIMAL --currency CODE] [--refund-amount DECIMAL] [--payment-tx 0xBASE_TX]
+      [--provider TEXT | --provider-hash TEXT] [--gpu-type TEXT] [--note TEXT] [--json]
+
+  Signs one job outcome for any paid service with the agent key and posts it to the Agent Ledger.
+  Nothing is paid. --provider-hash publishes sha256(TEXT) instead of the name. --payment-tx
+  (alias --evidence-tx) must be a Base mainnet transaction that exists.
+  Public: https://scdo.com.au/agent-ledger/api/agents/<agent>/jobs
 
 status：
   scdo-agent status --name 名稱 [--ledger URL]
@@ -354,7 +405,7 @@ upgrade-now：
 
 wallet：
   scdo-agent wallet create --bot 編號 [--name 名稱] [--email 信箱]
-      [--asset usdc|wscdo] [--max 金額] [--daily 金額]
+      [--network base|base-sepolia] [--asset usdc|wscdo] [--max 金額] [--daily 金額]
       [--passphrase-file 路徑] [--ledger URL]
   scdo-agent wallet show --bot 編號
   scdo-agent wallet limit --bot 編號 [--asset usdc|wscdo]
@@ -367,21 +418,27 @@ wallet：
   scdo-agent wallet bind-email --bot 編號 [--email 信箱]
   scdo-agent wallet confirm-email --bot 編號 --code 123456
   scdo-agent wallet bind-x --bot 編號
-  scdo-agent pay 網址 --bot 編號 [--max 金額] [--dry-run]
-  scdo-agent serve-paywall --bot 編號 --price 金額 [--path /answer] [--port 8410]
+  scdo-agent pay 網址 --bot 編號 [--network base|base-sepolia] [--max 金額] [--dry-run]
+  scdo-agent serve-paywall --bot 編號 --price 金額 [--network base|base-sepolia]
+      [--path /answer] [--port 8410]
 
   未加 --name 時，--bot 就是代理名稱。電子郵件只存成加鹽的承諾。鹽留在代理目錄，
   只在 /bind/email/start 送出，不會印出。
   --asset 選擇收款牆的資產，以及 --max 與 --daily 寫入哪一組上限。
   usdc 是 6 位小數。wscdo 是 18 位小數。兩組上限分開存放。
-  付款使用開源的 x402 SDK。已啟用 Base Sepolia USDC（eip155:84532）與
-  Shard0 WSCDO（eip155:5680，0xea830FF078410C22342a39e8985E439dc0035cf5）。
-  WSCDO 使用 EIP-3009，領域名稱是 Wrapped SCDO，版本是 1。
-  Base 主網保持關閉。
+  --network base 是 Base 主網（鏈 8453，USDC
+  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913）。--network base-sepolia 是測試網
+  （eip155:84532），也是 wallet create 的預設。base 錢包會以同一把金鑰同時綁定
+  Base Sepolia。pay 與 serve-paywall 未加 --network 時使用錢包的網路。
+  付款使用開源的 x402 SDK。付款方只簽 EIP-3009 授權，由 facilitator 送出並支付
+  gas，所以錢包只需要 USDC，不需要 ETH。也啟用 Shard0 WSCDO（eip155:5680，
+  0xea830FF078410C22342a39e8985E439dc0035cf5）。WSCDO 使用 EIP-3009，領域名稱是
+  Wrapped SCDO，版本是 1。
   簽章前會先檢查限額。政策拒絕時結束代碼為 3。
   收款地址或網域清單是空的時候，允許這兩個網路上的任何收款地址或主機。
-  serve-paywall 對 USDC 使用 https://x402.org/facilitator，對 WSCDO 使用
-  https://scdo.com.au/x402-scdo。結算路徑是該位址加上 /settle。
+  serve-paywall 對 Base 主網 USDC 使用 https://scdo.com.au/x402-base（Coinbase
+  CDP facilitator），對 Base Sepolia USDC 使用 https://x402.org/facilitator，
+  對 WSCDO 使用 https://scdo.com.au/x402-scdo。結算路徑是該位址加上 /settle。
   每筆已結算的付款會送到 /ledger/income。
   export 寫出加密的 Web3 金鑰庫。原始金鑰只在終端機上印出，而且必須加上
   --raw 與 --i-understand-raw-key。
@@ -399,8 +456,11 @@ erc8004：
   贊助者呼叫 register(uri)，再以 safeTransferFrom 把新的代理編號轉給代理，
   並檢查擁有者就是該代理。兩筆交易都由贊助者送出。金鑰不會印出。
   代理已經擁有的身份不會再送出交易。
-  除非 /etc/scdo-agent/config.toml 寫了 erc8004 = true，否則啟動時不會自動登記。
-  那條路徑使用代理金鑰。
+  從 0.5.10 起，run 啟動時會自行登記：由代理金鑰親自送出鑄造交易，
+  因此代理能通過 Agent Ledger 的「已驗證」檢查（v1-2026-10-21）。
+  代理在 Shard0 沒有 SCDO 支付手續費時，會向帳本申請一次小額手續費補助，
+  並等補助在鏈上確認後才鑄造。由他人鑄造再轉給代理的身份保持不變。
+  在 /etc/scdo-agent/config.toml 寫入 erc8004 = false 可關閉此功能。
 
 operator：
   scdo-agent operator batch --name 操作者 --bot 機器人 [--bot 機器人]
@@ -420,6 +480,7 @@ operator：
 	"next":               "下一步：",
 	"nextEnable":         "  sudo systemctl enable --now scdo-agent@%s.service",
 	"nextStatus":         "  scdo-agent status --name %s",
+	"nextStatusData":     "  scdo-agent --data-dir %s status --name %s",
 	"exists":             "代理 %s 已經存在。原有金鑰保持不變。",
 	"notInit":            "代理 %s 尚未初始化。請先執行 init。",
 	"running":            "代理 %s 已在執行。",
@@ -433,7 +494,7 @@ operator：
 	"unreachable":        "無法連上帳本。",
 	"notReg":             "此代理在帳本上還沒有紀錄。",
 	"version":            "scdo-agent %s",
-	"roleLight":          "記帳節點",
+	"roleLight":          "記帳節點（帳本角色 light-node）",
 	"roleServer":         "伺服器節點",
 	"langName":           "華語",
 	"usage":              "執行 scdo-agent help 查看用法。",
@@ -454,7 +515,7 @@ operator：
 	"walletSpent":        "近 24 小時已付：%s USDC",
 	"walletPayees":       "收款地址：%s",
 	"walletDomains":      "網域：%s",
-	"walletAnyPayee":     "收款地址：任何 Base Sepolia 地址",
+	"walletAnyPayee":     "收款地址：錢包網路上的任何地址",
 	"walletAnyDomain":    "網域：任何主機",
 	"walletKillOn":       "停止開關：開",
 	"walletKillOff":      "停止開關：關",
@@ -480,7 +541,7 @@ operator：
 	"walletDailyWSCDO":   "每日：%s WSCDO",
 	"walletLedger":       "帳本：%s",
 	"walletBot":          "機器人錢包：%s",
-	"walletTx":           "交易：https://sepolia.basescan.org/tx/%s",
+	"walletTx":           "交易：%s",
 	"walletKilled":       "付款已停止，帳本紀錄已凍結。",
 	"walletUnkilled":     "付款已恢復，帳本紀錄已解除凍結。",
 	"erc8004ID":          "代理編號：%s",

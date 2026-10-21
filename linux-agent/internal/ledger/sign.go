@@ -16,6 +16,8 @@ const (
 )
 
 var types = map[string]struct{}{
+	"job":          {},
+	"erc8004link":  {},
 	"register":     {},
 	"heartbeat":    {},
 	"heal":         {},
@@ -27,6 +29,9 @@ var types = map[string]struct{}{
 	"spend":        {},
 	"batch":        {},
 	"emailconfirm": {},
+	"gpuattest":    {},
+	"gpusolve":     {},
+	"gas_drip":     {},
 }
 
 // Envelope is the POST body: { payload, sig }.

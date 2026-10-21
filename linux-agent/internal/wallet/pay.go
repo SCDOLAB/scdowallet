@@ -33,7 +33,10 @@ type PayOptions struct {
 	URL  string
 	// MaxAtomic is a decimal cap for this one payment ("1", "0.10").
 	// It is parsed with the selected asset's decimals and can only tighten the stored cap.
-	MaxAtomic  string
+	MaxAtomic string
+	// Network is the USDC network for this payment: NetworkBase or NetworkSepolia.
+	// Empty means the network the wallet was created on.
+	Network    string
 	DryRun     bool
 	Passphrase []byte
 	LedgerURLs []string
@@ -41,7 +44,7 @@ type PayOptions struct {
 	HTTP       *http.Client
 }
 
-// Paid is a settled Base Sepolia payment.
+// Paid is a settled Base, Base Sepolia or Shard0 payment.
 type Paid struct {
 	Agent    string
 	Wallet   string
@@ -53,9 +56,16 @@ type Paid struct {
 	Basescan string
 }
 
+// SettleTimeout is how long a payment waits for the facilitator to settle.
+// The x402 net/http middleware defaults this to 30s. A Shard0 WSCDO settle can
+// take longer than that and still land on-chain, so both the payer HTTP client
+// and the paywall middleware use this longer deadline.
+const SettleTimeout = 120 * time.Second
+
 // Pay uses the x402 SDK to sign an EIP-3009 exact payment and retry with
-// PAYMENT-SIGNATURE. eip155:84532 (USDC) and eip155:5680 (WSCDO) are registered.
-// Limits run before the signature. Base mainnet stays off.
+// PAYMENT-SIGNATURE. USDC on the selected Base network (eip155:8453 mainnet or
+// eip155:84532 Sepolia) and eip155:5680 (WSCDO) are registered. Limits run before
+// the signature. The payer signs an EIP-3009 authorization only; the facilitator pays gas.
 func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	if opt.DryRun {
 		return Preview(ctx, opt)
@@ -71,6 +81,10 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		now = opt.Now()
 	}
 	policyDoc := doc
+	usdcNet, err := payNetwork(opt, doc)
+	if err != nil {
+		return Paid{}, err
+	}
 	if doc.Killed {
 		return Paid{}, policyf("wallet kill switch is on")
 	}
@@ -91,11 +105,15 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 	var settled *x402.SettleResponse
 	client := x402.Newx402Client(
 		x402.WithSpendControls(spendControls(policyDoc)),
-	).Register(x402.Network(NetworkSepolia), evmclient.NewExactEvmScheme(signer, nil)).
+	).Register(x402.Network(usdcNet), evmclient.NewExactEvmScheme(signer, nil)).
 		Register(x402.Network(NetworkShard0), evmclient.NewExactEvmScheme(signer, nil))
 	client.OnBeforePaymentCreation(func(pc x402.PaymentCreationContext) (*x402.BeforePaymentCreationHookResult, error) {
 		req := pc.SelectedRequirements
 		chosen = decisionFrom(req, opt.URL, now)
+		if chosen.Network != NetworkShard0 && chosen.Network != usdcNet {
+			policyErr = policyf("payment network %s is not %s", chosen.Network, usdcNet)
+			return &x402.BeforePaymentCreationHookResult{Abort: true, Reason: policyErr.Error()}, nil
+		}
 		err := withSpendLock(lay.Dir, func(log *spendLog) error {
 			seedHistory(doc, log, now)
 			check, err := spentCheck(policyDoc, *log, chosen, opt.MaxAtomic, now)
@@ -143,13 +161,13 @@ func Pay(ctx context.Context, opt PayOptions) (Paid, error) {
 		return x402.PaymentResponseResult{}, nil
 	})
 
-	base := &http.Client{Timeout: 90 * time.Second}
+	base := &http.Client{Timeout: SettleTimeout}
 	if opt.HTTP != nil {
 		base.Timeout = opt.HTTP.Timeout
 		base.Transport = opt.HTTP.Transport
 	}
 	if base.Timeout == 0 {
-		base.Timeout = 90 * time.Second
+		base.Timeout = SettleTimeout
 	}
 	inner := base.Transport
 	if inner == nil {
@@ -291,10 +309,24 @@ func spentCheck(doc Doc, log spendLog, d Decision, maxDecimal string, now time.T
 }
 
 func basescan(network, tx string) string {
-	if network != "" && network != NetworkSepolia {
-		return ""
+	switch network {
+	case NetworkBase:
+		return "https://basescan.org/tx/" + tx
+	case "", NetworkSepolia:
+		return "https://sepolia.basescan.org/tx/" + tx
 	}
-	return "https://sepolia.basescan.org/tx/" + tx
+	return ""
+}
+
+// payNetwork is the USDC network for a payment: --network, else the wallet's network.
+func payNetwork(opt PayOptions, doc Doc) (string, error) {
+	if strings.TrimSpace(opt.Network) != "" {
+		return ParseNetwork(opt.Network)
+	}
+	if doc.Network == NetworkBase {
+		return NetworkBase, nil
+	}
+	return NetworkSepolia, nil
 }
 
 // sepoliaOnly keeps the Base Sepolia refusal visible when the SDK drops an
@@ -401,7 +433,7 @@ func sepoliaOnly(err error) error {
 	}
 	msg := err.Error()
 	if strings.Contains(msg, "no supported payment schemes") || strings.Contains(msg, "no client registered for network") {
-		return policyf("only Base Sepolia USDC (eip155:84532) and Shard0 WSCDO (eip155:5680) are enabled")
+		return policyf("only USDC on the selected Base network and Shard0 WSCDO (eip155:5680) are enabled")
 	}
 	return err
 }

@@ -145,9 +145,9 @@ func enforcedSpent(doc Doc, log spendLog, now time.Time) *big.Int {
 }
 
 func spendAssetMatch(entry, want string) bool {
-	usdc := want == "" || want == AssetUSDC || sameAddr(want, SepoliaUSDC)
+	usdc := want == "" || want == AssetUSDC || sameAddr(want, SepoliaUSDC) || sameAddr(want, BaseUSDC)
 	if usdc {
-		return entry == "" || entry == AssetUSDC || sameAddr(entry, SepoliaUSDC)
+		return entry == "" || entry == AssetUSDC || sameAddr(entry, SepoliaUSDC) || sameAddr(entry, BaseUSDC)
 	}
 	return entry == want || sameAddr(entry, want)
 }

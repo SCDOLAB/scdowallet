@@ -34,7 +34,7 @@ func stubLedger(t *testing.T) string {
 
 func TestCreateStoresDecimalCaps(t *testing.T) {
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Create(context.Background(), CreateOptions{
@@ -97,7 +97,7 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 	defer ledgerSrv.Close()
 
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	created, err := Create(context.Background(), CreateOptions{
@@ -114,7 +114,7 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 		t.Fatalf("wallets %#v", wallets)
 	}
 	if _, ok := wallets["eip155:8453"]; ok {
-		t.Fatal("mainnet wallet must stay unbound")
+		t.Fatal("a base-sepolia wallet must not bind mainnet")
 	}
 	proofs, _ := bindBody["walletProofs"].(map[string]any)
 	if proofs[NetworkSepolia] == nil {
@@ -177,7 +177,7 @@ func TestBindPayAndRefuseMainnet(t *testing.T) {
 
 	mainnet := paymentServer(t, tx, "eip155:8453", "10000", 60, nil)
 	defer mainnet.Close()
-	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "eip155:84532") {
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "selected Base network") {
 		t.Fatal(err)
 	}
 	if _, err := ApplyLimit(root, "bot", LimitUpdate{PerPayment: "0.000001", Domains: []string{"example.com"}}); err != nil {
@@ -211,7 +211,7 @@ func TestCreateWSCDOCapsAndPay(t *testing.T) {
 	defer ledgerSrv.Close()
 
 	root := t.TempDir()
-	if _, err := agent.Create(root, "bot", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "TEST", agent.RoleLight, "", "test", nil); err != nil {
+	if _, err := agent.Create(root, "bot", "0x52908400098527886e0f7030069857d2e4169ee7", "TEST", agent.RoleLight, "", "test", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Create(context.Background(), CreateOptions{
@@ -248,7 +248,7 @@ func TestCreateWSCDOCapsAndPay(t *testing.T) {
 	if err := Allow(doc, wscdo); err == nil || !errors.Is(err, ErrPolicy) {
 		t.Fatal(err)
 	}
-	if err := Allow(doc, Decision{Network: "eip155:8453", Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "1", Now: now}); err == nil || !strings.Contains(err.Error(), "eip155:84532") {
+	if err := Allow(doc, Decision{Network: "eip155:8453", Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "1", Now: now}); err == nil || !strings.Contains(err.Error(), "are enabled") {
 		t.Fatal(err)
 	}
 	if err := Allow(doc, Decision{Network: NetworkSepolia, Asset: SepoliaUSDC, PayTo: wscdo.PayTo, Amount: "10000", Now: now}); err != nil {
@@ -300,7 +300,7 @@ func TestCreateWSCDOCapsAndPay(t *testing.T) {
 	}
 	mainnet := paymentServer(t, tx, "eip155:8453", "10000", 60, nil)
 	defer mainnet.Close()
-	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "eip155:84532") {
+	if _, err := Pay(context.Background(), PayOptions{Root: root, Name: "bot", URL: mainnet.URL, LedgerURLs: []string{ledgerSrv.URL}}); err == nil || !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "selected Base network") {
 		t.Fatal(err)
 	}
 	over := paymentServerOffer(t, tx, paymentOffer{

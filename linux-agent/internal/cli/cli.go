@@ -18,6 +18,7 @@ import (
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/erc8004"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/gpu"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/installmode"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
@@ -78,6 +79,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdServePaywall(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "erc8004":
 		return cmdERC8004(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "link-8004":
+		return cmdLink8004(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "log-job":
+		return cmdLogJob(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "operator":
 		return cmdOperator(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:
@@ -124,9 +129,9 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, b.T("needName"))
 		return 2
 	}
-	if strings.TrimSpace(*payout) == "" {
-		fmt.Fprintln(stderr, b.T("badPayout"))
-		return 2
+	switch strings.ToLower(strings.TrimSpace(*role)) {
+	case "bookkeeping-node", "bookkeeping", "light":
+		*role = agent.RoleLight
 	}
 	pass, err := passphrase(*passFile)
 	if err != nil {
@@ -159,7 +164,12 @@ func cmdInit(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer
 	} else {
 		fmt.Fprintf(stdout, b.T("nextEnable")+"\n", lay.Name)
 	}
-	fmt.Fprintf(stdout, b.T("nextStatus")+"\n", lay.Name)
+	if root != agent.DefaultRoot {
+		// A user install (or any non-default data root) needs --data-dir for status to find the agent.
+		fmt.Fprintf(stdout, b.T("nextStatusData")+"\n", root, lay.Name)
+	} else {
+		fmt.Fprintf(stdout, b.T("nextStatus")+"\n", lay.Name)
+	}
 	return 0
 }
 
@@ -201,27 +211,33 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	client := &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version}
 	svc := &agent.Service{
 		Layout:  lay,
 		Key:     key,
 		Version: buildinfo.Version,
-		Client:  &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version},
+		Client:  client,
 		Log: func(msg string) {
 			fmt.Fprintf(stdout, "%s %s\n", time.Now().UTC().Format(time.RFC3339), agent.Scrub(msg))
 		},
 	}
-	if erc8004.Enabled(*configDir) {
+	proof := &gpu.Proof{
+		Key:    key,
+		Client: client,
+		Index:  lay.Meta.GPUIndex,
+		Log:    func(msg string) { svc.Log(msg) },
+	}
+	wantsGPU := gpu.IsAdapterName(lay.Name) || lay.Meta.GPUIndex != nil || lay.Meta.GPUModel != ""
+	if wantsGPU {
+		svc.Prove = func(ctx context.Context) {
+			proof.Run(ctx, lay.NextSeq)
+		}
+	}
+	// 0.5.10: self-register on the ERC-8004 identity registry by default (gas from the
+	// one-time ledger drip when needed). erc8004 = false in config.toml turns it off.
+	if !erc8004.Disabled(*configDir) {
 		svc.OnStart = func(ctx context.Context) {
-			res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Dir: lay.Dir})
-			if err != nil {
-				svc.Log("erc8004 " + err.Error())
-				return
-			}
-			if res.Already {
-				svc.Log("erc8004 already " + res.AgentID)
-				return
-			}
-			svc.Log("erc8004 registered " + res.AgentID + " tx " + res.Tx)
+			go selfRegisterLoop(ctx, erc8004.Options{Key: key, Dir: lay.Dir, Drip: dripper(lay, key, client)}, svc.Log, 10*time.Minute)
 		}
 	}
 	if err := svc.Run(ctx); err != nil {
@@ -283,6 +299,11 @@ func cmdStatus(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 	if sum.Code != "" {
 		fmt.Fprintf(stdout, b.T("code")+"\n", sum.Code)
 	}
+	ercCtx, ercCancel := context.WithTimeout(ctx, 8*time.Second)
+	if id, ok, _ := erc8004.OwnedID(ercCtx, nil, lay.Meta.Address); ok && id != "" {
+		fmt.Fprintf(stdout, b.T("erc8004ID")+"\n", id)
+	}
+	ercCancel()
 	return 0
 }
 

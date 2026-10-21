@@ -46,6 +46,10 @@ type Result struct {
 	Address  string
 	Registry string
 	Already  bool
+	// Self is true when the agent address sent the mint transaction itself.
+	Self bool
+	// Drip is the subsidy transaction that paid this agent's gas, when one was needed.
+	Drip string
 }
 
 // Options registers one ledger identity.
@@ -61,6 +65,12 @@ type Options struct {
 	// RPCs overrides the public Shard0 endpoints. Client is set by tests.
 	RPCs   []string
 	Client *rpc
+	// Drip asks the ledger for a one-time gas drip when the agent cannot pay for the
+	// mint. It returns the drip transaction hash ("" when none was sent). The caller
+	// waits here until the balance covers the mint, so the mint is never sent first.
+	Drip func(context.Context) (string, error)
+	// DripWait bounds the wait for the drip to arrive. Zero means 3 minutes.
+	DripWait time.Duration
 }
 
 type metaEntry struct {
@@ -99,31 +109,23 @@ func Register(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if id, tx, ok := localMatch(ctx, node, opt.Dir, address); ok {
-		out.AgentID, out.Tx, out.Already = id, tx, true
-		return out, nil
-	}
-	found, err := node.registrations(ctx, address)
-	if err != nil {
+	// Verified v1-2026-10-21: only a token this address minted itself (mint tx sent from the
+	// agent address, ownerOf == agent) counts. Sponsored or transferred tokens are left alone.
+	if self, ok, err := selfMinted(ctx, node, address); err != nil {
 		return out, err
-	}
-	if len(found) > 0 {
-		pick := choose(ctx, node, address, found)
-		out.AgentID = pick.id.String()
-		out.Tx = pick.tx
+	} else if ok {
+		out.AgentID = self.id.String()
+		out.Tx = self.tx
 		out.Already = true
+		out.Self = true
 		_ = saveRecord(opt.Dir, out)
 		return out, nil
 	}
-	bal, err := node.balance(ctx, address)
+	data, err := packRegister(uri, address)
 	if err != nil {
 		return out, err
 	}
-	if bal.Sign() == 0 {
-		return out, fmt.Errorf("Shard0 account %s has no SCDO for gas", address)
-	}
-	data, err := packRegister(uri, address)
-	if err != nil {
+	if err := ensureGas(ctx, opt, node, address, data); err != nil {
 		return out, err
 	}
 	raw, err := sign(ctx, opt.Key, node, data)
@@ -147,6 +149,7 @@ func Register(ctx context.Context, opt Options) (Result, error) {
 		return out, fmt.Errorf("registration receipt has no agent id")
 	}
 	out.AgentID = id.String()
+	out.Self = true
 	if err := saveRecord(opt.Dir, out); err != nil {
 		return out, err
 	}
@@ -197,9 +200,10 @@ func registerSponsored(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if id, tx, ok := localMatch(ctx, node, opt.Dir, address); ok {
-		out.AgentID, out.Tx, out.Already = id, tx, true
-		return out, nil
+	if owned, ok, err := alreadyOwned(ctx, node, opt.Dir, address, out); err != nil {
+		return out, err
+	} else if ok {
+		return owned, nil
 	}
 	sponsor := opt.Sponsor.Address()
 	if id, owner, tx, ok := findForAgent(ctx, node, address, sponsor); ok {
@@ -299,6 +303,93 @@ func transferIdentity(ctx context.Context, opt Options, node *rpc, out Result, i
 		return out, err
 	}
 	return out, nil
+}
+
+func alreadyOwned(ctx context.Context, node *rpc, dir, address string, out Result) (Result, bool, error) {
+	if id, tx, ok := localMatch(ctx, node, dir, address); ok {
+		out.AgentID, out.Tx, out.Already = id, tx, true
+		return out, true, nil
+	}
+	item, ok, err := findOwned(ctx, node, address)
+	if err != nil || !ok {
+		return out, false, err
+	}
+	out.AgentID = item.id.String()
+	out.Tx = item.tx
+	out.Already = true
+	if err := saveRecord(dir, out); err != nil {
+		return out, false, err
+	}
+	return out, true, nil
+}
+
+// OwnedID is the lowest ERC-721 agent id this address currently owns.
+// A sponsored registration that was later transferred still counts.
+func OwnedID(ctx context.Context, rpcs []string, address string) (string, bool, error) {
+	if len(rpcs) == 0 {
+		rpcs = DefaultRPCs()
+	}
+	node, err := (&rpc{URLs: rpcs}).dial(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	item, ok, err := findOwned(ctx, node, address)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return item.id.String(), true, nil
+}
+
+func findOwned(ctx context.Context, node *rpc, address string) (foundReg, bool, error) {
+	var found []foundReg
+	logs, err := node.getLogs(ctx, []any{transferTopic.Hex(), nil, topicAddress(address)})
+	if err != nil {
+		return foundReg{}, false, err
+	}
+	seen := map[string]bool{}
+	for _, lg := range logs {
+		if len(lg.Topics) < 4 || !strings.EqualFold(lg.Topics[0], transferTopic.Hex()) {
+			continue
+		}
+		if !strings.EqualFold(lg.Topics[2], topicAddress(address)) {
+			continue
+		}
+		id := new(big.Int).SetBytes(common.FromHex(lg.Topics[3]))
+		if id.Sign() == 0 || seen[id.String()] {
+			continue
+		}
+		owner, err := node.ownerOf(ctx, id)
+		if err != nil || !strings.EqualFold(owner, address) {
+			continue
+		}
+		seen[id.String()] = true
+		found = append(found, foundReg{id: id, tx: lg.TransactionHash})
+	}
+	regs, err := node.registrations(ctx, address)
+	if err != nil {
+		return foundReg{}, false, err
+	}
+	for _, item := range regs {
+		if seen[item.id.String()] {
+			continue
+		}
+		owner, err := node.ownerOf(ctx, item.id)
+		if err != nil || !strings.EqualFold(owner, address) {
+			continue
+		}
+		seen[item.id.String()] = true
+		found = append(found, item)
+	}
+	if len(found) == 0 {
+		return foundReg{}, false, nil
+	}
+	best := found[0]
+	for _, item := range found[1:] {
+		if item.id.Cmp(best.id) < 0 {
+			best = item
+		}
+	}
+	return best, true, nil
 }
 
 func findForAgent(ctx context.Context, node *rpc, agentAddr, sponsorAddr string) (*big.Int, string, string, bool) {

@@ -243,6 +243,16 @@ func pathFor(typ string) string {
 		return "operator/batch"
 	case "emailconfirm":
 		return "bind/email/confirm"
+	case "gpuattest":
+		return "gpu/attest"
+	case "gpusolve":
+		return "gpu/solve"
+	case "gas_drip":
+		return "gas/drip"
+	case "job":
+		return "ledger/job"
+	case "erc8004link":
+		return "erc8004/link"
 	default:
 		return typ
 	}

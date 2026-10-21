@@ -187,6 +187,99 @@ func parseLspci(text string) []Card {
 	return out
 }
 
+// IsAdapterName reports a gpuN bookkeeping name such as gpu0.
+func IsAdapterName(name string) bool {
+	if len(name) < 4 || !strings.HasPrefix(name, "gpu") {
+		return false
+	}
+	for _, c := range name[3:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// Identity is one NVIDIA adapter that can be attested.
+// Intel integrated and lspci-only adapters are not identities.
+type Identity struct {
+	Index    int
+	UUID     string
+	Model    string
+	VRAMMiB  int
+	PCIBusID string
+}
+
+// Identities reads UUID, model, memory, and PCI bus id.
+// ok is false when nvidia-smi is missing or returns nothing real.
+// The query is the ledger attestation probe:
+// nvidia-smi --query-gpu=uuid,name,memory.total,pci.bus_id --format=csv,noheader
+func Identities(r Runner) (ids []Identity, ok bool) {
+	if r == nil {
+		r = OS{}
+	}
+	if !r.Look("nvidia-smi") {
+		return nil, false
+	}
+	b, err := r.Run("nvidia-smi", "--query-gpu=uuid,name,memory.total,pci.bus_id", "--format=csv,noheader")
+	if err != nil {
+		return nil, false
+	}
+	ids = parseNvidiaIdentity(string(b))
+	return ids, len(ids) > 0
+}
+
+func parseNvidiaIdentity(text string) []Identity {
+	var out []Identity
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "NVIDIA-SMI") {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		uuid := strings.TrimSpace(parts[0])
+		model := strings.TrimSpace(parts[1])
+		if uuid == "" || model == "" || virtualName(model) || !strings.HasPrefix(uuid, "GPU-") {
+			continue
+		}
+		id := Identity{Index: len(out), UUID: uuid, Model: model}
+		if len(parts) >= 3 {
+			id.VRAMMiB = parseVRAM(parts[2])
+		}
+		if len(parts) >= 4 {
+			id.PCIBusID = strings.TrimSpace(parts[3])
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func parseVRAM(field string) int {
+	fields := strings.Fields(strings.TrimSpace(field))
+	if len(fields) == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(fields[0])
+	if err != nil || n < 0 {
+		return 0
+	}
+	unit := ""
+	if len(fields) > 1 {
+		unit = strings.ToLower(fields[1])
+	}
+	switch unit {
+	case "", "mib", "mb":
+		return n
+	case "gib", "gb":
+		return n * 1024
+	default:
+		return n
+	}
+}
+
 func virtualName(name string) bool {
 	l := strings.ToLower(name)
 	for _, n := range []string{

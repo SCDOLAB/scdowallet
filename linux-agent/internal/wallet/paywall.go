@@ -26,11 +26,19 @@ const WSCDOFacilitatorURL = "https://scdo.com.au/x402-scdo"
 // FacilitatorURL is the public Base Sepolia facilitator. It needs no API key.
 const FacilitatorURL = x402http.DefaultFacilitatorURL
 
+// BaseFacilitatorURL is the SCDO relay to the Coinbase CDP x402 facilitator for Base
+// mainnet (eip155:8453) USDC. CDP verifies and settles the EIP-3009 authorization and
+// pays the gas. The relay only settles to the Base wallet the ledger lists for the
+// agent named in extra.scdoAgent.
+const BaseFacilitatorURL = "https://scdo.com.au/x402-base"
+
 // PaywallOptions is a minimal exact-scheme receiver for one bot.
 type PaywallOptions struct {
-	Root        string
-	Name        string
-	Price       string
+	Root  string
+	Name  string
+	Price string
+	// Network overrides the wallet's USDC network: NetworkBase or NetworkSepolia.
+	Network     string
 	Path        string
 	Addr        string
 	Passphrase  []byte
@@ -41,8 +49,8 @@ type PaywallOptions struct {
 }
 
 // Paywall builds an HTTP handler that answers 402 for Path and settles through
-// the facilitator for the wallet asset. USDC uses eip155:84532. WSCDO uses
-// eip155:5680. Base mainnet stays off.
+// the facilitator for the wallet asset. USDC uses the wallet network (eip155:8453
+// through BaseFacilitatorURL, or eip155:84532). WSCDO uses eip155:5680.
 func Paywall(opt PaywallOptions) (http.Handler, error) {
 	lay, doc, agentKey, walletKey, err := openPair(opt.Root, opt.Name, opt.Passphrase)
 	if err != nil {
@@ -73,10 +81,21 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	usdcNet := doc.Network
+	if strings.TrimSpace(opt.Network) != "" {
+		if usdcNet, err = ParseNetwork(opt.Network); err != nil {
+			return nil, err
+		}
+	}
 	network := x402.Network(NetworkSepolia)
 	facilitatorURL := FacilitatorURL
 	var extra map[string]any
 	scheme := evmserver.NewExactEvmScheme()
+	if asset == AssetUSDC && usdcNet == NetworkBase {
+		network = x402.Network(NetworkBase)
+		facilitatorURL = BaseFacilitatorURL
+		extra = map[string]any{"name": BaseUSDCName, "version": BaseUSDCVersion, "scdoAgent": agentAddr}
+	}
 	if asset == AssetWSCDO {
 		network = x402.Network(NetworkShard0)
 		facilitatorURL = WSCDOFacilitatorURL
@@ -85,21 +104,29 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	}
 	facilitator := opt.Facilitator
 	if facilitator == nil {
-		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{URL: facilitatorURL})
+		facilitator = x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
+			URL:     facilitatorURL,
+			Timeout: SettleTimeout,
+		})
 	}
+	paid := x402http.RouteConfig{
+		Accepts: x402http.PaymentOptions{{
+			Scheme:            "exact",
+			PayTo:             payTo,
+			Price:             price,
+			Network:           network,
+			MaxTimeoutSeconds: 120,
+			Extra:             extra,
+		}},
+		Description: "SCDO bot answer",
+		MimeType:    "application/json",
+	}
+	// HEAD must carry the same payment requirement as GET. x402 Go <= v2.28.0 matches routes
+	// by exact method, so a GET-only route let an unpaid HEAD reach the protected handler
+	// (fixed upstream in x402-foundation/x402 e95b0666, go/http/server.go).
 	routes := x402http.RoutesConfig{
-		"GET " + path: {
-			Accepts: x402http.PaymentOptions{{
-				Scheme:            "exact",
-				PayTo:             payTo,
-				Price:             price,
-				Network:           network,
-				MaxTimeoutSeconds: 120,
-				Extra:             extra,
-			}},
-			Description: "SCDO bot answer",
-			MimeType:    "application/json",
-		},
+		"GET " + path:  paid,
+		"HEAD " + path: paid,
 	}
 	dir := lay.Dir
 	now := opt.Now
@@ -108,6 +135,7 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 	mw := nethttp.PaymentMiddlewareFromConfig(routes,
 		nethttp.WithFacilitatorClient(facilitator),
 		nethttp.WithScheme(network, scheme),
+		nethttp.WithTimeout(SettleTimeout),
 		nethttp.WithSyncFacilitatorOnStart(true),
 		nethttp.WithSettlementHandler(func(_ http.ResponseWriter, r *http.Request, resp *x402.SettleResponse) {
 			if resp == nil || !resp.Success {
@@ -153,7 +181,25 @@ func Paywall(opt PaywallOptions) (http.Handler, error) {
 		w.Header().Set("content-type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	return mw(next), nil
+	return guardPaidRoute(path, mw(next)), nil
+}
+
+// guardPaidRoute is defence in depth for the paywall: only GET and HEAD on the paid path ever
+// reach the x402 middleware (both registered as paid routes). Any other method gets 405 and
+// any other path 404, so nothing unmatched by the middleware can fall through to the handler.
+func guardPaidRoute(path string, paid http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		paid.ServeHTTP(w, r)
+	})
 }
 
 // ServePaywall listens until ctx is cancelled. USDC uses FacilitatorURL.

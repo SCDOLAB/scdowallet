@@ -49,8 +49,12 @@ type Service struct {
 	Log        func(string)
 	// OnStart runs once after the ledger register is accepted. Used for optional
 	// ERC-8004 registration. A failure here must not stop heartbeats.
-	OnStart    func(context.Context)
+	OnStart func(context.Context)
+	// Prove runs after a successful register and after each accepted heartbeat.
+	// It posts a GPU attestation and a challenge solution when both are real.
+	Prove      func(context.Context)
 	registered bool
+	node       *nodeSampler
 }
 
 func (s *Service) version() string {
@@ -123,6 +127,10 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	s.log("agent " + s.Layout.Meta.Address + " bookkeeping")
+	if s.node == nil {
+		s.node = newNodeSampler()
+	}
+	go s.node.loop(ctx, func() int64 { return time.Now().UnixMilli() })
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -152,13 +160,26 @@ func (s *Service) Tick(ctx context.Context) bool {
 	}
 	s.reportUpdate(ctx)
 	if err := s.deliver(ctx, "heartbeat", s.heartbeatBody()); err != nil {
+		if s.registered {
+			s.prove(ctx)
+		}
 		return false
 	}
 	s.stampHeartbeat()
+	if s.node != nil {
+		s.node.clear()
+	}
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
 		_ = update.MarkReported(s.Layout.Root)
 	}
+	s.prove(ctx)
 	return true
+}
+
+func (s *Service) prove(ctx context.Context) {
+	if s.Prove != nil {
+		s.Prove(ctx)
+	}
 }
 
 func (s *Service) reportUpdate(ctx context.Context) {
@@ -193,7 +214,7 @@ func (s *Service) registerBody() map[string]any {
 		"platform": Platform,
 		"label":    m.Label,
 		"role":     m.Role,
-		"payout":   m.Payout,
+		"payout":   s.payout(),
 	}
 	if m.Ref != "" {
 		body["ref"] = m.Ref
@@ -213,8 +234,12 @@ func (s *Service) heartbeatBody() map[string]any {
 	body := map[string]any{
 		"version": s.version(),
 		"code":    code,
+		"payout":  s.payout(),
 	}
 	addCapability(body, s.Layout.Meta)
+	if s.node != nil {
+		s.node.addTo(body)
+	}
 	if doc, ok, err := update.LoadResult(s.Layout.Root); err == nil && ok && !doc.Reported {
 		body["updateFrom"] = doc.From
 		body["updateTo"] = doc.To
@@ -242,6 +267,7 @@ func (s *Service) deliver(ctx context.Context, typ string, body map[string]any) 
 		}
 		env, _, err := ledger.Sign(s.Key, typ, seq, body, s.now())
 		if err != nil {
+			s.log(fmt.Sprintf("%s sign failed: %v", typ, err))
 			return err
 		}
 		res, err := s.Client.Post(ctx, typ, env)
@@ -287,4 +313,15 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// payout returns the payout sent to the ledger and repairs a missing/placeholder payout in
+// meta.json with the agent's own address (0.5.7: the ledger lists only agents with a real payout).
+func (s *Service) payout() string {
+	p, fixed := s.Layout.Meta.EffectivePayout()
+	if fixed && p != "" && s.Layout.Meta.Payout != p {
+		s.Layout.Meta.Payout = p
+		_ = s.Layout.SaveMeta()
+	}
+	return p
 }

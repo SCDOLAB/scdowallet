@@ -104,8 +104,15 @@ func adapters(ctx context.Context, opt Options) error {
 		return nil
 	}
 	seen := map[string]gpu.Card{}
+	held := map[string]bool{}
 	for _, c := range cards {
 		name := fmt.Sprintf("gpu%d", c.Index)
+		if c.Source != "nvidia" && c.Source != "rocm" {
+			// Intel integrated and lspci-only adapters are not bookkeeping GPUs.
+			// Keep an existing directory, and do not hint a new gpuN.
+			held[name] = true
+			continue
+		}
 		seen[name] = c
 		lay, err := agent.Open(opt.DataRoot, name)
 		if err != nil {
@@ -128,6 +135,9 @@ func adapters(ctx context.Context, opt Options) error {
 			continue
 		}
 		if _, ok := seen[m.Name]; ok {
+			continue
+		}
+		if held[m.Name] {
 			continue
 		}
 		lay, err := agent.Open(opt.DataRoot, m.Name)

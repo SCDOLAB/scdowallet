@@ -99,6 +99,9 @@ func OpenFile(path string, passphrase []byte) (*ledger.Key, error) {
 		return nil, err
 	}
 	defer ledger.Wipe(raw)
+	if k, ok := rawHexKey(raw); ok {
+		return k, nil
+	}
 	var outer fileDoc
 	if err := json.Unmarshal(raw, &outer); err != nil || outer.V != fileVersion {
 		return nil, fmt.Errorf("key file is not a scdo-agent key")
@@ -311,6 +314,30 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	cleanup = false
 	return os.Chmod(path, mode)
+}
+
+// rawHexKey loads a bare 32-byte scalar. 0x and surrounding whitespace are
+// optional. The scalar is not included in any error.
+func rawHexKey(raw []byte) (*ledger.Key, bool) {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || strings.HasPrefix(s, "{") {
+		return nil, false
+	}
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+	if len(s) != 64 {
+		return nil, false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return nil, false
+		}
+	}
+	k, err := ledger.KeyFromHex(s)
+	if err != nil {
+		return nil, false
+	}
+	return k, true
 }
 
 func hexEncode(b []byte) string {

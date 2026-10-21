@@ -39,6 +39,7 @@ const registryABIJSON = `[
 var (
 	registryABI     = mustABI(registryABIJSON)
 	registeredTopic = crypto.Keccak256Hash([]byte("Registered(uint256,string,address)"))
+	transferTopic   = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 )
 
 func mustABI(raw string) abi.ABI {

@@ -130,6 +130,11 @@ for arch in amd64 arm64; do
     go build -trimpath -buildvcs=false \
     -ldflags "-s -w -buildid= -B none -X github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo.Version=${VER}" \
     -o "dist/build/$arch/scdo-agent" ./cmd/scdo-agent
+  CGO_ENABLED=0 GOOS=linux GOARCH="$arch" GOAMD64=v1 GOARM64=v8.0 \
+    go build -trimpath -buildvcs=false \
+    -ldflags "-s -w -buildid= -B none -X github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo.Version=${VER}" \
+    -o "dist/scdo-ethash-verify_${VER}_linux_${arch}" ./cmd/scdo-ethash-verify
+  chmod 0755 "dist/scdo-ethash-verify_${VER}_linux_${arch}"
   cp "dist/build/$arch/scdo-agent" "dist/stage-$arch/scdo-agent"
   chmod 0755 "dist/stage-$arch/scdo-agent"
   for unit in scdo-agent@.service scdo-agent-update.service scdo-agent-update.timer scdo-agent-boot.service; do
@@ -200,7 +205,9 @@ chmod 0755 dist/install.sh packaging/postinstall.sh
     scdo-agent_"${VER}"_linux_arm64.tar.gz \
     scdo-agent_"${VER}"_linux_amd64.deb \
     scdo-agent_"${VER}"_linux_arm64.deb \
-    install.sh > SHA256SUMS
+    install.sh \
+    scdo-ethash-verify_"${VER}"_linux_amd64 \
+    scdo-ethash-verify_"${VER}"_linux_arm64 > SHA256SUMS
 )
 echo "wrote dist/SHA256SUMS"
 cat dist/SHA256SUMS

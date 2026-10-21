@@ -24,7 +24,7 @@ jobs:
           cache-dependency-path: linux-agent/go.sum
       - name: Test
         working-directory: linux-agent
-        run: go test ./...
+        run: go test ./... -count=1 -timeout 20m
 
   package:
     name: package (${{ matrix.os }})
@@ -49,6 +49,7 @@ jobs:
           path: |
             linux-agent/dist/scdo-agent_*.tar.gz
             linux-agent/dist/scdo-agent_*.deb
+            linux-agent/dist/scdo-ethash-verify_*
             linux-agent/dist/SHA256SUMS
             linux-agent/dist/install.sh
 
@@ -82,12 +83,33 @@ jobs:
             exit 1
           fi
           mkdir -p publish
-          cp "$src24/SHA256SUMS" "$src24/install.sh" "$src24"/*.tar.gz "$src24"/*.deb publish/
+          cp "$src24/SHA256SUMS" "$src24/install.sh" "$src24"/*.tar.gz "$src24"/*.deb "$src24"/scdo-ethash-verify_* publish/
           echo "release hashes (CI ubuntu-24.04, matched ubuntu-22.04):"
           cat publish/SHA256SUMS
+          echo "release sizes:"
+          stat -c '%n %s' publish/*
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: scdo-agent-linux
           if-no-files-found: error
           path: publish/
+
+  ethash-gpu:
+    name: scdo-ethash-gpu
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenCL headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc ocl-icd-opencl-dev pocl-opencl-icd
+      - name: Build and self-test
+        working-directory: linux-agent
+        run: |
+          sh scripts/build-ethash-gpu.sh dist/scdo-ethash-gpu
+          ./dist/scdo-ethash-gpu self-test
+      - name: Upload GPU search helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: scdo-ethash-gpu
+          if-no-files-found: error
+          path: linux-agent/dist/scdo-ethash-gpu
