@@ -31,6 +31,8 @@ function loadOrCreate (dir) {
     sign (type, body, ts) { seq += 1; save(); return signEnvelope(w, type, seq, body, ts) },
     // Read-only lookup. Does not advance the register seq counter.
     signRefcode (ts) { return signRefcode(w, ts) },
+    // 3.1.15: signs the agent's own Shard0 transaction (ERC-8004 self-registration). Only the signed raw tx leaves.
+    signTransaction (tx) { return w.signTransaction(tx) },
     toJSON () { return { agentId: w.address } }
   }
 }
