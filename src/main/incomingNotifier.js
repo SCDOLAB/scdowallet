@@ -209,9 +209,26 @@ class IncomingNotifier {
   }
 }
 
-function trimAmt (n) {
-  const s = Number(n).toFixed(8).replace(/\.?0+$/, '')
-  return s || '0'
+// Decimal text of a number, cut (never rounded) to `dp` places, trailing zeros dropped. No float maths on the digits.
+function cutDecimal (v, dp) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  let s = String(n)
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/i.exec(s)
+  if (!m) return null
+  let int = m[2]; let frac = m[3] || ''; const e = m[4] ? parseInt(m[4], 10) : 0
+  if (e > 0) { frac = frac.padEnd(e, '0'); int += frac.slice(0, e); frac = frac.slice(e) } else if (e < 0) { int = int.padStart(-e + 1, '0'); frac = int.slice(int.length + e) + frac; int = int.slice(0, int.length + e) }
+  int = int.replace(/^0+(?=\d)/, '')
+  frac = frac.slice(0, dp).replace(/0+$/, '')
+  const neg = m[1] === '-' && (/[1-9]/.test(int) || frac !== '')
+  return { neg, int, frac }
 }
 
-module.exports = { IncomingNotifier, classify, WHEEL_PAYOUT, BOOKKEEPING_SENDERS, INTEREST_SENDERS, TREASURY, TEXT, STORE_KEY }
+// SCDO amounts are never rounded: cut to 8 decimals (toFixed would round 0.123456789 up to 0.12345679).
+function trimAmt (n) {
+  const c = cutDecimal(n, 8)
+  if (!c) return '0'
+  return (c.neg ? '-' : '') + c.int + (c.frac ? '.' + c.frac : '')
+}
+
+module.exports = { trimAmt, IncomingNotifier, classify, WHEEL_PAYOUT, BOOKKEEPING_SENDERS, INTEREST_SENDERS, TREASURY, TEXT, STORE_KEY }

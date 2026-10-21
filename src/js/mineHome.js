@@ -295,9 +295,26 @@ function earnOf (log, now) {
   return { todayScdo: today, last: last }
 }
 
+// Decimal text of a number, cut (never rounded) to `dp` places, trailing zeros dropped. No float maths on the digits.
+function cutDecimal (v, dp) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  let s = String(n)
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/i.exec(s)
+  if (!m) return null
+  let int = m[2]; let frac = m[3] || ''; const e = m[4] ? parseInt(m[4], 10) : 0
+  if (e > 0) { frac = frac.padEnd(e, '0'); int += frac.slice(0, e); frac = frac.slice(e) } else if (e < 0) { int = int.padStart(-e + 1, '0'); frac = int.slice(int.length + e) + frac; int = int.slice(0, int.length + e) }
+  int = int.replace(/^0+(?=\d)/, '')
+  frac = frac.slice(0, dp).replace(/0+$/, '')
+  const neg = m[1] === '-' && (/[1-9]/.test(int) || frac !== '')
+  return { neg, int, frac }
+}
+
+// SCDO amounts are never rounded: up to 8 decimals, extra digits cut, comma every three digits.
 function scdoCount (n) {
-  if (Math.abs(n - Math.round(n)) < 1e-8) return Math.round(n).toLocaleString('en-US')
-  return n.toLocaleString('en-US', { maximumFractionDigits: 8 })
+  const c = cutDecimal(n, 8)
+  if (!c) return String(n)
+  return (c.neg ? '-' : '') + c.int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (c.frac ? '.' + c.frac : '')
 }
 
 function clockText (t) {
@@ -1345,7 +1362,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
+const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()
