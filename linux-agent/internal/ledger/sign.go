@@ -16,6 +16,8 @@ const (
 )
 
 var types = map[string]struct{}{
+	"job":          {},
+	"erc8004link":  {},
 	"register":     {},
 	"heartbeat":    {},
 	"heal":         {},
