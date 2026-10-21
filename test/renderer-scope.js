@@ -15,7 +15,7 @@ const vm = require('vm')
 const root = path.join(__dirname, '..')
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
 const srcs = []
-const re = /<script src="([^"]+)"><\/script>/g
+const re = /<script (?:defer )?src="([^"]+)"><\/script>/g
 let m
 while ((m = re.exec(html))) srcs.push(m[1].replace(/^\.\//, ''))
 assert.ok(srcs.length >= 10)

@@ -223,7 +223,30 @@
       paint()
     }
 
+    // The QR decoder (vendor/jsQR.js, ~258 KB) is not loaded at startup; it is fetched the first time an image is picked.
+    let qrLoading = null
+    function loadQrDecoder () {
+      if (window.jsQR) return Promise.resolve(true)
+      if (qrLoading) return qrLoading
+      qrLoading = new Promise(function (resolve) {
+        const s = document.createElement('script')
+        s.src = './src/js/vendor/jsQR.js'
+        s.onload = function () { resolve(!!window.jsQR) }
+        s.onerror = function () { qrLoading = null; resolve(false) }
+        document.head.appendChild(s)
+      })
+      return qrLoading
+    }
+
     function readImage (file) {
+      if (file && window.FileReader && !window.jsQR) {
+        loadQrDecoder().then(function (ok) {
+          if (ok) { readImage(file); return }
+          state.error = 'NO_QR'
+          paint()
+        })
+        return
+      }
       if (!file || !window.FileReader || !window.jsQR) {
         state.error = 'NO_QR'
         paint()
