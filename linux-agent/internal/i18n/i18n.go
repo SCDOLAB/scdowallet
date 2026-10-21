@@ -186,8 +186,12 @@ erc8004:
   to the agent, and checks that the owner is the agent. Both transactions
   are sent by the sponsor. Keys are not printed.
   An identity the agent already owns is left as it is.
-  Automatic registration on start stays off unless /etc/scdo-agent/config.toml
-  contains erc8004 = true. That path uses the agent key.
+  Since 0.5.10 "run" self-registers on start: the agent key sends the mint itself,
+  so the agent passes the Agent Ledger "verified" check (v1-2026-10-21). When the
+  agent has no Shard0 SCDO for gas it asks the ledger once for a small gas drip and
+  waits for it on chain before minting. Identities minted by others and transferred
+  to the agent are left as they are. Turn this off with erc8004 = false in
+  /etc/scdo-agent/config.toml.
 
 operator:
   scdo-agent operator batch --name OPERATOR --bot BOT [--bot BOT]
@@ -416,8 +420,11 @@ erc8004：
   贊助者呼叫 register(uri)，再以 safeTransferFrom 把新的代理編號轉給代理，
   並檢查擁有者就是該代理。兩筆交易都由贊助者送出。金鑰不會印出。
   代理已經擁有的身份不會再送出交易。
-  除非 /etc/scdo-agent/config.toml 寫了 erc8004 = true，否則啟動時不會自動登記。
-  那條路徑使用代理金鑰。
+  從 0.5.10 起，run 啟動時會自行登記：由代理金鑰親自送出鑄造交易，
+  因此代理能通過 Agent Ledger 的「已驗證」檢查（v1-2026-10-21）。
+  代理在 Shard0 沒有 SCDO 支付手續費時，會向帳本申請一次小額手續費補助，
+  並等補助在鏈上確認後才鑄造。由他人鑄造再轉給代理的身份保持不變。
+  在 /etc/scdo-agent/config.toml 寫入 erc8004 = false 可關閉此功能。
 
 operator：
   scdo-agent operator batch --name 操作者 --bot 機器人 [--bot 機器人]

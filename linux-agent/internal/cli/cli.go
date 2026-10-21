@@ -229,18 +229,11 @@ func cmdRun(b i18n.Bundle, root string, args []string, stdout, stderr io.Writer)
 			proof.Run(ctx, lay.NextSeq)
 		}
 	}
-	if erc8004.Enabled(*configDir) {
+	// 0.5.10: self-register on the ERC-8004 identity registry by default (gas from the
+	// one-time ledger drip when needed). erc8004 = false in config.toml turns it off.
+	if !erc8004.Disabled(*configDir) {
 		svc.OnStart = func(ctx context.Context) {
-			res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Dir: lay.Dir})
-			if err != nil {
-				svc.Log("erc8004 " + err.Error())
-				return
-			}
-			if res.Already {
-				svc.Log("erc8004 already " + res.AgentID)
-				return
-			}
-			svc.Log("erc8004 registered " + res.AgentID + " tx " + res.Tx)
+			go selfRegisterLoop(ctx, erc8004.Options{Key: key, Dir: lay.Dir, Drip: dripper(lay, key, client)}, svc.Log, 10*time.Minute)
 		}
 	}
 	if err := svc.Run(ctx); err != nil {

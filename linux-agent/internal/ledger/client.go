@@ -247,6 +247,8 @@ func pathFor(typ string) string {
 		return "gpu/attest"
 	case "gpusolve":
 		return "gpu/solve"
+	case "gas_drip":
+		return "gas/drip"
 	default:
 		return typ
 	}

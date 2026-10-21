@@ -168,15 +168,21 @@ scdo-agent erc8004 register --name rack-a --self
 scdo-agent erc8004 register --name rack-a --sponsor-key-file /etc/scdo-agent/sponsor.key
 ```
 
-The identity registry is an ERC-721. Pass exactly one of `--self` or `--sponsor-key-file`. `--self` sends the registration from the agent key when that account has native SCDO for gas. `--sponsor-key-file` reads a mode `0600` key file. The file may be a Web3 keystore, or a raw hex scalar: 64 hex characters, an optional `0x` prefix, and an optional trailing newline. The key is not embedded in the program and is not printed. The sponsor calls `register(uri)`, then `safeTransferFrom` of the new agent id to the agent address. That is one or two transactions, both from the sponsor. The command checks that `ownerOf` is the agent before it saves `erc8004.json`. Shard0 only. Base mainnet is not used. Before a new registration, `--self` and `status` ask IdentityRegistry whether this agent address already owns an agent id (`ownerOf` and `Transfer` logs). An owned id is reported and no second identity is sent.
+The identity registry is an ERC-721. Pass exactly one of `--self` or `--sponsor-key-file`. `--self` sends the registration from the agent key (asking the ledger for the one-time gas drip first when needed). `--sponsor-key-file` reads a mode `0600` key file. The file may be a Web3 keystore, or a raw hex scalar: 64 hex characters, an optional `0x` prefix, and an optional trailing newline. The key is not embedded in the program and is not printed. The sponsor calls `register(uri)`, then `safeTransferFrom` of the new agent id to the agent address. That is one or two transactions, both from the sponsor. The command checks that `ownerOf` is the agent before it saves `erc8004.json`. Shard0 only. Base mainnet is not used. Before a new registration, `--self` and `status` ask IdentityRegistry whether this agent address already owns an agent id (`ownerOf` and `Transfer` logs). An owned id is reported and no second identity is sent.
 
 An encrypted sponsor file needs `--sponsor-passphrase-file`. That passphrase is not the agent passphrase.
 
-Automatic registration on process start stays off unless `/etc/scdo-agent/config.toml` contains:
+### Self-registration (0.5.10)
 
-```
-erc8004 = true
-```
+The Agent Ledger "verified" definition [v1-2026-10-21](https://scdo.com.au/agent-ledger/api/verification) needs (1) an identity token whose mint transaction was sent by the agent address itself and that the agent still owns, and (2) a heartbeat signed by the agent key in the last 24 hours. Tokens minted by a sponsor and transferred to the agent do not count.
+
+Since 0.5.10, `run` checks this after the ledger register, in the background:
+
+1. Look for a `Registered` log with `owner` = agent whose transaction `from` is the agent and whose `ownerOf` is still the agent. Found: done.
+2. Otherwise estimate the mint cost. If the Shard0 balance is lower, send one agent-signed `gas_drip` request to the ledger (`POST /gas/drip`; one drip per address, 0.002 SCDO) and wait until the balance on chain covers the mint. The mint is never sent before that.
+3. The agent key sends `register(uri, metadata)`. The token id and tx go to `erc8004.json`.
+
+Failures are retried every 10 minutes. Existing tokens are never burned or transferred. `erc8004 register --self` uses the same flow. Turn it off with `erc8004 = false` in `/etc/scdo-agent/config.toml`. Heartbeats are off-chain signed messages and need no gas.
 
 A failed registration does not stop heartbeats. The RPC is `https://scdo.com.au/rpc/0`, then `https://apeccapital.org/rpc/0`.
 

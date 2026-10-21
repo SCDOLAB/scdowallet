@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,6 +70,8 @@ func TestRegisterOnceAndSkipTheSecondTime(t *testing.T) {
 			write("0xde0b6b3a7640000")
 		case "eth_getTransactionCount":
 			write("0x1")
+		case "eth_getTransactionByHash":
+			write(map[string]any{"from": strings.ToLower(address)})
 		case "eth_gasPrice":
 			write("0x3b9aca00")
 		case "eth_estimateGas":
@@ -325,13 +328,17 @@ func TestSponsoredRegisterTransfersToTheAgent(t *testing.T) {
 	}
 }
 
-func TestTransferredIdentityIsNotMintedAgain(t *testing.T) {
+// A token minted by a deployer and transferred to the agent does not meet verified
+// v1-2026-10-21. It is left alone (no burn, no transfer) and the agent mints its own,
+// after the one-time gas drip has arrived.
+func TestTransferredIdentityGetsSelfMintAfterDrip(t *testing.T) {
 	key, err := ledger.Generate()
 	if err != nil {
 		t.Fatal(err)
 	}
 	address := key.Address()
-	var sent int
+	var sent, drips int
+	var funded atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		var req struct {
@@ -346,31 +353,71 @@ func TestTransferredIdentityIsNotMintedAgain(t *testing.T) {
 		case "eth_chainId":
 			write("0x1630")
 		case "eth_getLogs":
-			write([]any{transferLog("28", "0x0000000000000000000000000000000000000002", address, "0x"+strings.Repeat("ab", 32))})
-		case "eth_call":
-			var call struct {
-				Data string `json:"data"`
-			}
-			_ = json.Unmarshal(req.Params[0], &call)
-			if strings.HasPrefix(call.Data, "0x6352211e") {
-				write("0x" + common.Bytes2Hex(common.LeftPadBytes(common.HexToAddress(address).Bytes(), 32)))
+			// Registered logs with owner = agent: none until the agent mints.
+			if sent == 0 {
+				write([]any{})
 				return
 			}
-			t.Fatalf("call %s", call.Data)
+			write([]any{regLog("31", address, "0x"+strings.Repeat("cd", 32))})
+		case "eth_call":
+			write("0x" + common.Bytes2Hex(common.LeftPadBytes(common.HexToAddress(address).Bytes(), 32)))
+		case "eth_getTransactionByHash":
+			write(map[string]any{"from": strings.ToLower(address)})
+		case "eth_getBalance":
+			if funded.Load() {
+				write("0x71afd498d0000") // 0.002
+				return
+			}
+			write("0x0")
+		case "eth_gasPrice":
+			write("0x3b9aca00")
+		case "eth_estimateGas":
+			write("0x48cb9")
+		case "eth_getTransactionCount":
+			write("0x0")
 		case "eth_sendRawTransaction":
+			if !funded.Load() {
+				t.Fatal("mint sent before the drip was confirmed")
+			}
+			var raw string
+			_ = json.Unmarshal(req.Params[0], &raw)
+			tx := new(types.Transaction)
+			if err := tx.UnmarshalBinary(common.FromHex(raw)); err != nil {
+				t.Fatal(err)
+			}
+			from, _ := types.Sender(types.NewEIP155Signer(big.NewInt(ChainID)), tx)
+			if !strings.EqualFold(from.Hex(), address) || !strings.HasPrefix(common.Bytes2Hex(tx.Data()), "8ea42286") {
+				t.Fatalf("not a self register: from %s", from.Hex())
+			}
 			sent++
-			t.Fatal("minted a second identity")
+			write("0x" + strings.Repeat("cd", 32))
+		case "eth_getTransactionReceipt":
+			write(map[string]any{"status": "0x1", "logs": []any{regLog("31", address, "0x"+strings.Repeat("cd", 32))}})
 		default:
 			t.Fatalf("unexpected %s", req.Method)
 		}
 	}))
 	defer srv.Close()
-	got, err := Register(context.Background(), Options{Key: key, Dir: t.TempDir(), Client: &rpc{URLs: []string{srv.URL}}})
+	opt := Options{Key: key, Dir: t.TempDir(), Client: &rpc{URLs: []string{srv.URL}}}
+	if _, err := Register(context.Background(), opt); err == nil || sent != 0 {
+		t.Fatalf("no gas and no drip must fail without sending: %v sent %d", err, sent)
+	}
+	opt.Drip = func(context.Context) (string, error) {
+		drips++
+		go func() { time.Sleep(500 * time.Millisecond); funded.Store(true) }()
+		return "0x" + strings.Repeat("ee", 32), nil
+	}
+	opt.DripWait = 20 * time.Second
+	got, err := Register(context.Background(), opt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Already || got.AgentID != "28" || sent != 0 {
-		t.Fatalf("%+v sent %d", got, sent)
+	if got.Already || !got.Self || got.AgentID != "31" || sent != 1 || drips != 1 {
+		t.Fatalf("%+v sent %d drips %d", got, sent, drips)
+	}
+	again, err := Register(context.Background(), opt)
+	if err != nil || !again.Already || !again.Self || sent != 1 || drips != 1 {
+		t.Fatalf("again %+v %v sent %d drips %d", again, err, sent, drips)
 	}
 }
 

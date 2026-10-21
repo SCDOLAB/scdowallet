@@ -38,3 +38,32 @@ func Enabled(configDir string) bool {
 	}
 	return false
 }
+
+// Disabled reports whether config.toml turns automatic self-registration off
+// (erc8004 = false). Since 0.5.10 it is on when the key is absent.
+func Disabled(configDir string) bool {
+	if strings.TrimSpace(configDir) == "" {
+		configDir = ConfigDir
+	}
+	b, err := os.ReadFile(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(s, "=")
+		if !ok || strings.TrimSpace(key) != "erc8004" {
+			continue
+		}
+		val = strings.Trim(strings.TrimSpace(val), `"'`)
+		switch strings.ToLower(val) {
+		case "0", "false", "no", "off":
+			return true
+		}
+		return false
+	}
+	return false
+}
