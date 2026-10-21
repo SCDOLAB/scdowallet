@@ -46,6 +46,10 @@ type Result struct {
 	Address  string
 	Registry string
 	Already  bool
+	// Self is true when the agent address sent the mint transaction itself.
+	Self bool
+	// Drip is the subsidy transaction that paid this agent's gas, when one was needed.
+	Drip string
 }
 
 // Options registers one ledger identity.
@@ -61,6 +65,12 @@ type Options struct {
 	// RPCs overrides the public Shard0 endpoints. Client is set by tests.
 	RPCs   []string
 	Client *rpc
+	// Drip asks the ledger for a one-time gas drip when the agent cannot pay for the
+	// mint. It returns the drip transaction hash ("" when none was sent). The caller
+	// waits here until the balance covers the mint, so the mint is never sent first.
+	Drip func(context.Context) (string, error)
+	// DripWait bounds the wait for the drip to arrive. Zero means 3 minutes.
+	DripWait time.Duration
 }
 
 type metaEntry struct {
@@ -99,32 +109,23 @@ func Register(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if owned, ok, err := alreadyOwned(ctx, node, opt.Dir, address, out); err != nil {
+	// Verified v1-2026-10-21: only a token this address minted itself (mint tx sent from the
+	// agent address, ownerOf == agent) counts. Sponsored or transferred tokens are left alone.
+	if self, ok, err := selfMinted(ctx, node, address); err != nil {
 		return out, err
 	} else if ok {
-		return owned, nil
-	}
-	found, err := node.registrations(ctx, address)
-	if err != nil {
-		return out, err
-	}
-	if len(found) > 0 {
-		pick := choose(ctx, node, address, found)
-		out.AgentID = pick.id.String()
-		out.Tx = pick.tx
+		out.AgentID = self.id.String()
+		out.Tx = self.tx
 		out.Already = true
+		out.Self = true
 		_ = saveRecord(opt.Dir, out)
 		return out, nil
 	}
-	bal, err := node.balance(ctx, address)
+	data, err := packRegister(uri, address)
 	if err != nil {
 		return out, err
 	}
-	if bal.Sign() == 0 {
-		return out, fmt.Errorf("Shard0 account %s has no SCDO for gas", address)
-	}
-	data, err := packRegister(uri, address)
-	if err != nil {
+	if err := ensureGas(ctx, opt, node, address, data); err != nil {
 		return out, err
 	}
 	raw, err := sign(ctx, opt.Key, node, data)
@@ -148,6 +149,7 @@ func Register(ctx context.Context, opt Options) (Result, error) {
 		return out, fmt.Errorf("registration receipt has no agent id")
 	}
 	out.AgentID = id.String()
+	out.Self = true
 	if err := saveRecord(opt.Dir, out); err != nil {
 		return out, err
 	}

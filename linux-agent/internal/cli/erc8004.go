@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/agent"
+	"github.com/SCDOLAB/scdowallet/linux-agent/internal/buildinfo"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/erc8004"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/i18n"
 	"github.com/SCDOLAB/scdowallet/linux-agent/internal/keys"
@@ -97,7 +99,14 @@ func registerERC8004(b i18n.Bundle, root, name, rpcFlag, passFile string, self b
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	res, err := erc8004.Register(ctx, erc8004.Options{Key: key, Sponsor: sponsor, Agent: lay.Meta.Address, Dir: lay.Dir, RPCs: rpcs})
+	opt := erc8004.Options{Key: key, Sponsor: sponsor, Agent: lay.Meta.Address, Dir: lay.Dir, RPCs: rpcs}
+	if self {
+		urls, err := ledger.ResolveURLs(os.Getenv("SCDO_AGENT_LEDGER"))
+		if err == nil {
+			opt.Drip = dripper(lay, key, &ledger.Client{URLs: urls, Agent: "scdo-agent/" + buildinfo.Version})
+		}
+	}
+	res, err := erc8004.Register(ctx, opt)
 	if res.AgentID != "" {
 		fmt.Fprintf(stdout, b.T("erc8004ID")+"\n", res.AgentID)
 	}

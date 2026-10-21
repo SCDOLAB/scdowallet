@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -278,8 +279,13 @@ func List(root string) ([]Meta, error) {
 	return out, nil
 }
 
+// seqMu serialises NextSeq: heartbeats and the self-registration drip run concurrently.
+var seqMu sync.Mutex
+
 // NextSeq persists the next ledger sequence number before it is signed.
 func (l *Layout) NextSeq() (int64, error) {
+	seqMu.Lock()
+	defer seqMu.Unlock()
 	path := filepath.Join(l.Dir, "state.json")
 	var st stateDoc
 	if err := readJSON(path, &st); err != nil {
