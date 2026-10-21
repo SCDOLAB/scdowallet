@@ -6,24 +6,28 @@ import (
 )
 
 func TestJobBody(t *testing.T) {
-	b, err := JobBody("j-1", "credited", "H100", "", "acme", 42, "0.5", "USDC", "0x"+strings.Repeat("ab", 32), "refund")
+	b, err := JobBody(JobOpts{JobID: "j-1", Status: "refunded", ServiceType: "api", ProviderHash: "acme", DurationS: 42, LatencyMS: 830,
+		ErrorClass: "timeout", Amount: "0.5", Currency: "USDC", RefundAmount: "0.5", PaymentTx: "0x" + strings.Repeat("AB", 32), Note: "refund"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b["status"] != "credited" || b["duration_s"] != int64(42) || !strings.HasPrefix(b["provider"].(string), "sha256:") {
+	if b["status"] != "refunded" || b["service_type"] != "api" || b["latency_ms"] != int64(830) || b["refund_amount"] != "0.5" ||
+		b["payment_tx"] != "0x"+strings.Repeat("ab", 32) || !strings.HasPrefix(b["provider"].(string), "sha256:") {
 		t.Fatal(b)
 	}
-	if _, err := JobBody("j", "done", "", "", "", -1, "", "", "", ""); err == nil {
+	for _, s := range []string{"started", "succeeded", "placed", "ready", "failed", "credited"} {
+		if _, err := JobBody(JobOpts{JobID: "j", Status: s, DurationS: -1, LatencyMS: -1}); err != nil {
+			t.Fatal(s, err)
+		}
+	}
+	if _, err := JobBody(JobOpts{JobID: "j", Status: "done", DurationS: -1, LatencyMS: -1}); err == nil {
 		t.Fatal("bad status accepted")
 	}
-	if _, err := JobBody("", "ready", "", "", "", -1, "", "", "", ""); err == nil {
-		t.Fatal("empty job id accepted")
+	if _, err := JobBody(JobOpts{JobID: "j", Status: "failed", RefundAmount: "x", DurationS: -1, LatencyMS: -1}); err == nil {
+		t.Fatal("bad refund accepted")
 	}
-	if _, err := JobBody("j", "ready", "", "", "", -1, "", "", "0x12", ""); err == nil {
-		t.Fatal("bad tx accepted")
-	}
-	b, _ = JobBody("j", "ready", "", "", "", -1, "", "", "", "")
-	if _, ok := b["duration_s"]; ok {
-		t.Fatal("duration set when absent")
+	b, _ = JobBody(JobOpts{JobID: "j", Status: "ready", DurationS: -1, LatencyMS: -1})
+	if _, ok := b["latency_ms"]; ok {
+		t.Fatal("latency set when absent")
 	}
 }

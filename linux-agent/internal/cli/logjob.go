@@ -22,22 +22,51 @@ import (
 )
 
 var (
-	jobStatuses = map[string]bool{"placed": true, "ready": true, "failed": true, "refunded": true, "credited": true}
+	jobStatuses = map[string]bool{"placed": true, "started": true, "ready": true, "succeeded": true, "failed": true, "refunded": true, "credited": true}
 	reTxHash    = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
 	reAmount    = regexp.MustCompile(`^\d+(\.\d{1,18})?$`)
 	reCurrency  = regexp.MustCompile(`^[A-Za-z0-9]{1,12}$`)
 )
 
+// JobOpts are the log-job fields. Any provider and any paid service: GPU, API, data, ...
+type JobOpts struct {
+	JobID, Status, ServiceType, GPUType, Provider, ProviderHash string
+	DurationS, LatencyMS                                        int64
+	ErrorClass, Amount, Currency, RefundAmount, PaymentTx, Note string
+}
+
 // JobBody validates log-job flags into the signed body (same rules as the ledger).
-func JobBody(jobID, status, gpuType, provider, providerHash string, duration int64, amount, currency, evidence, note string) (map[string]any, error) {
+func JobBody(o JobOpts) (map[string]any, error) {
+	jobID, status, gpuType, provider, providerHash, duration, amount, currency, evidence, note := o.JobID, o.Status, o.GPUType, o.Provider, o.ProviderHash, o.DurationS, o.Amount, o.Currency, o.PaymentTx, o.Note
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" || len(jobID) > 128 {
 		return nil, fmt.Errorf("--job-id is required (1-128 characters)")
 	}
 	if !jobStatuses[status] {
-		return nil, fmt.Errorf("--status must be one of placed, ready, failed, refunded, credited")
+		return nil, fmt.Errorf("--status must be one of placed, started, ready, succeeded, failed, refunded, credited")
 	}
 	body := map[string]any{"job_id": jobID, "status": status}
+	if o.ServiceType != "" {
+		if len(o.ServiceType) > 64 {
+			return nil, fmt.Errorf("--service-type is longer than 64 characters")
+		}
+		body["service_type"] = o.ServiceType
+	}
+	if o.ErrorClass != "" {
+		if len(o.ErrorClass) > 64 {
+			return nil, fmt.Errorf("--error-class is longer than 64 characters")
+		}
+		body["error_class"] = o.ErrorClass
+	}
+	if o.LatencyMS >= 0 {
+		body["latency_ms"] = o.LatencyMS
+	}
+	if o.RefundAmount != "" {
+		if !reAmount.MatchString(o.RefundAmount) {
+			return nil, fmt.Errorf("--refund-amount must be a decimal such as 0.42")
+		}
+		body["refund_amount"] = o.RefundAmount
+	}
 	if gpuType != "" {
 		if len(gpuType) > 64 {
 			return nil, fmt.Errorf("--gpu-type is longer than 64 characters")
@@ -73,9 +102,9 @@ func JobBody(jobID, status, gpuType, provider, providerHash string, duration int
 	}
 	if evidence != "" {
 		if !reTxHash.MatchString(evidence) {
-			return nil, fmt.Errorf("--evidence-tx must be 0x + 64 hex characters")
+			return nil, fmt.Errorf("--payment-tx must be 0x + 64 hex characters")
 		}
-		body["evidence_tx"] = strings.ToLower(evidence)
+		body["payment_tx"] = strings.ToLower(evidence)
 	}
 	if note != "" {
 		if len(note) > 500 {
@@ -92,7 +121,12 @@ func cmdLogJob(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 	name := fs.String("name", "", "")
 	jobID := fs.String("job-id", "", "")
 	status := fs.String("status", "", "")
+	serviceType := fs.String("service-type", "", "")
 	gpuType := fs.String("gpu-type", "", "")
+	latency := fs.Int64("latency-ms", -1, "")
+	errorClass := fs.String("error-class", "", "")
+	refund := fs.String("refund-amount", "", "")
+	paymentTx := fs.String("payment-tx", "", "")
 	provider := fs.String("provider", "", "")
 	providerHash := fs.String("provider-hash", "", "")
 	duration := fs.Int64("duration-s", -1, "")
@@ -104,10 +138,16 @@ func cmdLogJob(b i18n.Bundle, root string, args []string, stdout, stderr io.Writ
 	passFile := fs.String("passphrase-file", "", "")
 	asJSON := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil || strings.TrimSpace(*name) == "" {
-		fmt.Fprintln(stderr, "usage: scdo-agent log-job --name NAME --job-id ID --status placed|ready|failed|refunded|credited [--gpu-type T] [--provider P | --provider-hash P] [--duration-s N] [--amount A --currency C] [--evidence-tx 0x...] [--note TEXT]")
+		fmt.Fprintln(stderr, "usage: scdo-agent log-job --name NAME --job-id ID --status placed|started|ready|succeeded|failed|refunded|credited [--service-type gpu|api|data|...] [--latency-ms N] [--duration-s N] [--error-class TEXT] [--amount A --currency C] [--refund-amount A] [--payment-tx 0xBASE_TX] [--provider P | --provider-hash P] [--gpu-type T] [--note TEXT] [--json]")
 		return 2
 	}
-	body, err := JobBody(*jobID, *status, *gpuType, *provider, *providerHash, *duration, *amount, *currency, *evidence, *note)
+	if *paymentTx != "" && *evidence != "" && !strings.EqualFold(*paymentTx, *evidence) {
+		fmt.Fprintln(stderr, "--payment-tx and --evidence-tx differ")
+		return 2
+	}
+	body, err := JobBody(JobOpts{JobID: *jobID, Status: *status, ServiceType: *serviceType, GPUType: *gpuType, Provider: *provider, ProviderHash: *providerHash,
+		DurationS: *duration, LatencyMS: *latency, ErrorClass: *errorClass, Amount: *amount, Currency: *currency, RefundAmount: *refund,
+		PaymentTx: first(*paymentTx, *evidence), Note: *note})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 2
