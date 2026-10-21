@@ -79,6 +79,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdServePaywall(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "erc8004":
 		return cmdERC8004(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "link-8004":
+		return cmdLink8004(b, dataDir(*dataFlag), rest, stdout, stderr)
+	case "log-job":
+		return cmdLogJob(b, dataDir(*dataFlag), rest, stdout, stderr)
 	case "operator":
 		return cmdOperator(b, dataDir(*dataFlag), rest, stdout, stderr)
 	default:

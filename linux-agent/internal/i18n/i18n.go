@@ -74,6 +74,8 @@ Commands:
   pay       Pay an HTTP 402 with Base USDC (--network base or base-sepolia)
   serve-paywall  Receive a Base USDC payment (facilitator pays the gas)
   erc8004   Register this agent on the Shard0 ERC-8004 identity registry
+  log-job   Sign and publish one job outcome (placed, ready, failed, refunded, credited)
+  link-8004 Link an ERC-8004 agentId on Base mainnet to this agent
   operator  Confirm bots that named this operator
   version   Print the version
   help      Show this help
@@ -101,6 +103,21 @@ run:
 
   Heartbeats go out every 5 minutes. The ledger base is https://scdo.com.au
   and falls back to https://apeccapital.org. This process keeps the ledger record.
+
+link-8004:
+  scdo-agent link-8004 --name NAME --agent-id N
+      Links an ERC-8004 agentId from the Base mainnet IdentityRegistry
+      (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432). ownerOf(N) or getAgentWallet(N)
+      must be this agent's address. The ledger page then shows the agentId.
+
+log-job:
+  scdo-agent log-job --name NAME --job-id ID --status placed|ready|failed|refunded|credited
+      [--gpu-type TEXT] [--provider TEXT | --provider-hash TEXT] [--duration-s N]
+      [--amount DECIMAL --currency CODE] [--evidence-tx 0xBASE_TX] [--note TEXT] [--json]
+
+  Signs one job outcome with the agent key and posts it to the Agent Ledger. Nothing is paid.
+  --provider-hash publishes sha256(TEXT) instead of the name. --evidence-tx must be a Base
+  mainnet transaction that exists. Public: https://scdo.com.au/agent-ledger/api/agents/<agent>/jobs
 
 status:
   scdo-agent status --name NAME [--ledger URL]
@@ -342,6 +359,21 @@ run：
   scdo-agent run --name 名稱 [--ledger URL] [--passphrase-file 路徑]
 
   每 5 分鐘送出一次心跳。帳本位址為 https://scdo.com.au，失敗時改用 https://apeccapital.org。此行程只維護帳本紀錄。
+
+link-8004:
+  scdo-agent link-8004 --name NAME --agent-id N
+      Links an ERC-8004 agentId from the Base mainnet IdentityRegistry
+      (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432). ownerOf(N) or getAgentWallet(N)
+      must be this agent's address. The ledger page then shows the agentId.
+
+log-job:
+  scdo-agent log-job --name NAME --job-id ID --status placed|ready|failed|refunded|credited
+      [--gpu-type TEXT] [--provider TEXT | --provider-hash TEXT] [--duration-s N]
+      [--amount DECIMAL --currency CODE] [--evidence-tx 0xBASE_TX] [--note TEXT] [--json]
+
+  Signs one job outcome with the agent key and posts it to the Agent Ledger. Nothing is paid.
+  --provider-hash publishes sha256(TEXT) instead of the name. --evidence-tx must be a Base
+  mainnet transaction that exists. Public: https://scdo.com.au/agent-ledger/api/agents/<agent>/jobs
 
 status：
   scdo-agent status --name 名稱 [--ledger URL]
