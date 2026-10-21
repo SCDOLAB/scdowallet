@@ -1,0 +1,26 @@
+name: agent-tests
+# Offline unit tests for the wallet's AI Agent Ledger code (no Electron, no network).
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'release/**'
+      - 'cursor/**'
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install (no install scripts, no Electron download)
+        run: npm ci --ignore-scripts
+      - name: Agent tests
+        run: |
+          for t in agent-selfmint-3115 agent-ledger agent-join agent-3112 agent-payout agent-presence release-315 session-mode; do
+            echo "== $t"; node test/$t.js
+          done

@@ -12,6 +12,9 @@ const heal = require('./healRules')
 const { parseClassicAddress, parseShard0Address } = require('../miner/zpow/address')
 const { ledgerPayout } = require('./payoutRule')
 const endpoints = require('../config/endpoints')
+const selfMint = require('./selfMint')
+const fs = require('fs')
+const path = require('path')
 
 const TICK_MS = 30 * 1000
 const HEARTBEAT_MS = 5 * 60 * 1000
@@ -25,6 +28,8 @@ const ONLINE_MS = 15 * 60 * 1000
 // 3.1.12: re-register to pick up the x402 Base reserve when the ledger has not returned one yet.
 const RESERVE_RETRY_MS = [60 * 1000, 2 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000, 15 * 60 * 1000]
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/
+// 3.1.15: retry pause for the ERC-8004 self-registration.
+const SELF_MINT_RETRY_MS = 10 * 60 * 1000
 
 function postJson (url, obj, timeoutMs) {
   return new Promise(resolve => {
@@ -102,6 +107,53 @@ class AgentService {
     this.lastBeat = 0
     this.lastSnap = null
     this.timer = null
+    // 3.1.15: ERC-8004 self-registration (Agent Ledger verified v1-2026-10-21). opts.selfMint === false turns it off.
+    this.dir = dir
+    // On for the real app (no injected post/ledgerUrl); tests and pinned dev ledgers opt in with opts.selfMint,
+    // so they never touch the live chain. SCDO_AGENT_SELF_MINT=0 turns it off.
+    this.selfMintOn = opts.selfMint != null ? opts.selfMint !== false
+      : (!opts.post && !opts.ledgerUrl && String((opts.env || process.env).SCDO_AGENT_SELF_MINT || '') !== '0')
+    this.rpc = opts.rpc || selfMint.httpRpc(postJson)
+    this.selfMintState = null
+    try { const j = JSON.parse(fs.readFileSync(path.join(dir, 'erc8004.json'), 'utf8')); if (j && j.self && j.tokenId) this.selfMintState = j } catch (e) {}
+    this.selfMintBusy = null
+    this.nextSelfMintAt = 0
+  }
+
+  // POST /gas/drip once (signed by the agent key). Resolves with the drip answer; throws on refusal.
+  async requestDrip () {
+    const env = this.id.sign('gas_drip', { purpose: 'erc8004_self_register' }, this.now())
+    let last = null
+    for (const base of this.ledgers) {
+      try { last = await this.post(base.replace(/\/$/, '') + '/gas/drip', env, 120000) } catch (e) { last = { ok: false, error: e.message } }
+      if (last && last.ok) return last.body
+      if (last && (last.status === 400 || last.status === 403 || last.status === 429 || last.status === 503)) break
+    }
+    throw new Error('gas drip: ' + clip((last && ((last.body && last.body.error) || last.error || last.status)) || 'failed', 120))
+  }
+
+  // Starts one background self-registration when due. Never blocks the tick; a failure retries after SELF_MINT_RETRY_MS.
+  kickSelfMint () {
+    if (!this.selfMintOn || this.selfMintState || this.selfMintBusy || !this.registered || !this.reportingOn()) return null
+    if (this.now() < this.nextSelfMintAt) return null
+    if (!this.id.signTransaction || !ADDR_RE.test(String(this.id.address || ''))) return null
+    this.selfMintBusy = selfMint.ensureSelfMint({
+      address: this.id.address,
+      rpc: this.rpc,
+      signTx: tx => this.id.signTransaction(tx),
+      requestDrip: () => this.requestDrip(),
+      sleep: this.sleep
+    }).then(r => {
+      this.selfMintState = { v: 1, self: true, tokenId: r.tokenId, tx: r.tx, registry: selfMint.REGISTRY, uri: selfMint.agentURI(this.id.address) }
+      try { fs.writeFileSync(path.join(this.dir, 'erc8004.json'), JSON.stringify(this.selfMintState), { mode: 0o600 }) } catch (e) {}
+      this.note('erc8004', r.already ? 'already' : 'minted', { tokenId: r.tokenId, tx: r.tx })
+      return this.selfMintState
+    }).catch(e => {
+      this.nextSelfMintAt = this.now() + SELF_MINT_RETRY_MS
+      this.note('erc8004', 'failed', { error: clip(e && e.message || e, 200) })
+      return null
+    }).finally(() => { this.selfMintBusy = null })
+    return this.selfMintBusy
   }
 
   reportingOn () { try { return this.host.enabled ? this.host.enabled() !== false : true } catch (e) { return true } }
@@ -298,6 +350,7 @@ class AgentService {
       const payout = await this.payoutAddress()
       if (!this.registered || (payout && payout !== this.registeredPayout)) await this.register()
       else if (this.reserveDue(now)) await this.register()
+      this.kickSelfMint()
     } else this.settled = true
     if (light) {
       if (this.registered && now - this.lastBeat >= HEARTBEAT_MS) {
@@ -355,7 +408,7 @@ class AgentService {
     return body
   }
 
-  status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, online: this.online(), settled: this.settled, started: !!this.timer, lastOkAt: this.lastOkAt || 0, usdcWallet: this.usdcWallet || '', payout: this.registeredPayout || '', reporting: this.reportingOn(), problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
+  status () { return { agentId: this.id.agentId, ledger: this.ledger, ledgers: this.ledgers.slice(), registered: this.registered, online: this.online(), settled: this.settled, started: !!this.timer, lastOkAt: this.lastOkAt || 0, usdcWallet: this.usdcWallet || '', payout: this.registeredPayout || '', reporting: this.reportingOn(), erc8004: this.selfMintState ? { tokenId: this.selfMintState.tokenId, tx: this.selfMintState.tx } : null, problems: (this.lastSnap && this.lastSnap.problems) || [], events: this.log.recent(30) } }
 }
 
-module.exports = { AgentService, heartbeatBody, postJson, validPayout, shouldRetry, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, FALLBACK_LEDGER, PUBLIC_FIELDS, ATTEMPTS, ONLINE_MS, RESERVE_RETRY_MS }
+module.exports = { SELF_MINT_RETRY_MS, AgentService, heartbeatBody, postJson, validPayout, shouldRetry, TICK_MS, HEARTBEAT_MS, DEFAULT_LEDGER, FALLBACK_LEDGER, PUBLIC_FIELDS, ATTEMPTS, ONLINE_MS, RESERVE_RETRY_MS }
