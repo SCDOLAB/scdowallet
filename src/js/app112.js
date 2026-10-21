@@ -3568,7 +3568,7 @@
           <button class="btn ghost" data-act="checkUpdate">${esc(T('updCheck'))}</button>
           <span id="updState" class="lbl" style="margin-left:10px;align-self:center"></span></div>`)}
       ${shellFold('setAbout', T('about') + ' · ' + APPVER, `<div style="font-size:18px">SCDO Wallet ${esc(APPVER)} · 2026-10-19</div><div class="lbl" id="aboutCommit">${esc(T('aboutCommit'))}${PU.c()}<span class="mono">${esc(APPCOMMIT || '?')}</span></div>${contactHtml('aboutContact')}<div id="aboutHash" class="abouthash"><div class="lbl">${esc(T('aboutHashLoading'))}</div></div><div class="relnotes">${relNotesHtml()}</div>`)}
-      ${shellFold('setCat', 'AI小貓', `<div class="lbl">${esc(T('catHint'))}</div>
+      ${shellFold('setCat', T('catTitle'), `<div class="lbl">${esc(T('catHint'))}</div>
         <div style="margin-top:8px"><button class="toggle" data-act="catEnabled" id="catEnabled"><span class="sw ${catOn() ? 'on' : ''}"></span>${esc(T('catToggle'))}</button></div>`)}`
     const setHtml = `${wantPage ? '' : `<div class="mh"><h2>${esc(T('navSettings'))}</h2><button class="btn ghost small" data-act="closeModal">✕</button></div>`}
       ${langRow}
@@ -4923,7 +4923,7 @@
       root.setAttribute('data-lang', lang())
       const rows = CAT_ROWS.map(g => `<div class="ios-group">${g.map(([k, label, color, icon]) => `<button type="button" class="ios-row" data-act="catRow" data-v="${k}" id="catRow-${k}"><span class="ios-tile" style="background:${color}"><img src="./assets/ui/${icon}.svg" alt=""></span><span class="ios-lbl">${esc(T(label))}</span><img class="ios-chev" src="./assets/ui/chev.svg" alt=""></button>`).join('')}</div>`).join('')
       SD.html(root, `<button type="button" class="cat-launch cat-capsule" id="aiCatBtn" data-act="catOpen" title="${esc(T('catLauncher'))}" aria-label="${esc(T('catLauncher'))}">${catAnimHtml()}<span class="cap-t">${esc(T('catTitle'))}</span></button>
-        <div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="AI小貓" hidden>
+        <div class="cat-pop bubble" id="aiCatPanel" role="dialog" aria-label="${esc(T('catTitle'))}" hidden>
           <i class="bub b1" aria-hidden="true"></i><i class="bub b2" aria-hidden="true"></i><i class="bub b3" aria-hidden="true"></i><i class="bub b4" aria-hidden="true"></i>
           <button type="button" class="ios-x" data-act="catClose" title="${esc(T('catClose'))}" aria-label="${esc(T('catClose'))}"><img src="./assets/ui/x.svg" alt=""></button>
           <div class="ios-hd center"><span class="av"><img src="./assets/ai-cat.png" alt=""></span><div class="t1">${esc(T('catTitle'))}</div><div class="t2">${esc(T('catAskQ'))}</div></div>
