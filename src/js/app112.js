@@ -2668,6 +2668,7 @@
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
         <details class="shell-fold" id="wizPayees"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('shellPayees'))}</summary><div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></details>
+        <div id="payRecents"></div>
         <div id="payChain" class="wiz-chain"><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
         <div class="field"><div class="lbl">${esc(TC('shellPickAddr'))}</div><div id="payFromPick"></div><div class="lbl" id="payFromBal"></div></div>
         <div class="err" id="payErr1"></div>
@@ -2687,6 +2688,7 @@
         </details>
         <div class="warnbox" id="paySelf" style="display:none;margin-top:8px"></div>
         <div id="payRoute" hidden></div>
+        <div id="paySafety"></div>
         <div id="payExtra"></div>
         <div id="payStatus" style="margin-top:8px"></div>
         <div class="field"><div class="lbl">${esc(TC('payPw'))}</div><input class="inp" type="password" id="remitPw" autocomplete="off"></div>
@@ -2695,6 +2697,42 @@
       </div>
       <div id="wizStep4" class="wiz-step" hidden></div>
     </div>`)
+    const AB = window.SCDOAddressBook
+    function paintRecents () {
+      const box = $('payRecents')
+      if (!box || !AB) return
+      const list = AB.chips(ui.recipients, 12)
+      if (!list.length) { SD.html(box, ''); return }
+      const short = (a) => a.length > 14 ? a.slice(0, 8) + '\u2026' + a.slice(-6) : a
+      SD.html(box, `<div class="lbl">${esc(TC('abRecents'))}</div><div class="row" style="flex-wrap:wrap;gap:8px;margin:6px 0 10px">${list.map(e => `<button type="button" class="wiz-chip" data-ab-addr="${esc(e.address)}">${e.name ? esc(e.name) + ' \u00B7 ' : ''}<span class="mono">${esc(short(e.address))}</span></button>`).join('')}</div>`)
+      for (const b of box.querySelectorAll('[data-ab-addr]')) b.onclick = () => { const t = $('payTo'); if (t) { t.value = b.getAttribute('data-ab-addr'); t.dispatchEvent(new Event('input', { bubbles: true })) } }
+    }
+    // first-time recipient + lookalike check on the confirm step (chain addresses only)
+    function paintSafety () {
+      const box = $('paySafety')
+      s.needFullAck = false
+      if (!box || !AB) return
+      const to = nhw($('payTo') ? $('payTo').value : s.to)
+      if (!/^0x[0-9a-fA-F]{40}$/.test(to) && !/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) { SD.html(box, ''); return }
+      const known = AB.chips(ui.recipients, 1000).map(e => e.address).concat((st.accounts || []).map(a => a.evm || '').filter(Boolean), (st.accounts || []).map(a => a.pubkey || '').filter(Boolean))
+      const real = AB.lookalike(to, known)
+      const first = !AB.find(ui.recipients, to)
+      let h = ''
+      if (real) h += `<div class="warnbox" id="payPoison" style="border-color:#c62828;color:#a3160c">\u26A0 ${esc(TC('abPoison'))}<div class="mono" style="margin-top:6px">${esc(real)}</div></div>`
+      if (first) {
+        s.needFullAck = true
+        h += `<div class="infobox" id="payFirst"><b>${esc(TC('abFirst'))}</b><div class="mono" style="margin:6px 0;word-break:break-all">${esc(to)}</div><label class="chk" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="payFullAck" style="width:22px;height:22px"> ${esc(TC('abFirstCheck'))}</label></div>`
+      }
+      SD.html(box, h)
+      const ack = $('payFullAck'); const b = $('btnRemitSign')
+      if (ack) { if (b) b.disabled = true; ack.onchange = () => { const x = $('btnRemitSign'); if (x) x.disabled = !ack.checked } }
+    }
+    function rememberRecipient (to) {
+      if (!AB || !to) return
+      if (!/^0x[0-9a-fA-F]{40}$/.test(to) && !/^[1-4]S[0-9a-fA-F]{40}$/.test(to)) return
+      ui.recipients = AB.recordSend(ui.recipients, to, Date.now())
+      saveUi()
+    }
     const chips = $('payeeChips')
     const names = allPayees().map(p => p.name).slice(0, 8)
     const payeeFold = $('wizPayees')
@@ -2793,6 +2831,7 @@
       if (paintAmtRoom(s.amount)) return
       showStep(3)
       sync()
+      paintSafety()
     }
     function maxShard (route) {
       if (route && route.kind === 'chain' && (route.shard === 0 || route.shard >= 1)) return route.shard
@@ -2918,6 +2957,7 @@
     const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
     showStep(1)
     sync()
+    paintRecents()
     function lockSend (btn) {
       if (!btn) return
       btn.disabled = true
@@ -2954,8 +2994,12 @@
       const amt = amount ? (String(amount) + ' SCDO') : '\u2014'
       const copy = `<button type="button" class="shell-copy" data-act="copy" data-v="${esc(h)}">${esc(TC('wizCopyHash'))}</button>`
       const link = `<button type="button" class="shell-copy" data-act="openTx" data-v="${esc(h)}">${esc(TC('wizScan'))}</button>`
+      const lastEntry = AB && s.lastTo ? AB.find(ui.recipients, s.lastTo) : null
+      const saveRow = lastEntry && !lastEntry.name ? `<div class="row" id="abSaveRow" style="gap:8px;margin:10px 0"><input class="inp" id="abName" placeholder="${esc(TC('abName'))}" autocomplete="off" style="flex:1"><button type="button" class="shell-copy" id="abSave">${esc(TC('abSave'))}</button></div>` : ''
       const done = $('wizStep4')
-      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizSubmitted'))}</div>${txStepsHtml(state || 'pending')}<div class="wiz-amt">${esc(amt)}</div><div class="mono" id="payHash">${esc(h)}</div>${copy}${link}<button type="button" class="shell-go" id="wizFinish">${esc(TC('wizFinish'))}</button>`)
+      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizSubmitted'))}</div>${txStepsHtml(state || 'pending')}<div class="wiz-amt">${esc(amt)}</div><div class="mono" id="payHash">${esc(h)}</div>${copy}${link}${saveRow}<button type="button" class="shell-go" id="wizFinish">${esc(TC('wizFinish'))}</button>`)
+      const sv = $('abSave')
+      if (sv) sv.onclick = () => { const n = ($('abName') && $('abName').value || '').trim(); if (!n || !AB) return; ui.recipients = AB.save(ui.recipients, s.lastTo, n); saveUi(); sv.disabled = true; sv.textContent = TC('abSaved'); paintRecents() }
       const fin = $('wizFinish')
       if (fin) fin.onclick = () => {
         clearPayFields()
@@ -2969,6 +3013,8 @@
     async function showSent (amount, hash, poll) {
       const kept = String(amount || '')
       const h = String(hash || '')
+      s.lastTo = nhw($('payTo') ? $('payTo').value : s.to)
+      rememberRecipient(s.lastTo)
       clearPayFields()
       const done = $('wizStep4')
       const b = $('btnRemitSign')
@@ -3009,6 +3055,7 @@
     async function confirmPay () {
       const btn = $('btnRemitSign'); const err = $('payErr')
       if (btn && btn.disabled) return
+      if (s.needFullAck && !($('payFullAck') && $('payFullAck').checked)) { if (err) err.textContent = TC('abFirstCheck'); return }
       if (btn) btn.disabled = true
       if (err) err.textContent = ''
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
