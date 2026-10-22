@@ -39,7 +39,8 @@
     const cpuShard = Number(targets.cpu && targets.cpu.shard) || 1
     const g = gpuShard >= 1 && gpuShard <= 4 ? gpuShard : 1
     const c = cpuShard >= 1 && cpuShard <= 4 ? cpuShard : 1
-    if (gpuAvail) return { cpu: [], gpu: [0] }
+    // 3.1.15: while Shard0 EVM bookkeeping is stopped the graphics card takes the wallet's Classic shard.
+    if (gpuAvail) return caps.shard0Stopped ? { cpu: [], gpu: [g] } : { cpu: [], gpu: [0] }
     return { cpu: [c], gpu: [] }
   }
 
