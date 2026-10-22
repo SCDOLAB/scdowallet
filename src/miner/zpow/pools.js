@@ -9,6 +9,12 @@
 const DEFAULT_HOST = null
 const BLOCKED_HOSTS = ['82.223.19.88']
 function hostAllowed (h) { return !!h && !BLOCKED_HOSTS.includes(String(h).trim()) }
+// 3.1.15 (temporary, owner-approved 2026-10-22): a BLOCKED_HOSTS entry is accepted ONLY when the signed-off
+// remote config zpowPools names it for that shard on that shard's own port (3341–3344). Never a default,
+// never from env or caller overrides. Remove the zpowPools entry from config.json to switch it off again.
+function configPoolAllowed (n, host, port) {
+  return BLOCKED_HOSTS.includes(host) && Number(port) === DEFAULT_POOLS[n].port
+}
 const HOST_RE = /^[A-Za-z0-9.-]{1,253}$/
 
 const DEFAULT_POOLS = {
@@ -49,6 +55,7 @@ function remotePoolOverrides (remote) {
     if (src.host != null) {
       const host = String(src.host).trim()
       if (HOST_RE.test(host) && hostAllowed(host)) o.host = host
+      else if (HOST_RE.test(host) && configPoolAllowed(n, host, src.port)) { o.host = host; o.fromConfig = true }
     }
     if (src.port != null) {
       const port = Number(src.port)
@@ -72,6 +79,8 @@ function mergeOverrides (remote, envOverrides) {
     const a = base[n] || base[String(n)]
     const b = env[n] || env[String(n)]
     if (a || b) out[n] = Object.assign({}, a || {}, b || {})
+    // An env/caller override may not carry the config-only flag onto another host or port.
+    if (out[n]) { delete out[n].fromConfig; if (a && a.fromConfig && !(b && (b.host != null || b.port != null))) out[n].fromConfig = true }
   }
   return Object.keys(out).length ? out : null
 }
@@ -86,8 +95,11 @@ function poolForShard (shard, overrides) {
   const extra = overrides && (overrides[n] || overrides[String(n)])
   const pool = Object.assign({}, DEFAULT_POOLS[n], extra || {})
   pool.shard = n
-  pool.host = hostAllowed(pool.host) ? String(pool.host).trim() : ''
   pool.port = Number(pool.port)
+  const okHost = hostAllowed(pool.host) ||
+    (extra && extra.fromConfig === true && configPoolAllowed(n, String(pool.host || '').trim(), pool.port))
+  pool.host = okHost ? String(pool.host).trim() : ''
+  delete pool.fromConfig
   pool.statsPort = Number(pool.statsPort)
   if (!pool.host) {
     // No pool configured for this shard: nothing to connect to, nothing to poll.
