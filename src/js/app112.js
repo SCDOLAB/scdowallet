@@ -2938,13 +2938,24 @@
       if ($('payAmt')) $('payAmt').value = ''
       if ($('remitPw')) $('remitPw').value = ''
     }
-    function paintSent (amount, hash) {
+    // 3.1.15: Submitted -> Pending -> Confirmed bar on the result step (Trust Wallet order).
+    function txStepsHtml (state) {
+      const last = state === 'fail' ? TC('wizFailed') : TC('wizConfirmed')
+      const on = [true, true, state === 'done' || state === 'fail']
+      const names = [TC('wizSubmitted'), TC('wizPending'), last]
+      return `<div class="steps" id="payTxSteps" data-state="${esc(state)}">${names.map((n, k) => (on[k] ? `<b>\u25CF ${esc(n)}</b>` : `<span>\u25CB ${esc(n)}</span>`)).join('<span>\u2192</span>')}</div>`
+    }
+    function paintTxState (state) {
+      const el = $('payTxSteps')
+      if (el) el.outerHTML = txStepsHtml(state)
+    }
+    function paintSent (amount, hash, state) {
       const h = String(hash || '')
       const amt = amount ? (String(amount) + ' SCDO') : '\u2014'
       const copy = `<button type="button" class="shell-copy" data-act="copy" data-v="${esc(h)}">${esc(TC('wizCopyHash'))}</button>`
       const link = `<button type="button" class="shell-copy" data-act="openTx" data-v="${esc(h)}">${esc(TC('wizScan'))}</button>`
       const done = $('wizStep4')
-      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizSent'))}</div><div class="wiz-amt">${esc(amt)}</div><div class="mono" id="payHash">${esc(h)}</div>${copy}${link}<button type="button" class="shell-go" id="wizFinish">${esc(TC('wizFinish'))}</button>`)
+      if (done) SD.html(done, `<div class="wiz-ok">${esc(TC('wizSubmitted'))}</div>${txStepsHtml(state || 'pending')}<div class="wiz-amt">${esc(amt)}</div><div class="mono" id="payHash">${esc(h)}</div>${copy}${link}<button type="button" class="shell-go" id="wizFinish">${esc(TC('wizFinish'))}</button>`)
       const fin = $('wizFinish')
       if (fin) fin.onclick = () => {
         clearPayFields()
@@ -2960,17 +2971,16 @@
       const h = String(hash || '')
       clearPayFields()
       const done = $('wizStep4')
-      if (done) SD.html(done, `<div class="wiz-query">${esc(TC('wizQuery'))}</div><div class="mine-load wait"><div class="mine-load-bar"></div></div>`)
-      showStep(4)
       const b = $('btnRemitSign')
       if (b) { b.disabled = true; b.textContent = TC('wizNoRepeat') }
+      paintSent(kept, h, 'pending')
       if (poll && /^0x[0-9a-fA-F]{64}$/.test(h)) {
-        try { await api.invoke('s0:waitReceipt', h) } catch (e) {}
-      } else {
-        await new Promise(res => setTimeout(res, 700))
+        let rc = null
+        try { rc = await api.invoke('s0:waitReceipt', h) } catch (e) {}
+        if (!$('wizStep4')) return
+        if (rc && rc.ok) paintTxState('done')
+        else if (rc && !rc.ok && !rc.timeout) paintTxState('fail')
       }
-      if (!$('wizStep4')) return
-      paintSent(kept, h)
     }
     // 3.1.0: same recipient and same amount inside a fixed 10-minute window asks once. Not a setting.
     const DUP_SEND_MS = 10 * 60 * 1000
