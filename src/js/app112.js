@@ -115,7 +115,15 @@
     return `<div class="stat explain" tabindex="0" data-tip-name="${esc(t.name || label)}" data-tip-value="${esc(t.value || value)}" data-tip-explain="${esc(t.explain || '')}" data-tip-detail="${esc(t.detail || '')}"><div class="lbl">${esc(label)}</div><div class="v" id="${id}">${esc(value)}</div></div>`
   }
   function toast (msg, ms) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none' }, ms || 3500) }
-  function copyText (t) { navigator.clipboard.writeText(t).then(() => toast(T('copied') + PU.c() + t)).catch(() => toast(t)) }
+  // RC6: copy the exact value from data-v; main-process clipboard first, renderer clipboard as fallback.
+  async function copyText (t) {
+    const text = String(t == null ? '' : t).trim()
+    if (!text) return
+    let ok = false
+    try { const r = await api.invoke('clip:write', text); ok = !!(r && r.ok) } catch (e) {}
+    if (!ok) { try { await navigator.clipboard.writeText(text); ok = true } catch (e) {} }
+    toast(ok ? T('copied') + PU.c() + text : text)
+  }
   async function shareReferral (url) {
     const link = url || referralLink()
     const text = T('homeInviteLine')
