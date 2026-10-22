@@ -3569,7 +3569,10 @@
     const lightOn = !!sess.light
     const paceRows = rigUi() && !lightOn ? `<button class="toggle" data-act="paceGpu" id="paceGpuBtn"><span class="sw ${sess.gpuLow ? 'on' : ''}"></span>${esc(T('paceGpu'))}</button><button class="toggle" data-act="paceIdle" id="paceIdleBtn"><span class="sw ${sess.idleOnly ? 'on' : ''}"></span>${esc(T('paceIdle'))}</button>` : ''
     const lightBtn = rigUi() ? `<button class="toggle" data-act="lightMode" id="lightModeBtn"><span class="sw ${lightOn ? 'on' : ''}"></span>${esc(T('lightToggle'))}</button><div class="lbl">${esc(T('lightHint'))}</div>` : ''
-    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div>${lightBtn}${paceRows}</div>`
+    let errRepOn = true
+    try { errRepOn = ((await api.invoke('errorReport:get')) || {}).enabled !== false } catch (e) {}
+    const errRepRow = `<button class="toggle" data-act="errReport" id="errReportBtn"><span class="sw ${errRepOn ? 'on' : ''}"></span>${esc(T('errRepToggle'))}</button><div class="lbl">${esc(T('errRepHint'))}</div>`
+    const sessionRow = `<div class="set-open" id="setSession"><button class="toggle" data-act="loginLaunch" id="loginLaunchBtn"><span class="sw ${loginOn ? 'on' : ''}"></span>${esc(T('loginToggle'))}</button><div class="lbl">${esc(T('loginHint'))}</div>${lightBtn}${paceRows}${errRepRow}</div>`
     const guardOn = mineCfg.guardSmooth !== false
     const batOn = !!mineCfg.mineOnBattery
     const lowOn = mineCfg.lowPriority !== false
@@ -4404,6 +4407,7 @@
       case 'setMineMode': setMineMode(v); break
       case 'keepMining': setKeepMiningUi(el); break
       case 'loginLaunch': setLoginUi(el); break
+      case 'errReport': { const sw = el.querySelector('.sw'); const on = !(sw && sw.classList.contains('on')); const r = await api.invoke('errorReport:set', on); if (sw) sw.classList.toggle('on', !!(r && r.enabled)); break }
       case 'lightMode': setLightUi(el); break
       case 'paceGpu': setPaceUi(el, 'gpuLow'); break
       case 'paceIdle': setPaceUi(el, 'idleOnly'); break
@@ -5143,6 +5147,10 @@
   let APPVER = '2.0.9'
   let APPCOMMIT = ''
   api.on('miner:status', (m) => onMinerStatus(m))
+  // 3.1.15: automatic error reports (main redacts, rate-limits and uploads; the toggle is in Settings)
+  api.on('errorReport:sent', (r) => { if (r && r.id) toast(T('errRepSent', { id: String(r.id) }), 5000) })
+  window.addEventListener('error', (ev) => { try { api.invoke('errorReport:renderer', { code: 'RENDERER_ERROR', message: String((ev && ev.message) || ''), stack: String((ev && ev.error && ev.error.stack) || ''), source: String((ev && ev.filename) || '') + ':' + ((ev && ev.lineno) || 0) }).catch(() => {}) } catch (e) {} })
+  window.addEventListener('unhandledrejection', (ev) => { try { const r = ev && ev.reason; api.invoke('errorReport:renderer', { code: 'RENDERER_REJECTION', message: String((r && r.message) || r || ''), stack: String((r && r.stack) || '') }).catch(() => {}) } catch (e) {} })
   api.on('miner:classic', (m) => onMinerStatus(m))
   api.on('agent:trayHint', () => {
     if (st.trayHint) return

@@ -443,13 +443,13 @@ function getZpow (kind) {
   if (kind === 'cpu') {
     if (!zpowCpu) {
       zpowCpu = new ZpowManager(zpowOptions())
-      zpowCpu.on('status', st => publishClassic(st))
+      zpowCpu.on('status', st => { publishClassic(st); onMinerStatusReport('classic-cpu', st) })
     }
     return zpowCpu
   }
   if (!zpowGpu) {
     zpowGpu = new GpuFleet(zpowOptions())
-    zpowGpu.on('status', st => publishClassic(st))
+    zpowGpu.on('status', st => { publishClassic(st); onMinerStatusReport('classic-gpu', st) })
   }
   return zpowGpu
 }
@@ -509,6 +509,7 @@ function getMiner () {
       onSpawn: (proc) => pinMiner(proc)
     })
     miner.on('status', st => {
+      onMinerStatusReport('shard0', st)
       if (st) attachGuard(st)
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('miner:status', st)
       refreshTray()
@@ -622,6 +623,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
       return { ok: true }
     } catch (err) {
       try { getMiner().log('wallet', 'classic ' + backend + ' start failed: ' + (err && err.code ? err.code + ' ' : '') + (err && err.message || err)) } catch (e) {}
+      autoReport({ kind: 'start', code: String((err && err.code) || 'START_FAILED'), message: String((err && err.message) || err), context: { chain: 'classic', backend, shard: opts.shard } })
       return { ok: false, error: err.message, code: err.code }
     }
   }
@@ -645,6 +647,7 @@ ipcMain.handle('miner:start', async (e, wallet, opts) => {
     return { ok: true }
   } catch (err) {
     try { getMiner().log('wallet', 'start failed: ' + (err && err.message || err)) } catch (e) {}
+    autoReport({ kind: 'start', code: String((err && err.code) || 'START_FAILED'), message: String((err && err.message) || err), context: { chain: 'shard0', mode } })
     if (err.code === 'NO_NVIDIA') writeIntent({ autoResume: false })
     return { ok: false, error: err.message, code: err.code }
   }
@@ -1631,10 +1634,43 @@ function applyRemoteConfig (result) {
     fs.writeFileSync(path.join(dir, 'remote-config.json'), JSON.stringify(doc))
   } catch (e) { console.warn('remote config cache', e && e.message) }
 }
+// 3.1.15: automatic, redacted error reports (src/main/errorReport.js); Settings toggle errorReports (default ON)
+let errorReporter = null
+function getErrorReporter () {
+  if (errorReporter) return errorReporter
+  const { ErrorReporter } = require('./src/main/errorReport')
+  errorReporter = new ErrorReporter({
+    enabled: () => (readIntent() || {}).errorReports !== false,
+    ctx: async () => {
+      let gpu = null
+      try { const g = await app.getGPUInfo('basic'); gpu = ((g && g.gpuDevice) || []).map(d => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: !!d.active, driver: d.driverVersion || '' })) } catch (e) {}
+      const logDir = path.join(minerDataRoot(), 'logs')
+      let mainLog = ''
+      try { mainLog = require('./src/main/safeLog').file() } catch (e) {}
+      return { version: VERSION, commit: BUILD_COMMIT, lang: uiLang(), gpu, logFiles: [path.join(logDir, 'wallet-miner.log'), path.join(logDir, 'zpow.log'), mainLog].filter(Boolean), scrub: [os.userInfo().username, os.hostname()] }
+    },
+    onSent: (r) => { try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('errorReport:sent', r) } catch (e) {} }
+  })
+  return errorReporter
+}
+function autoReport (e) { try { getErrorReporter().report(e).then(r => { if (r && r.ok) console.log('error report sent', r.id) }).catch(() => {}) } catch (err) {} }
+const REPORT_PHASE_CODES = new Set(['CRASHING', 'SELFTEST', 'LOGIN', 'EXITED'])
+function onMinerStatusReport (chain, st) {
+  if (!st || !(st.phase === 'error' || REPORT_PHASE_CODES.has(st.code))) return
+  autoReport({ kind: 'miner', code: String(st.code || 'MINER_ERROR'), message: String(st.lastError || st.message || ''), context: { chain, mode: st.mode || '' } })
+}
+ipcMain.handle('errorReport:get', () => ({ enabled: (readIntent() || {}).errorReports !== false }))
+ipcMain.handle('errorReport:set', (e, on) => { writeIntent({ errorReports: !!on }); return { enabled: !!on } })
+ipcMain.handle('errorReport:renderer', (e, r) => {
+  r = r && typeof r === 'object' ? r : {}
+  autoReport({ kind: 'renderer', code: String(r.code || 'RENDERER').slice(0, 64), message: String(r.message || '').slice(0, 2000), stack: String(r.stack || '').slice(0, 6000), context: { source: String(r.source || '').slice(0, 300) } })
+  return true
+})
 function reportProcessError (kind, err) {
   const message = (err && (err.message || String(err))) || ''
   const stack = (err && err.stack) || ''
   console.error('wallet ' + kind, message)
+  autoReport({ kind: 'main', code: kind === 'crash' ? 'UNCAUGHT_EXCEPTION' : 'UNHANDLED_REJECTION', message, stack })
   try {
     if (opsAgent) opsAgent.reportError({ kind, message, stack }).catch(e => console.error('agent report failed', e && e.message))
   } catch (e) { console.error('agent report failed', e && e.message) }

@@ -1,0 +1,12 @@
+[Unit]
+Description=SCDO Wallet error-report receiver (127.0.0.1:8811, nginx /api/wallet-report; stores /var/lib/scdo-wallet-reports 0700; no keys)
+After=network.target
+[Service]
+ExecStart=/usr/bin/python3 /opt/scdo-wallet-report/wallet_report_rx.py
+Restart=always
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/scdo-wallet-reports
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
