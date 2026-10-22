@@ -800,9 +800,9 @@ ipcMain.handle('mining:shardSync', async () => {
 })
 ipcMain.handle('mining:poolStatus', async () => {
   const poolStatus = require('./src/js/poolStatus')
-  const { poolForShard, poolsFromEnv } = require('./src/miner/zpow/pools')
+  const { poolForShard, poolsFromEnv, mergeOverrides } = require('./src/miner/zpow/pools')
   let overrides = null
-  try { overrides = poolsFromEnv() } catch (e) { overrides = null }
+  try { overrides = mergeOverrides(remoteDoc, poolsFromEnv()) } catch (e) { overrides = null }
   return poolStatus.readAll(() => {
     const out = {}
     for (const n of [1, 2, 3, 4]) out[n] = poolForShard(n, overrides)
