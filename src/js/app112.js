@@ -301,7 +301,13 @@
   function accByFile (f) { return st.accounts.find(a => a.filename === f) }
 
   // ---------------- shard0 activity (local file kept by the main process) ----------------
-  async function loadActivity (addr) { if (!addr) return; try { st.activity[addr.toLowerCase()] = await api.invoke('s0:activity', addr) } catch (e) {} }
+  async function loadActivity (addr) { if (!addr) return; try { st.activity[addr.toLowerCase()] = await api.invoke('s0:activity', addr); prunePending() } catch (e) {} }
+  // RC6: local pending rows for sends this computer just made (window.SCDOPendingTx).
+  const PT = window.SCDOPendingTx
+  function pendRows (addr, rows) { return PT ? PT.merge(rows || [], PT.load(localStorage), addr) : (rows || []) }
+  function prunePending () { if (!PT) return; PT.save(localStorage, PT.prune(PT.load(localStorage), Object.assign({}, st.oldAct, st.activity), Date.now())) }
+  function addPending (e) { if (!PT) return; PT.save(localStorage, PT.add(PT.load(localStorage), e, Date.now())); try { renderLive() } catch (x) {} }
+  function pendingStatus (hash, status) { if (!PT) return; PT.save(localStorage, PT.setStatus(PT.load(localStorage), hash, status)) }
 
   // ---------------- data refresh ----------------
   let refreshingS0 = false
@@ -374,7 +380,7 @@
     st.oldActAt = Date.now()
     const addrs = [...new Set(visible('old').map(a => (parseClassicAddress(a.pubkey) || {}).address).filter(Boolean))]
     Promise.all(addrs.map(addr => api.invoke('old:activity', addr).then(r => { if (r && Array.isArray(r.rows)) st.oldAct[addr.toLowerCase()] = r.rows }).catch(() => {})))
-      .then(() => renderLive()).catch(() => {})
+      .then(() => { prunePending(); renderLive() }).catch(() => {})
   }
   function s0Total (list) { let t = 0n; let known = 0; for (const a of list) { const b = st.s0[a.filename]; if (b && b.nativeWei != null) { t += b.nativeWei; known++ } } return { wei: t, known } }
   function oldTotal (list) { let t = 0n; let known = 0; for (const a of list) { const v = oldRaw(a.pubkey); if (v != null) { t += v; known++ } } return { v: t, known } }
@@ -532,7 +538,7 @@
   }
   window.__closeAssetList = () => { const l = $('assetList'); if (l && !l.hidden) { l.hidden = true; const b = $('assetBtn'); if (b) { b.setAttribute('aria-expanded', 'false'); b.focus() } return true } return false }
   function activityHtml (a) {
-    const l = (st.activity[String(a.evm || '').toLowerCase()] || []).slice(0, 30)
+    const l = pendRows(a.evm, st.activity[String(a.evm || '').toLowerCase()]).slice(0, 30)
     let h = ''
     if (!l.length) h = `<div style="padding:22px 26px" class="muted">${esc(T('noActivity'))}</div>`
     l.forEach(r => {
@@ -633,10 +639,10 @@
     const seen = new Set()
     const when = (t) => new Date(t).toLocaleString(lang() === 'CN' ? 'zh-TW' : 'en-GB')
     const push = (row) => { if (row.key.length > 6 && seen.has(row.key)) return; seen.add(row.key); rows.push(row) }
-    for (const a of visible('new').filter(x => x.evm)) for (const r of (st.activity[a.evm.toLowerCase()] || [])) push(txRow(r, 'Shard0 EVM', when))
+    for (const a of visible('new').filter(x => x.evm)) for (const r of pendRows(a.evm, st.activity[a.evm.toLowerCase()])) push(txRow(r, 'Shard0 EVM', when))
     for (const a of visible('old')) {
       const p = parseClassicAddress(a.pubkey); if (!p) continue
-      for (const r of (st.oldAct[p.address.toLowerCase()] || [])) push(txRow(r, 'Shard' + p.shard, when))
+      for (const r of pendRows(p.address, st.oldAct[p.address.toLowerCase()])) push(txRow(r, 'Shard' + p.shard, when))
     }
     return rows.sort((x, y) => y.t - x.t).slice(0, 5)
   }
@@ -724,10 +730,10 @@
       }
       const txs = []
       if (n === 0) {
-        for (const e of entries) for (const r of (st.activity[String(e.address).toLowerCase()] || [])) txs.push(Object.assign({}, r, { address: e.address }))
+        for (const e of entries) for (const r of pendRows(e.address, st.activity[String(e.address).toLowerCase()])) txs.push(Object.assign({}, r, { address: e.address }))
       } else {
         for (const e of entries) {
-          for (const r of (st.oldAct[String(e.address).toLowerCase()] || [])) {
+          for (const r of pendRows(e.address, st.oldAct[String(e.address).toLowerCase()])) {
             const href = /^[0-9a-fA-F]{64}$/.test(String(r.hash || '')) ? ('https://scdo.com.au/tx/' + r.hash) : ''
             txs.push(Object.assign({}, r, { address: e.address, href: href }))
           }
@@ -763,13 +769,46 @@
   function openAccountSite (id) {
     const nav = window.SCDOSiteNav
     if (!nav || !nav.visit) return
-    const target = nav.visit(id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: selectedShard1() })
+    // RC6: the membership page pays on Shard0 EVM and only links the order to a 0x address.
+    const target = nav.visit(id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: memberAddress() || selectedShard1() })
     if (target) openExternal(target)
+    if (id === 'membership' || id === 'otc') watchMember()
+  }
+  // ---------------- RC6 membership status (read-only gateway API) ----------------
+  function memberAddress () {
+    const h = headerAccount()
+    if (h && h.evm) return String(h.evm)
+    const a = visible('new').find(x => x.evm)
+    return a ? String(a.evm) : ''
+  }
+  function memberDate (sec) { return new Date(Number(sec) * 1000).toLocaleDateString(lang() === 'CN' ? 'zh-TW' : 'en-GB') }
+  async function refreshMember () {
+    const addr = memberAddress(); if (!addr) return
+    let r = null
+    try { r = await api.invoke('member:status', addr) } catch (e) {}
+    if (!r || !r.ok) return
+    const was = !!(st.member && st.member.member && st.member.address === addr)
+    st.member = { address: addr, member: r.member, expiresAt: r.expiresAt }
+    if (r.member && !was && st.memberWatch) { toast(T('memberNow', { d: memberDate(r.expiresAt) }), 6000); st.memberWatch = 0 }
+    try { renderLive() } catch (e) {}
+  }
+  // After the browser opens the membership page: check on every return to the window and every 30 s for 30 minutes.
+  function watchMember () {
+    st.memberWatch = Date.now() + 30 * 60 * 1000
+    clearInterval(watchMember._t)
+    watchMember._t = setInterval(() => { if (!st.memberWatch || Date.now() > st.memberWatch) { st.memberWatch = 0; clearInterval(watchMember._t); return } refreshMember() }, 30000)
+  }
+  window.addEventListener('focus', () => { if (st.memberWatch) refreshMember() })
+  function memberBadgeHtml () {
+    const m = st.member
+    if (!m || m.address !== memberAddress()) return ''
+    if (m.member) return `<p class="home-member on" id="memberBadge">\u2605 ${esc(T('memberOn', { d: memberDate(m.expiresAt) }))}</p>`
+    return st.memberWatch ? `<p class="home-member" id="memberBadge">${esc(T('memberChecking'))}</p>` : ''
   }
   function homeBuyHtml () {
     if (!window.SCDOSiteNav) return ''
     const pills = `<div class="home-buy-row"><button type="button" class="home-buy-pill" data-act="buySite" data-v="membership">${esc(T('homeBuyMember'))}</button><button type="button" class="home-buy-pill" data-act="buySite" data-v="otc">${esc(T('homeBuyOtc'))}</button></div>`
-    return `<details class="shell-fold home-buy" id="homeBuy">${shellFoldSummary(T('homeBuyTitle'))}${pills}</details>`
+    return `${memberBadgeHtml()}<details class="shell-fold home-buy" id="homeBuy">${shellFoldSummary(T('homeBuyTitle'))}${pills}</details>`
   }
   function referralLink () {
     const nav = window.SCDOSiteNav
@@ -3032,6 +3071,8 @@
         let rc = null
         try { rc = await api.invoke('s0:waitReceipt', h) } catch (e) {}
         if (!$('wizStep4')) return
+        if (rc && rc.ok) pendingStatus(h, 'done')
+        else if (rc && !rc.ok && !rc.timeout) pendingStatus(h, 'fail')
         if (rc && rc.ok) paintTxState('done')
         else if (rc && !rc.ok && !rc.timeout) paintTxState('fail')
       }
@@ -3199,6 +3240,7 @@
     }
     const selfWarn = (payer, to) => (payer && to && String(payer.evm || '').toLowerCase() === String(to).toLowerCase()) ? T('cf_warnSelf') : ''
     function finishShard0 (res, route, payer, err, btn) {
+      if (res && res.hash) addPending({ hash: res.hash, from: payer.evm, to: route.to, amount: route.amount, shard: 0 })
       if (res && res.ok) { rememberSameSend(route.to, route.amount); showSent(route.amount, res.hash, true); loadActivity(payer.evm); refreshS0(); return }
       if (res && res.error === 'BROADCAST_TIMEOUT' && res.hash) { showSent(route.amount, res.hash, true); loadActivity(payer.evm); return }
       if (err) {
@@ -3255,6 +3297,7 @@
         return
       }
       rememberSameSend(route.to, route.amount)
+      addPending({ hash: res.hash, from: (parseClassicAddress(payer.pubkey) || {}).address || payer.pubkey, to: route.to, amount: route.amount, shard: Number(payer.shard) || 0 })
       showSent(route.amount, res.hash, false)
       refreshOld(); loadOldActivity(true)
     }
@@ -5414,7 +5457,7 @@
         <div class="lbl" style="font-size:16px">${esc(T('updatedTray'))}</div>
         <div class="foot"><button class="btn pri" data-act="updatedOk" id="updatedOk">${esc(T('done'))}</button></div>`, { width: 640, noFocus: true })
     }
-    refreshS0(); refreshOld(); refreshPools(); renderCat()
+    refreshS0(); refreshOld(); refreshPools(); renderCat(); refreshMember()
     if (!(st.session && st.session.light)) refreshGpuTemp()
     armPolls()
     try { storeMiner(await api.invoke('miner:status')); st.miner = viewMiner() } catch (e) {}

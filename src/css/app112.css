@@ -673,3 +673,7 @@ body.cat-at-bl .cat-pop.bubble { bottom: 18px; left: 18px; right: auto; top: aut
 @keyframes coinPop { 0% { opacity: 0; transform: translate(-50%, 12px) scale(.85); } 15% { opacity: 1; transform: translate(-50%,0) scale(1.05); } 100% { opacity: 0; transform: translate(-50%, -40px) scale(1); } }
 .bal-flash { animation: balFlash .9s ease-out; }
 @keyframes balFlash { 0% { background: #c8f0d0; } 100% { background: transparent; } }
+
+/* RC6 membership badge */
+.home-member{margin:6px 0;font-size:17px;color:var(--muted,#9aa)}
+.home-member.on{color:#3DDC84;font-weight:700}
