@@ -52,9 +52,9 @@ ipcMain.handle('wallet:boot', () => ({
   config: { lang: 'CN', connect: [], allowCrossShard: false },
   shard0: { chainId: 5680, explorer: '', tokens: [] },
   ui: {},
-  accounts: [1, 2, 3, 4].map(n => ({ filename: 'a' + n, pubkey: addr(n), shard: n, evm: '' }))
+  accounts: [1, 2, 3, 4].map(n => ({ filename: 'a' + n, pubkey: addr(n), shard: n, evm: n === 1 ? '0x' + 'ab'.repeat(20) : '' }))
 }))
-ipcMain.handle('wallet:accounts', () => [1, 2, 3, 4].map(n => ({ filename: 'a' + n, pubkey: addr(n), shard: n, evm: '' })))
+ipcMain.handle('wallet:accounts', () => [1, 2, 3, 4].map(n => ({ filename: 'a' + n, pubkey: addr(n), shard: n, evm: n === 1 ? '0x' + 'ab'.repeat(20) : '' })))
 ipcMain.handle('wallet:saveUi', () => ({ ok: true }))
 ipcMain.handle('app:info', () => ({ version: '3.1.0', displayVersion: '3.1.0' }))
 ipcMain.handle('miner:status', () => ({ chain: 'shard0', running: false, code: 'IDLE', procs: [] }))
@@ -93,6 +93,7 @@ async function clickSel (sel) {
 }
 async function waitFor (code, ms) { const t0 = Date.now(); while (Date.now() - t0 < ms) { const ok = await evalJs(code); if (ok) return ok; await sleep(100) } return null }
 app.whenReady().then(async () => {
+  ipcMain.handle('member:status', () => ({ ok: true, member: true, expiresAt: 1893456000, product: 'membership' }))
   ipcMain.handle('clip:write', (e, t) => require('../src/main/clipWrite').clipWrite(clipboard, t))
   const allowClip = (perm) => perm === 'clipboard-sanitized-write' || perm === 'clipboard-read'
   session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(allowClip(perm)))
@@ -113,6 +114,9 @@ app.whenReady().then(async () => {
     const toast = await evalJs(`(document.getElementById('toast') || {}).textContent || ''`)
     results.push({ n, clip: await clipboard.readText(), toast })
   }
+  await evalJs(`document.querySelector('[data-act="nav"][data-v="home"]').click(); 1`)
+  const badge = await waitFor(`(document.getElementById('memberBadge') || {}).textContent || ''`, 8000)
+  if (!badge || badge.indexOf('2030') < 0) return fail('member badge missing: ' + badge)
   console.log(JSON.stringify(results, null, 1))
   const bad = results.filter(r => r.clip !== addr(r.n) || r.toast.indexOf(addr(r.n)) < 0)
   if (bad.length) return fail('copy wrong: ' + JSON.stringify(bad))

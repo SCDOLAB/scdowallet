@@ -1,0 +1,16 @@
+// RC6: membership status is read by Shard0 address, refreshed on return from the browser, and shown as a badge.
+'use strict'
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const r = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
+const app = r('src/js/app112.js'); const main = r('main.js'); const pre = r('preload.js'); const i18n = r('src/js/i18n112.js')
+assert.ok(pre.includes("'member:status'"))
+assert.ok(main.includes("ipcMain.handle('member:status'") && main.includes("https://scdo.com.au/api/v1/pay/membership/") && /\^0x\[0-9a-fA-F\]\{40\}\$/.test(main))
+assert.ok(app.includes('address: memberAddress() || selectedShard1()'), 'membership page gets the 0x payer address')
+assert.ok(/if \(id === 'membership' \|\| id === 'otc'\) watchMember\(\)/.test(app))
+assert.ok(/window\.addEventListener\('focus', \(\) => \{ if \(st\.memberWatch\) refreshMember\(\) \}\)/.test(app))
+assert.ok(app.includes('${memberBadgeHtml()}<details class="shell-fold home-buy"'))
+assert.ok(/renderCat\(\); refreshMember\(\)/.test(app), 'status is read at start')
+for (const k of ['memberOn', 'memberNow', 'memberChecking']) assert.strictEqual((i18n.match(new RegExp(k + ': ', 'g')) || []).length, 2, k)
+console.log('member-status: ok')
