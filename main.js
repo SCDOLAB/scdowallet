@@ -6,7 +6,7 @@
 // wallet/keyfile/signing moved to the main process (src/main/walletService.js), shard0 confirm step with address checks,
 // external-URL allowlist, miner never restarts itself unless "Keep mining" is on, tray + taskbar overlay badge.
 require('./src/main/safeLog') // 2.0.2: EPIPE-safe logging + crash guards, must load first
-const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification, powerMonitor } = require('electron')
+const { shell, BrowserWindow, app, ipcMain, dialog, session, Notification, powerMonitor, clipboard } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const mineResume = require('./src/main/mineResume')
@@ -85,6 +85,8 @@ const DISPLAY_VERSION = VERSION
 const versionCheck = checkRuntime((() => { try { return app.getVersion() } catch (e) { return '' } })())
 if (!versionCheck.ok) console.error(versionCheck.error + '; reporting ' + VERSION)
 const BUILD_COMMIT = (() => { try { const b = require('./build-info.json'); return /^[0-9a-f]{7,40}$/.test(String(b.commit || '')) ? String(b.commit) : '' } catch (e) { return '' } })() // 3.0.2: written by scripts/build-info.js before packing
+// 3.1.15 RC6: Copy buttons write through the main-process clipboard (Windows renderer writes were unreliable).
+ipcMain.handle('clip:write', (e, text) => require('./src/main/clipWrite').clipWrite(clipboard, text))
 ipcMain.handle('app:info', () => ({ version: VERSION, displayVersion: VERSION, commit: BUILD_COMMIT, platform: process.platform, arch: process.arch, userData: app.getPath('userData'), updated: justUpdated, lang: uiLang(), softwareRendering: GPU_SOFTWARE }))
 ipcMain.handle('app:mem', () => {
   let free = os.freemem()
