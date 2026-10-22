@@ -4357,7 +4357,9 @@
         if (miningBusy() || st.actStarting) break
         st.actStarting = true
         renderActBar()
-        askCat('開始記帳').then(() => { st.actStarting = false; renderActBar() }, () => { st.actStarting = false; renderActBar() })
+        // 3.1.15 RC3: toast the result. The cat panel is usually closed, so without a toast a failed
+        // start (e.g. NO_POOL: no Shard1–4 pool configured) left the Agent panel's 開始記帳 button silent.
+        askCat('開始記帳', { quiet: true, toast: true }).then(() => { st.actStarting = false; renderActBar() }, (e) => { st.actStarting = false; renderActBar(); toast(String((e && e.message) || e), 6000) })
         break
       }
       case 'catOpen': if (!st.catOpen && $('aiCatAnim') && !CAT_ANIM.reduce) catAnimNext(); st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
