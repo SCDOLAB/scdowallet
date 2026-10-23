@@ -706,7 +706,7 @@ window.I18N112 = {
     agentHomeOffline: 'Bookkeeping agent offline. Open SCDO Wallet so bookkeeping can connect.',
     agentHomeStarting: 'Bookkeeping agent is starting. Keep SCDO Wallet open.',
     agentStarting: 'Starting…', claimGift: 'Bonus SCDO received · agent started', claimConfirming: 'Confirming…', claimConfirmed: 'Confirmed', claimRetry: 'Retry',
-    agentScdoAddr: 'Classic shard address', agentX402: 'x402 prep addresses', agentBook: 'Bookkeeping',
+    agentScdoAddr: 'Shard address', agentX402: 'x402 prep addresses', agentBook: 'Bookkeeping',
     agentX402Pending: 'Not assigned yet. It is filled in when the bookkeeping agent is online.',
     agentAct_free_port: 'Freed the port', agentAct_restart_miner: 'Restarted the bookkeeping node', agentAct_reconnect_peers: 'Reconnected peers',
     agentAct_resume_mining: 'Resumed bookkeeping', agentAct_throttle: 'Graphics card slowed down', agentAct_pause_gpu: 'Graphics card paused', agentAct_unthrottle: 'Graphics card back to full speed',
