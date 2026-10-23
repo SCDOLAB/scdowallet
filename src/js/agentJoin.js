@@ -387,6 +387,45 @@
     return 'Shard' + n
   }
 
+  function bookShardWord (t, n) {
+    if (Number(n) === 0) {
+      const v = lookup(t, 'pillShard0')
+      return v || 'Shard0 EVM'
+    }
+    return shardWord(t, n)
+  }
+
+  // Home Agent card: which shards bookkeeping will use (idle) or is using (running).
+  // Shard0 EVM stays visible. state "off" means graphics-card bookkeeping on it has stopped.
+  function agentBookCtrlHtml (t, esc, book) {
+    book = book || {}
+    const phase = book.phase === 'starting' || book.phase === 'stopping' || book.phase === 'mining' ? book.phase : 'stopped'
+    const rows = Array.isArray(book.shards) && book.shards.length
+      ? book.shards
+      : [0, 1, 2, 3, 4].map(function (n) { return { n: n, state: n === 0 ? 'off' : 'idle' } })
+    const pills = rows.map(function (s) {
+      const n = Number(s.n)
+      const state = s.state === 'running' || s.state === 'selected' || s.state === 'off' ? s.state : 'idle'
+      const cls = state === 'running' ? ' run' : state === 'selected' ? ' pick' : state === 'off' ? ' off' : ''
+      const selectable = phase === 'stopped' && state !== 'off' && (n === 0 || (n >= 1 && n <= 4))
+      const act = selectable ? ' data-act="agentBookShard" data-v="' + n + '"' : ''
+      const dis = selectable ? '' : ' disabled'
+      const title = state === 'off' ? ' title="' + esc(t('shellShard0Stopped')) + '"' : ''
+      return '<button type="button" class="agent-shard' + cls + '" data-state="' + state + '"' + act + dis + title + '>' + esc(bookShardWord(t, n)) + '</button>'
+    }).join('')
+    const note = book.note
+      ? '<p class="agent-book-note" id="agentBookNote">' + esc(book.note) + '</p>'
+      : '<p class="agent-book-note" id="agentBookNote" hidden></p>'
+    let btnKey = 'agentStartBook'
+    let kind = ''
+    let disBtn = ''
+    if (phase === 'starting') { btnKey = 'homeMineBtnStarting'; disBtn = ' disabled' }
+    else if (phase === 'stopping') { btnKey = 'homeMineBtnStopping'; disBtn = ' disabled' }
+    else if (phase === 'mining') { btnKey = 'agentStopBook'; kind = ' stop' }
+    const btn = '<button type="button" class="shell-act' + kind + '" id="agentBookBtn" data-act="isleStart"' + disBtn + '>' + esc(t(btnKey)) + '</button>'
+    return '<div class="lbl">' + esc(t('agentBookShards')) + '</div><div class="agent-shards" id="agentBookShards">' + pills + '</div>' + note + btn
+  }
+
   // A ledger entry in the UI language. Unknown actions keep the raw ledger words.
   function entryKey (prefix, raw) {
     return prefix + String(raw || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -428,7 +467,7 @@
     const list = entries.length
       ? '<h3>' + esc(t('agentEntries')) + '</h3><ul class="agent-entries">' + entries.map(e => '<li>' + esc(entryText(e, t)) + '</li>').join('') + '</ul>'
       : ''
-    const bookBtn = model.noWallet || model.hideRig ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
+    const bookBtn = model.noWallet || model.hideRig ? '' : (model.book ? '<div id="agentBookCtrl">' + agentBookCtrlHtml(t, esc, model.book) + '</div>' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>')
     const shard = Number(model.shard) || 0
     const shards = model.canSwitchShard
       ? '<div class="agent-shards">' + [1, 2, 3, 4].map(function (n) {
@@ -537,6 +576,7 @@
     fakeAgent: fakeAgent,
     fakeRegistration: fakeRegistration,
     fallbackShareUrl: fallbackShareUrl,
+    agentBookCtrlHtml: agentBookCtrlHtml,
     agentCardHtml: agentCardHtml,
     firstRunHtml: firstRunHtml,
     runStart: runStart,

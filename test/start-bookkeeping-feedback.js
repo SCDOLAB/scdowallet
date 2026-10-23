@@ -1,6 +1,6 @@
-// 3.1.15 RC3: the 開始記帳 button (Agent panel #agentBookBtn and status island, data-act="isleStart")
-// must surface the start result as a toast. Before, it called askCat('開始記帳') with no options,
-// so a failed start (NO_POOL) only went into the closed AI cat log and the click looked dead.
+// Home 開始記帳 (Agent card #agentBookBtn, data-act="isleStart") must use the bookkeeping
+// page's device start/stop. A click while already bookkeeping used to return immediately,
+// so the button stayed on Start and did nothing. An empty shard pick must say so.
 'use strict'
 const assert = require('assert')
 const fs = require('fs')
@@ -13,9 +13,13 @@ assert.ok(/id="agentBookBtn" data-act="isleStart"/.test(join), 'Agent panel butt
 const i = app.indexOf("case 'isleStart':")
 assert.ok(i > 0, 'isleStart case exists')
 const body = app.slice(i, app.indexOf('break\n      }', i))
-const call = body.match(/askCat\('開始記帳'(,\s*\{[^}]*\})?\)/)
-assert.ok(call, 'isleStart asks the cat to start bookkeeping')
-assert.ok(call[1] && /toast:\s*true/.test(call[1]), 'isleStart must pass { toast: true } so failures are visible')
+assert.ok(body.includes('agentBookToggle()'), 'isleStart runs the home bookkeeping toggle')
+assert.ok(!/miningBusy\(\)/.test(body), 'already-running click must not be swallowed')
+const start = app.indexOf('async function agentBookToggle')
+const fn = app.slice(start, app.indexOf('async function homeMineToggle ()', start))
+assert.ok(fn.includes('planHomeBookClick'), 'toggle asks the bookkeeping-page click plan')
+assert.ok(fn.includes('homeMineToggleDevice(device)'), 'toggle starts and stops through the bookkeeping page')
+assert.ok(fn.includes("toast(T('shellNeedChain')"), 'an empty shard pick is visible')
 
 // applyCatPlan must toast the combined say + failure text when opt.toast is set.
 const a = app.indexOf('async function applyCatPlan')

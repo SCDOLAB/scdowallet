@@ -8,7 +8,7 @@ const app = r('src/js/app112.js'); const main = r('main.js'); const pre = r('pre
 assert.ok(pre.includes("'member:status'"))
 assert.ok(main.includes("ipcMain.handle('member:status'") && main.includes("https://scdo.com.au/api/v1/pay/membership/") && /\^0x\[0-9a-fA-F\]\{40\}\$/.test(main))
 assert.ok(app.includes('address: memberAddress() || selectedShard1()'), 'membership page gets the 0x payer address')
-assert.ok(/if \(id === 'membership' \|\| id === 'otc'\) watchMember\(\)/.test(app))
+assert.ok(/if \(ok && \(id === 'membership' \|\| id === 'otc'\)\) watchMember\(\)/.test(app))
 assert.ok(/window\.addEventListener\('focus', \(\) => \{ if \(st\.memberWatch\) refreshMember\(\) \}\)/.test(app))
 assert.ok(app.includes('${memberBadgeHtml()}<details class="shell-fold home-buy"'))
 assert.ok(/renderCat\(\); refreshMember\(\)/.test(app), 'status is read at start')

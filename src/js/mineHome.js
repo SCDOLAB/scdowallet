@@ -163,6 +163,65 @@ function chainNames (miners) {
   return out
 }
 
+// Shards whose bookkeeping process is up, including a pool session that has not
+// reported a speed yet. Shard0 EVM is 0. This is the list the home status names.
+function sessionList (m) {
+  if (!m) return []
+  if (Array.isArray(m.shards) && m.shards.length) return m.shards.filter(Boolean)
+  return [m]
+}
+
+function addClassicShard (out, m) {
+  const n = Number(m && m.shard)
+  if (n >= 1 && n <= 4 && out.indexOf(n) < 0) out.push(n)
+}
+
+function activeBookShards (miners) {
+  miners = miners || {}
+  const out = []
+  for (const s of sessionList(miners.classicGpu)) {
+    if (!s || s.mode === 'node' || s.mode === 'cpu') continue
+    const up = processAlive(s)
+    const pool = s.backend === 'zminer-gpu' && procsAlive(s)
+    const mining = up && (s.gpuActive || s.code === 'CLASSIC_GPU' || s.code === 'CLASSIC_MINING' || s.phase === 'mining')
+    const waiting = up && waitingSync(s, 'classic')
+    if (pool || mining || waiting) addClassicShard(out, s)
+  }
+  const cpu = miners.classicCpu
+  if (cpu && cpu.mode !== 'node' && (cpu.running || procsAlive(cpu))) addClassicShard(out, cpu)
+  const s0 = miners.shard0
+  if (s0 && s0.mode !== 'node' && s0.chain !== 'classic' && (s0.running || procsAlive(s0))) {
+    if (out.indexOf(0) < 0) out.push(0)
+  }
+  out.sort((a, b) => a - b)
+  return out
+}
+
+function pickedShards (input) {
+  const chains = input && input.chains
+  if (!chains) return []
+  const out = []
+  for (const n of [].concat(chains.gpu || [], chains.cpu || [])) {
+    const x = Number(n)
+    if ((x === 0 || (x >= 1 && x <= 4)) && out.indexOf(x) < 0) out.push(x)
+  }
+  out.sort((a, b) => a - b)
+  return out
+}
+
+function shardLabel (n) {
+  return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n)
+}
+
+function lineWithShards (base, shards, T) {
+  if (!shards || !shards.length) return base
+  const labels = shards.map(shardLabel)
+  const missing = labels.filter(s => String(base).indexOf(s) < 0)
+  if (!missing.length) return base
+  if (String(base).indexOf('Shard') >= 0) return base + tr(T, 'd_listSep') + missing.join(tr(T, 'd_listSep'))
+  return tr(T, 'homeLineWithShards', { line: base, shards: labels.join(tr(T, 'd_listSep')) })
+}
+
 function speedCount (miners) {
   miners = miners || {}
   let sum = 0
@@ -457,6 +516,29 @@ function deviceProcessAlive (miners, device) {
   const s0 = miners.shard0
   if (!s0 || s0.mode === 'node' || s0.chain === 'classic') return false
   return processAlive(s0)
+}
+
+// One home-card click. Already bookkeeping stops those devices (the bookkeeping
+// page's device button). Nothing selected says so. Otherwise start each picked device.
+function planHomeBookClick (rows) {
+  rows = Array.isArray(rows) ? rows : []
+  if (rows.some(r => r && (r.phase === 'starting' || r.phase === 'stopping'))) return { op: 'busy', devices: [] }
+  const live = rows.filter(r => r && (r.phase === 'mining' || r.phase === 'waiting' || r.alive === true))
+  if (live.length) {
+    const devices = []
+    for (const r of live) {
+      if (r.phase === 'starting' || r.phase === 'stopping') continue
+      if (devices.indexOf(r.device) < 0) devices.push(r.device)
+    }
+    return { op: devices.length ? 'stop' : 'busy', devices: devices }
+  }
+  const devices = []
+  for (const r of rows) {
+    if (!r || !Array.isArray(r.chains) || !r.chains.length) continue
+    if (devices.indexOf(r.device) < 0) devices.push(r.device)
+  }
+  if (!devices.length) return { op: 'need-chain', devices: [] }
+  return { op: 'start', devices: devices }
 }
 
 // One click on a device button.
@@ -1283,7 +1365,10 @@ function homeLine (input, T) {
     else if (s0 && s0.mode !== 'node' && (s0.running || procsAlive(s0))) base = tr(T, 'homeLineShard0')
     else base = tr(T, 'homeLineIdle')
   }
-  return base
+  if (base === tr(T, 'homeLineIdle')) return base
+  let shards = activeBookShards(input.miners)
+  if (!shards.length && (base === tr(T, 'homeLineStarting') || base === tr(T, 'homeLineStopping'))) shards = pickedShards(input)
+  return lineWithShards(base, shards, T)
 }
 
 function heightKnown (pools, n) {
@@ -1372,7 +1457,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, heightCells, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
+const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, activeBookShards, reduceMinePhase, planDeviceClick, planHomeBookClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, heightCells, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

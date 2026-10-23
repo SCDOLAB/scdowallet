@@ -859,9 +859,52 @@
       x402Reserve: ag.x402Reserve || '',
       externalHtml: externalCardHtml(),
       bookkeeping: homeMineLine(),
+      book: agentBookModel(),
       hideRig: !rigUi(),
       entries: ag.entries || []
     }
+  }
+  function bookShardList (nums) {
+    return (nums || []).map(n => Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n)).join(T('d_listSep'))
+  }
+  // What the home Agent card shows for Shard0–Shard4, and whether 開始記帳 is a start or a stop.
+  function agentBookModel () {
+    const MH = window.SCDOMineHome
+    const input = mineHomeInput()
+    const active = MH && MH.activeBookShards ? MH.activeBookShards(input.miners) : []
+    const pick = input.chains || { cpu: [], gpu: [] }
+    const selected = []
+    for (const n of [].concat(pick.gpu || [], pick.cpu || [])) {
+      const x = Number(n)
+      if ((x === 0 || (x >= 1 && x <= 4)) && selected.indexOf(x) < 0) selected.push(x)
+    }
+    selected.sort((a, b) => a - b)
+    const gpuPhase = MH ? MH.devicePhase(input, 'gpu') : 'stopped'
+    const cpuPhase = MH ? MH.devicePhase(input, 'cpu') : 'stopped'
+    const press = input.press || {}
+    let phase = 'stopped'
+    if (st.actStarting || gpuPhase === 'starting' || cpuPhase === 'starting' || press.gpu === 'starting' || press.cpu === 'starting') phase = 'starting'
+    else if (gpuPhase === 'stopping' || cpuPhase === 'stopping' || press.gpu === 'stopping' || press.cpu === 'stopping') phase = 'stopping'
+    else if (gpuPhase === 'mining' || gpuPhase === 'waiting' || cpuPhase === 'mining' || cpuPhase === 'waiting' || active.length) phase = 'mining'
+    const shard0Stopped = !!(input.caps && input.caps.shard0Stopped)
+    const shards = [0, 1, 2, 3, 4].map(n => {
+      let state = 'idle'
+      if (active.indexOf(n) >= 0) state = 'running'
+      else if (n === 0 && shard0Stopped) state = 'off'
+      else if (selected.indexOf(n) >= 0) state = 'selected'
+      return { n: n, state: state }
+    })
+    const shown = phase === 'mining' || phase === 'stopping' ? (active.length ? active : selected) : selected
+    let note = shown.length ? T(phase === 'mining' || phase === 'stopping' ? 'agentBookNow' : 'agentBookNext', { list: bookShardList(shown) }) : T('agentBookNone')
+    if (shard0Stopped && active.indexOf(0) < 0) note += ' ' + T('shellShard0Stopped')
+    return { phase: phase, shards: shards, note: note, shard0Stopped: shard0Stopped }
+  }
+  function refreshAgentBook () {
+    const ctrl = $('agentBookCtrl')
+    const J = window.SCDOAgentJoin
+    if (!ctrl || !J || !J.agentBookCtrlHtml) return
+    const html = J.agentBookCtrlHtml(T, esc, agentBookModel())
+    if (refreshAgentBook.last !== html) { refreshAgentBook.last = html; SD.html(ctrl, html) }
   }
   function homeMineLine () {
     if (!window.SCDOMineHome || !window.SCDOMineHome.homeLine) return T('homeLineIdle')
@@ -1078,6 +1121,7 @@
         if (line.hidden !== idle) line.hidden = idle
         if (line.textContent !== text) line.textContent = text
       }
+      refreshAgentBook()
       const heights = $('homeHeightLine')
       if (heights) {
         const html = heightChipsHtml()
@@ -3851,6 +3895,7 @@
   async function ensureCaps () {
     try { st.caps = await api.invoke('miner:caps') } catch (e) { st.caps = st.caps || { cpu: {}, gpu: {} } }
     if (st.tab === 'mineSet') render()
+    else if (st.tab === 'home') refreshAgentBook()
     return st.caps
   }
   function classicSelection () {
@@ -4415,6 +4460,60 @@
     }
     refreshDash()
   }
+  function primaryBookDevice () {
+    const caps = st.caps || {}
+    if (caps.platform === 'darwin') return 'cpu'
+    if (caps.gpu && caps.gpu.available === false) return 'cpu'
+    if (caps.gpu && caps.gpu.available) return 'gpu'
+    const saved = savedMineChoice()
+    if (saved.classic === 'cpu') return 'cpu'
+    return 'gpu'
+  }
+  function toggleBookShard (n) {
+    const device = n === 0 ? 'gpu' : primaryBookDevice()
+    const pick = readChainPick()
+    const on = (pick.gpu || []).indexOf(n) >= 0 || (pick.cpu || []).indexOf(n) >= 0
+    if (on) {
+      writeChainPick('gpu', (pick.gpu || []).filter(x => x !== n))
+      writeChainPick('cpu', (pick.cpu || []).filter(x => x !== n))
+      return
+    }
+    const cur = (pick[device] || []).slice()
+    if (cur.indexOf(n) < 0) cur.push(n)
+    writeChainPick(device, cur)
+  }
+  // Home 開始記帳 uses the bookkeeping page's per-device start and stop.
+  // Already running becomes Stop. An empty shard pick says so instead of swallowing the click.
+  async function agentBookToggle () {
+    if (!rigUi() || !window.SCDOMineHome) return
+    if (st.bookToggle) return
+    st.bookToggle = true
+    try {
+      const input = mineHomeInput()
+      const MH = window.SCDOMineHome
+      const rows = ['gpu', 'cpu'].map(device => ({
+        device: device,
+        phase: MH.devicePhase(input, device),
+        alive: MH.deviceProcessAlive(input.miners, device),
+        chains: (readChainPick()[device]) || []
+      }))
+      const plan = MH.planHomeBookClick(rows)
+      if (plan.op === 'busy') return
+      if (plan.op === 'need-chain') {
+        toast(T('shellNeedChain'), 6000)
+        return
+      }
+      if (plan.op === 'start') {
+        st.actStarting = true
+        refreshAgentBook()
+      }
+      for (const device of plan.devices) await homeMineToggleDevice(device)
+    } finally {
+      st.actStarting = false
+      st.bookToggle = false
+      refreshAgentBook()
+    }
+  }
   async function homeMineToggle () {
     if (st.homeMine === 'starting' || st.homeMine === 'stopping' || st.actStarting) return
     const phase = miningBusy() ? 'mining' : 'stopped'
@@ -4495,13 +4594,7 @@
       case 'isleHelp': closeIslePop(true); isleLegendOn = true; renderIsland(); break
       case 'isleHelpClose': isleLegendOn = false; renderIsland(); break
       case 'isleStart': {
-        if (!rigUi()) break
-        if (miningBusy() || st.actStarting) break
-        st.actStarting = true
-        renderActBar()
-        // 3.1.15 RC3: toast the result. The cat panel is usually closed, so without a toast a failed
-        // start (e.g. NO_POOL: no Shard1–4 pool configured) left the Agent panel's 開始記帳 button silent.
-        askCat('開始記帳', { quiet: true, toast: true }).then(() => { st.actStarting = false; renderActBar() }, (e) => { st.actStarting = false; renderActBar(); toast(String((e && e.message) || e), 6000) })
+        agentBookToggle()
         break
       }
       case 'catOpen': if (!st.catOpen && $('aiCatAnim') && !CAT_ANIM.reduce) catAnimNext(); st.catOpen = !st.catOpen; renderCat(); if (st.catOpen) { const i = $('aiCatIn'); if (i) setTimeout(() => i.focus(), 30) } break
@@ -4545,6 +4638,15 @@
       case 'agentShard': {
         const n = Number(v)
         if (n >= 1 && n <= 4) st.agentShard = n
+        render()
+        break
+      }
+      case 'agentBookShard': {
+        const n = Number(v)
+        if (!(n === 0 || (n >= 1 && n <= 4))) break
+        if (agentBookModel().phase !== 'stopped') break
+        if (n === 0 && st.caps && st.caps.shard0Stopped) break
+        toggleBookShard(n)
         render()
         break
       }
