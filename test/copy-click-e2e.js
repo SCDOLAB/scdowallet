@@ -104,7 +104,7 @@ app.whenReady().then(async () => {
   const results = []
   for (const n of [1, 2, 3, 4]) {
     clipboard.writeText('sentinel')
-    await evalJs(`document.querySelector('[data-act="nav"][data-v="recv"]').click()`)
+    await evalJs(`document.querySelector('[data-act="nav"][data-v="wallet"]').click()`)
     await waitFor(`!!document.querySelector('[data-act="recvShard"][data-v="${n}"]')`, 5000)
     await clickSel(`[data-act="recvShard"][data-v="${n}"]`)
     await sleep(300)
@@ -114,7 +114,7 @@ app.whenReady().then(async () => {
     const toast = await evalJs(`(document.getElementById('toast') || {}).textContent || ''`)
     results.push({ n, clip: await clipboard.readText(), toast })
   }
-  await evalJs(`document.querySelector('[data-act="nav"][data-v="home"]').click(); 1`)
+  await evalJs(`document.querySelector('[data-act="site"][data-v="home"]').click(); 1`)
   const badge = await waitFor(`(document.getElementById('memberBadge') || {}).textContent || ''`, 8000)
   if (!badge || badge.indexOf('2030') < 0) return fail('member badge missing: ' + badge)
   console.log(JSON.stringify(results, null, 1))

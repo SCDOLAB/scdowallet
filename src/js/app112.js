@@ -253,6 +253,9 @@
   if (ui.tab !== tab0) { ui.tab = tab0; saveUi() }
   const st = {
     tab: tab0,
+    recvShard: [0, 1, 2, 3, 4].includes(Number(localStorage.getItem('walletShard310'))) ? Number(localStorage.getItem('walletShard310')) : 0,
+    walletFocus: 'recv',
+    walletFocusPending: false,
     scrollTo: null,
     homeSub: localStorage.getItem('homeSub112') || 'assets',
     sel: localStorage.getItem('selAcc112') || '',
@@ -399,8 +402,12 @@
   // A saved or requested 匯款 tab opens the merged form instead of a page.
   function setTab (v) {
     if (!rigUi() && (v === 'mine' || v === 'mineSet')) v = 'home'
-    if (v === 'remit') { st.tab = 'remit'; st.scrollTo = 'top' }
-    else if (v === 'recv') { st.tab = 'recv'; st.scrollTo = 'top' }
+    if (v === 'remit' || v === 'recv' || v === 'wallet') {
+      if (v === 'remit') { st.walletFocus = 'send'; st.walletFocusPending = true }
+      else if (v === 'recv') { st.walletFocus = 'recv'; st.walletFocusPending = true }
+      st.tab = 'wallet'
+      st.scrollTo = 'top'
+    }
     else if (v === 'settings') { st.tab = 'settings'; st.scrollTo = 'top' }
     else if (v === 'old' || v === 'new') { ui.net = v; st.tab = 'acc'; st.scrollTo = v === 'old' ? 'secOld' : 'secNew' } else {
       st.tab = TABS.includes(v) ? v : 'home'
@@ -1062,6 +1069,7 @@
     const mineState = rigUi() ? '<p class="home-state" id="homeMineState"' + (mineIdle ? ' hidden' : '') + '>' + esc(mineText) + '</p>' : ''
     const heights = rigUi() ? '<div class="home-heights" id="homeHeights" aria-label="' + esc(T('homeHeights')) + '"><div class="home-height-line" id="homeHeightLine">' + heightChipsHtml() + '</div></div>' : ''
     const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
+    const jumpBtns = '<button type="button" class="shell-act" data-act="nav" data-v="wallet">' + esc(T('navWallet')) + '</button>' + mineBtn + '<button type="button" class="shell-act" data-act="nav" data-v="connect">' + esc(T('navConnect')) + '</button>' + '<button type="button" class="shell-act" data-act="nav" data-v="settings">' + esc(T('navSettings')) + '</button>'
     return `<div class="page shell-home" id="homePage">
       ${heights}
       ${offlineNoticeHtml()}
@@ -1071,11 +1079,7 @@
       ${card}
       ${mineState}
       <p class="home-lead">${esc(T('homeLead'))}</p>
-      <div class="shell-actions">
-        <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
-        <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
-        ${mineBtn}
-      </div>
+      <div class="shell-actions shell-actions-wallet">${jumpBtns}</div>
       <section class="home-chains" id="homeChains"><div class="chain-rows" id="chainRows">${chainRowsHtml()}</div><div id="homeSnap">${homeSnapHtml()}</div></section>
       ${homeBuyHtml()}
       ${homeDemoHtml()}
@@ -1153,7 +1157,7 @@
           host.querySelectorAll('details[id]').forEach(d => { if (open[d.id]) d.open = true })
         }
       }
-    } else if (st.tab === 'recv') paintRecvQr()
+    } else if (st.tab === 'recv' || st.tab === 'wallet') paintRecvQr()
   }
   function pageInviteGift () {
     const J = window.SCDOAgentJoin
@@ -1328,27 +1332,43 @@
   function pageMine () {
     return `<div id="mineSimple">${mineShellHtml()}</div>`
   }
+  function walletShard () {
+    const n = Number(st.recvShard)
+    return [0, 1, 2, 3, 4].includes(n) ? n : 0
+  }
+  function chainNameOf (n) {
+    return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
+  }
   function pageRecv () {
-    const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
-    const model = chainRowModel({})[n] || { entries: [] }
-    let last = ''
-    try { last = localStorage.getItem('recvAddr310-' + n) || '' } catch (e) {}
-    const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
-    const addr = (picked && picked.address) || ''
+    function build (n) {
+      const model = chainRowModel({})[n] || { entries: [] }
+      let last = ''
+      try { last = localStorage.getItem('recvAddr310-' + n) || '' } catch (e) {}
+      const picked = window.SCDOChainHome ? window.SCDOChainHome.pickDefault(model.entries, last) : null
+      const addr = (picked && picked.address) || ''
+      const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
+      const locked = n === 0 ? visible('new').find(a => !a.evm) : null
+      let body
+      if (addr) {
+        body = `<div class="qrwrap"><div id="qrBox" data-addr="${esc(addr)}"></div></div><div class="recv-line"><div class="recv-addr mono" id="rcvAddr">${esc(addr)}</div><button type="button" class="shell-copy" data-act="copy" data-v="${esc(addr)}">${esc(T('copy'))}</button></div>`
+      } else if (locked) {
+        body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
+      } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
+      return { pick: pick, body: body, chainName: chainNameOf(n) }
+    }
+    st.buildReceive = build
+    const n = walletShard()
+    const built = build(n)
+    const pick = built.pick
+    const body = built.body
     const tabs = [0, 1, 2, 3, 4].map(i => {
-      const label = i === 0 ? 'Shard0 EVM' : ('Shard' + i + ' Classic')
+      const label = chainNameOf(i)
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
-    const pick = window.SCDOChainHome ? window.SCDOChainHome.selectHtml('recvPick', model.entries, addr, esc) : ''
-    const locked = n === 0 ? visible('new').find(a => !a.evm) : null
-    let body
-    if (addr) {
-      body = `<div class="qrwrap"><div id="qrBox" data-addr="${esc(addr)}"></div></div><div class="recv-line"><div class="recv-addr mono" id="rcvAddr">${esc(addr)}</div><button type="button" class="shell-copy" data-act="copy" data-v="${esc(addr)}">${esc(T('copy'))}</button></div>`
-    } else if (locked) {
-      body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
-    } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
-    const chainName = n === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
-    return `<div class="page shell-recv" id="recvPage"><h1 class="shell-h">${esc(T('navRecv'))}</h1><div class="recv-sum">${esc(chainName)}</div><div class="recv-tabs">${tabs}</div><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div>`
+    const payDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
+    const payBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(payDoc, ['send', 'payInvoice']))
+      ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
+    return `<div class="page shell-wallet" id="walletPage"><h1 class="shell-h">${esc(T('navWallet'))}</h1><div class="recv-sum">${esc(built.chainName)}</div><div class="recv-tabs">${tabs}</div><div class="wallet-grid"><section class="wallet-pane${st.walletFocus === 'send' ? '' : ' focus'}" id="walletRecv"><h2 class="wallet-pane-h">${esc(T('navRecv'))}</h2><div id="walletRecvLive"><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div></section><section class="wallet-pane shell-remit${st.walletFocus === 'send' ? ' focus' : ''}" id="walletSend"><h2 class="wallet-pane-h">${esc(T('navRemit'))}</h2>${payBtn}<div id="remitHost"></div></section></div></div>`
   }
   function paintInviteQr () {
     const box = $('homeInviteQr')
@@ -1364,12 +1384,35 @@
     if (!addr || !window.QRCode) return
     try { new window.QRCode(box, { text: addr, width: 320, height: 320, correctLevel: window.QRCode.CorrectLevel.M }); box.setAttribute('data-painted', '1') } catch (e) { console.error(e) } // eslint-disable-line no-new
   }
-  function pageRemit () {
-    const payDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
-    const payBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(payDoc, ['send', 'payInvoice']))
-      ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
-    return `<div class="page shell-remit" id="remitPage"><h1 class="shell-h">${esc(T('navRemit'))}</h1>${payBtn}<div id="remitHost"></div></div>`
+  function paintReceivePane () {
+    const n = walletShard()
+    document.querySelectorAll('[data-act="recvShard"]').forEach(b => b.classList.toggle('on', Number(b.getAttribute('data-v')) === n))
+    const sum = document.querySelector('#walletPage .recv-sum')
+    if (sum) sum.textContent = chainNameOf(n)
+    const live = $('walletRecvLive')
+    if (!live || typeof st.buildReceive !== 'function') return
+    const built = st.buildReceive(n)
+    SD.html(live, `<div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${built.pick}</div>${built.body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}`)
+    paintRecvQr()
   }
+  function focusWalletPane () {
+    const send = st.walletFocus === 'send'
+    const pane = $(send ? 'walletSend' : 'walletRecv')
+    document.querySelectorAll('.wallet-pane').forEach(p => p.classList.toggle('focus', !!pane && p === pane))
+    if (pane && pane.scrollIntoView) {
+      try { pane.scrollIntoView({ block: 'nearest' }) } catch (e) {}
+    }
+    if (send && st.walletFocusPending) {
+      const t = $('payTo')
+      if (t && t.focus) t.focus()
+    }
+    st.walletFocusPending = false
+  }
+  function payFormLive () {
+    const wiz = $('payWiz')
+    return st.tab === 'wallet' && wiz && wiz.getAttribute('data-lang') === lang()
+  }
+  function pageRemit () { return pageRecv() }
   function pageSettings () {
     return `<div class="page shell-set" id="setPage"><h1 class="shell-h">${esc(T('navSettings'))}</h1><div id="setHost"></div></div>`
   }
@@ -1789,23 +1832,16 @@
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
     const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
-    const html = primary.map(group).join('') + more + langSwitch
+    const moved = [['wallet', 'navWallet'], ['connect', 'navConnect'], ['settings', 'navSettings']]
+      .map(([id, key]) => `<button type="button" class="site-link" data-act="nav" data-v="${esc(id)}">${esc(T(key))}</button>`).join('')
+    const homeFirst = primary.filter(g => g.id === 'home').map(group).join('')
+    const after = primary.filter(g => g.id !== 'home').map(group).join('')
+    const html = homeFirst + moved + after + more + langSwitch
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
   function renderSideNav () {
-    const nav = $('sideNav'); if (!nav) return
-    const cur = st.tab === 'panel' && st.panelId === 'connect' ? 'connect' : (st.tab === 'mineSet' ? 'mine' : (st.tab === 'acc' ? 'home' : st.tab))
-    const items = [['home', 'navHome'], ['recv', 'navRecv'], ['remit', 'navRemit']].concat(rigUi() ? [['mine', 'navMine']] : []).concat([['connect', 'navConnect'], ['settings', 'navSettings']])
-    const ico = {
-      home: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.3h5.1v-5.2h3.4v5.2h5.1V11H21z"/></svg>',
-      recv: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 6.5h16v11H4z"/><path fill="#F2F2F7" d="M5.2 8.2h13.6v1.6H5.2z"/></svg>',
-      remit: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M4 7h11.2l-2.1-2.1 1.4-1.4L19.5 8.5l-5 5-1.4-1.4 2.1-2.1H4z"/></svg>',
-      mine: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 2 2.2 6.6H21l-5.4 4 2.1 6.4L12 15.8 6.3 19l2.1-6.4L3 8.6h6.8z"/></svg>',
-      connect: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M8.2 11.2a3.2 3.2 0 0 1 0-4.5l1.6-1.6a3.2 3.2 0 0 1 4.5 4.5l-.8.8-1.4-1.4.8-.8a1.2 1.2 0 0 0-1.7-1.7l-1.6 1.6a1.2 1.2 0 0 0 0 1.7l.7.7-1.4 1.4zm7.6 1.6a3.2 3.2 0 0 1 0 4.5l-1.6 1.6a3.2 3.2 0 0 1-4.5-4.5l.8-.8 1.4 1.4-.8.8a1.2 1.2 0 0 0 1.7 1.7l1.6-1.6a1.2 1.2 0 0 0 0-1.7l-.7-.7z"/></svg>',
-      settings: '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6z"/><path fill="currentColor" d="M10.2 2h3.6l.4 2.2a7.8 7.8 0 0 1 1.8.8l2-1 2.5 2.5-1 2c.3.6.6 1.2.8 1.8l2.2.4v3.6l-2.2.4a7.8 7.8 0 0 1-.8 1.8l1 2-2.5 2.5-2-1a7.8 7.8 0 0 1-1.8.8l-.4 2.2h-3.6l-.4-2.2a7.8 7.8 0 0 1-1.8-.8l-2 1-2.5-2.5 1-2a7.8 7.8 0 0 1-.8-1.8L2 13.8v-3.6l2.2-.4c.2-.6.5-1.2.8-1.8l-1-2L6 3.5l2 1c.6-.3 1.2-.6 1.8-.8z"/></svg>'
-    }
-    const html = items.map(([id, key]) => `<button type="button" class="nav-item${cur === id ? ' on' : ''}" data-act="nav" data-v="${id}">${ico[id]}<span>${esc(T(key))}</span></button>`).join('')
-    if (renderSideNav.last !== html) { renderSideNav.last = html; SD.html(nav, html) }
+    const nav = $('sideNav')
+    if (nav && nav.parentNode) nav.parentNode.removeChild(nav)
   }
   // ---------------- render ----------------
   function render () {
@@ -1815,12 +1851,14 @@
     renderHeader()
     const main = $('main')
     const y = main ? main.scrollTop : 0
-    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, recv: pageRecv, remit: pageRemit, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
-    const wiz = $('payWiz')
-    const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
+    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, wallet: pageRecv, recv: pageRecv, remit: pageRecv, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
+    const keepPay = payFormLive()
     if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
-    if (st.tab === 'remit' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
-    if (st.tab === 'recv') paintRecvQr()
+    if (st.tab === 'wallet' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
+    if (st.tab === 'wallet') {
+      if (!keepPay) paintRecvQr()
+      if (!keepPay || st.walletFocusPending) focusWalletPane()
+    }
     if (st.tab === 'settings') settingsModal()
     refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
@@ -2587,11 +2625,24 @@
     if (!prefill && st.payPrefill) prefill = st.payPrefill
     st.payPrefill = null
     const TC = (k, p) => T(k, p)
+    const impliedTo = prefill && prefill.to ? String(prefill.to) : ''
+    let startShard = walletShard()
+    if (prefill && [0, 1, 2, 3, 4].includes(Number(prefill.shard))) startShard = Number(prefill.shard)
+    else if (/^[1-4]S[0-9a-fA-F]{40}$/.test(impliedTo)) startShard = Number(impliedTo[0])
+    else if (/^0x[0-9a-fA-F]{40}$/.test(impliedTo)) startShard = 0
+    st.recvShard = startShard
+    try { localStorage.setItem('walletShard310', String(startShard)) } catch (e) {}
     const opened = accByFile(f) || headerAccount()
     if (!opened) {
+      st.onWalletShard = function (n) {
+        st.recvShard = [0, 1, 2, 3, 4].includes(Number(n)) ? Number(n) : 0
+        try { localStorage.setItem('walletShard310', String(st.recvShard)) } catch (e) {}
+        paintReceivePane()
+      }
       mountPay(`<div class="wiz" id="payWiz" data-step="1" data-lang="${esc(lang())}"><h2>${esc(TC('payTitle'))}</h2>
         <div class="muted" style="font-size:20px">${esc(TC('remitNeedAccount'))}</div>
         <div class="wiz-nav"><button class="shell-go" data-act="create">${esc(TC('setCreate'))}</button><button class="shell-go ghost" data-act="import">${esc(TC('setImport'))}</button></div></div>`)
+      paintReceivePane()
       return
     }
     const s = {
@@ -2603,10 +2654,11 @@
       step: 1,
       gas: null,
       feeWei: null,
-      shardPick: prefill && [0, 1, 2, 3, 4].includes(Number(prefill.shard)) ? Number(prefill.shard) : (prefill && /^[1-4]S/.test(String(prefill.to || '')) ? Number(String(prefill.to)[0]) : 0),
+      shardPick: startShard,
       payAddr: prefill && prefill.from ? String(prefill.from) : '',
       payerFile: opened.filename,
-      confirmedKey: ''
+      confirmedKey: '',
+      note: ''
     }
     if (st.payReview && st.payReview.token) api.invoke('s0:cancelReview', st.payReview.token).catch(() => {})
     st.payReview = null
@@ -2619,6 +2671,7 @@
     }
     let feeTimer = 0
     let feeGen = 0
+    let followRecipient = false
     function mountPay (html) {
       const host = $('remitHost')
       if (host) { SD.html(host, html); return }
@@ -2653,37 +2706,81 @@
       const payer = accByFile(s.payerFile)
       return payer && payerValid(payer, route) ? payer : null
     }
+    function shardEntries () {
+      return (chainRowModel({})[s.shardPick] || {}).entries || []
+    }
+    function shownPayer () {
+      const list = shardEntries()
+      const hit = list.find(e => e.file === s.payerFile) || list.find(e => e.address && String(e.address).toLowerCase() === String(s.payAddr || '').toLowerCase())
+      return hit ? accByFile(hit.file) : null
+    }
+    function payerOptLabel (e) {
+      const addr = e.address || ''
+      let bal = ''
+      if (e.units != null) {
+        try {
+          const dec = e.decimals == null ? (Number(s.shardPick) === 0 ? 18 : 8) : e.decimals
+          bal = ' · ' + AMT.fmtUnits(e.units, dec) + ' SCDO'
+        } catch (err) { bal = '' }
+      }
+      const name = e.name || accLabel(accByFile(e.file) || '') || ''
+      return name + (addr ? ' · ' + addr : '') + bal
+    }
+    function paintShardNote (route) {
+      const el = $('payShardNote')
+      if (!el) return
+      const implied = inferShard(s.to)
+      let text = ''
+      if (implied != null && implied !== Number(s.shardPick)) text = TC('walletShardMismatch', { from: chainNameOf(s.shardPick), to: chainNameOf(implied) })
+      else if (s.note === 'moved') text = TC('walletShardMoved', { chain: chainNameOf(s.shardPick) })
+      else if (route && route.kind === 'gateway' && Number(s.shardPick) !== 0) text = TC('walletGateShard')
+      el.hidden = !text
+      el.textContent = text
+    }
+    function applyShard (n, opt) {
+      opt = opt || {}
+      n = [0, 1, 2, 3, 4].includes(Number(n)) ? Number(n) : 0
+      const changed = Number(s.shardPick) !== n
+      s.shardPick = n
+      st.recvShard = n
+      try { localStorage.setItem('walletShard310', String(n)) } catch (e) {}
+      if (changed && !opt.keepAddr) s.payAddr = ''
+      if (!opt.keepNote) s.note = opt.note || ''
+      document.querySelectorAll('[data-wiz-chain]').forEach(b => b.classList.toggle('on', Number(b.getAttribute('data-wiz-chain')) === n))
+      if (!opt.skipReceive) paintReceivePane()
+      paintFromPick()
+    }
     function paintPayer (route) {
       const box = $('payFrom')
-      if (!box) return chosenPayer(route)
-      const choices = payersForRoute(route)
-      const key = (route.kind || '') + ':' + (route.shard == null ? '' : route.shard) + ':' + choices.map(a => a.filename).join('|')
+      const entries = shardEntries()
+      if (!box) return shownPayer()
+      const key = String(s.shardPick) + ':' + entries.map(e => (e.file || '') + ':' + (e.address || '')).join('|')
       let sel = $('payPayer')
       if (!sel || sel.getAttribute('data-key') !== key) {
-        const opts = ['<option value="">' + esc(TC('payPick')) + '</option>'].concat(choices.map(a => {
-          const addr = signingAddress(a, route)
-          return '<option value="' + esc(a.filename) + '">' + esc(accLabel(a) + (addr ? ' · ' + addr : '')) + '</option>'
+        const opts = ['<option value="">' + esc(TC('payPick')) + '</option>'].concat(entries.map(e => {
+          const a = accByFile(e.file)
+          if (!a) return ''
+          return '<option value="' + esc(a.filename) + '">' + esc(payerOptLabel(e)) + '</option>'
         }))
-        SD.html(box, '<select class="inp" id="payPayer" data-key="' + esc(key) + '">' + opts.join('') + '</select><div id="paySign" class="mono" style="font-size:15px;margin-top:6px"></div>')
+        SD.html(box, '<select class="inp" id="payPayer" data-key="' + esc(key) + '">' + opts.join('') + '</select><div id="paySign" class="mono" style="font-size:15px;margin-top:6px;word-break:break-all"></div>')
         sel = $('payPayer')
         if (sel) sel.onchange = () => {
           s.payerFile = sel.value || ''
-          s.feeText = ''
-          s.feeReady = false
-          s.feeFor = null
-          s.gas = null
-          if (st.payReview && st.payReview.file !== s.payerFile) dropReview()
-          sync()
+          s.payAddr = ((shardEntries().find(e => e.file === s.payerFile) || {}).address) || ''
+          s.feeText = ''; s.feeReady = false; s.feeFor = null; s.gas = null
+          if (st.payReview && st.payReview.file !== s.payerFile) dropReview(); sync()
+          paintFromPick()
+          try { if (s.payAddr) localStorage.setItem('payAddr310-' + s.shardPick, s.payAddr) } catch (e) {}
         }
       }
-      const payer = chosenPayer(route)
+      const payer = shownPayer()
       if (sel) sel.value = payer ? payer.filename : ''
       const sign = $('paySign')
-      const addr = payer ? signingAddress(payer, route) : ''
+      const addr = payer ? (signingAddress(payer, route) || (Number(s.shardPick) === 0 ? (payer.evm || '') : (payer.pubkey || ''))) : ''
       if (sign) {
         if (payer && addr) sign.textContent = TC('paySignAddr') + addr
-        else if (payer && route.kind === 'chain' && route.shard === 0) sign.textContent = TC('payUnlock')
-        else if (!payer) sign.textContent = choices.length ? TC('payPick') : TC('payNoPayer')
+        else if (payer && Number(s.shardPick) === 0 && !payer.evm) sign.textContent = TC('payUnlock')
+        else if (!payer) sign.textContent = entries.length ? TC('payPick') : TC('payNoPayer')
         else sign.textContent = ''
       }
       const self = $('paySelf')
@@ -2716,7 +2813,8 @@
       const sumGas = $('wizGas'); if (sumGas) sumGas.textContent = s.gas != null && s.gas !== '' ? String(s.gas) : '\u2014'
       const sumChain = $('wizChainNow'); if (sumChain) sumChain.textContent = chainLabel(route)
       const chainBox = $('payChain')
-      if (chainBox) chainBox.hidden = !(s.to && inferShard(s.to) == null && !nameLike(s.to))
+      if (chainBox) chainBox.hidden = true
+      paintShardNote(route)
       return route && payer ? route : route
     }
     function dropReview () {
@@ -2729,6 +2827,17 @@
       const to = $('payTo'); const amt = $('payAmt')
       s.to = nhw(to ? to.value : s.to)
       s.amount = nhw(amt ? amt.value : s.amount)
+      const impliedNow = inferShard(s.to)
+      if (followRecipient && impliedNow != null && impliedNow !== Number(s.shardPick)) {
+        followRecipient = false
+        applyShard(impliedNow, { note: 'moved' })
+        s.note = 'moved'
+      } else {
+        followRecipient = false
+        if (impliedNow != null && impliedNow !== Number(s.shardPick)) s.note = 'mismatch'
+        else if (s.note === 'moved' && impliedNow == null) s.note = ''
+        else if (s.note === 'mismatch') s.note = ''
+      }
       let route = window.SCDORemitRoute.routePay({
         to: s.to, amount: s.amount, accounts: accountsForRoute(), payees: allPayees(), feeText: s.feeText, etaText: ''
       })
@@ -2786,12 +2895,12 @@
       <div class="wiz-dots"><span data-wiz-dot="1">1 ${esc(TC('wizAddr'))}</span><span data-wiz-dot="2">2 ${esc(TC('wizAmount'))}</span><span data-wiz-dot="3">3 ${esc(TC('wizConfirm'))}</span></div>
       <div id="wizStep1" class="wiz-step">
         <div class="lbl wiz-step-hint">${esc(TC('wizNextAmt'))}</div>
-        <details class="shell-fold" id="wizPayer"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('payFrom'))}</summary><div id="payFrom" class="wrap"></div></details>
+        <div class="field" id="wizPayer"><div class="lbl">${esc(TC('payFrom'))}</div><div id="payFrom" class="wrap"></div><div id="payShardNote" class="warnbox" hidden></div></div>
         <div class="field"><div class="lbl">${esc(TC('payTo'))}</div>
           <input class="inp" id="payTo" placeholder="${esc(TC('payToPh'))}" value="${esc(s.to)}" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
         <details class="shell-fold" id="wizPayees"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(TC('shellPayees'))}</summary><div class="row" id="payeeChips" style="flex-wrap:wrap;margin-top:8px"></div></details>
         <div id="payRecents"></div>
-        <div id="payChain" class="wiz-chain"><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
+        <div id="payChain" class="wiz-chain" hidden><div class="lbl">${esc(TC('wizChain'))}</div><div class="wiz-chips">${[0, 1, 2, 3, 4].map(chip).join('')}</div></div>
         <div class="field"><div class="lbl">${esc(TC('shellPickAddr'))}</div><div id="payFromPick"></div><div class="lbl" id="payFromBal"></div></div>
         <div class="err" id="payErr1"></div>
         <div class="wiz-nav"><button type="button" class="shell-copy" data-act="nav" data-v="recv">${esc(TC('navRecv'))}</button><button type="button" class="shell-go" id="wizNext1">${esc(TC('wizNext'))}</button></div>
@@ -2871,7 +2980,9 @@
       s.to = nhw($('payTo') ? $('payTo').value : s.to)
       stepErr('payErr1', '')
       if (!s.to) { stepErr('payErr1', TC('wizNeedAddr')); return }
-      if (inferShard(s.to) == null && !nameLike(s.to)) { stepErr('payErr1', TC('wizNeedFull')); const box = $('payChain'); if (box) box.hidden = false; return }
+      if (inferShard(s.to) == null && !nameLike(s.to)) { stepErr('payErr1', TC('wizNeedFull')); return }
+      const impliedStep = inferShard(s.to)
+      if (impliedStep != null && impliedStep !== Number(s.shardPick)) { stepErr('payErr1', TC('walletShardMismatch', { from: chainNameOf(s.shardPick), to: chainNameOf(impliedStep) })); return }
       showStep(2)
     }
     function amountRoom (text) {
@@ -3024,7 +3135,7 @@
         if (again) again.disabled = false
       }
     }
-    if (toEl) { toEl.oninput = sync; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
+    if (toEl) { toEl.oninput = () => { followRecipient = true; sync() }; toEl.onkeydown = (e) => { if (e.key === 'Enter') next1() } }
     if (amtEl) { amtEl._paintAmtRoom = paintAmtRoom; amtEl.oninput = sync; amtEl.onkeydown = (e) => { if (e.key === 'Enter') next2() } }
     if (pwEl) pwEl.onkeydown = (e) => { if (e.key === 'Enter') confirmPay() }
     if (go) go.onclick = () => { confirmPay() }
@@ -3037,10 +3148,9 @@
       b.classList.toggle('on', Number(b.getAttribute('data-wiz-chain')) === s.shardPick)
       b.onclick = (e) => {
         e.preventDefault(); e.stopPropagation()
-        s.shardPick = Number(b.getAttribute('data-wiz-chain'))
-        s.payAddr = ''
-        document.querySelectorAll('[data-wiz-chain]').forEach(x => x.classList.toggle('on', x === b))
-        paintFromPick()
+        s.note = ''
+        applyShard(Number(b.getAttribute('data-wiz-chain')))
+        sync()
       }
     })
     function paintFromPick () {
@@ -3075,9 +3185,15 @@
         bal.title = one && one.full ? one.full + ' SCDO' : ''
       }
     }
+    st.onWalletShard = function (n, opt) {
+      opt = opt || {}
+      applyShard(n, { keepAddr: !!opt.refresh, keepNote: !!opt.refresh, skipReceive: true })
+      sync()
+    }
     paintFromPick()
     const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
     showStep(1)
+    if (s.to) followRecipient = true
     sync()
     paintRecents()
     function lockSend (btn) {
@@ -3195,6 +3311,13 @@
       if (!guarded.ok) { if (btn) btn.disabled = false; if (err) paintSendErr(err, guarded.code); return }
       s.amount = guarded.value
       const route = paint()
+      const impliedPay = inferShard(route && route.kind === 'chain' ? route.to : '')
+      if (route && route.kind === 'chain' && impliedPay != null && impliedPay !== Number(s.shardPick)) {
+        if (btn) btn.disabled = false
+        if (err) err.textContent = TC('walletShardMismatch', { from: chainNameOf(s.shardPick), to: chainNameOf(impliedPay) })
+        showStep(1)
+        return
+      }
       if (route.kind !== 'chain' && route.kind !== 'gateway') {
         if (btn) btn.disabled = false
         if (err) err.textContent = route.many ? TC('payMany', { n: route.many.join(lang() === 'CN' ? '、' : ', ') }) : TC('payNeed')
@@ -3627,7 +3750,17 @@
     toast('…', 20000)
     if (inp) inp.value = ''
     const r = await api.invoke('acct:unlock', f, pw)
-    if (r && r.ok) { toast('✔'); await reloadAccounts(); render(); refreshS0(); if ($('md') && $('md').querySelector('[data-act=hideAll],[data-act=unhideAll]')) manageModal() } else toast(T('wrongPw'))
+    if (r && r.ok) {
+      toast('✔')
+      await reloadAccounts()
+      render()
+      if (st.tab === 'wallet') {
+        paintReceivePane()
+        if (typeof st.onWalletShard === 'function') st.onWalletShard(walletShard(), { refresh: true })
+      }
+      refreshS0()
+      if ($('md') && $('md').querySelector('[data-act=hideAll],[data-act=unhideAll]')) manageModal()
+    } else toast(T('wrongPw'))
   }
 
   function setHidden (chain, f, hide) {
@@ -4614,13 +4747,26 @@
       case 'nav': {
         if ($('md')) SD.clear($('modalRoot'))
         if (v === 'connect') { openPanel('connect'); break }
+        if ((v === 'wallet' || v === 'recv' || v === 'remit') && st.tab === 'wallet' && $('walletPage')) {
+          if (v === 'remit') { st.walletFocus = 'send'; st.walletFocusPending = true }
+          else if (v === 'recv') st.walletFocus = 'recv'
+          focusWalletPane()
+          renderSideNav()
+          break
+        }
         setTab(v)
         render()
         if (v === 'mine' || v === 'mineSet') { ensureGpu(); ensureCaps() }
-        if (v === 'home' || v === 'recv' || v === 'acc') { refreshOld(); refreshS0() }
+        if (v === 'home' || v === 'recv' || v === 'wallet' || v === 'remit' || v === 'acc') { refreshOld(); refreshS0() }
         break
       }
-      case 'recvShard': st.recvShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0; render(); break
+      case 'recvShard': {
+        st.recvShard = [0, 1, 2, 3, 4].includes(Number(v)) ? Number(v) : 0
+        try { localStorage.setItem('walletShard310', String(st.recvShard)) } catch (e) {}
+        paintReceivePane()
+        if (typeof st.onWalletShard === 'function') st.onWalletShard(st.recvShard)
+        break
+      }
       case 'recvAddr': {
         const n = Number(el.getAttribute('data-shard'))
         st.recvShard = [0, 1, 2, 3, 4].includes(n) ? n : 0
@@ -4833,9 +4979,11 @@
       return
     }
     if (t.id === 'recvPick') {
-      const n = [0, 1, 2, 3, 4].includes(Number(st.recvShard)) ? Number(st.recvShard) : 0
+      const n = walletShard()
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
-      render(); return
+      if (st.tab === 'wallet' && $('payWiz')) paintReceivePane()
+      else render()
+      return
     }
     if (t.id && String(t.id).indexOf('chainFilter-') === 0) {
       const n = Number(String(t.id).slice('chainFilter-'.length))
@@ -4932,6 +5080,7 @@
       case 'reward': case 'mineSettings': goPage('mineSet'); break
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
+      case 'wallet': goPage('wallet'); break
       case 'recv': goPage('recv'); break
       case 'mineHome': goMineHome(); break
       case 'send': openRemittance(); break
@@ -4939,6 +5088,7 @@
       case 'payInvoice': openPayInvoice(); break
       case 'remitLogout': api.invoke('remit:logout').catch(() => {}); remitReset(); toast(T('remitLogout')); break
       case 'settings': goPage('settings'); break
+      case 'connect': openPanel('connect'); break
       case 'about': openAboutPanel(); break
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
@@ -5402,8 +5552,7 @@
   api.on('agent:trayHint', () => {
     if (st.trayHint) return
     st.trayHint = true
-    const wiz = $('payWiz')
-    const keepPay = st.tab === 'remit' && wiz && wiz.getAttribute('data-lang') === lang()
+    const keepPay = payFormLive()
     if (!keepPay) render()
   })
   api.on('agentJoin:updated', (msg) => {

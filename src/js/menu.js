@@ -96,10 +96,12 @@ function buildTemplate (mainWindow, lang, platform) {
   function leaf (it) {
     if (hideRig && (it.action === 'mineHome' || it.action === 'mineSettings')) return null
     if (it.action === 'home') return { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
+    if (it.action === 'wallet') return { label: (cn ? it.cn : it.en).replace(/&/g, '&&'), accelerator: 'CmdOrCtrl+2', click: act('recv') }
     if (it.action === 'recv') return { label: L.receive, accelerator: 'CmdOrCtrl+2', click: act('recv') }
     if (it.action === 'remit') return { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
     if (it.action === 'mineHome') return { label: L.mining, accelerator: 'CmdOrCtrl+3', click: act('mineHome') }
     if (it.action === 'settings') return { label: L.navSettings, accelerator: 'CmdOrCtrl+E', click: act('settings') }
+    if (it.action === 'connect') return { label: (cn ? it.cn : it.en).replace(/&/g, '&&'), click: act('connect') }
     if (it.action === 'create') return { label: L.create, click: act('create') }
     if (it.action === 'import') return { label: L.import, click: act('import') }
     if (it.action) return { label: cn ? it.cn : it.en, click: act(it.action) }
@@ -134,6 +136,10 @@ function buildTemplate (mainWindow, lang, platform) {
       { label: L.close, accelerator: 'CmdOrCtrl+W', role: 'close' }
     ]
   }
+  // Ctrl+T still opens the combined page on the send side. The item stays out of the wallet list.
+  const sendAccel = { label: L.remitItem, accelerator: 'CmdOrCtrl+T', click: () => openRemittance() }
+  sendAccel.visible = false
+  appMenu.submenu.push(sendAccel)
   const editMenu = {
     label: L.edit,
     submenu: [
