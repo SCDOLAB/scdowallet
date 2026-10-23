@@ -153,7 +153,7 @@ assert.strictEqual(I.CN.setResumeHint, '開啟後，下次啟動錢包會自動�
 assert.strictEqual(I.CN.recvAddrLbl, '地址')
 assert.strictEqual(I.CN.homeTxOk, '已確認')
 assert.strictEqual(I.CN.homeTxWait, '確認中')
-assert.ok(ui.includes('id="homeHeights"') && ui.includes('id="homeHeightLine"') && ui.includes('home-chain-fold'))
+assert.ok(ui.includes('id="homeHeights"') && ui.includes('id="homeHeightLine"') && !ui.includes('home-chain-fold'))
 assert.ok(ui.includes('class="home-tx-tag') && ui.includes("T('homeTxOk')") && ui.includes("T('homeTxWait')"))
 assert.ok(pay.includes("TC('wizNextAmt')") && pay.includes('accountMenuHtml'))
 assert.ok(ui.includes("T('acctId')") && ui.includes("T('backupNow')"))

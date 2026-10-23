@@ -45,7 +45,7 @@ console.log('mac-316 pools ok')
 {
   const L = require('../src/js/demoLinks')
   assert.ok(/^https:\/\/[^/]+\/.*mode=demo/.test(L.DEMO_WHEEL_URL))
-  assert.strictEqual(L.TELEGRAM_URL, 'https://t.me/scdowheelledger')
+  assert.strictEqual(L.TELEGRAM_URL, 'https://t.me/SCDOCommunity')
   const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
   assert.ok(main.includes("require('./src/js/demoLinks')") && !main.includes('wheel.apeccapital.org'))
   assert.ok(!app.includes('wheel.apeccapital.org'))

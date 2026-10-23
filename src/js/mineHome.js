@@ -1286,14 +1286,22 @@ function homeLine (input, T) {
   return base
 }
 
+function heightKnown (pools, n) {
+  const p = pools && (pools[n] || pools[String(n)])
+  const known = p && p.online !== false && p.chain_height != null && p.chain_height !== ''
+  return known ? String(p.chain_height) : DASH
+}
+
 function heightTicker (pools) {
   const parts = []
-  for (const n of [1, 2, 3, 4]) {
-    const p = pools && (pools[n] || pools[String(n)])
-    const known = p && p.online !== false && p.chain_height != null && p.chain_height !== ''
-    parts.push('Shard' + n + ' ' + (known ? String(p.chain_height) : DASH))
-  }
+  for (const n of [1, 2, 3, 4]) parts.push('Shard' + n + ' ' + heightKnown(pools, n))
   return parts.join(' · ')
+}
+
+function heightCells (pools) {
+  const cells = []
+  for (const n of [1, 2, 3, 4]) cells.push({ n: n, height: heightKnown(pools, n) })
+  return cells
 }
 
 function devicePanel (input, device, picked, other, T, esc, huge) {
@@ -1364,7 +1372,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
+const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, reduceMinePhase, planDeviceClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, heightCells, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

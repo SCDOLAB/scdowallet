@@ -18,6 +18,15 @@ function classicShardOf (address) {
   return a ? a.shard : null
 }
 
+// Same 20 bytes as scdoAddressFromPriv: byte 0 is the shard, the tail stays.
+// address.slice(4) is bytes 1–19, including the version nibble. No private key.
+function classicOnShard (address, shard) {
+  const n = parseInt(shard, 10)
+  const parsed = parseClassicAddress(address)
+  if (!parsed || !PREFIX[n]) return null
+  return PREFIX[n] + parsed.address.slice(4)
+}
+
 // Wallet rule (scdoClient.callContract / keyfiles): 4-char shard prefix, 37 hex, version digit 1 or 2.
 function parseClassicAddress (value) {
   const address = normalizeMiningInput(value)
@@ -68,6 +77,7 @@ const api = {
   PREFIX,
   normalizeMiningInput,
   classicShardOf,
+  classicOnShard,
   parseClassicAddress,
   parseShard0Address,
   parseMiningAddress,

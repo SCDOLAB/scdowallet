@@ -125,12 +125,16 @@
     toast(ok ? T('copied') + PU.c() + text : text)
   }
   async function shareReferral (url) {
-    const link = url || referralLink()
-    const text = T('homeInviteLine')
-    if (navigator.share) {
-      try { await navigator.share({ title: T('homeInviteTitle'), text: text, url: link }); return } catch (e) { if (e && e.name === 'AbortError') return }
+    const link = String(url || inviteLink() || '').trim()
+    if (!link) { toast(T('homeInviteShareFail')); return }
+    const electron = /Electron/i.test(navigator.userAgent || '')
+    if (!electron && navigator.share) {
+      try { await navigator.share({ title: T('homeInviteTitle'), text: T('homeInviteLine'), url: link }); return } catch (e) { if (e && e.name === 'AbortError') return }
     }
-    copyText(link)
+    let ok = false
+    try { const r = await api.invoke('clip:write', link); ok = !!(r && r.ok) } catch (e) {}
+    if (!ok) { try { await navigator.clipboard.writeText(link); ok = true } catch (e) {} }
+    toast(ok ? T('homeInviteShared') : T('homeInviteShareFail'))
   }
   async function setMineMode (v) {
     const solo = v === 'solo'
@@ -197,7 +201,12 @@
     const ch = (String(name).trim()[0] || '?').toUpperCase()
     return `<div class="avatar" style="background:hsl(${hue},62%,48%)">${esc(ch)}</div>`
   }
-  function openExternal (url) { api.invoke('shell:openExternal', url) }
+  async function openExternal (url) {
+    let ok = false
+    try { ok = !!(await api.invoke('shell:openExternal', url)) } catch (e) { ok = false }
+    if (!ok) toast(T('openExternalFail'))
+    return ok
+  }
   // 3.0.4: official contacts, shown in Settings → About and in AI小貓 (the main process allows exactly these)
   const CONTACT = [['help_channel', 'https://t.me/SCDOLabor', 't.me/SCDOLabor'], ['help_group', 'https://t.me/SCDOCommunity', 't.me/SCDOCommunity'], ['help_email', 'mailto:admin@apeccapital.org', 'admin@apeccapital.org']]
   const CONTACT_URLS = CONTACT.map(c => c[1])
@@ -264,7 +273,7 @@
     poolStatus: null,
     oldErr: {},
     phrasePending: Array.isArray(BOOT.phrasePending) ? BOOT.phrasePending.filter(x => typeof x === 'string') : [],
-    agent: {}, rewardLineHide: false, backupAskHide: false, trayHint: false,
+    agent: {}, agentShard: 0, rewardLineHide: false, backupAskHide: false, trayHint: false,
     walletUi: null, panelId: 'hub', panelUrl: '', panelShown: false,
     session: {}, loginPrompt: false
   }
@@ -766,13 +775,14 @@
     const addr = picked && picked.address ? String(picked.address) : ''
     return addr.indexOf('1S01') === 0 ? addr : ''
   }
-  function openAccountSite (id) {
+  async function openAccountSite (id) {
     const nav = window.SCDOSiteNav
-    if (!nav || !nav.visit) return
+    if (!nav || !nav.visit) { toast(T('openExternalFail')); return }
     // RC6: the membership page pays on Shard0 EVM and only links the order to a 0x address.
     const target = nav.visit(id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: memberAddress() || selectedShard1() })
-    if (target) openExternal(target)
-    if (id === 'membership' || id === 'otc') watchMember()
+    if (!target) { toast(T('openExternalFail')); return }
+    const ok = await openExternal(target)
+    if (ok && (id === 'membership' || id === 'otc')) watchMember()
   }
   // ---------------- RC6 membership status (read-only gateway API) ----------------
   function memberAddress () {
@@ -816,19 +826,38 @@
     return nav.referral(selectedShard0())
   }
   function inviteLink () {
-    if (st.agent && st.agent.shareUrl) return st.agent.shareUrl
+    const nav = window.SCDOSiteNav
+    const raw = st.agent && st.agent.shareUrl
+    if (raw && nav && nav.referralFrom) return nav.referralFrom(raw)
     return referralLink()
+  }
+  function agentClassicModel (a) {
+    const pub = a && a.pubkey ? String(a.pubkey) : ''
+    const z = window.SCDOZpow
+    const parsed = z && z.parseClassicAddress ? z.parseClassicAddress(pub) : null
+    let shard = Number(st.agentShard)
+    if (!(shard >= 1 && shard <= 4)) shard = parsed ? parsed.shard : 0
+    let addr = ''
+    if (parsed && z.classicOnShard && shard) addr = z.classicOnShard(parsed.address, shard) || parsed.address
+    else if (pub) addr = pub
+    else if (a && a.evm) addr = String(a.evm)
+    else addr = (st.agent && st.agent.payout) || ''
+    return { scdoAddress: addr, shard: shard, canSwitchShard: !!parsed }
   }
   function agentModel () {
     const a = st.accounts && st.accounts.length ? selected() : null
     const ag = st.agent || {}
+    const classic = agentClassicModel(a)
     // 3.1.12: the presence line and the Status row both come from ag.status (one online state from main).
     return {
       noWallet: !st.accounts.length,
       rewardLineHidden: !!st.rewardLineHide,
       status: ag.starting ? 'starting' : (ag.status || 'pending'),
-      scdoAddress: a ? (a.pubkey || a.evm || ag.payout || '') : '',
+      scdoAddress: classic.scdoAddress,
+      shard: classic.shard,
+      canSwitchShard: classic.canSwitchShard,
       x402Reserve: ag.x402Reserve || '',
+      externalHtml: externalCardHtml(),
       bookkeeping: homeMineLine(),
       hideRig: !rigUi(),
       entries: ag.entries || []
@@ -845,13 +874,6 @@
   function homeSnapHtml () {
     if (!window.SCDOChainHome) return ''
     const chains = chainRowModel({})
-    const lines = chains.map(c => {
-      const sum = window.SCDOChainHome.summarize(c)
-      const dash = sum.text === '\u2014'
-      const shown = dash ? '\u2014' : (sum.text + ' SCDO')
-      const tip = !dash && sum.full ? (sum.full + ' SCDO') : shown
-      return `<div class="home-bal"><span>${esc(sum.title)}</span><b class="${dash ? 'dash' : ''}" title="${esc(tip)}">${esc(shown)}</b></div>`
-    }).join('')
     const hit = window.SCDOChainHome.latestTx ? window.SCDOChainHome.latestTx(chains) : null
     let last = '\u2014'
     let known = false
@@ -879,7 +901,13 @@
       const tag = ok ? T('homeTxOk') : (fail ? T('d_txFail') : T('homeTxWait'))
       extra = (when ? `<span class="home-tx-when">${esc(when)}</span>` : '') + `<span class="home-tx-tag ${ok ? 'ok' : 'wait'}">${esc(tag)}</span>`
     }
-    return lines + `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
+    return `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
+  }
+  function heightChipsHtml () {
+    const MH = window.SCDOMineHome
+    const cells = MH && MH.heightCells ? MH.heightCells(mineHomeInput().pools) : []
+    if (!cells.length) return esc(homeHeightLine())
+    return cells.map(c => '<div class="home-height-chip"><span>' + esc(T('mineShardN', { n: c.n })) + '</span><b>' + esc(c.height) + '</b></div>').join('')
   }
   function phraseBannerHtml () {
     const J = window.SCDOAgentJoin
@@ -986,25 +1014,26 @@
     const giftDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
     const giftBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(giftDoc, ['invite', 'inviteGift']))
       ? `<button type="button" class="shell-copy" data-act="inviteCreate">${esc(T('inviteGiftTitle'))}</button>` : ''
-    const mineState = rigUi() ? '<p class="home-state" id="homeMineState">' + esc(homeMineLine()) + '</p>' : ''
-    const heights = rigUi() ? '<details class="home-heights" id="homeHeights">' + shellFoldSummary(T('homeHeights')) + '<p class="home-height-line" id="homeHeightLine">' + esc(homeHeightLine()) + '</p></details>' : ''
+    const mineText = homeMineLine()
+    const mineIdle = mineText === T('homeLineIdle')
+    const mineState = rigUi() ? '<p class="home-state" id="homeMineState"' + (mineIdle ? ' hidden' : '') + '>' + esc(mineText) + '</p>' : ''
+    const heights = rigUi() ? '<div class="home-heights" id="homeHeights" aria-label="' + esc(T('homeHeights')) + '"><div class="home-height-line" id="homeHeightLine">' + heightChipsHtml() + '</div></div>' : ''
     const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
     return `<div class="page shell-home" id="homePage">
+      ${heights}
       ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
       ${claim}
       ${card}
-      <p class="home-lead">${esc(T('homeLead'))}</p>
-      ${externalCardHtml()}
       ${mineState}
-      ${heights}
+      <p class="home-lead">${esc(T('homeLead'))}</p>
       <div class="shell-actions">
         <button type="button" class="shell-act" data-act="nav" data-v="recv">${esc(T('navRecv'))}</button>
         <button type="button" class="shell-act" data-act="nav" data-v="remit">${esc(T('navRemit'))}</button>
         ${mineBtn}
       </div>
-      <section class="home-chains" id="homeChains"><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold home-chain-fold" id="homeChainFold">${shellFoldSummary(T('homeChainsTitle'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
+      <section class="home-chains" id="homeChains"><div class="chain-rows" id="chainRows">${chainRowsHtml()}</div><div id="homeSnap">${homeSnapHtml()}</div></section>
       ${homeBuyHtml()}
       ${homeDemoHtml()}
       ${panelCardsHtml()}
@@ -1045,12 +1074,14 @@
       const line = $('homeMineState')
       if (line) {
         const text = homeMineLine()
+        const idle = text === T('homeLineIdle')
+        if (line.hidden !== idle) line.hidden = idle
         if (line.textContent !== text) line.textContent = text
       }
       const heights = $('homeHeightLine')
       if (heights) {
-        const text = homeHeightLine()
-        if (heights.textContent !== text) heights.textContent = text
+        const html = heightChipsHtml()
+        if (refreshDash.heights !== html) { refreshDash.heights = html; SD.html(heights, html) }
       }
       const ref = $('homeRefLink')
       if (ref) {
@@ -4511,6 +4542,12 @@
       case 'chainTxMore': { const n = Number(v); st.txMore[n] = ((st.txMore && st.txMore[n]) || 8) + 8; render(); break }
       case 'openExplorer': if (/^https:\/\/scdoscan\.io\//.test(String(v || ''))) openExternal(v); break
       case 'buySite': openAccountSite(v); break
+      case 'agentShard': {
+        const n = Number(v)
+        if (n >= 1 && n <= 4) st.agentShard = n
+        render()
+        break
+      }
       case 'shareRef': shareReferral(v); break
       case 'setMineMode': setMineMode(v); break
       case 'keepMining': setKeepMiningUi(el); break

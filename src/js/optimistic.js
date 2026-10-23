@@ -4,7 +4,7 @@
 ;(function () {
   const CONFIRM_MS = 14000
   const COPY = {
-    gift: 'Gift received · agent started',
+    gift: 'Bonus SCDO received · agent started',
     confirming: 'Confirming…',
     confirmed: 'Confirmed',
     starting: 'Starting…'
