@@ -31,7 +31,10 @@ const labels = {
   agentEntriesEmpty: 'No ledger entries yet',
   agentAct_task_join: 'Joined',
   agentOutcome_done: 'done',
-  mineShardN: 'Shard{n}'
+  mineShardN: 'Shard{n}',
+  agentScdoAddrEvm: 'Shard0 EVM address',
+  agentScdoAddrN: 'Shard{n} Classic shard address',
+  pillShard0: 'Shard0 EVM'
 }
 const t = (k, p) => {
   let s = labels[k] || k
@@ -61,9 +64,12 @@ const card = Join.agentCardHtml(t, esc, {
 assert.ok(card.includes('Local SCDO bookkeeping agent'))
 assert.ok(card.includes('Bookkeeping agent online. Keep SCDO Wallet open so bookkeeping stays connected.'))
 assert.ok(card.includes('data-act="copy"') && card.includes('data-v="' + classic + '"'))
+assert.ok(card.includes('data-act="agentShard" data-v="0"'))
 assert.ok(card.includes('data-act="agentShard" data-v="1"'))
 assert.ok(card.includes('data-act="agentShard" data-v="4"'))
 assert.ok(card.includes('class="agent-shard on"') && card.includes('data-v="2"'))
+assert.ok(card.includes('>Shard0 EVM<'))
+assert.ok(card.includes('Shard2 Classic shard address'))
 assert.ok(card.includes('Shard2'))
 assert.ok(!card.includes('id="agentBook"'))
 assert.ok(!card.includes('No ledger entries yet'))
@@ -120,9 +126,10 @@ assert.strictEqual(Join.JOIN.joinPage, 'https://scdo.com.au/join')
 
 const page = app.slice(app.indexOf('function pageHome'), app.indexOf('function renderFooter'))
 const ret = page.slice(page.lastIndexOf('return `'))
-assert.ok(ret.indexOf('${heights}') < ret.indexOf('${card}'))
-assert.ok(ret.indexOf('${card}') < ret.indexOf('home-lead'))
 assert.ok(ret.indexOf('home-lead') < ret.indexOf('id="homeChains"'))
+assert.ok(ret.indexOf('id="homeChains"') < ret.indexOf('${heights}'))
+assert.ok(ret.indexOf('${heights}') < ret.indexOf('${card}'))
+assert.ok(ret.indexOf('${card}') < ret.indexOf('homeBuyHtml()'))
 assert.ok(page.includes('id="homeHeights"') && page.includes('id="homeHeightLine"'))
 assert.ok(ret.includes('id="chainRows"') && ret.includes('homeSnapHtml()'))
 assert.ok(!ret.includes('home-chain-fold'))
@@ -130,7 +137,56 @@ assert.ok(!ret.includes('externalCardHtml'))
 assert.ok(page.includes("mineIdle ? ' hidden'"))
 assert.ok(app.includes("case 'agentShard'"))
 assert.ok(app.includes('st.agentShard = n'))
+assert.ok(app.includes('st.agentShardSet = true'))
+assert.ok(app.includes('n >= 0 && n <= 4'))
 assert.ok(app.includes('classicOnShard'))
+assert.ok(app.includes('addresses: classic.addresses'))
+assert.ok(app.includes("t.id === 'agentScdoPick'"))
+assert.ok(app.includes('id="homeHeightsLbl"'))
+assert.ok(app.includes("T('pillShard0')"))
+assert.ok(app.includes('home-height-bar') || read('src/js/mineHome.js').includes('home-height-bar'))
+assert.ok(read('src/js/agentJoin.js').includes('id="agentScdoPick"'))
+assert.ok(read('src/js/agentJoin.js').includes('shardAddresses'))
+const privB = crypto.randomBytes(32).toString('hex')
+const onB = keystore.scdoAddressFromPriv(privB, 1)
+const picked = Join.shardAddresses([
+  { filename: 'a', label: 'Wallet A', pubkey: on1, evm: ADDR },
+  { filename: 'b', label: 'Wallet B', pubkey: onB, evm: '0x' + '11'.repeat(20) }
+], 2, zpow.classicOnShard)
+assert.strictEqual(picked.length, 2)
+assert.ok(picked.every(row => row.address.indexOf('2S02') === 0))
+assert.ok(picked.some(row => row.label === 'Wallet A'))
+const evmRows = Join.shardAddresses([
+  { filename: 'a', label: 'Wallet A', pubkey: classic, evm: ADDR },
+  { filename: 'locked', label: 'Locked', pubkey: classic, evm: '' }
+], 0, zpow.classicOnShard)
+assert.strictEqual(evmRows.length, 1)
+assert.strictEqual(evmRows[0].address, ADDR)
+const menu = Join.agentCardHtml(t, esc, {
+  status: 'online',
+  scdoAddress: picked[0].address,
+  shard: 2,
+  canSwitchShard: true,
+  addresses: picked,
+  x402Reserve: '',
+  entries: []
+})
+assert.ok(menu.includes('id="agentScdoPick"'))
+assert.ok(menu.includes('data-shard="2"'))
+assert.ok(menu.includes('Wallet A · ' + picked[0].address))
+assert.ok(menu.includes('value="' + picked[0].address + '" selected'))
+assert.ok(menu.includes('data-act="copy" data-v="' + picked[0].address + '"'))
+assert.ok(menu.includes('id="agentScdo">' + picked[0].address + '<'))
+const evmCard = Join.agentCardHtml(t, esc, {
+  status: 'online',
+  scdoAddress: ADDR,
+  shard: 0,
+  canSwitchShard: true,
+  addresses: evmRows,
+  entries: []
+})
+assert.ok(evmCard.includes('Shard0 EVM address'))
+assert.ok(evmCard.includes('class="agent-shard on" data-act="agentShard" data-v="0"'))
 
 const recv = app.slice(app.indexOf('function pageRecv'), app.indexOf('function paintRecvQr'))
 assert.ok(recv.includes("shellFold('recvChains'"))
@@ -151,6 +207,10 @@ const EN = box.window.I18N112.EN
 const CN = box.window.I18N112.CN
 assert.strictEqual(EN.agentCardTitle, 'Local SCDO bookkeeping agent')
 assert.strictEqual(CN.agentCardTitle, '本機 SCDO 記帳代理')
+assert.strictEqual(EN.agentScdoAddrEvm, 'Shard0 EVM address')
+assert.strictEqual(CN.agentScdoAddrEvm, 'Shard0 EVM 地址')
+assert.strictEqual(EN.agentScdoAddrN, 'Shard{n} Classic shard address')
+assert.strictEqual(CN.agentScdoAddrN, 'Shard{n} 經典分片地址')
 assert.strictEqual(EN.inviteGiftTitle, 'Invite with attached SCDO')
 assert.strictEqual(CN.inviteGiftTitle, '附上贈幣的邀請')
 assert.strictEqual(EN.inviteGiftAsk, 'Attached SCDO amount (1 to 1000)')

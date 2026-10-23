@@ -142,7 +142,9 @@ assert.ok(idle.includes('data-state="selected"') && idle.includes('data-act="age
 assert.ok(idle.includes('data-act="agentBookShard" data-v="1"'))
 assert.ok(!idle.includes('data-act="agentBookShard" data-v="0"'))
 assert.ok(idle.includes('>開始記帳<'))
+assert.ok(idle.includes('data-act="agentShard" data-v="0"'))
 assert.ok(idle.includes('data-act="agentShard" data-v="1"'))
+assert.ok(idle.includes('id="agentScdoLbl">Shard1 經典分片地址<'))
 
 const idleEn = card({
   phase: 'stopped',
