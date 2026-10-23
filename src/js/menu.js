@@ -1,7 +1,7 @@
 // SCDO Wallet: application menu follows wallet language (EN / CN = 華語繁體).
 // Menu items talk to the page with the allowlisted 'menu:action' event instead of executeJavaScript.
 // The site list is src/js/siteNavMap.js, shared with the in-app bar and AI小貓.
-const { Menu, shell } = require('electron')
+const { Menu } = require('electron')
 const { menuLang } = require('./uiLang')
 const siteNav = require('./siteNavMap')
 const walletUi = require('./walletUi')
@@ -89,10 +89,6 @@ function buildTemplate (mainWindow, lang, platform) {
   const act = (a) => () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('menu:action', a) }
   // Remittance stays on the allowlisted menu:action channel. The page opens the tab in openRemittance().
   function openRemittance () { act('remit')() }
-  function openExternal (href) {
-    const target = siteNav.url(href)
-    if (shell && shell.openExternal) shell.openExternal(target)
-  }
   function leaf (it) {
     if (hideRig && (it.action === 'mineHome' || it.action === 'mineSettings')) return null
     if (it.action === 'home') return { label: L.home, accelerator: 'CmdOrCtrl+1', click: act('home') }
@@ -106,7 +102,7 @@ function buildTemplate (mainWindow, lang, platform) {
     if (it.action === 'import') return { label: L.import, click: act('import') }
     if (it.action) return { label: cn ? it.cn : it.en, click: act(it.action) }
     if (it.href && it.withAddress) return { label: cn ? it.cn : it.en, click: act('buy:' + it.id) }
-    if (it.href) return { label: cn ? it.cn : it.en, click: () => openExternal(it.href) }
+    if (it.href) return { label: cn ? it.cn : it.en, click: act('site:' + it.id) }
     return { label: cn ? it.cn : it.en, enabled: false }
   }
   function group (g) {

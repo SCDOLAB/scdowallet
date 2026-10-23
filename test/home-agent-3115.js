@@ -199,7 +199,7 @@ assert.ok(share.includes('/Electron/i.test(navigator.userAgent'))
 const openExt = app.slice(app.indexOf('async function openExternal'), app.indexOf('const CONTACT'))
 assert.ok(openExt.includes("toast(T('openExternalFail'))") && openExt.includes('return ok'))
 const buy = app.slice(app.indexOf('async function openAccountSite'), app.indexOf('function memberAddress'))
-assert.ok(buy.includes('await openExternal(target)') && buy.includes('if (ok && (id === \'membership\' || id === \'otc\')) watchMember()'))
+assert.ok(buy.includes('openNavHref(hit)') && buy.includes('if (ok && (id === \'membership\' || id === \'otc\')) watchMember()'))
 
 const box = { window: {} }
 vm.runInNewContext(read('src/js/i18n112.js'), box)
