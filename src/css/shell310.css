@@ -8,7 +8,7 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .shell-col { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; max-width: 100%; overflow-x: hidden; }
 #app.shell main { background: #F2F2F7; min-width: 0; min-height: 0; max-width: 100%; overflow-x: hidden; overflow-y: auto; }
 
-.side-nav { width: 216px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 18px 12px; background: #fff; border-right: 1px solid #e5e5ea; }
+.side-nav { display: none; width: 0; padding: 0; border: 0; }
 .nav-item { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; border: 0; border-radius: 12px; padding: 12px 16px; background: transparent; color: #3d4160; font-size: 15px; font-weight: 800; text-align: left; }
 .nav-item svg { display: block; flex: none; }
 .nav-item span { min-width: 0; line-height: 1.25; }
@@ -17,6 +17,22 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 
 .shell-home, .shell-recv, .shell-remit, .shell-mine-page, .shell-set { max-width: 1080px; min-width: 0; margin: 0 auto; padding: 26px 30px 140px; }
 .page.shell-home { max-width: none; padding: 10px 16px 28px; }
+.page.shell-wallet { max-width: none; min-width: 0; margin: 0; padding: 12px 18px 36px; }
+.shell-actions-wallet { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.shell-wallet .shell-h { margin-bottom: 8px; }
+.shell-wallet .recv-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.wallet-grid { display: grid; grid-template-columns: minmax(340px, 0.92fr) minmax(480px, 1.15fr); gap: 16px; align-items: start; }
+.wallet-pane { background: #fff; border-radius: 24px; padding: 22px 24px 24px; box-shadow: 0 8px 30px rgba(0,0,0,.06); min-width: 0; }
+.wallet-pane.focus { box-shadow: 0 0 0 2px #1d7a34, 0 8px 30px rgba(0,0,0,.06); }
+.wallet-pane-h { margin: 0 0 12px; font-size: 22px; font-weight: 800; color: #1c1c1e; }
+.shell-wallet .wallet-pane.shell-remit { max-width: none; margin: 0; padding: 22px 24px 24px; }
+.shell-wallet #remitHost .wiz,
+.shell-wallet .wallet-pane .wiz { background: transparent; box-shadow: none; border-radius: 0; padding: 0; }
+.shell-wallet .qrwrap { width: min(280px, 100%); aspect-ratio: 1; height: auto; margin: 12px auto; background: #F2F2F7; border-radius: 16px; display: flex; align-items: center; justify-content: center; }
+.shell-wallet .qrwrap canvas,
+.shell-wallet .qrwrap img { display: block; width: 100%; height: auto; max-width: 100%; max-height: 100%; }
+.shell-wallet #payInvoiceBtn { width: auto; margin: 0 0 12px; padding: 10px 16px; font-size: 16px; }
+.shell-wallet .recv-addr { font-size: 18px; }
 .shell-h { font-size: 34px; font-weight: 800; margin: 0 0 18px; letter-spacing: -0.4px; color: #1c1c1e; }
 .site-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 26px 0; min-width: 0; }
 .lang-switch { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
@@ -365,11 +381,14 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 
 html.light-mode, html.light-mode * { animation: none !important; transition: none !important; }
 
+@media (max-width: 1080px) {
+  .wallet-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 900px) {
   .mine-panels { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
-  .side-nav { width: 76px; padding: 10px 6px; }
+  .side-nav { display: none; width: 0; padding: 0; }
   .nav-item { flex-direction: column; justify-content: center; font-size: 12px; padding: 10px 2px; text-align: center; }
   .bal-n b { font-size: 42px; }
   .shell-actions { grid-template-columns: 1fr; }

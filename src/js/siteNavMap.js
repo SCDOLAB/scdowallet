@@ -18,9 +18,9 @@
     { id: 'gpu', cn: 'GPU 共享', en: 'GPU share', href: '/gpu-share/?ref=nav' },
     {
       id: 'wallets', cn: '錢包', en: 'Wallet', children: [
-        { id: 'receive', cn: '收款', en: 'Receive', action: 'recv' },
-        { id: 'remit', cn: '匯款', en: 'Send', action: 'remit' },
+        { id: 'wallet', cn: '收款與匯款', en: 'Receive & Send', action: 'wallet', ask: ['收款', '匯款', 'Receive', 'Send'] },
         { id: 'payInvoice', cn: '支付發票', en: 'Pay invoice', action: 'payInvoice' },
+        { id: 'connect', cn: '連接錢包與 Agent', en: 'Connected wallets & agents', action: 'connect', ask: ['連接錢包', 'Connect'] },
         { id: 'settings', cn: '設定', en: 'Settings', action: 'settings' },
         { id: 'create', cn: '建立新地址', en: 'Create address', action: 'create' },
         { id: 'import', cn: '匯入錢包', en: 'Import wallet', action: 'import' }
@@ -78,6 +78,12 @@
     }
   ]
 
+  // Old receive / remit ids still resolve so a deep link lands on the combined page.
+  const LEGACY = [
+    { id: 'receive', cn: '收款', en: 'Receive', action: 'recv' },
+    { id: 'remit', cn: '匯款', en: 'Send', action: 'remit' }
+  ]
+
   // Known to the cat, not shown in the window menu or the top function bar.
   const EXTRAS = [
     { id: 'referral', cn: '邀請好友', en: 'Invite a friend', href: REFERRAL_URL, referral: true, ask: ['邀請好友'] }
@@ -103,7 +109,7 @@
   }
 
   function byId (id) {
-    return listed().find(it => it.id === id) || null
+    return listed().find(it => it.id === id) || LEGACY.find(it => it.id === id) || null
   }
 
   function match (text) {
