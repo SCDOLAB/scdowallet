@@ -202,6 +202,13 @@
     return `<div class="avatar" style="background:hsl(${hue},62%,48%)">${esc(ch)}</div>`
   }
   async function openExternal (url) {
+    const U = window.SCDOWalletUi
+    const d = U && U.browseDecision ? U.browseDecision(url) : null
+    if (d && d.action === 'suppress') return false
+    if (d && d.action === 'allow' && d.href && d.href !== 'about:blank') {
+      openOfficialPage(d.href)
+      return true
+    }
     let ok = false
     try { ok = !!(await api.invoke('shell:openExternal', url)) } catch (e) { ok = false }
     if (!ok) toast(T('openExternalFail'))
@@ -1303,6 +1310,30 @@
     if (hit.action) menuAction(hit.action)
     else if (hit.href) openNavHref(hit)
   }
+  function officialTitle (href) {
+    let path = ''
+    try { path = new URL(href).pathname } catch (e) { path = '' }
+    const cn = lang() !== 'EN'
+    if (path.indexOf('/gpu-share') === 0) return cn ? 'GPU 共享' : 'GPU share'
+    if (path.indexOf('/games') === 0) return cn ? '遊戲' : 'Games'
+    if (path.indexOf('/treasury') === 0) return cn ? '金庫' : 'Treasury'
+    if (path.indexOf('/tx/') === 0) return cn ? '交易' : 'Transaction'
+    if (path.indexOf('/wallet') === 0) return cn ? '錢包' : 'Wallet'
+    return 'SCDO'
+  }
+  function openOfficialPage (href, title) {
+    const U = window.SCDOWalletUi
+    const d = U && U.browseDecision ? U.browseDecision(href) : (U ? U.classifyNavigation(href) : null)
+    if (!d || d.action !== 'allow' || !d.href || d.href === 'about:blank') return false
+    if ($('md')) SD.clear($('modalRoot'))
+    st.panelUrl = d.href
+    st.panelId = 'hub'
+    st.panelTitle = title || officialTitle(d.href)
+    st.tab = 'panel'
+    st.scrollTo = 'top'
+    render()
+    return true
+  }
   function openNavHref (hit) {
     const nav = window.SCDOSiteNav
     if (!hit || !nav) return
@@ -1311,15 +1342,11 @@
       : nav.url(hit.href)
     if (!target) { toast(T('openExternalFail')); return }
     const U = window.SCDOWalletUi
-    if (U && U.classifyNavigation(target).action === 'allow') {
+    const decision = U && U.browseDecision ? U.browseDecision(target) : (U ? U.classifyNavigation(target) : { action: 'drop' })
+    if (decision.action === 'suppress') { toast(T('openExternalFail')); return }
+    if (decision.action === 'allow') {
       if (hit.withAddress && (hit.id === 'membership' || hit.id === 'otc')) watchMember()
-      if ($('md')) SD.clear($('modalRoot'))
-      st.panelUrl = target
-      st.panelId = 'hub'
-      st.panelTitle = lang() === 'EN' ? hit.en : hit.cn
-      st.tab = 'panel'
-      st.scrollTo = 'top'
-      render()
+      openOfficialPage(decision.href, lang() === 'EN' ? hit.en : hit.cn)
       return
     }
     openExternal(target)
@@ -1347,11 +1374,17 @@
   }
   function syncPanelFrame () {
     const frame = $('panelFrame')
+    const host = $('main')
     if (!frame || typeof frame.getBoundingClientRect !== 'function') return
     const r = frame.getBoundingClientRect()
-    if (r.width < 20 || r.height < 20) return
+    const m = host && host.getBoundingClientRect ? host.getBoundingClientRect() : null
+    const x = m ? m.left : r.left
+    const width = m ? Math.max(r.width, m.width) : r.width
+    const y = r.top
+    const height = m ? Math.max(r.height, m.bottom - y) : r.height
+    if (width < 20 || height < 20) return
     st.panelShown = true
-    const req = { id: st.panelId || 'hub', x: r.left, y: r.top, width: r.width, height: r.height }
+    const req = { id: st.panelId || 'hub', x: x, y: y, width: width, height: height }
     if (st.panelUrl) req.url = st.panelUrl
     api.invoke('panel:show', req).catch(() => {})
   }
@@ -1363,12 +1396,9 @@
     if (!action) return
     if (action.type === 'open-page') { openPanel(action.page); return }
     if (action.type === 'open-url') {
-      if (!U || U.classifyNavigation(action.url).action !== 'allow') return
-      st.panelUrl = action.url
-      st.panelId = 'hub'
-      st.tab = 'panel'
-      st.scrollTo = 'top'
-      render()
+      const d = U && (U.browseDecision ? U.browseDecision(action.url) : U.classifyNavigation(action.url))
+      if (!d || d.action !== 'allow') return
+      openOfficialPage(d.href)
       return
     }
     if (action.type === 'start-agent') { openAgentStart(); return }
@@ -1494,6 +1524,23 @@
   function chainNameOf (n) {
     return Number(n) === 0 ? 'Shard0 EVM' : ('Shard' + n + ' Classic')
   }
+  function walletChainLabel (n) {
+    const i = Number(n)
+    return i === 0 ? 'SCDO Shard0 EVM' : ('SCDO Shard' + i + ' (Classic)')
+  }
+  function rememberWalletAddr (n, addr) {
+    const a = String(addr || '')
+    try {
+      localStorage.setItem('recvAddr310-' + n, a)
+      localStorage.setItem('payAddr310-' + n, a)
+    } catch (e) {}
+    st.walletAddr = st.walletAddr || {}
+    st.walletAddr[n] = a
+  }
+  function requestHtml (n, addr) {
+    if (Number(n) !== 0) return `<div class="wallet-req" id="walletReq"><p class="note">${esc(T('walletReqOnly'))}</p></div>`
+    return `<div class="wallet-req" id="walletReq"><h3 class="wallet-pane-h">${esc(T('walletReqTitle'))}</h3><p class="note">${esc(T('walletReqNote'))}</p><div class="field"><div class="lbl">${esc(T('walletReqAmt'))}</div><input class="inp" id="reqAmt" inputmode="decimal" autocomplete="off"></div><div class="field"><div class="lbl">${esc(T('walletReqMemo'))}</div><input class="inp" id="reqMemo" maxlength="100" autocomplete="off"></div><button type="button" class="shell-copy" data-act="walletReq" data-v="${esc(addr || '')}">${esc(T('walletReqMake'))}</button><div id="walletReqOut"></div></div>`
+  }
   function pageRecv () {
     function build (n) {
       const model = chainRowModel({})[n] || { entries: [] }
@@ -1509,7 +1556,7 @@
       } else if (locked) {
         body = `<div class="recv-empty">${esc(T('locked'))}</div><div class="recv-line"><input class="inp" type="password" id="recvPw" placeholder="${esc(T('password'))}" autocomplete="off"><button type="button" class="shell-copy" data-act="unlock" data-f="${esc(locked.filename)}" data-in="recvPw">${esc(T('showAddress'))}</button></div>`
       } else body = `<div class="recv-empty">${esc(T('d_addrNone'))}</div><button type="button" class="shell-copy" data-act="create">${esc(T('setCreate'))}</button>`
-      return { pick: pick, body: body, chainName: chainNameOf(n) }
+      return { pick: pick, body: body, chainName: walletChainLabel(n), addr: addr }
     }
     st.buildReceive = build
     const n = walletShard()
@@ -1517,13 +1564,15 @@
     const pick = built.pick
     const body = built.body
     const tabs = [0, 1, 2, 3, 4].map(i => {
-      const label = chainNameOf(i)
+      const label = walletChainLabel(i)
       return `<button type="button" class="recv-tab${i === n ? ' on' : ''}" data-act="recvShard" data-v="${i}">${esc(label)}</button>`
     }).join('')
     const payDoc = st.walletUi || (window.SCDOWalletUi && window.SCDOWalletUi.defaults())
     const payBtn = (!window.SCDOWalletUi || window.SCDOWalletUi.flagsAllow(payDoc, ['send', 'payInvoice']))
       ? '<button type="button" class="shell-act" id="payInvoiceBtn" data-act="payInvoice">Pay invoice</button>' : ''
-    return `<div class="page shell-wallet" id="walletPage"><h1 class="shell-h">${esc(T('navWallet'))}</h1><div class="recv-sum">${esc(built.chainName)}</div><div class="recv-tabs">${tabs}</div><div class="wallet-grid"><section class="wallet-pane${st.walletFocus === 'send' ? '' : ' focus'}" id="walletRecv"><h2 class="wallet-pane-h">${esc(T('navRecv'))}</h2><div id="walletRecvLive"><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}</div></section><section class="wallet-pane shell-remit${st.walletFocus === 'send' ? ' focus' : ''}" id="walletSend"><h2 class="wallet-pane-h">${esc(T('navRemit'))}</h2>${payBtn}<div id="remitHost"></div></section></div></div>`
+    const sendOn = st.walletFocus === 'send'
+    const modes = `<div class="wallet-modes"><button type="button" class="wallet-mode${sendOn ? '' : ' on'}" data-act="walletMode" data-v="recv">${esc(T('walletModeRecv'))}</button><button type="button" class="wallet-mode${sendOn ? ' on' : ''}" data-act="walletMode" data-v="send">${esc(T('walletModeSend'))}</button></div>`
+    return `<div class="page shell-wallet" id="walletPage"><h1 class="shell-h">${esc(T('navWallet'))}</h1><div class="recv-sum">${esc(built.chainName)}</div><div class="recv-tabs">${tabs}</div>${modes}<div class="wallet-grid"><section class="wallet-pane${sendOn ? '' : ' focus'}" id="walletRecv"${sendOn ? ' hidden' : ''}><h2 class="wallet-pane-h">${esc(T('navRecv'))}</h2><div id="walletRecvLive"><div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${pick}</div>${body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}${requestHtml(n, built.addr)}</div></section><section class="wallet-pane shell-remit${sendOn ? ' focus' : ''}" id="walletSend"${sendOn ? '' : ' hidden'}><h2 class="wallet-pane-h">${esc(T('navRemit'))}</h2>${payBtn}<div id="remitHost"></div></section></div></div>`
   }
   function paintInviteQr () {
     const box = $('homeInviteQr')
@@ -1543,17 +1592,23 @@
     const n = walletShard()
     document.querySelectorAll('[data-act="recvShard"]').forEach(b => b.classList.toggle('on', Number(b.getAttribute('data-v')) === n))
     const sum = document.querySelector('#walletPage .recv-sum')
-    if (sum) sum.textContent = chainNameOf(n)
+    if (sum) sum.textContent = walletChainLabel(n)
     const live = $('walletRecvLive')
     if (!live || typeof st.buildReceive !== 'function') return
     const built = st.buildReceive(n)
-    SD.html(live, `<div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${built.pick}</div>${built.body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}`)
+    SD.html(live, `<div class="field"><div class="lbl">${esc(T('recvAddrLbl'))}</div>${built.pick}</div>${built.body}${shellFold('recvChains', T('shellRecvChains'), `<div class="lbl">${esc(T('recvOnly'))}</div>`)}${requestHtml(n, built.addr)}`)
     paintRecvQr()
   }
   function focusWalletPane () {
     const send = st.walletFocus === 'send'
     const pane = $(send ? 'walletSend' : 'walletRecv')
-    document.querySelectorAll('.wallet-pane').forEach(p => p.classList.toggle('focus', !!pane && p === pane))
+    document.querySelectorAll('.wallet-pane').forEach(p => {
+      const on = !!pane && p === pane
+      p.classList.toggle('focus', on)
+      if (on) p.removeAttribute('hidden')
+      else p.setAttribute('hidden', '')
+    })
+    document.querySelectorAll('[data-act="walletMode"]').forEach(b => b.classList.toggle('on', b.getAttribute('data-v') === (send ? 'send' : 'recv')))
     if (pane && pane.scrollIntoView) {
       try { pane.scrollIntoView({ block: 'nearest' }) } catch (e) {}
     }
@@ -2002,7 +2057,7 @@
     const y = main ? main.scrollTop : 0
     const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, wallet: pageRecv, recv: pageRecv, remit: pageRecv, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel, site: pageSite }
     const keepPay = payFormLive()
-    if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
+    if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' || st.tab === 'panel' ? '' : backHome()) + (pages[st.tab] || pageHome)())
     if (st.tab === 'wallet' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
     if (st.tab === 'wallet') {
       if (!keepPay) paintRecvQr()
@@ -2011,6 +2066,7 @@
     if (st.tab === 'settings') settingsModal()
     refreshDash.cards = refreshDash.tx = refreshDash.acc = refreshDash.mine = refreshDash.earn = refreshDash.mineHome = null
     document.body.classList.toggle('on-home', st.tab === 'home') // 3.0.4 (v9): the earnings card replaces the header island on Home
+    document.body.classList.toggle('on-panel', st.tab === 'panel')
     if (st.tab === 'mineSet') {
       mountMining()
       try {
@@ -3307,8 +3363,11 @@
       const box = $('payFromPick')
       if (!box || !window.SCDOChainHome) return
       const entries = (chainRowModel({})[n] || {}).entries || []
-      let last = s.payAddr || ''
-      try { if (!last) last = localStorage.getItem('payAddr310-' + n) || '' } catch (e) {}
+      let last = (st.walletAddr && st.walletAddr[n]) || s.payAddr || ''
+      try {
+        if (!last) last = localStorage.getItem('payAddr310-' + n) || ''
+        if (!last) last = localStorage.getItem('recvAddr310-' + n) || ''
+      } catch (e) {}
       const picked = window.SCDOChainHome.pickDefault(entries, last)
       const html = window.SCDOChainHome.accountMenuHtml ? window.SCDOChainHome.accountMenuHtml('payAddr', entries, picked && picked.address, esc) : window.SCDOChainHome.selectHtml('payAddr', entries, picked && picked.address, esc)
       if (box.getAttribute('data-html') !== html) {
@@ -3317,11 +3376,12 @@
         box.querySelectorAll('[data-pay-addr]').forEach(b => {
           b.onclick = () => {
             s.payAddr = b.getAttribute('data-pay-addr') || ''
-            try { localStorage.setItem('payAddr310-' + n, s.payAddr) } catch (e) {}
+            rememberWalletAddr(n, s.payAddr)
             const hit = entries.find(e => String(e.address).toLowerCase() === String(s.payAddr).toLowerCase())
             if (hit && hit.file) s.payerFile = hit.file
             sync()
             paintFromPick()
+            paintReceivePane()
           }
         })
       }
@@ -3338,6 +3398,11 @@
       opt = opt || {}
       applyShard(n, { keepAddr: !!opt.refresh, keepNote: !!opt.refresh, skipReceive: true })
       sync()
+    }
+    st.repaintPayFrom = function () {
+      const shared = st.walletAddr && st.walletAddr[s.shardPick]
+      if (shared) s.payAddr = shared
+      paintFromPick()
     }
     paintFromPick()
     const maxBtn = $('payMax'); if (maxBtn) maxBtn.onclick = () => fillMax()
@@ -4916,6 +4981,25 @@
         if (typeof st.onWalletShard === 'function') st.onWalletShard(st.recvShard)
         break
       }
+      case 'walletMode': {
+        st.walletFocus = v === 'send' ? 'send' : 'recv'
+        st.walletFocusPending = st.walletFocus === 'send'
+        focusWalletPane()
+        break
+      }
+      case 'walletReq': {
+        const PR = window.SCDOPayRequest
+        const out = $('walletReqOut')
+        if (!PR || !out) break
+        const built = PR.build({
+          address: v || (($('rcvAddr') && $('rcvAddr').textContent) || ''),
+          amount: ($('reqAmt') && $('reqAmt').value) || '',
+          memo: ($('reqMemo') && $('reqMemo').value) || ''
+        })
+        if (!built.ok) { SD.text(out, T('walletReqBad')); break }
+        SD.html(out, `<div class="recv-line"><div class="recv-addr mono" id="reqLink">${esc(built.href)}</div><button type="button" class="shell-copy" data-act="copy" data-v="${esc(built.href)}">${esc(T('walletReqCopy'))}</button></div>`)
+        break
+      }
       case 'recvAddr': {
         const n = Number(el.getAttribute('data-shard'))
         st.recvShard = [0, 1, 2, 3, 4].includes(n) ? n : 0
@@ -5182,9 +5266,11 @@
     }
     if (t.id === 'recvPick') {
       const n = walletShard()
-      try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
-      if (st.tab === 'wallet' && $('payWiz')) paintReceivePane()
-      else render()
+      rememberWalletAddr(n, t.value)
+      if (st.tab === 'wallet' && $('payWiz')) {
+        paintReceivePane()
+        if (typeof st.repaintPayFrom === 'function') st.repaintPayFrom()
+      } else render()
       return
     }
     if (t.id && String(t.id).indexOf('chainFilter-') === 0) {
@@ -5777,6 +5863,7 @@
     if (st.tab === 'home' || st.tab === 'panel') render()
   })
   api.on('panel:layout', () => { if (st.tab === 'panel') syncPanelFrame() })
+  api.on('site:open', (href) => { openOfficialPage(href) })
   api.on('session:changed', (s) => {
     st.session = s || {}
     applySessionUi()

@@ -102,7 +102,8 @@ assert.strictEqual(links.TELEGRAM_URL, 'https://t.me/SCDOCommunity')
 assert.ok(app.includes('https://t.me/SCDOLabor') && app.includes('https://t.me/SCDOCommunity'))
 assert.ok(main.includes('t\\.me\\/(SCDOLabor|SCDOCommunity)'))
 assert.ok(!app.includes('scdowheelledger') && !main.includes('scdowheelledger'))
-assert.ok(main.includes('/^https:\\/\\/scdo\\.com\\.au(\\/|$)/'))
+assert.ok(main.includes('browseDecision') && main.includes("webContents.send('site:open'"))
+assert.ok(!main.includes('/^https:\\/\\/scdo\\.com\\.au(\\/|$)/'))
 
 function hostAllowed (raw) {
   let u

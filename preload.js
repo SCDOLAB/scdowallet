@@ -45,7 +45,7 @@ const INVOKE = Object.freeze([
   // 3.1.15: automatic error reports
   'errorReport:get', 'errorReport:set', 'errorReport:renderer'
 ])
-const EVENTS = Object.freeze(['incoming:scdo', 'miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume', 'agentJoin:updated', 'agentJoin:settled', 'agentJoin:changed', 'panel:doc', 'panel:layout', 'session:changed', 'agent:trayHint', 'errorReport:sent'])
+const EVENTS = Object.freeze(['incoming:scdo', 'miner:status', 'miner:classic', 'update:available', 'update:progress', 'update:done', 'menu:action', 'remit:step', 'agent:resume', 'agentJoin:updated', 'agentJoin:settled', 'agentJoin:changed', 'panel:doc', 'panel:layout', 'site:open', 'session:changed', 'agent:trayHint', 'errorReport:sent'])
 
 function invoke (channel, ...args) {
   if (typeof channel !== 'string' || !INVOKE.includes(channel)) return Promise.reject(new Error('IPC channel not allowed: ' + String(channel)))

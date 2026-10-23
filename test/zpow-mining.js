@@ -353,7 +353,7 @@ assert.ok(ui.includes("const TABS = ['home', 'acc', 'mine', 'mineSet']") && ui.i
 const homeFn = ui.slice(ui.indexOf('function pageHome'), ui.indexOf('function backHome'))
 assert.ok(homeFn.includes('chainRowsHtml()') && homeFn.includes('id="homeChains"') && !homeFn.includes('mineHomeStripHtml()') && !homeFn.includes('id="shellTotal"') && !homeFn.includes('data-act="tab"') && !homeFn.includes('btn pri'))
 assert.ok(!ui.includes('function pageOld') && !ui.includes('function pageNew'))
-assert.ok(ui.includes("(st.tab === 'home' ? '' : backHome())") && ui.includes('data-act="goHome" id="backHome"') && ui.includes('data-act="goHome" id="brandHome"'))
+assert.ok(ui.includes("(st.tab === 'home' || st.tab === 'panel' ? '' : backHome())") && ui.includes('data-act="goHome" id="backHome"') && ui.includes('data-act="goHome" id="brandHome"'))
 assert.ok(ui.includes("case 'goHome':"))
 const menuSrc = fs.readFileSync(path.join(__dirname, '../src/js/menu.js'), 'utf8')
 for (const [acc, a] of [['CmdOrCtrl+1', "act('home')"], ['CmdOrCtrl+2', "act('recv')"], ['CmdOrCtrl+3', "act('mineHome')"], ['CmdOrCtrl+T', '() => openRemittance()'], ['CmdOrCtrl+E', "act('settings')"]]) assert.ok(menuSrc.includes("accelerator: '" + acc + "', click: " + a), acc)

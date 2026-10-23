@@ -628,7 +628,8 @@ function toclip(text) {
 }
 
 function viewOnScdoscan(publickey) {
-    require("electron").shell.openExternal("https://scdo.com.au/#/address?address=" + publickey);
+    var url = "https://scdo.com.au/#/address?address=" + encodeURIComponent(publickey);
+    try { require("electron").ipcRenderer.invoke("shell:openExternal", url); } catch (e) {}
 }
 
 function startMining(publickey) {

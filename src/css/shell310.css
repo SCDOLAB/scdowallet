@@ -21,7 +21,13 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .shell-actions-wallet { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .shell-wallet .shell-h { margin-bottom: 8px; }
 .shell-wallet .recv-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
-.wallet-grid { display: grid; grid-template-columns: minmax(340px, 0.92fr) minmax(480px, 1.15fr); gap: 16px; align-items: start; }
+.wallet-modes { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.wallet-mode { border: 1px solid #d8d8de; background: #fff; color: #1c1c1e; border-radius: 999px; font-weight: 800; padding: 8px 16px; }
+.wallet-mode.on { background: #1d7a34; color: #fff; border-color: #1d7a34; }
+.wallet-grid { display: grid; grid-template-columns: minmax(0, 820px); gap: 16px; align-items: start; }
+.wallet-pane[hidden] { display: none !important; }
+.wallet-req { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e5e5ea; }
+.wallet-req .note { margin: 0 0 10px; color: #3c3c43; font-size: 14px; }
 .wallet-pane { background: #fff; border-radius: 24px; padding: 22px 24px 24px; box-shadow: 0 8px 30px rgba(0,0,0,.06); min-width: 0; }
 .wallet-pane.focus { box-shadow: 0 0 0 2px #1d7a34, 0 8px 30px rgba(0,0,0,.06); }
 .wallet-pane-h { margin: 0 0 12px; font-size: 22px; font-weight: 800; color: #1c1c1e; }
@@ -418,11 +424,13 @@ body.cat-reserve.cat-bottom #app.shell .shell-col > main { margin-bottom: var(--
 .panel-card:hover, .panel-head:hover { background: #E8F5E9; }
 .panel-head:hover { border-radius: 12px; }
 .shell-panel { max-width: none; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; }
-.panel-bar { display: flex; align-items: center; gap: 12px; }
+.page.shell-panel { max-width: none !important; width: 100%; margin: 0; padding: 8px 0 0; flex: 1; min-height: 0; }
+.panel-bar { display: flex; align-items: center; gap: 12px; padding: 0 16px; }
 .panel-bar .shell-h { font-size: 22px; margin: 0; }
-.panel-frame { flex: 1; min-height: 420px; margin-top: 8px; border-radius: 16px; background: #fff; }
-#app.shell main:has(.shell-panel) { display: flex; flex-direction: column; overflow: hidden; }
+.panel-frame { flex: 1; width: 100%; align-self: stretch; min-height: 0; margin-top: 8px; border-radius: 0; background: #fff; }
+#app.shell main:has(.shell-panel) { display: flex; flex-direction: column; overflow: hidden; flex: 1; background: #fff; }
 #app.shell main:has(.shell-panel) .shell-panel { flex: 1; }
+body.on-panel .site-bar { display: none !important; }
 
 html.light-mode, html.light-mode * { animation: none !important; transition: none !important; }
 
