@@ -103,9 +103,9 @@ ipcMain.handle('app:mem', () => {
 })
 ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: re-title windows after a language switch
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
-// external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
+// Third-party https only. scdo.com.au and apeccapital.org stay in the in-app panel.
 // 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
-const EXTERNAL_ALLOW = [/^https:\/\/scdo\.com\.au(\/|$)/, /^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/scdo-laboratory\.gitbook\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
+const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/scdo-laboratory\.gitbook\.io(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
 const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
 // 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
 const DEMO_LINKS = require('./src/js/demoLinks')
@@ -113,6 +113,17 @@ const EXACT_ALLOW = [DEMO_LINKS.DEMO_WHEEL_URL, DEMO_LINKS.TELEGRAM_URL]
 // Pay invoice hand-off only. MetaMask and Coinbase dapp links, plus a parsed
 // ton: or ethereum: transfer. This does not register those schemes with the OS.
 const payInvoice = require('./src/js/payInvoice/parse')
+function presentOfficial (href) {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return false
+  try {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('site:open', href)
+    return true
+  } catch (e) { return false }
+}
 function openExternalSafe (url) {
   const raw = String(url || '').trim()
   if (payInvoice.isHandoffUri(raw) || (payInvoice.isWalletDeepLink(raw) && !/scdoscan\.io/i.test(raw))) {
@@ -123,6 +134,10 @@ function openExternalSafe (url) {
   if (u.protocol === 'mailto:') { if (!MAIL_ALLOW.includes(u.href)) { console.warn('blocked external URL', u.href); return false } shell.openExternal(u.href); return true }
   if (u.protocol !== 'https:' || u.username || u.password) return false
   const href = u.href
+  let decision = null
+  try { decision = require('./src/js/walletUi').browseDecision(href) } catch (e) { decision = null }
+  if (decision && decision.action === 'suppress') return false
+  if (decision && decision.action === 'allow' && decision.href && decision.href !== 'about:blank') return presentOfficial(decision.href)
   if (!EXACT_ALLOW.includes(href) && !EXTERNAL_ALLOW.some(re => re.test(href))) { console.warn('blocked external URL', href); return false }
   shell.openExternal(href)
   return true

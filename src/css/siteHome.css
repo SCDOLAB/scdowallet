@@ -92,6 +92,7 @@
   padding: 8px 12px;
 }
 .site-bar .lang-opt.on { background: #12301F; color: #2BC98A; }
+body.on-panel .site-bar { display: none !important; }
 
 body.on-home { background: #090D0B; color: #F0F4F1; }
 body.on-home #app.shell,

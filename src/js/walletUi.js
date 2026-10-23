@@ -96,6 +96,33 @@
     return { action: 'external', href: u.href }
   }
 
+  // Installer files stay out of the system browser and out of the panel.
+  // The downloads directory page itself is still an official page.
+  const INSTALLER_EXT = /\.(exe|dmg|appimage|msi|zip|deb|pkg|apk|sha256)$/i
+  function isInstallerAsset (input) {
+    const raw = String(input || '').trim()
+    if (!raw) return false
+    let u
+    try { u = new URL(raw, ORIGIN) } catch (e) { return false }
+    if (String(u.protocol || '').toLowerCase() !== 'https:') return false
+    const host = String(u.hostname || '').toLowerCase()
+    if (HOSTS.indexOf(host) < 0) return false
+    let path = u.pathname || ''
+    try { path = decodeURIComponent(path) } catch (e) {}
+    path = path.toLowerCase()
+    if (INSTALLER_EXT.test(path)) return true
+    if (path === '/gpu-share/download' || path.indexOf('/gpu-share/download/') === 0) return true
+    return false
+  }
+
+  function browseDecision (input) {
+    const d = classifyNavigation(input)
+    if (d.action === 'allow' && isInstallerAsset(d.href || input)) {
+      return { action: 'suppress', href: d.href, reason: 'installer' }
+    }
+    return d
+  }
+
   function cleanLabel (value) {
     const s = String(value == null ? '' : value).replace(/[\u0000-\u001f]/g, '').trim()
     if (!s || s.length > 40 || /[<>]/.test(s)) return ''
@@ -420,6 +447,8 @@
     panelQueryLang: panelQueryLang,
     withPanelLang: withPanelLang,
     classifyNavigation: classifyNavigation,
+    isInstallerAsset: isInstallerAsset,
+    browseDecision: browseDecision,
     acceptSigned: acceptSigned,
     materialize: materialize,
     current: current,

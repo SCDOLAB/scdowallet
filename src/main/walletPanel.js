@@ -1,5 +1,6 @@
 // Sandboxed in-app panel. No preload and no wallet APIs in the guest.
-// scdowallet:// stays inside the app. https and tg:// links open in the system browser.
+// scdowallet:// stays inside the app. Official https pages stay in this panel.
+// Other https and tg:// links open in the system browser. Installer files do not.
 'use strict'
 const crypto = require('crypto')
 const walletUi = require('../js/walletUi')
@@ -38,7 +39,44 @@ const PANEL_CHROME_SELECTORS = [
   'body > nav',
   'body > footer'
 ]
-const PANEL_CHROME_CSS = PANEL_CHROME_SELECTORS.join(',') + '{display:none!important}'
+// Injected after load by /scdo-mobile.js, plus download CTAs and in-page back crumbs.
+// header.hero and the web wallet's div.topbar control row stay visible.
+const PANEL_EXTRA_HIDE = [
+  '#scdo-gnav',
+  '#scdo-mnav',
+  '#scdo-mnav-btn',
+  '#scdo-hamb',
+  '#scdo-annc',
+  'a.wd-back',
+  '.download-wrap',
+  'a.dl-btn',
+  'a.dl-sec',
+  '#cta-zip',
+  '#cta-exe',
+  '.dl-meta',
+  'a.dl-desk',
+  '#dl-desktop',
+  '.dl-welcome',
+  '#dl-welcome',
+  '#dl-menu',
+  '#dl-about',
+  '#scdo-wallet-download',
+  '.fe-box',
+  '#fe-box',
+  'a[href*="/gpu-share/download"]',
+  'a[href*="/downloads/"]',
+  'a[href*=".exe"]',
+  'a[href*=".dmg"]',
+  'a[href*=".apk"]',
+  'a[href*=".msi"]',
+  'a[href*=".deb"]',
+  'a[href*=".pkg"]',
+  'a[href*=".zip"]',
+  'a[href*=".AppImage"]',
+  'a[href*=".sha256"]'
+]
+const PANEL_WIDTH_CSS = 'html,body{max-width:none!important;width:100%!important;margin:0!important}main.wrap,.wrap,main,footer.foot{max-width:none!important;width:100%!important;margin-left:0!important;margin-right:0!important}'
+const PANEL_CHROME_CSS = PANEL_CHROME_SELECTORS.concat(PANEL_EXTRA_HIDE).join(',') + '{display:none!important}' + PANEL_WIDTH_CSS
 
 function panelChromeCss (url) {
   const decision = walletUi.classifyNavigation(url)
@@ -52,6 +90,13 @@ function panelChromeCss (url) {
 const PANEL_BRIDGE = `(function(){
   if (window.__scdoPanelBridge) return;
   window.__scdoPanelBridge = 1;
+  function scdoInstaller (h) {
+    var s = String(h || '');
+    if (!s || s.indexOf('scdowallet:') === 0) return false;
+    if (/\\/gpu-share\\/download/i.test(s)) return true;
+    if (/\\.(exe|dmg|appimage|msi|zip|deb|pkg|apk|sha256)(\\?|#|$)/i.test(s)) return true;
+    return false;
+  }
   document.addEventListener('click', function (e) {
     var n = e.target;
     while (n && n !== document) {
@@ -66,7 +111,50 @@ const PANEL_BRIDGE = `(function(){
       }
       n = n.parentNode;
     }
+    var m = e.target;
+    while (m && m !== document) {
+      var href = m.getAttribute && m.getAttribute('href');
+      if (scdoInstaller(href)) {
+        e.preventDefault();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        return;
+      }
+      m = m.parentNode;
+    }
   }, true);
+  function scdoHide () {
+    try {
+      var root = document.documentElement;
+      if (root && root.classList) root.classList.add('in-scdo-app');
+      var sel = 'header.wnav,#drawer,header.topbar,#scdo-gnav,#scdo-mnav,#scdo-mnav-btn,#scdo-hamb,#scdo-annc,a.wd-back,nav.wd-top,#scdo-lang-bar,#sgl-bar,#scdo-tgbar,#scdo-gpubanner,a.skip,footer.foot,footer.scdo-compliance-foot,.download-wrap,a.dl-btn,a.dl-sec,#cta-zip,#cta-exe,.dl-meta,a.dl-desk,#dl-desktop,.dl-welcome,#dl-welcome,#dl-menu,#dl-about,#scdo-wallet-download,.fe-box,#fe-box';
+      var nodes = document.querySelectorAll(sel);
+      for (var i = 0; i < nodes.length; i++) {
+        nodes[i].setAttribute('hidden', '');
+        if (nodes[i].style && nodes[i].style.setProperty) nodes[i].style.setProperty('display', 'none', 'important');
+      }
+      var links = document.querySelectorAll('a[href]');
+      for (var j = 0; j < links.length; j++) {
+        if (!scdoInstaller(links[j].getAttribute('href'))) continue;
+        links[j].setAttribute('hidden', '');
+        if (links[j].style && links[j].style.setProperty) links[j].style.setProperty('display', 'none', 'important');
+      }
+      var backs = document.querySelectorAll('a');
+      for (var k = 0; k < backs.length; k++) {
+        var t = String(backs[k].textContent || '').replace(/\\s+/g, ' ').trim();
+        if (t === '← 回首頁' || t === '← 返回首頁' || t === '← Back to home' || t === '← Back to Home' || t === '← Back') {
+          backs[k].setAttribute('hidden', '');
+          if (backs[k].style && backs[k].style.setProperty) backs[k].style.setProperty('display', 'none', 'important');
+        }
+      }
+    } catch (err) {}
+  }
+  try {
+    if (typeof MutationObserver === 'function' && document.documentElement) {
+      var obs = new MutationObserver(function () { scdoHide(); });
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  } catch (err) {}
+  scdoHide();
 })()`
 
 function applyDecision (decision, effects) {
@@ -101,6 +189,10 @@ function bindGuest (wc, effects) {
     return dup
   }
   function guard (event, url) {
+    if (walletUi.isInstallerAsset(url)) {
+      if (event && event.preventDefault) event.preventDefault()
+      return
+    }
     const decision = walletUi.classifyNavigation(url)
     if (decision.action === 'allow' && decision.href !== 'about:blank') {
       const href = panelHref(decision.href)
@@ -128,6 +220,7 @@ function bindGuest (wc, effects) {
     guard(event, target)
   })
   wc.setWindowOpenHandler(function (details) {
+    if (walletUi.isInstallerAsset(details && details.url)) return { action: 'deny' }
     const decision = walletUi.classifyNavigation(details && details.url)
     if (decision.action === 'protocol') {
       if (!once(decision.href)) applyDecision(decision, effects)
@@ -139,21 +232,36 @@ function bindGuest (wc, effects) {
     }
     return { action: 'deny' }
   })
+  function paintCss () {
+    let url = ''
+    try { if (typeof wc.getURL === 'function') url = wc.getURL() } catch (e) { url = '' }
+    let css = panelChromeCss(url)
+    if (!css && effects && effects.currentUrl) {
+      try { css = panelChromeCss(effects.currentUrl()) } catch (e) { css = '' }
+    }
+    if (!css || typeof wc.insertCSS !== 'function') return
+    function plain () {
+      try {
+        const p = wc.insertCSS(css)
+        if (p && typeof p.catch === 'function') p.catch(function () {})
+      } catch (e) {}
+    }
+    try {
+      const p = wc.insertCSS(css, { cssOrigin: 'user' })
+      if (p && typeof p.then === 'function') p.then(function () {}, plain)
+    } catch (e) { plain() }
+  }
   const arm = function () {
     try {
       const p = wc.executeJavaScript(PANEL_BRIDGE, true)
       if (p && typeof p.catch === 'function') p.catch(function () {})
     } catch (e) {}
-    let url = ''
-    try { if (typeof wc.getURL === 'function') url = wc.getURL() } catch (e) { url = '' }
-    const css = panelChromeCss(url)
-    if (!css || typeof wc.insertCSS !== 'function') return
-    try {
-      const p = wc.insertCSS(css)
-      if (p && typeof p.catch === 'function') p.catch(function () {})
-    } catch (e) {}
+    paintCss()
   }
   wc.on('dom-ready', arm)
+  wc.on('did-finish-load', arm)
+  wc.on('did-navigate', arm)
+  wc.on('did-navigate-in-page', arm)
   return { guard: guard }
 }
 
@@ -197,7 +305,8 @@ function create (opts) {
     protocol: onProtocol,
     external: onExternal,
     navigate: function (url) { if (wc) wc.loadURL(walletUi.withPanelLang(url, langNow())) },
-    getLang: langNow
+    getLang: langNow,
+    currentUrl: function () { return loaded }
   }
 
   function ensure (win) {
@@ -237,10 +346,12 @@ function create (opts) {
     if (!win || win.isDestroyed()) return { ok: false }
     const doc = walletUi.current()
     const id = String(req && req.id || 'hub')
+    if (req && req.url && walletUi.isInstallerAsset(req.url)) return { ok: false }
     const direct = req && req.url ? walletUi.classifyNavigation(req.url) : null
     const url = direct && direct.action === 'allow' ? direct.href : ((doc.links && (doc.links[id] || doc.links.hub)) || '')
     const decision = walletUi.classifyNavigation(url)
     if (decision.action !== 'allow') return { ok: false }
+    if (walletUi.isInstallerAsset(decision.href)) return { ok: false }
     const href = walletUi.withPanelLang(decision.href, langNow())
     ensure(win)
     const b = boundsOf(req, win)
