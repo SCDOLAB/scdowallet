@@ -124,7 +124,7 @@ const line = mine.homeLine({
   },
   pools: { 1: { online: true, chain_height: 10 }, 2: { online: true, chain_height: 20 }, 3: { online: false, chain_height: 99 }, 4: { chain_height: 40 } }
 }, CN)
-assert.strictEqual(line, I.CN.homeLineGpuPool)
+assert.strictEqual(line, '顯示卡經記帳池記帳中（Shard1）')
 assert.strictEqual(mine.heightTicker({ 1: { online: true, chain_height: 10 }, 2: { online: true, chain_height: 20 }, 3: { online: false, chain_height: 99 }, 4: { chain_height: 40 } }), 'Shard1 10 · Shard2 20 · Shard3 \u2014 · Shard4 40')
 
 assert.strictEqual(workerFigure({ counters: { shares_valid: 99 }, balances_owed_scdo: 5 }, '1S01abc', 'wallet'), null)

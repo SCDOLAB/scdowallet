@@ -93,7 +93,14 @@ body:has(#app.shell) { background: #F2F2F7; color: #1c1c1e; overflow-x: hidden; 
 .agent-card .ext-payout { margin: 8px 0; padding: 10px 12px; }
 .agent-shards { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .agent-shard { border: 1px solid #1d7a34; background: #fff; color: #1d7a34; border-radius: 999px; font-weight: 800; padding: 4px 10px; font-size: 13px; cursor: pointer; }
-.agent-shard.on { background: #1d7a34; color: #fff; }
+.agent-shard.on, .agent-shard.run { background: #1d7a34; color: #fff; }
+.agent-shard.pick { box-shadow: inset 0 0 0 2px #1d7a34; }
+.agent-shard.off, .agent-shard:disabled { cursor: default; }
+.agent-shard.off { opacity: .55; }
+.agent-shard.run:disabled { opacity: 1; }
+.agent-book-note { margin: 4px 0 8px; font-size: 14px; color: #3a3a3c; }
+.agent-card .shell-act.stop { background: #d93025; box-shadow: 0 6px 16px rgba(217,48,37,.28); }
+.agent-card .shell-act.stop:hover { background: #b9261d; }
 .agent-classic .agent-row, .agent-x402 .agent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .agent-classic .mono, .agent-x402 .mono { word-break: break-all; }
 .agent-row { margin: 6px 0; font-size: 16px; }

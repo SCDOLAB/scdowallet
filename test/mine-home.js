@@ -708,7 +708,7 @@ assert.strictEqual(mine.chooseMinePath({
     }
   }, CN)
   const idleHeights = 'Shard1 \u2014 · Shard2 \u2014 · Shard3 \u2014 · Shard4 \u2014'
-  assert.strictEqual(poolLine, I.CN.homeLineGpuPool)
+  assert.strictEqual(poolLine, '顯示卡經記帳池記帳中（Shard1）')
   assert.strictEqual(mine.heightTicker(undefined), idleHeights)
   const ghostLine = mine.homeLine({
     miners: {
