@@ -84,12 +84,26 @@ assert.ok(!read('src/main/walletPanel.js').includes('preload:'))
 const bridge = Panel.PANEL_BRIDGE
 assert.ok(bridge.includes('data-s') && bridge.includes('scdowallet:') && bridge.includes('location.href'))
 assert.ok(!bridge.includes('ipc') && !bridge.includes('keystore'))
+const chrome = Panel.PANEL_CHROME_CSS
+for (const sel of ['header.wnav', '#drawer', 'header.topbar', 'nav.wd-top', '#scdo-lang-bar', '#sgl-bar', 'footer.foot', 'footer.scdo-compliance-foot', 'body > nav', 'body > footer']) {
+  assert.ok(chrome.includes(sel), sel)
+}
+assert.ok(!chrome.includes('div.topbar') && !chrome.includes('header.hero') && !chrome.includes('nav.toc'))
+assert.strictEqual(Panel.panelChromeCss('https://scdo.com.au/gpu-share/?lang=zh'), chrome)
+assert.strictEqual(Panel.panelChromeCss('https://apeccapital.org/treasury/'), chrome)
+assert.strictEqual(Panel.panelChromeCss('https://scdo.com.au/wallet/hub/'), chrome)
+assert.strictEqual(Panel.panelChromeCss('about:blank'), '')
+assert.strictEqual(Panel.panelChromeCss('https://example.com/out'), '')
+assert.strictEqual(Panel.panelChromeCss('https://scdo.com.au.evil.com/gpu-share/'), '')
+assert.strictEqual(Panel.panelChromeCss('https://user:pass@scdo.com.au/treasury/'), '')
 
 const events = {}
 const wc = {
   on (name, fn) { (events[name] = events[name] || []).push(fn) },
   setWindowOpenHandler (fn) { wc.open = fn },
-  executeJavaScript (code) { wc.code = code; return Promise.resolve(true) }
+  executeJavaScript (code) { wc.code = code; return Promise.resolve(true) },
+  getURL () { return wc.url || '' },
+  insertCSS (css) { wc.css = css; return Promise.resolve('k') }
 }
 const seen = []
 Panel.bindGuest(wc, {
@@ -133,6 +147,21 @@ assert.strictEqual(wc.open({ url: 'https://scdo.com.au/wallet/pool/' }).action, 
 assert.ok(seen.some(row => row[0] === 'navigate' && row[1] === 'https://scdo.com.au/wallet/pool/?lang=zh'))
 events['dom-ready'][0]()
 assert.strictEqual(wc.code, Panel.PANEL_BRIDGE)
+assert.strictEqual(wc.css, undefined)
+wc.url = 'https://scdo.com.au/gpu-share/?lang=zh'
+events['dom-ready'][0]()
+assert.strictEqual(wc.css, Panel.PANEL_CHROME_CSS)
+wc.url = 'https://apeccapital.org/treasury/'
+wc.css = ''
+events['dom-ready'][0]()
+assert.strictEqual(wc.css, Panel.PANEL_CHROME_CSS)
+wc.url = 'https://example.com/out'
+wc.css = ''
+events['dom-ready'][0]()
+assert.strictEqual(wc.css, '')
+wc.url = 'about:blank'
+events['dom-ready'][0]()
+assert.strictEqual(wc.css, '')
 
 const box = { window: {}, document: { addEventListener (type, fn) { box.fn = fn } } }
 box.window = box

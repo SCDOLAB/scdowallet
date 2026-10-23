@@ -18,6 +18,35 @@ const GUEST_PREFS = Object.freeze({
   partition: 'persist:wallet-panel'
 })
 
+// Official pages draw their own header, language switch, and site footer.
+// The wallet bar already covers that chrome, so the guest hides it.
+// Selectors are the live scdo.com.au templates (site nav, scan bar, doc nav,
+// treasury nav, shared footers). Content headers such as header.hero stay visible.
+// div.topbar on the web wallet is a control row, not the site header, and is left alone.
+const PANEL_CHROME_SELECTORS = [
+  'header.wnav',
+  '#drawer',
+  'header.topbar',
+  'nav.wd-top',
+  '#scdo-lang-bar',
+  '#sgl-bar',
+  '#scdo-tgbar',
+  '#scdo-gpubanner',
+  'a.skip',
+  'footer.foot',
+  'footer.scdo-compliance-foot',
+  'body > nav',
+  'body > footer'
+]
+const PANEL_CHROME_CSS = PANEL_CHROME_SELECTORS.join(',') + '{display:none!important}'
+
+function panelChromeCss (url) {
+  const decision = walletUi.classifyNavigation(url)
+  if (!decision || decision.action !== 'allow') return ''
+  if (!decision.href || decision.href === 'about:blank') return ''
+  return PANEL_CHROME_CSS
+}
+
 // The live pages put scdowallet:// on data-s and, on a desktop browser, navigate to an https fallback.
 // Capture the click and follow data-s so the guest navigation is the wallet link.
 const PANEL_BRIDGE = `(function(){
@@ -113,6 +142,14 @@ function bindGuest (wc, effects) {
   const arm = function () {
     try {
       const p = wc.executeJavaScript(PANEL_BRIDGE, true)
+      if (p && typeof p.catch === 'function') p.catch(function () {})
+    } catch (e) {}
+    let url = ''
+    try { if (typeof wc.getURL === 'function') url = wc.getURL() } catch (e) { url = '' }
+    const css = panelChromeCss(url)
+    if (!css || typeof wc.insertCSS !== 'function') return
+    try {
+      const p = wc.insertCSS(css)
       if (p && typeof p.catch === 'function') p.catch(function () {})
     } catch (e) {}
   }
@@ -242,6 +279,8 @@ function create (opts) {
 module.exports = {
   GUEST_PREFS: GUEST_PREFS,
   PANEL_BRIDGE: PANEL_BRIDGE,
+  PANEL_CHROME_CSS: PANEL_CHROME_CSS,
+  panelChromeCss: panelChromeCss,
   applyDecision: applyDecision,
   bindGuest: bindGuest,
   boundsOf: boundsOf,
