@@ -829,12 +829,11 @@
   }
   async function openAccountSite (id) {
     const nav = window.SCDOSiteNav
-    if (!nav || !nav.visit) { toast(T('openExternalFail')); return }
-    // RC6: the membership page pays on Shard0 EVM and only links the order to a 0x address.
-    const target = nav.visit(id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: memberAddress() || selectedShard1() })
-    if (!target) { toast(T('openExternalFail')); return }
-    const ok = await openExternal(target)
+    const hit = nav && nav.byId(id)
+    const ok = !!(hit && hit.href)
+    if (!ok) { toast(T('openExternalFail')); return }
     if (ok && (id === 'membership' || id === 'otc')) watchMember()
+    openNavHref(hit)
   }
   // ---------------- RC6 membership status (read-only gateway API) ----------------
   function memberAddress () {
@@ -1126,13 +1125,25 @@
       st.extBal = { address: found.address, units: null }
     }
   }
+  function siteShardModel () {
+    const MH = window.SCDOMineHome
+    if (!MH || !MH.heightCells) return [0, 1, 2, 3, 4].map(n => ({ n: n, height: '', live: false }))
+    const input = mineHomeInput()
+    const cells = MH.heightCells(input.pools, { s0: { ok: st.net.s0Ok, block: st.net.s0Block }, miners: input.miners })
+    return cells.map(c => ({ n: c.n, height: c.height, live: c.mode === 'run' || c.mode === 'sync' || c.mode === 'syncing' }))
+  }
+  function siteMarketingHtml () {
+    const H = window.SCDOSiteHome
+    if (!H || !H.html) return ''
+    return H.html({ cells: siteShardModel() }, T, esc)
+  }
   function pageHome () {
     const J = window.SCDOAgentJoin
     if (!st.accounts.length) {
       const EH = window.SCDOEmptyHome
       const empty = EH ? EH.html(T, esc, { payout: externalPayoutView(), fmt: (u) => AMT.fmtUnits(u, 18) }) : ''
       const first = J ? J.firstRunHtml(T, esc, { pendingRef: (st.agent && st.agent.pendingRef) || '', rewardLineHidden: !!st.rewardLineHide, hideRig: !rigUi() }) : ''
-      return offlineNoticeHtml() + empty + first + panelCardsHtml() + liveHomeHtml()
+      return `<div class="page shell-home mkt-page" id="homePage">${siteMarketingHtml()}<details class="shell-fold" id="homeDesk">${shellFoldSummary(T('mktDesk'))}${offlineNoticeHtml()}${empty}${first}${panelCardsHtml()}${liveHomeHtml()}</details></div>`
     }
     const link = inviteLink()
     const card = J ? J.agentCardHtml(T, esc, agentModel()) : ''
@@ -1147,11 +1158,13 @@
     const heights = rigUi() ? '<details class="shell-fold home-heights" id="homeHeights"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> <span id="homeHeightsLbl">' + esc(T('homeHeights')) + '</span></summary><div class="home-height-line" id="homeHeightLine">' + heightChipsHtml() + '</div></details>' : ''
     const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
     const jumpBtns = '<button type="button" class="shell-act" data-act="nav" data-v="wallet">' + esc(T('navWallet')) + '</button>' + mineBtn + '<button type="button" class="shell-act" data-act="nav" data-v="connect">' + esc(T('navConnect')) + '</button>' + '<button type="button" class="shell-act" data-act="nav" data-v="settings">' + esc(T('navSettings')) + '</button>'
-    return `<div class="page shell-home" id="homePage">
+    return `<div class="page shell-home mkt-page" id="homePage">
       ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
       ${claim}
+      ${siteMarketingHtml()}
+      <details class="shell-fold" id="homeDesk">${shellFoldSummary(T('mktDesk'))}
       <p class="home-lead">${esc(T('homeChainsTitle'))}</p>
       <div class="shell-actions shell-actions-wallet">${jumpBtns}</div>
       <section class="home-chains" id="homeChains"><div class="home-chain-grid" id="homeChainGrid">${homeChainCardsHtml()}</div><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold" id="homeChainMore">${shellFoldSummary(T('d_recent'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
@@ -1164,6 +1177,7 @@
       ${panelCardsHtml()}
       ${liveHomeHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button>${giftBtn}</div></details>
+      </details>
     </div>`
   }
   function renderFooter () {
@@ -1216,6 +1230,11 @@
           ref.textContent = link
           document.querySelectorAll('[data-act="shareRef"], #homeInvite [data-act="copy"]').forEach(b => b.setAttribute('data-v', link))
         }
+      }
+      const shards = $('siteShards')
+      if (shards && window.SCDOSiteHome && window.SCDOSiteHome.shardsHtml) {
+        const shardHtml = window.SCDOSiteHome.shardsHtml(siteShardModel(), T, esc)
+        if (refreshDash.shards !== shardHtml) { refreshDash.shards = shardHtml; SD.html(shards, shardHtml) }
       }
       const grid = $('homeChainGrid')
       const typingAddr = document.activeElement && document.activeElement.id && String(document.activeElement.id).indexOf('homeAddr-') === 0
@@ -1276,6 +1295,13 @@
     st.scrollTo = 'top'
     render()
     if (id === 'treasury') refreshTreasury()
+  }
+  function routeSite (hit) {
+    const nav = window.SCDOSiteNav
+    if (!hit || !nav) return
+    if (nav.opensOfficial && nav.opensOfficial(hit)) { openNavHref(hit); return }
+    if (hit.action) menuAction(hit.action)
+    else if (hit.href) openNavHref(hit)
   }
   function openNavHref (hit) {
     const nav = window.SCDOSiteNav
@@ -1948,7 +1974,8 @@
     const cn = lang() !== 'EN'
     const groups = window.SCDOSiteNav.GROUPS.filter(g => g.id !== 'home').map(g => {
       if (rigUi() || !g.children) return g
-      const children = g.children.filter(c => c.action !== 'mineHome' && c.action !== 'mineSettings')
+      // Linux has no local rig. Official pages stay, including Compute (/mine/).
+      const children = g.children.filter(c => c.action !== 'mineSettings')
       if (children.length === g.children.length) return g
       return Object.assign({}, g, { children: children })
     }).filter(g => g.barSingle || g.action || g.href || (g.children && g.children.length))
@@ -1957,7 +1984,7 @@
       if (g.barSingle || !g.children || !g.children.length) return btn(g)
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
-    const brand = `<button type="button" class="site-link site-brand" data-act="nav" data-v="home">SCDO</button>`
+    const brand = `<button type="button" class="site-link site-brand" data-act="nav" data-v="home"><span class="sq" aria-hidden="true">S</span><span>SCDO</span></button>`
     const html = brand + groups.map(group).join('') + langSwitch + moved.map(([id]) => '').join('')
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
@@ -4940,9 +4967,35 @@
         break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
-        if (!hit) break
-        if (hit.action) menuAction(hit.action)
-        else if (hit.href) openNavHref(hit)
+        if (hit) routeSite(hit)
+        break
+      }
+      case 'siteUrl': {
+        const U = window.SCDOWalletUi
+        if (!U) break
+        const d = U.classifyNavigation(v)
+        if (!d || d.action === 'drop') break
+        if (d.action === 'external') { openExternal(d.href); break }
+        if (d.action !== 'allow') break
+        if ($('md')) SD.clear($('modalRoot'))
+        st.panelUrl = d.href
+        st.panelId = 'hub'
+        st.panelTitle = String((el && el.textContent) || '').trim() || T('mktExplorer')
+        st.tab = 'panel'
+        st.scrollTo = 'top'
+        render()
+        break
+      }
+      case 'siteSearch': {
+        const inp = $('siteSearchQ')
+        const q = inp ? String(inp.value || '').trim().slice(0, 200) : ''
+        let path = '/scan/'
+        if (q) {
+          const u = new URL('https://scdo.com.au/scan/')
+          u.searchParams.set('q', q)
+          path = u.pathname + u.search
+        }
+        openNavHref({ id: 'explorer', href: path, en: T('mktExplorer'), cn: T('mktExplorer') })
         break
       }
       case 'siteEmbed': {
@@ -5243,7 +5296,10 @@
       case 'catShow': localStorage.setItem('aiCat112', '1'); st.catOpen = true; renderCat(); toast(T('catShown')); break
       case 'clearMineRunning': clearMineRunningFlags(); break
       default:
-        if (typeof a === 'string' && a.indexOf('buy:') === 0) openAccountSite(a.slice(4))
+        if (typeof a === 'string' && a.indexOf('site:') === 0) {
+          const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(a.slice(5))
+          if (hit) routeSite(hit)
+        } else if (typeof a === 'string' && a.indexOf('buy:') === 0) openAccountSite(a.slice(4))
         else if (typeof a === 'string' && a.indexOf('panel:') === 0) openPanel(a.slice(6))
         break
     }
@@ -5605,8 +5661,7 @@
     if (action.type === 'openSite') {
       const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
       if (hit && hit.referral && window.SCDOSiteNav.referral) openExternal(window.SCDOSiteNav.referral(selectedShard0()))
-      else if (hit && hit.action) menuAction(hit.action)
-      else if (hit && hit.href) openNavHref(hit)
+      else if (hit) routeSite(hit)
       return { ok: true }
     }
     if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }

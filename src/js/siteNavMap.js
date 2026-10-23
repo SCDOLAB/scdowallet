@@ -15,9 +15,9 @@
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
-    { id: 'gpu', cn: 'GPU 共享', en: 'GPU Share', href: '/gpu-share/', action: 'gpu', barSingle: true },
+    { id: 'gpu', cn: 'GPU 共享', en: 'GPU Share', href: '/gpu-share/', barSingle: true },
     {
-      id: 'wallets', cn: '錢包', en: 'Wallets', action: 'wallet', barSingle: true, children: [
+      id: 'wallets', cn: '錢包', en: 'Wallets', href: '/wallets/', action: 'wallet', barSingle: true, children: [
         { id: 'wallet', cn: '收款與匯款', en: 'Receive & Send', action: 'wallet', ask: ['收款', '匯款', 'Receive', 'Send'] },
         { id: 'walletSite', cn: '錢包產品頁', en: 'Wallet product page', href: '/wallets/' },
         { id: 'payInvoice', cn: '支付發票', en: 'Pay invoice', action: 'payInvoice' },
@@ -27,8 +27,8 @@
         { id: 'import', cn: '匯入錢包', en: 'Import wallet', action: 'import' }
       ]
     },
-    { id: 'games', cn: '遊戲', en: 'Games', href: '/games/', action: 'games', barSingle: true },
-    { id: 'treasury', cn: '金庫', en: 'Treasury', href: '/treasury/', action: 'treasury', barSingle: true },
+    { id: 'games', cn: '遊戲', en: 'Games', href: '/games/', barSingle: true },
+    { id: 'treasury', cn: '金庫', en: 'Treasury', href: '/treasury/', barSingle: true },
     {
       id: 'chain', cn: '區塊鏈', en: 'Blockchain', children: [
         { id: 'explorer', cn: '區塊瀏覽器', en: 'Explorer', href: '/scan/' },
@@ -170,7 +170,15 @@
     return u.toString()
   }
 
-  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, REFERRAL_URL: REFERRAL_URL, GROUPS: GROUPS, url: url, visit: visit, referral: referral, referralFrom: referralFrom, flat: flat, byId: byId, match: match }
+  // Desktop extras stay inside the app. Every other entry with a URL is the official page.
+  const NATIVE_IDS = { wallet: 1, recv: 1, remit: 1, settings: 1, create: 1, import: 1, connect: 1, payInvoice: 1, localNode: 1 }
+  function opensOfficial (it) {
+    if (!it || !it.href) return false
+    if (NATIVE_IDS[it.id]) return false
+    return true
+  }
+
+  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, REFERRAL_URL: REFERRAL_URL, GROUPS: GROUPS, url: url, visit: visit, referral: referral, referralFrom: referralFrom, flat: flat, byId: byId, match: match, opensOfficial: opensOfficial }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOSiteNav = Object.freeze(api)
 })()
