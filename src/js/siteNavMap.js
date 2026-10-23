@@ -8,8 +8,10 @@
   // Temporary pages. Each address lives only here.
   const MEMBERSHIP_URL = 'https://scdo.com.au/membership/'
   const OTC_URL = 'https://scdo.com.au/membership/'
-  // Invite link. The live card prefers the referral-code shareUrl; this is the fallback.
-  const REFERRAL_URL = 'https://scdo.com.au/join'
+  // Home invite QR. /wallet/ is the SCDO Wallet product (use it, or download the desktop app).
+  // g.js on that page stores ?ref= and ?src=, the same params /join accepts.
+  // /wallet/connect/ is a list of other products and is not this link.
+  const REFERRAL_URL = 'https://scdo.com.au/wallet/'
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
@@ -117,9 +119,29 @@
   function referral (address) {
     const u = new URL(REFERRAL_URL)
     const addr = String(address || '').trim()
-    if (addr) u.searchParams.set('ref', addr)
+    if (addr && !/^https?:/i.test(addr)) u.searchParams.set('ref', addr)
     u.searchParams.set('src', 'wallet')
     return u.toString()
+  }
+
+  // A ledger shareUrl is often https://scdo.com.au/join?ref=CODE. Keep that ref
+  // and open the wallet product page instead of the bare join page.
+  function referralFrom (raw) {
+    const text = String(raw || '').trim()
+    if (!text) return referral('')
+    try {
+      const u = new URL(text)
+      const host = String(u.hostname || '').toLowerCase()
+      if (u.protocol === 'https:' && (host === 'scdo.com.au' || host === 'apeccapital.org') && !u.username && !u.password && (!u.port || u.port === '443')) {
+        const ref = u.searchParams.get('ref') || ''
+        if (host === 'scdo.com.au' && (u.pathname === '/wallet' || u.pathname === '/wallet/')) {
+          if (!u.searchParams.get('src')) u.searchParams.set('src', 'wallet')
+          return u.toString()
+        }
+        return referral(ref)
+      }
+    } catch (e) {}
+    return referral(text)
   }
 
   // Membership and buying SCDO add the wallet language and the selected Shard1 Classic address.
@@ -137,7 +159,7 @@
     return u.toString()
   }
 
-  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, REFERRAL_URL: REFERRAL_URL, GROUPS: GROUPS, url: url, visit: visit, referral: referral, flat: flat, byId: byId, match: match }
+  const api = { ORIGIN: ORIGIN, MEMBERSHIP_URL: MEMBERSHIP_URL, OTC_URL: OTC_URL, REFERRAL_URL: REFERRAL_URL, GROUPS: GROUPS, url: url, visit: visit, referral: referral, referralFrom: referralFrom, flat: flat, byId: byId, match: match }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (typeof window !== 'undefined') window.SCDOSiteNav = Object.freeze(api)
 })()

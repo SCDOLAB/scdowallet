@@ -11,7 +11,7 @@ const root = path.join(__dirname, '..')
 const ADDR = '0x' + 'ab'.repeat(20)
 
 assert.strictEqual(Opt.CONFIRM_MS, 14000)
-assert.strictEqual(Opt.COPY.gift, 'Gift received · agent started')
+assert.strictEqual(Opt.COPY.gift, 'Bonus SCDO received · agent started')
 assert.strictEqual(Opt.COPY.confirming, 'Confirming…')
 assert.strictEqual(Opt.COPY.starting, 'Starting…')
 
@@ -23,7 +23,7 @@ assert.strictEqual(started.spinner, false)
 
 const gift = Opt.claimFromHttp({ status: 200, body: { ok: true } })
 assert.strictEqual(gift.phase, 'confirming')
-assert.strictEqual(gift.text, 'Gift received · agent started')
+assert.strictEqual(gift.text, 'Bonus SCDO received · agent started')
 assert.strictEqual(gift.badge, 'Confirming…')
 assert.strictEqual(gift.blocking, false)
 assert.strictEqual(gift.spinner, false)
@@ -38,7 +38,7 @@ assert.ok(!JSON.stringify(quiet).includes('Gift received'))
 
 assert.strictEqual(Opt.claimSettled(gift, true).phase, 'confirmed')
 assert.strictEqual(Opt.claimSettled(gift, true).badge, 'Confirmed')
-assert.strictEqual(Opt.claimSettled(gift, true).text, 'Gift received · agent started')
+assert.strictEqual(Opt.claimSettled(gift, true).text, 'Bonus SCDO received · agent started')
 const reverted = Opt.claimSettled(gift, false)
 assert.strictEqual(reverted.phase, 'retry')
 assert.strictEqual(reverted.text, '')
@@ -51,18 +51,18 @@ const box = { window: {} }
 vm.runInNewContext(fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8'), box)
 const EN = box.window.I18N112.EN
 const CN = box.window.I18N112.CN
-assert.strictEqual(EN.claimGift, 'Gift received · agent started')
+assert.strictEqual(EN.claimGift, 'Bonus SCDO received · agent started')
 assert.strictEqual(EN.claimConfirming, 'Confirming…')
 assert.strictEqual(EN.claimConfirmed, 'Confirmed')
 assert.strictEqual(EN.agentStarting, 'Starting…')
 assert.strictEqual(CN.agentStarting, '啟動中…')
-assert.strictEqual(CN.claimGift, '禮物已收到 · Agent 已啟動')
+assert.strictEqual(CN.claimGift, '贈幣已收到 · Agent 已啟動')
 assert.strictEqual(CN.claimConfirming, '確認中…')
 
 const t = (k) => EN[k] || k
 const esc = (s) => String(s)
 const live = Opt.claimBannerHtml(gift, t, esc)
-assert.ok(live.includes('Gift received · agent started'))
+assert.ok(live.includes('Bonus SCDO received · agent started'))
 assert.ok(live.includes('Confirming…'))
 assert.ok(live.includes('id="claimBadge"'))
 assert.ok(!/spinner|bspin|aria-busy/.test(live))

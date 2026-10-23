@@ -121,8 +121,8 @@ function make (reply) {
   vm.runInNewContext(fs.readFileSync(path.join(root, 'src/js/i18n112.js'), 'utf8'), box)
   const CN = box.window.I18N112.CN
   const EN = box.window.I18N112.EN
-  assert.strictEqual(CN.agentX402Pending, '待生成（Agent 上線後自動分配）')
-  assert.strictEqual(EN.agentX402Pending, 'Not yet assigned (assigned when the agent goes online)')
+  assert.strictEqual(CN.agentX402Pending, '尚未分配。記帳代理上線後會自動填上。')
+  assert.strictEqual(EN.agentX402Pending, 'Not assigned yet. It is filled in when the bookkeeping agent is online.')
   assert.strictEqual(CN.agentOnlineLine, '在線·請保持程式執行')
   assert.strictEqual(CN.agentOfflineLine, '離線·開啟錢包後自動上線')
   assert.strictEqual(CN.agentOnline, '在線')

@@ -339,8 +339,10 @@
     return { services: [{ name: 'x402Usdc', endpoint: 'eip155:8453:0x' + 'cd'.repeat(20) }] }
   }
 
+  // Home invite QR lands on the SCDO Wallet product page. g.js on that page
+  // keeps ?ref= and ?src= (the same params /join already accepts).
   function fallbackShareUrl (address) {
-    const u = new URL(JOIN.joinPage)
+    const u = new URL('https://scdo.com.au/wallet/')
     const addr = String(address || '').trim()
     if (addr) u.searchParams.set('ref', addr)
     u.searchParams.set('src', 'wallet')
@@ -373,9 +375,16 @@
   }
 
   function presenceText (presence, t) {
-    if (presence === 'online') return t('agentOnlineLine')
-    if (presence === 'starting') return t('agentStarting')
-    return t('agentOfflineLine')
+    if (presence === 'online') return t('agentHomeOnline')
+    if (presence === 'starting') return t('agentHomeStarting')
+    return t('agentHomeOffline')
+  }
+
+  function shardWord (t, n) {
+    let v = ''
+    try { v = t('mineShardN', { n: n }) } catch (e) { v = '' }
+    if (typeof v === 'string' && v && v !== 'mineShardN' && v.indexOf('{') < 0) return v
+    return 'Shard' + n
   }
 
   // A ledger entry in the UI language. Unknown actions keep the raw ledger words.
@@ -411,25 +420,36 @@
     model = model || {}
     const status = model.status || 'pending'
     const addr = model.scdoAddress || '\u2014'
-    const reserve = model.x402Reserve ? model.x402Reserve : t('agentX402Pending')
-    const book = model.bookkeeping || ''
     const entries = model.entries || []
     const presence = agentPresence(model)
     const line = model.noWallet && !model.rewardLineHidden
       ? '<div class="agent-reward-line" id="agentRewardLine"><button type="button" class="agent-reward-tap" data-act="agentUseWallet">' + esc(t('agentNoReward')) + '</button><button type="button" class="home-backup-x" data-act="agentRewardDismiss" aria-label="' + esc(t('dismiss')) + '">\u2715</button></div>'
       : ''
     const list = entries.length
-      ? '<ul class="agent-entries">' + entries.map(e => '<li>' + esc(entryText(e, t)) + '</li>').join('') + '</ul>'
-      : '<p class="home-state">' + esc(t('agentEntriesEmpty')) + '</p>'
+      ? '<h3>' + esc(t('agentEntries')) + '</h3><ul class="agent-entries">' + entries.map(e => '<li>' + esc(entryText(e, t)) + '</li>').join('') + '</ul>'
+      : ''
     const bookBtn = model.noWallet || model.hideRig ? '' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>'
-    const bookRow = model.hideRig ? '' : '<p class="agent-row"><span>' + esc(t('agentBook')) + '</span> <b id="agentBook">' + esc(book) + '</b></p>'
+    const shard = Number(model.shard) || 0
+    const shards = model.canSwitchShard
+      ? '<div class="agent-shards">' + [1, 2, 3, 4].map(function (n) {
+        return '<button type="button" class="agent-shard' + (n === shard ? ' on' : '') + '" data-act="agentShard" data-v="' + n + '">' + esc(shardWord(t, n)) + '</button>'
+      }).join('') + '</div>'
+      : ''
+    const copy = model.scdoAddress
+      ? '<button type="button" class="shell-copy" data-act="copy" data-v="' + esc(model.scdoAddress) + '">' + esc(t('copy')) + '</button>'
+      : ''
+    const classic = '<div class="agent-classic"><div class="lbl">' + esc(t('agentScdoAddr')) + '</div>' + shards +
+      '<p class="agent-row"><b class="mono" id="agentScdo">' + esc(addr) + '</b>' + copy + '</p></div>'
+    // Base is the only x402 chain this wallet registers (eip155:8453 / USDC on Base).
+    const reserve = JOIN.addressRe.test(String(model.x402Reserve || '')) ? String(model.x402Reserve) : ''
+    const x402 = reserve
+      ? '<div class="agent-x402"><div class="lbl">' + esc(t('agentX402')) + '</div><p class="agent-row"><span>Base</span> <b class="mono" id="agentX402">' + esc(reserve) + '</b> <button type="button" class="shell-copy" data-act="copy" data-v="' + esc(reserve) + '">' + esc(t('copy')) + '</button></p></div>'
+      : '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="agent-x402-none" id="agentX402">' + esc(t('agentX402Pending')) + '</b></p>'
+    const ext = model.externalHtml || ''
     return '<section class="agent-card" id="agentCard"><h2>' + esc(t('agentCardTitle')) + '</h2>' + line +
       '<p class="agent-presence ' + presence + '" id="agentPresence">' + esc(presenceText(presence, t)) + '</p>' +
       '<p class="agent-row"><span>' + esc(t('agentStatus')) + '</span> <b id="agentStatus">' + esc(statusLabel(status, t)) + '</b></p>' +
-      '<p class="agent-row"><span>' + esc(t('agentScdoAddr')) + '</span> <b class="mono" id="agentScdo">' + esc(addr) + '</b></p>' +
-      '<p class="agent-row"><span>' + esc(t('agentX402')) + '</span> <b class="' + (model.x402Reserve ? 'mono' : 'agent-x402-none') + '" id="agentX402">' + esc(reserve) + '</b></p>' +
-      bookRow +
-      bookBtn + '<h3>' + esc(t('agentEntries')) + '</h3>' + list + '</section>'
+      classic + x402 + ext + bookBtn + list + '</section>'
   }
 
   function firstRunHtml (t, esc, opts) {

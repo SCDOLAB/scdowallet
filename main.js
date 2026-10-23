@@ -105,7 +105,7 @@ ipcMain.handle('app:titles', () => { refreshTitles(); return true }) // 2.0.6: r
 ipcMain.handle('app:updatedSeen', () => { justUpdated = null; refreshTitles(); return true })
 // external links: https only, allowlisted hosts only, opened in the system browser (never inside the wallet)
 // 3.0.4: plus the official Telegram channel and group, and the support email (exact addresses only)
-const EXTERNAL_ALLOW = [/^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
+const EXTERNAL_ALLOW = [/^https:\/\/scdo\.com\.au(\/|$)/, /^https:\/\/scdoscan\.io(\/|$)/, /^https:\/\/apeccapital\.org(\/|$)/, /^https:\/\/github\.com\/(rigelminer|SCDOLAB)(\/|$)/, /^https:\/\/t\.me\/(SCDOLabor|SCDOCommunity)$/]
 const MAIL_ALLOW = ['mailto:admin@apeccapital.org']
 // 3.1.6: the home demo wheel and its Telegram group, exact URLs from src/js/demoLinks.js only
 const DEMO_LINKS = require('./src/js/demoLinks')
