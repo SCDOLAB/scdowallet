@@ -766,6 +766,51 @@
     if (host) host.querySelectorAll('details[data-chain-row]').forEach(d => { if (d.open) open[d.getAttribute('data-chain-row')] = true })
     return window.SCDOChainHome.rowsHtml(chainRowModel(open), T, esc)
   }
+  function homeAddrSaved (n) {
+    let saved = ''
+    try { saved = localStorage.getItem('homeAddr310-' + n) || localStorage.getItem('recvAddr310-' + n) || '' } catch (e) { saved = '' }
+    return saved
+  }
+  function homeChainCardsHtml () {
+    const CH = window.SCDOChainHome
+    if (!CH || !CH.homeCardsHtml) return ''
+    const rows = chainRowModel({})
+    const cards = [0, 1, 2, 3, 4].map(n => {
+      const row = rows.find(r => Number(r.n) === n) || { n: n, entries: [] }
+      const list = agentAddressesForShard(n)
+      const saved = homeAddrSaved(n)
+      const hit = list.find(a => String(a.address).toLowerCase() === String(saved).toLowerCase()) || list[0] || null
+      const sel = hit ? hit.address : ''
+      const entry = (row.entries || []).find(e => sel && String(e.address).toLowerCase() === String(sel).toLowerCase())
+      const one = CH.summarize({ n: n, entries: entry ? [entry] : [] })
+      const dash = one.text === CH.DASH
+      return {
+        n: n,
+        title: CH.chainTitle(n),
+        bal: dash ? one.text : one.text + ' SCDO',
+        balFull: one.full ? one.full + ' SCDO' : '',
+        dash: dash,
+        addrLabel: n === 0 ? T('agentScdoAddrEvm') : T('agentScdoAddrN', { n: n }),
+        addresses: list,
+        selected: sel,
+        copyLabel: T('copy'),
+        empty: T('homeAddrEmpty'),
+        recvLabel: T('shellRecvShort'),
+        sendLabel: T('shellSendShort')
+      }
+    })
+    return CH.homeCardsHtml(cards, esc)
+  }
+  function homeMoreHtml () {
+    const nav = window.SCDOSiteNav
+    const label = (id, fallback) => {
+      const it = nav && nav.byId(id)
+      if (!it) return fallback || id
+      return lang() === 'EN' ? it.en : it.cn
+    }
+    const btn = (act, v, text) => '<button type="button" class="link" data-act="' + esc(act) + '"' + (v ? ' data-v="' + esc(v) + '"' : '') + '>' + esc(text) + '</button>'
+    return btn('nav', 'wallet', T('navWallet')) + btn('site', 'tokens', label('tokens')) + btn('site', 'explorer', label('explorer')) + btn('nav', 'connect', T('navConnect')) + btn('site', 'walletSite', label('walletSite')) + btn('aboutOpen', '', T('aboutWallet')) + btn('openDemo', 'tg', T('homeDemoTg'))
+  }
   function selectedShard0 () {
     const model = (chainRowModel({})[0]) || { entries: [] }
     let last = ''
@@ -838,18 +883,36 @@
     if (raw && nav && nav.referralFrom) return nav.referralFrom(raw)
     return referralLink()
   }
-  function agentClassicModel (a) {
-    const pub = a && a.pubkey ? String(a.pubkey) : ''
+  function agentAddressRows () {
+    return (st.accounts || []).map(a => ({ filename: a.filename, pubkey: a.pubkey, evm: a.evm, label: accLabel(a) }))
+  }
+  // Every local keyfile, mapped onto the shard being shown. Shard0 is the 0x address.
+  // Shard1–4 is classicOnShard of that keyfile (one classic address per wallet per shard).
+  function agentAddressesForShard (shard) {
+    const J = window.SCDOAgentJoin
     const z = window.SCDOZpow
+    if (!J || !J.shardAddresses) return []
+    return J.shardAddresses(agentAddressRows(), shard, z && z.classicOnShard ? z.classicOnShard.bind(z) : null)
+  }
+  function agentClassicModel (a) {
+    const z = window.SCDOZpow
+    const pub = a && a.pubkey ? String(a.pubkey) : ''
     const parsed = z && z.parseClassicAddress ? z.parseClassicAddress(pub) : null
     let shard = Number(st.agentShard)
-    if (!(shard >= 1 && shard <= 4)) shard = parsed ? parsed.shard : 0
+    const explicit = st.agentShardSet === true && shard >= 0 && shard <= 4
+    if (!explicit) shard = parsed ? parsed.shard : ((a && a.evm) ? 0 : 1)
+    const addresses = agentAddressesForShard(shard)
+    const saved = st.agentAddrPick && st.agentAddrPick[shard]
     let addr = ''
-    if (parsed && z.classicOnShard && shard) addr = z.classicOnShard(parsed.address, shard) || parsed.address
-    else if (pub) addr = pub
-    else if (a && a.evm) addr = String(a.evm)
-    else addr = (st.agent && st.agent.payout) || ''
-    return { scdoAddress: addr, shard: shard, canSwitchShard: !!parsed }
+    if (saved && addresses.some(x => String(x.address).toLowerCase() === String(saved).toLowerCase())) addr = saved
+    else {
+      let own = ''
+      if (shard === 0 && a && a.evm && /^0x[0-9a-fA-F]{40}$/.test(a.evm)) own = a.evm
+      else if (parsed && z && z.classicOnShard && shard >= 1) own = z.classicOnShard(parsed.address, shard) || ''
+      const hit = own && addresses.find(x => String(x.address).toLowerCase() === own.toLowerCase())
+      addr = hit ? hit.address : ((addresses[0] && addresses[0].address) || own || (st.agent && st.agent.payout) || '')
+    }
+    return { scdoAddress: addr, shard: shard, canSwitchShard: !!(st.accounts && st.accounts.length), addresses: addresses }
   }
   function agentModel () {
     const a = st.accounts && st.accounts.length ? selected() : null
@@ -863,11 +926,13 @@
       scdoAddress: classic.scdoAddress,
       shard: classic.shard,
       canSwitchShard: classic.canSwitchShard,
+      addresses: classic.addresses || [],
       x402Reserve: ag.x402Reserve || '',
       externalHtml: externalCardHtml(),
       bookkeeping: homeMineLine(),
       book: agentBookModel(),
       hideRig: !rigUi(),
+      hideAddr: true,
       entries: ag.entries || []
     }
   }
@@ -953,11 +1018,23 @@
     }
     return `<div class="home-last" id="homeLastTx"><span>${esc(T('homeLastTx'))}</span><span class="home-tx-meta"><b class="${known ? '' : 'dash'}">${esc(last)}</b>${extra}</span></div>`
   }
+  function heightStateText (c) {
+    if (c.mode === 'sync') return T('d_islSync', { pct: c.pct })
+    if (c.mode === 'syncing') return T('d_capSyncing')
+    if (c.mode === 'run') return T('nodeRunning')
+    if (c.mode === 'idle') return T('shellUnlinked')
+    return T('d_capChecking')
+  }
   function heightChipsHtml () {
     const MH = window.SCDOMineHome
-    const cells = MH && MH.heightCells ? MH.heightCells(mineHomeInput().pools) : []
+    if (!MH || !MH.heightCells) return esc(homeHeightLine())
+    const input = mineHomeInput()
+    const cells = MH.heightCells(input.pools, { s0: { ok: st.net.s0Ok, block: st.net.s0Block }, miners: input.miners })
     if (!cells.length) return esc(homeHeightLine())
-    return cells.map(c => '<div class="home-height-chip"><span>' + esc(T('mineShardN', { n: c.n })) + '</span><b>' + esc(c.height) + '</b></div>').join('')
+    return cells.map(c => {
+      const name = Number(c.n) === 0 ? T('pillShard0') : T('mineShardN', { n: c.n })
+      return MH.heightChipHtml ? MH.heightChipHtml(c, name, heightStateText(c), esc) : ''
+    }).join('')
   }
   function phraseBannerHtml () {
     const J = window.SCDOAgentJoin
@@ -1067,22 +1144,23 @@
     const mineText = homeMineLine()
     const mineIdle = mineText === T('homeLineIdle')
     const mineState = rigUi() ? '<p class="home-state" id="homeMineState"' + (mineIdle ? ' hidden' : '') + '>' + esc(mineText) + '</p>' : ''
-    const heights = rigUi() ? '<div class="home-heights" id="homeHeights" aria-label="' + esc(T('homeHeights')) + '"><div class="home-height-line" id="homeHeightLine">' + heightChipsHtml() + '</div></div>' : ''
+    const heights = rigUi() ? '<details class="shell-fold home-heights" id="homeHeights"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> <span id="homeHeightsLbl">' + esc(T('homeHeights')) + '</span></summary><div class="home-height-line" id="homeHeightLine">' + heightChipsHtml() + '</div></details>' : ''
     const mineBtn = rigUi() ? '<button type="button" class="shell-act" data-act="nav" data-v="mine">' + esc(T('navMine')) + '</button>' : ''
     const jumpBtns = '<button type="button" class="shell-act" data-act="nav" data-v="wallet">' + esc(T('navWallet')) + '</button>' + mineBtn + '<button type="button" class="shell-act" data-act="nav" data-v="connect">' + esc(T('navConnect')) + '</button>' + '<button type="button" class="shell-act" data-act="nav" data-v="settings">' + esc(T('navSettings')) + '</button>'
     return `<div class="page shell-home" id="homePage">
-      ${heights}
       ${offlineNoticeHtml()}
       ${phraseBannerHtml()}
       ${legacyHintHtml()}
       ${claim}
-      ${card}
-      ${mineState}
-      <p class="home-lead">${esc(T('homeLead'))}</p>
+      <p class="home-lead">${esc(T('homeChainsTitle'))}</p>
       <div class="shell-actions shell-actions-wallet">${jumpBtns}</div>
-      <section class="home-chains" id="homeChains"><div class="chain-rows" id="chainRows">${chainRowsHtml()}</div><div id="homeSnap">${homeSnapHtml()}</div></section>
+      <section class="home-chains" id="homeChains"><div class="home-chain-grid" id="homeChainGrid">${homeChainCardsHtml()}</div><div id="homeSnap">${homeSnapHtml()}</div><details class="shell-fold" id="homeChainMore">${shellFoldSummary(T('d_recent'))}<div class="chain-rows" id="chainRows">${chainRowsHtml()}</div></details></section>
+      ${heights}
+      <section class="home-agent" id="homeAgent">${card}</section>
+      ${mineState}
       ${homeBuyHtml()}
       ${homeDemoHtml()}
+      <details class="shell-fold" id="homeMore">${shellFoldSummary(T('homeMoreTitle'))}<div class="site-menu home-more">${homeMoreHtml()}</div></details>
       ${panelCardsHtml()}
       ${liveHomeHtml()}
       <details class="shell-fold home-invite" id="homeInvite">${shellFoldSummary(T('homeInviteTitle'))}<p class="home-invite-line">${esc(T('homeInviteLine'))}</p>${qr}<div class="home-invite-row"><span class="mono home-invite-link" id="homeRefLink">${esc(link)}</span><button type="button" class="shell-copy" data-act="copy" data-v="${esc(link)}">${esc(T('homeInviteCopy'))}</button><button type="button" class="shell-copy" data-act="shareRef" data-v="${esc(link)}">${esc(T('homeInviteShare'))}</button>${giftBtn}</div></details>
@@ -1139,6 +1217,9 @@
           document.querySelectorAll('[data-act="shareRef"], #homeInvite [data-act="copy"]').forEach(b => b.setAttribute('data-v', link))
         }
       }
+      const grid = $('homeChainGrid')
+      const typingAddr = document.activeElement && document.activeElement.id && String(document.activeElement.id).indexOf('homeAddr-') === 0
+      if (grid && !typingAddr) { const html = homeChainCardsHtml(); if (refreshDash.grid !== html) { refreshDash.grid = html; SD.html(grid, html) } }
       const rows = $('chainRows')
       if (rows) { const html = chainRowsHtml(); if (refreshDash.chains !== html) { refreshDash.chains = html; SD.html(rows, html) } }
       const snap = $('homeSnap')
@@ -1170,12 +1251,59 @@
     const claim = window.SCDOOptimistic ? window.SCDOOptimistic.claimBannerHtml(st.claimView, T, esc) : ''
     return J.inviteClaimHtml(T, esc) + claim
   }
+  function pageSite () {
+    const nav = window.SCDOSiteNav
+    const hit = nav && nav.byId(st.siteId)
+    const title = hit ? (lang() === 'EN' ? hit.en : hit.cn) : ''
+    const official = hit && hit.href ? `<button type="button" class="shell-act sec" data-act="siteEmbed" data-v="${esc(hit.id)}">${esc(T('siteOpenHere'))}</button>` : ''
+    let body = ''
+    if (st.siteId === 'gpu') {
+      const mine = rigUi() ? `<button type="button" class="shell-act" data-act="nav" data-v="mine">${esc(T('navMine'))}</button>` : ''
+      body = `<p>${esc(T('siteGpuLead'))}</p><div class="shell-actions">${mine}${official}</div>`
+    } else if (st.siteId === 'games') {
+      body = `<p>${esc(T('siteGamesLead'))}</p><div class="shell-actions"><button type="button" class="shell-act" data-act="openDemo" data-v="wheel">${esc(T('homeDemoWheel'))}</button>${official}</div>`
+    } else if (st.siteId === 'treasury') {
+      body = `<p>${esc(T('siteTreasuryLead'))}</p><div id="treasuryHost">${treasuryHtml()}</div><div class="shell-actions">${official}</div>`
+    } else {
+      body = `<div class="shell-actions">${official}</div>`
+    }
+    return `<div class="page shell-home" id="sitePage"><h1 class="shell-h">${esc(title)}</h1><div class="site-native">${body}</div></div>`
+  }
+  function openNativeSite (id) {
+    st.siteId = id
+    if ($('md')) SD.clear($('modalRoot'))
+    st.tab = 'site'
+    st.scrollTo = 'top'
+    render()
+    if (id === 'treasury') refreshTreasury()
+  }
+  function openNavHref (hit) {
+    const nav = window.SCDOSiteNav
+    if (!hit || !nav) return
+    const target = hit.withAddress
+      ? nav.visit(hit.id, { lang: lang() === 'EN' ? 'en' : 'zh-TW', address: memberAddress() || selectedShard1() })
+      : nav.url(hit.href)
+    if (!target) { toast(T('openExternalFail')); return }
+    const U = window.SCDOWalletUi
+    if (U && U.classifyNavigation(target).action === 'allow') {
+      if (hit.withAddress && (hit.id === 'membership' || hit.id === 'otc')) watchMember()
+      if ($('md')) SD.clear($('modalRoot'))
+      st.panelUrl = target
+      st.panelId = 'hub'
+      st.panelTitle = lang() === 'EN' ? hit.en : hit.cn
+      st.tab = 'panel'
+      st.scrollTo = 'top'
+      render()
+      return
+    }
+    openExternal(target)
+  }
   function pagePanel () {
     const U = window.SCDOWalletUi
     const doc = st.walletUi || (U && U.defaults()) || { cards: [] }
     const card = (doc.cards || []).find(c => c.id === st.panelId)
     const fallback = st.panelId === 'connect' ? T('navConnect') : (lang() === 'EN' ? 'Wallet hub' : '錢包總覽')
-    const title = card ? (lang() === 'EN' ? card.en : card.cn) : fallback
+    const title = st.panelTitle || (card ? (lang() === 'EN' ? card.en : card.cn) : fallback)
     return `<div class="page shell-panel" id="panelPage"><div class="panel-bar"><button type="button" class="link back-home" data-act="panelClose" id="panelClose">${esc(T('goHome'))}</button><h1 class="shell-h" id="panelTitle">${esc(title)}</h1></div><div id="panelFrame" class="panel-frame"></div></div>`
   }
   function openPanel (id) {
@@ -1185,6 +1313,7 @@
     if (!doc.links || !doc.links[key]) return
     if ($('md')) SD.clear($('modalRoot'))
     st.panelUrl = ''
+    st.panelTitle = ''
     st.panelId = key
     st.tab = 'panel'
     st.scrollTo = 'top'
@@ -1810,33 +1939,26 @@
 
   function renderSiteBar () {
     const bar = $('siteBar'); if (!bar) return
-    const langSwitch = `<span class="lang-switch" id="langSwitch"><button type="button" class="lang-opt${lang() === 'EN' ? ' on' : ''}" data-act="hdrLang" data-v="EN">English</button><button type="button" class="lang-opt${lang() === 'CN' ? ' on' : ''}" data-act="hdrLang" data-v="CN">華語</button></span>`
+    const langSwitch = `<span class="lang-switch" id="langSwitch"><button type="button" class="lang-opt${lang() === 'CN' ? ' on' : ''}" data-act="hdrLang" data-v="CN">華語</button><button type="button" class="lang-opt${lang() === 'EN' ? ' on' : ''}" data-act="hdrLang" data-v="EN">English</button></span>`
+    const moved = [['wallet', 'navWallet'], ['connect', 'navConnect'], ['settings', 'navSettings']]
     if (!window.SCDOSiteNav) {
       if (renderSiteBar.last !== langSwitch) { renderSiteBar.last = langSwitch; SD.html(bar, langSwitch) }
       return
     }
     const cn = lang() !== 'EN'
-    const groups = window.SCDOSiteNav.GROUPS.map(g => {
+    const groups = window.SCDOSiteNav.GROUPS.filter(g => g.id !== 'home').map(g => {
       if (rigUi() || !g.children) return g
       const children = g.children.filter(c => c.action !== 'mineHome' && c.action !== 'mineSettings')
       if (children.length === g.children.length) return g
-      if (!children.length) return null
       return Object.assign({}, g, { children: children })
-    }).filter(Boolean)
-    const primary = groups.filter(g => ['home', 'gpu', 'wallets', 'games', 'chain', 'mining'].indexOf(g.id) >= 0)
-    const rest = groups.filter(g => primary.indexOf(g) < 0)
+    }).filter(g => g.barSingle || g.action || g.href || (g.children && g.children.length))
     const btn = (it) => `<button type="button" class="site-link" data-act="site" data-v="${esc(it.id)}">${esc(cn ? it.cn : it.en)}</button>`
     const group = (g) => {
-      if (!g.children || !g.children.length) return btn(g)
-      if (g.id === 'about') return `<button type="button" class="site-link" data-act="aboutOpen">${esc(cn ? g.cn : g.en)}</button>`
+      if (g.barSingle || !g.children || !g.children.length) return btn(g)
       return `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? g.cn : g.en)}</summary><div class="site-menu">${g.children.map(btn).join('')}</div></details>`
     }
-    const more = rest.length ? `<details class="shell-fold site-fold"><summary><span class="fold-shut">\u25B8</span><span class="fold-open">\u25BE</span> ${esc(cn ? '更多' : 'More')}</summary>${rest.map(group).join('')}</details>` : ''
-    const moved = [['wallet', 'navWallet'], ['connect', 'navConnect'], ['settings', 'navSettings']]
-      .map(([id, key]) => `<button type="button" class="site-link" data-act="nav" data-v="${esc(id)}">${esc(T(key))}</button>`).join('')
-    const homeFirst = primary.filter(g => g.id === 'home').map(group).join('')
-    const after = primary.filter(g => g.id !== 'home').map(group).join('')
-    const html = homeFirst + moved + after + more + langSwitch
+    const brand = `<button type="button" class="site-link site-brand" data-act="nav" data-v="home">SCDO</button>`
+    const html = brand + groups.map(group).join('') + langSwitch + moved.map(([id]) => '').join('')
     if (renderSiteBar.last !== html) { renderSiteBar.last = html; SD.html(bar, html) }
   }
   function renderSideNav () {
@@ -1851,7 +1973,7 @@
     renderHeader()
     const main = $('main')
     const y = main ? main.scrollTop : 0
-    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, wallet: pageRecv, recv: pageRecv, remit: pageRecv, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel }
+    const pages = { home: pageHome, acc: pageAcc, mine: pageMine, mineSet: pageMineSet, wallet: pageRecv, recv: pageRecv, remit: pageRecv, settings: pageSettings, inviteGift: pageInviteGift, inviteClaim: pageInviteClaim, panel: pagePanel, site: pageSite }
     const keepPay = payFormLive()
     if (main && !keepPay) SD.html(main, trayHintHtml() + (st.tab === 'home' ? '' : backHome()) + (pages[st.tab] || pageHome)())
     if (st.tab === 'wallet' && !keepPay) payModal((headerAccount() || {}).filename || st.sel, st.payPrefill || null)
@@ -4783,7 +4905,10 @@
       case 'buySite': openAccountSite(v); break
       case 'agentShard': {
         const n = Number(v)
-        if (n >= 1 && n <= 4) st.agentShard = n
+        if (n >= 0 && n <= 4) {
+          st.agentShard = n
+          st.agentShardSet = true
+        }
         render()
         break
       }
@@ -4815,9 +4940,14 @@
         break
       case 'site': {
         const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v)
-        if (hit && hit.withAddress) openAccountSite(hit.id)
-        else if (hit && hit.action) menuAction(hit.action)
-        else if (hit && hit.href && window.SCDOSiteNav) openExternal(window.SCDOSiteNav.url(hit.href))
+        if (!hit) break
+        if (hit.action) menuAction(hit.action)
+        else if (hit.href) openNavHref(hit)
+        break
+      }
+      case 'siteEmbed': {
+        const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(v || st.siteId)
+        if (hit && hit.href) openNavHref(hit)
         break
       }
       case 'backup': backupPickModal(); break
@@ -4978,6 +5108,25 @@
       if (line) line.textContent = T('inviteGiftOwn', { n: n })
       return
     }
+    if (t.id && String(t.id).indexOf('homeAddr-') === 0) {
+      const n = Number(t.getAttribute('data-shard'))
+      if (!(n >= 0 && n <= 4)) return
+      try { localStorage.setItem('homeAddr310-' + n, t.value) } catch (e) {}
+      const grid = $('homeChainGrid')
+      if (grid) SD.html(grid, homeChainCardsHtml())
+      return
+    }
+    if (t.id === 'agentScdoPick') {
+      const n = Number(t.getAttribute('data-shard'))
+      if (!(n >= 0 && n <= 4)) return
+      st.agentAddrPick = st.agentAddrPick || {}
+      st.agentAddrPick[n] = t.value
+      const shown = $('agentScdo')
+      if (shown) shown.textContent = t.value
+      const btn = t.parentNode && t.parentNode.querySelector('[data-act="copy"]')
+      if (btn) btn.setAttribute('data-v', t.value)
+      return
+    }
     if (t.id === 'recvPick') {
       const n = walletShard()
       try { localStorage.setItem('recvAddr310-' + n, t.value) } catch (e) {}
@@ -5080,6 +5229,7 @@
       case 'reward': case 'mineSettings': goPage('mineSet'); break
       case 'openBackups': api.invoke('keyfile:openBackups'); break
       case 'home': case 'acc': case 'mine': goPage(a); break
+      case 'gpu': case 'games': case 'treasury': openNativeSite(a); break
       case 'wallet': goPage('wallet'); break
       case 'recv': goPage('recv'); break
       case 'mineHome': goMineHome(); break
@@ -5455,9 +5605,8 @@
     if (action.type === 'openSite') {
       const hit = window.SCDOSiteNav && window.SCDOSiteNav.byId(action.id)
       if (hit && hit.referral && window.SCDOSiteNav.referral) openExternal(window.SCDOSiteNav.referral(selectedShard0()))
-      else if (hit && hit.withAddress) openAccountSite(hit.id)
       else if (hit && hit.action) menuAction(hit.action)
-      else if (hit && hit.href) openExternal(window.SCDOSiteNav.url(hit.href))
+      else if (hit && hit.href) openNavHref(hit)
       return { ok: true }
     }
     if (action.type === 'openBackup') { backupPickModal(); return { ok: true } }

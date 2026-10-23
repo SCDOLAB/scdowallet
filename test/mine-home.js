@@ -710,6 +710,43 @@ assert.strictEqual(mine.chooseMinePath({
   const idleHeights = 'Shard1 \u2014 · Shard2 \u2014 · Shard3 \u2014 · Shard4 \u2014'
   assert.strictEqual(poolLine, '顯示卡經記帳池記帳中（Shard1）')
   assert.strictEqual(mine.heightTicker(undefined), idleHeights)
+  const tipPools = { 1: { online: true, chain_height: 10 }, 2: { online: true, chain_height: 20 }, 3: { online: false, chain_height: 99 }, 4: { chain_height: 40 } }
+  const liveTips = mine.heightCells(tipPools, { s0: { ok: true, block: 500 } })
+  assert.strictEqual(liveTips.length, 5)
+  assert.deepStrictEqual(liveTips.map(c => c.n), [0, 1, 2, 3, 4])
+  assert.strictEqual(liveTips[0].height, '500')
+  assert.strictEqual(liveTips[0].mode, 'run')
+  assert.strictEqual(liveTips[1].mode, 'run')
+  assert.strictEqual(liveTips[3].mode, 'idle')
+  assert.strictEqual(liveTips[3].height, '\u2014')
+  assert.strictEqual(liveTips[4].mode, 'wait')
+  assert.strictEqual(liveTips[4].height, '40')
+  const syncingTips = mine.heightCells(tipPools, {
+    s0: { ok: false, block: 9 },
+    miners: {
+      classicGpu: {
+        running: true, mode: 'gpu', chain: 'classic', shard: 2, procs: ['zminer-gpu'],
+        phase: 'syncing', code: 'CLASSIC_SYNCING', localBlock: 50, networkBlock: 100
+      }
+    }
+  })
+  assert.strictEqual(syncingTips[0].mode, 'idle')
+  assert.strictEqual(syncingTips[0].height, '\u2014')
+  assert.strictEqual(syncingTips[2].mode, 'sync')
+  assert.strictEqual(syncingTips[2].pct, 50)
+  assert.strictEqual(syncingTips[2].height, '20')
+  const deadSync = mine.heightCells({ 1: { online: true, chain_height: 10 } }, {
+    miners: { classicGpu: { running: false, shard: 1, phase: 'syncing', localBlock: 10, networkBlock: 100, procs: [] } }
+  })
+  assert.strictEqual(deadSync.find(c => c.n === 1).mode, 'run')
+  const unknown = mine.heightCells(null, {})
+  assert.ok(unknown.every(c => c.mode === 'wait' && c.height === '\u2014'))
+  const runChip = mine.heightChipHtml(liveTips[0], 'Shard0 EVM', 'Running', esc)
+  assert.ok(runChip.includes('data-mode="run"') && runChip.includes('home-height-bar') && runChip.includes('Shard0 EVM') && runChip.includes('>500<'))
+  const idleChip = mine.heightChipHtml(liveTips[3], 'Shard3', 'Not connected', esc)
+  assert.ok(idleChip.includes('data-mode="idle"') && !idleChip.includes('home-height-bar') && idleChip.includes('class="dash"'))
+  const syncChip = mine.heightChipHtml(syncingTips[2], 'Shard2', 'Sync progress 50%', esc)
+  assert.ok(syncChip.includes('data-mode="sync"') && syncChip.includes('--pct:50%') && syncChip.includes('Sync progress 50%'))
   const ghostLine = mine.homeLine({
     miners: {
       classicGpu: {

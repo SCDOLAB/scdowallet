@@ -387,6 +387,45 @@
     return 'Shard' + n
   }
 
+  // One local keyfile has one Shard0 EVM address (0x) and, when it has a classic
+  // pubkey, one classic address per Shard1–4 (same key, shard prefix swapped).
+  function shardAddresses (accounts, shard, derive) {
+    const n = Number(shard)
+    const out = []
+    const seen = {}
+    for (const a of accounts || []) {
+      if (!a) continue
+      let addr = ''
+      if (n === 0) {
+        const evm = String(a.evm || '')
+        if (/^0x[0-9a-fA-F]{40}$/.test(evm)) addr = evm
+      } else if (n >= 1 && n <= 4 && typeof derive === 'function') {
+        try { addr = derive(a.pubkey, n) || '' } catch (e) { addr = '' }
+      }
+      addr = String(addr || '')
+      if (!addr) continue
+      const key = addr.toLowerCase()
+      if (seen[key]) continue
+      seen[key] = true
+      out.push({ address: addr, label: a.label || a.name || '', file: a.file || a.filename || '' })
+    }
+    return out
+  }
+
+  function addrTitle (t, shard) {
+    const n = Number(shard)
+    if (n === 0) {
+      const evm = lookup(t, 'agentScdoAddrEvm')
+      if (evm) return evm
+    }
+    if (n >= 1 && n <= 4) {
+      let v = ''
+      try { v = t('agentScdoAddrN', { n: n }) } catch (e) { v = '' }
+      if (typeof v === 'string' && v && v !== 'agentScdoAddrN' && v.indexOf('{') < 0) return v
+    }
+    return t('agentScdoAddr')
+  }
+
   function bookShardWord (t, n) {
     if (Number(n) === 0) {
       const v = lookup(t, 'pillShard0')
@@ -468,17 +507,31 @@
       ? '<h3>' + esc(t('agentEntries')) + '</h3><ul class="agent-entries">' + entries.map(e => '<li>' + esc(entryText(e, t)) + '</li>').join('') + '</ul>'
       : ''
     const bookBtn = model.noWallet || model.hideRig ? '' : (model.book ? '<div id="agentBookCtrl">' + agentBookCtrlHtml(t, esc, model.book) + '</div>' : '<button type="button" class="shell-act" id="agentBookBtn" data-act="isleStart">' + esc(t('agentStartBook')) + '</button>')
-    const shard = Number(model.shard) || 0
+    const shard = Number(model.shard)
+    const shardN = shard >= 0 && shard <= 4 ? shard : 0
     const shards = model.canSwitchShard
-      ? '<div class="agent-shards">' + [1, 2, 3, 4].map(function (n) {
-        return '<button type="button" class="agent-shard' + (n === shard ? ' on' : '') + '" data-act="agentShard" data-v="' + n + '">' + esc(shardWord(t, n)) + '</button>'
+      ? '<div class="agent-shards" id="agentAddrShards">' + [0, 1, 2, 3, 4].map(function (n) {
+        return '<button type="button" class="agent-shard' + (n === shardN ? ' on' : '') + '" data-act="agentShard" data-v="' + n + '">' + esc(bookShardWord(t, n)) + '</button>'
       }).join('') + '</div>'
       : ''
     const copy = model.scdoAddress
       ? '<button type="button" class="shell-copy" data-act="copy" data-v="' + esc(model.scdoAddress) + '">' + esc(t('copy')) + '</button>'
       : ''
-    const classic = '<div class="agent-classic"><div class="lbl">' + esc(t('agentScdoAddr')) + '</div>' + shards +
-      '<p class="agent-row"><b class="mono" id="agentScdo">' + esc(addr) + '</b>' + copy + '</p></div>'
+    const addrList = Array.isArray(model.addresses) ? model.addresses.filter(function (a) { return a && a.address }) : []
+    let addrBody
+    if (addrList.length) {
+      const cur = String(model.scdoAddress || '').toLowerCase()
+      const opts = addrList.map(function (a) {
+        const on = String(a.address).toLowerCase() === cur
+        const text = (a.label ? String(a.label) + ' · ' : '') + String(a.address)
+        return '<option value="' + esc(a.address) + '"' + (on ? ' selected' : '') + '>' + esc(text) + '</option>'
+      }).join('')
+      addrBody = '<div class="agent-addr-row"><select class="inp" id="agentScdoPick" data-shard="' + shardN + '">' + opts + '</select>' + copy + '</div>' +
+        '<p class="agent-row"><b class="mono" id="agentScdo">' + esc(addr) + '</b></p>'
+    } else {
+      addrBody = '<p class="agent-row"><b class="mono" id="agentScdo">' + esc(addr) + '</b>' + copy + '</p>'
+    }
+    const classic = model.hideAddr ? '' : '<div class="agent-classic"><div class="lbl" id="agentScdoLbl">' + esc(addrTitle(t, shardN)) + '</div>' + shards + addrBody
     // Base is the only x402 chain this wallet registers (eip155:8453 / USDC on Base).
     const reserve = JOIN.addressRe.test(String(model.x402Reserve || '')) ? String(model.x402Reserve) : ''
     const x402 = reserve
@@ -577,6 +630,7 @@
     fakeRegistration: fakeRegistration,
     fallbackShareUrl: fallbackShareUrl,
     agentBookCtrlHtml: agentBookCtrlHtml,
+    shardAddresses: shardAddresses,
     agentCardHtml: agentCardHtml,
     firstRunHtml: firstRunHtml,
     runStart: runStart,

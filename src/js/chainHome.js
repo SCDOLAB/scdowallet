@@ -202,6 +202,28 @@
     return best
   }
 
+  function homeCardsHtml (cards, esc) {
+    return (cards || []).map(card => {
+      const n = Number(card.n)
+      const list = card.addresses || []
+      const sel = String(card.selected || '')
+      const opts = list.map(a => {
+        const on = String(a.address).toLowerCase() === sel.toLowerCase()
+        const text = (a.label ? String(a.label) + ' · ' : '') + String(a.address)
+        return '<option value="' + esc(a.address) + '"' + (on ? ' selected' : '') + '>' + esc(text) + '</option>'
+      }).join('')
+      const go = sel
+        ? '<div class="home-chain-go"><button type="button" class="link" data-act="recvAddr" data-v="' + esc(sel) + '" data-shard="' + n + '">' + esc(card.recvLabel || '') + '</button><button type="button" class="link" data-act="remitAddr" data-v="' + esc(sel) + '" data-shard="' + n + '">' + esc(card.sendLabel || '') + '</button></div>'
+        : ''
+      const pick = list.length
+        ? '<div class="home-chain-addr"><select class="inp" id="homeAddr-' + n + '" data-shard="' + n + '">' + opts + '</select><button type="button" class="link" data-act="copy" data-v="' + esc(sel) + '">' + esc(card.copyLabel || '') + '</button></div><p class="mono home-chain-full" id="homeAddrShown-' + n + '">' + esc(sel) + '</p>' + go
+        : '<p class="home-chain-empty">' + esc(card.empty || '') + '</p>'
+      const dash = card.dash ? ' class="dash"' : ''
+      const tip = card.balFull ? ' title="' + esc(card.balFull) + '"' : ''
+      return '<article class="home-chain" data-shard="' + n + '"><h2>' + esc(card.title || '') + '</h2><p class="home-chain-bal"><b' + dash + tip + '>' + esc(card.bal || '') + '</b></p><div class="lbl">' + esc(card.addrLabel || '') + '</div>' + pick + '</article>'
+    }).join('')
+  }
+
   function rowsHtml (chains, T, esc) {
     return (chains || []).map(chain => {
       const sum = summarize(chain)
@@ -223,6 +245,7 @@
     pickDefault: pickDefault,
     selectHtml: selectHtml,
     accountMenuHtml: accountMenuHtml,
+    homeCardsHtml: homeCardsHtml,
     rowsHtml: rowsHtml,
     historyHtml: historyHtml,
     txRows: txRows,

@@ -1383,10 +1383,98 @@ function heightTicker (pools) {
   return parts.join(' · ')
 }
 
-function heightCells (pools) {
+function flatSessions (m) {
+  if (!m || typeof m !== 'object') return []
+  const kids = Array.isArray(m.shards) ? m.shards.filter(Boolean) : []
+  return kids.length ? kids.concat([m]) : [m]
+}
+
+// Live bookkeeping or node process for this shard. A stopped session that still
+// carries old heights is not live, so a stale sync percent cannot animate.
+function sessionActive (m) {
+  if (!m || typeof m !== 'object') return false
+  return !!(m.running || processAlive(m) || procsAlive(m))
+}
+
+function sessionsForShard (miners, n) {
+  miners = miners || {}
+  const pool = Number(n) === 0
+    ? flatSessions(miners.shard0)
+    : flatSessions(miners.classicGpu).concat(flatSessions(miners.classicCpu))
+  return pool.filter(m => {
+    if (!sessionActive(m)) return false
+    if (Number(n) === 0) return m.chain !== 'classic'
+    return Number(m.shard) === Number(n)
+  })
+}
+
+function chainTipLive (n, pools, s0) {
+  if (Number(n) === 0) {
+    if (!s0 || s0.ok !== true) return false
+    const h = Number(s0.block)
+    return Number.isFinite(h) && h > 0
+  }
+  const p = pools && (pools[n] || pools[String(n)])
+  return !!(p && p.online === true && p.chain_height != null && p.chain_height !== '')
+}
+
+function chainOffline (n, pools, s0) {
+  if (Number(n) === 0) return !!(s0 && s0.ok === false)
+  const p = pools && (pools[n] || pools[String(n)])
+  return !!(p && p.online === false)
+}
+
+function heightForCell (n, pools, s0) {
+  if (Number(n) === 0) {
+    if (!s0 || s0.ok !== true) return DASH
+    const h = Number(s0.block)
+    return Number.isFinite(h) && h > 0 ? String(h) : DASH
+  }
+  return heightKnown(pools, n)
+}
+
+// run: chain tip is live, or a bookkeeping/node process for this shard is up.
+// sync: that process is still catching up and a percent is known.
+// syncing: catching up without a percent (indeterminate).
+// idle: the height source said it is offline. wait: not read yet.
+// A live sync wins over a pool tip so the bar shows real progress, not a fake loop.
+function heightMode (n, pools, s0, miners) {
+  const live = sessionsForShard(miners, n)
+  for (const m of live) {
+    if (!stillSyncing(m)) continue
+    const pct = syncPctOf(m)
+    if (pct != null && pct > 0 && pct < 100) return { mode: 'sync', pct: pct }
+    return { mode: 'syncing', pct: null }
+  }
+  if (live.length || chainTipLive(n, pools, s0)) return { mode: 'run', pct: null }
+  if (chainOffline(n, pools, s0)) return { mode: 'idle', pct: null }
+  return { mode: 'wait', pct: null }
+}
+
+// Shard0 EVM uses the public chain tip (s0.block / s0.ok). Shard1–4 use pool chain_height.
+function heightCells (pools, ctx) {
+  ctx = ctx || {}
   const cells = []
-  for (const n of [1, 2, 3, 4]) cells.push({ n: n, height: heightKnown(pools, n) })
+  const s0 = ctx.s0 || null
+  const miners = ctx.miners || null
+  for (const n of [0, 1, 2, 3, 4]) {
+    const mode = heightMode(n, pools, s0, miners)
+    cells.push({ n: n, height: heightForCell(n, pools, s0), mode: mode.mode, pct: mode.pct })
+  }
   return cells
+}
+
+function heightChipHtml (cell, label, stateText, esc) {
+  cell = cell || {}
+  esc = esc || function (s) { return String(s == null ? '' : s) }
+  const mode = cell.mode === 'run' || cell.mode === 'sync' || cell.mode === 'syncing' || cell.mode === 'idle' ? cell.mode : 'wait'
+  const height = cell.height == null || cell.height === '' ? DASH : String(cell.height)
+  const bCls = height === DASH ? ' class="dash"' : ''
+  const pctN = Math.max(0, Math.min(100, Math.round(Number(cell.pct) || 0)))
+  const bar = (mode === 'run' || mode === 'sync' || mode === 'syncing')
+    ? '<i class="home-height-bar"' + (mode === 'sync' ? ' style="--pct:' + pctN + '%"' : '') + ' aria-hidden="true"><i></i></i>'
+    : ''
+  return '<div class="home-height-chip ' + mode + '" data-shard="' + esc(String(cell.n)) + '" data-mode="' + mode + '"><span>' + esc(label == null ? '' : label) + '</span><b' + bCls + '>' + esc(height) + '</b>' + bar + '<em class="home-height-state">' + esc(stateText || '') + '</em></div>'
 }
 
 function devicePanel (input, device, picked, other, T, esc, huge) {
@@ -1457,7 +1545,7 @@ function minePageHtml (input, T, esc, extra) {
   </div>`
 }
 
-const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, activeBookShards, reduceMinePhase, planDeviceClick, planHomeBookClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, heightCells, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
+const api = { DASH, REWARD_SCDO, scdoCount, TX_PAGE, tempBand, chainNames, activeBookShards, reduceMinePhase, planDeviceClick, planHomeBookClick, processAlive, deviceProcessAlive, devicePhase, STOP_DEADLINE_MS, START_DEADLINE_MS, jobsForHome, choiceAfterStop, shard0PreflightOk, formatMineHome, cardHtml, stripHtml, minePageHtml, homeLine, heightTicker, heightCells, heightChipHtml, plainStatus, clockText, minutesAgo, earnOf, confirmedEarnLog, chainSupport, sanitizeChainPick, defaultChainPick, selectionAfterStop, jobsForDevice, chooseMinePath, gpuWaitText, nodeSyncOf, syncPctOf, stillSyncing, producingWork, deviceTitle, shuttingDown, shard0NeedsStop, waitReason }
 if (typeof module !== 'undefined' && module.exports) module.exports = api
 if (typeof window !== 'undefined') window.SCDOMineHome = Object.freeze(api)
 })()

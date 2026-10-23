@@ -1,7 +1,7 @@
 // One list for the window menu, the in-app function bar, and AI小貓.
-// Names follow the scdoscan.io home navigation. A wallet screen opens inside the app.
-// Anything the wallet does not do opens that page in the browser.
-// Labels that say GPU or 算力 live here, not in the translation table.
+// Names and destinations follow https://scdo.com.au/config/site-functions.json (2026-10).
+// A wallet screen opens inside the app. Official pages on scdo.com.au open in the in-app panel.
+// Anything on another host opens in the browser. Labels that say GPU or 算力 live here, not in the translation table.
 'use strict'
 ;(function () {
   const ORIGIN = 'https://scdo.com.au'
@@ -15,10 +15,11 @@
 
   const GROUPS = [
     { id: 'home', cn: '首頁', en: 'Home', action: 'home' },
-    { id: 'gpu', cn: 'GPU 共享', en: 'GPU share', href: '/gpu-share/?ref=nav' },
+    { id: 'gpu', cn: 'GPU 共享', en: 'GPU Share', href: '/gpu-share/', action: 'gpu', barSingle: true },
     {
-      id: 'wallets', cn: '錢包', en: 'Wallet', children: [
+      id: 'wallets', cn: '錢包', en: 'Wallets', action: 'wallet', barSingle: true, children: [
         { id: 'wallet', cn: '收款與匯款', en: 'Receive & Send', action: 'wallet', ask: ['收款', '匯款', 'Receive', 'Send'] },
+        { id: 'walletSite', cn: '錢包產品頁', en: 'Wallet product page', href: '/wallets/' },
         { id: 'payInvoice', cn: '支付發票', en: 'Pay invoice', action: 'payInvoice' },
         { id: 'connect', cn: '連接錢包與 Agent', en: 'Connected wallets & agents', action: 'connect', ask: ['連接錢包', 'Connect'] },
         { id: 'settings', cn: '設定', en: 'Settings', action: 'settings' },
@@ -26,25 +27,28 @@
         { id: 'import', cn: '匯入錢包', en: 'Import wallet', action: 'import' }
       ]
     },
-    { id: 'games', cn: '遊戲', en: 'Games', href: '/games/' },
+    { id: 'games', cn: '遊戲', en: 'Games', href: '/games/', action: 'games', barSingle: true },
+    { id: 'treasury', cn: '金庫', en: 'Treasury', href: '/treasury/', action: 'treasury', barSingle: true },
     {
       id: 'chain', cn: '區塊鏈', en: 'Blockchain', children: [
-        { id: 'blocks', cn: '區塊', en: 'Blocks', href: '/#/blocks' },
-        { id: 'txs', cn: '交易', en: 'Transactions', href: '/#/txs' },
-        { id: 'tokens', cn: '代幣', en: 'Tokens', href: '/#/tokens' },
-        { id: 'gas', cn: 'Gas 追蹤', en: 'Gas tracker', href: '/gastracker' }
+        { id: 'explorer', cn: '區塊瀏覽器', en: 'Explorer', href: '/scan/' },
+        { id: 'blocks', cn: '區塊', en: 'Blocks', href: '/scan/#/blocks' },
+        { id: 'txs', cn: '交易', en: 'Transactions', href: '/scan/#/txs' },
+        { id: 'tokens', cn: '代幣', en: 'Tokens', href: '/scan/#/tokens' },
+        { id: 'gas', cn: 'Gas 追蹤', en: 'Gas Tracker', href: '/gastracker' }
       ]
     },
     {
-      id: 'mining', cn: '記帳', en: 'Bookkeeping', children: [
-        { id: 'mine', cn: '記帳', en: 'Bookkeeping', action: 'mineHome' },
-        { id: 'pool', cn: '記帳池', en: 'Bookkeeping pool', href: '/pool/' },
-        { id: 'nodes', cn: '節點', en: 'Nodes', action: 'mineSettings' }
+      id: 'mining', cn: '運算服務', en: 'Compute', children: [
+        { id: 'mine', cn: '運算服務', en: 'Compute', href: '/mine/', action: 'mineHome', ask: ['記帳', 'Bookkeeping'] },
+        { id: 'pool', cn: '算力中心', en: 'Pool', href: '/pool/' },
+        { id: 'nodes', cn: '算力服務分支', en: 'Nodes', href: '/nodes/' },
+        { id: 'localNode', cn: '本機記帳節點', en: 'Bookkeeping node on this computer', action: 'mineSettings' }
       ]
     },
     {
       id: 'prod', cn: '產品', en: 'Products', children: [
-        { id: 'launch', cn: '代幣發行', en: 'Token launch', href: '/launch' },
+        { id: 'launch', cn: '代幣發行', en: 'Launch', href: '/launch' },
         { id: 'enterprise', cn: '企業服務', en: 'Enterprise', href: '/enterprise/' },
         { id: 'membership', cn: '會員', en: 'Membership', href: MEMBERSHIP_URL, withAddress: true, ask: ['開會員', '開通會員'] },
         { id: 'otc', cn: '向 SCDO OTC 購買 SCDO', en: 'Buy SCDO from SCDO OTC', href: OTC_URL, withAddress: true, ask: ['我想買 SCDO'] }
@@ -52,18 +56,19 @@
     },
     {
       id: 'dev', cn: '開發者', en: 'Developers', children: [
-        { id: 'api', cn: 'API', en: 'API', href: '/#/about' },
-        { id: 'verify', cn: '驗證並發布', en: 'Verify and publish', href: '/verify-contract.html' }
+        { id: 'api', cn: 'API', en: 'API', href: '/api-docs.html' },
+        { id: 'verify', cn: '驗證並發布', en: 'Verify & Publish', href: '/verify-contract.html' }
       ]
     },
     {
       id: 'res', cn: '資源', en: 'Resources', children: [
-        { id: 'start', cn: '新手入門', en: 'Getting started', href: '/start.html' },
+        { id: 'start', cn: '新手入門', en: 'Get Started', href: '/start.html' },
         { id: 'blog', cn: '部落格', en: 'Blog', href: '/blog/' },
         { id: 'papers', cn: '論文', en: 'Papers', href: '/papers/' },
+        { id: 'docs', cn: '文檔', en: 'Docs', href: 'https://scdo-laboratory.gitbook.io/scdolab' },
         { id: 'ip', cn: '我的 IP', en: 'My IP', href: '/ip/' },
-        { id: 'bounty', cn: '漏洞賞金', en: 'Bug bounty', href: '/bounty/' },
-        { id: 'agents', cn: '智慧體賬本', en: 'Agent ledger', href: '/agents/' }
+        { id: 'bounty', cn: '漏洞賞金', en: 'Bug Bounty', href: '/games/stakewheel/' },
+        { id: 'agents', cn: '智慧體帳本', en: 'Agents', href: '/agents/' }
       ]
     },
     {
@@ -73,7 +78,7 @@
         { id: 'partners', cn: '合作夥伴', en: 'Partners', href: '/partners' },
         { id: 'transparency', cn: '透明中心', en: 'Transparency', href: '/transparency/' },
         { id: 'compliance', cn: '合規', en: 'Compliance', href: '/compliance.html' },
-        { id: 'investors', cn: '投資者關係', en: 'Investors', href: '/investors/' }
+        { id: 'investors', cn: '投資者關係', en: 'Investor Relations', href: '/investors/' }
       ]
     }
   ]
